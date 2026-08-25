@@ -6,15 +6,15 @@ namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Iterator that selects backend hosts in randomized order.
-/// Pre-generates a shuffled order for each pass to ensure all hosts are visited.
+/// Pre-generates a shuffled order for each lap to ensure all hosts are visited.
 /// </summary>
 public class RandomHostIterator : HostIterator
 {
     private List<int> _hostIndices;
     private int _currentIndex;
 
-    public RandomHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
-        : base(hosts, mode, maxAttempts)
+    public RandomHostIterator(List<BaseHostHealth> hosts)
+        : base(hosts)
     {
         _hostIndices = Enumerable.Range(0, _hosts.Count).ToList();
         ShuffleList(_hostIndices);
@@ -29,25 +29,16 @@ public class RandomHostIterator : HostIterator
     /// <summary>
     /// Moves to the next host in the randomized order.
     /// </summary>
-    protected override bool MoveToNextHost()
+    public override bool MoveNext()
     {
         _currentIndex++;
         return _currentIndex < _hostIndices.Count;
     }
 
     /// <summary>
-    /// Called when starting a new pass - re-shuffle the host order.
+    /// Resets the iterator to start a fresh lap, re-shuffling the host order.
     /// </summary>
-    protected override void OnNewPassStarted()
-    {
-        _currentIndex = -1; // Will be incremented on next MoveToNextHost call
-        ShuffleList(_hostIndices); // Re-shuffle for the new pass
-    }
-
-    /// <summary>
-    /// Resets the iterator to its initial state.
-    /// </summary>
-    protected override void ResetToInitialState()
+    public override void Reset()
     {
         _currentIndex = -1;
         ShuffleList(_hostIndices);
@@ -66,15 +57,5 @@ public class RandomHostIterator : HostIterator
             int j = rng.Next(i + 1);
             (list[i], list[j]) = (list[j], list[i]);
         }
-    }
-
-    /// <summary>
-    /// Records the result of a request to a host.
-    /// Random selection doesn't need result tracking.
-    /// </summary>
-    public override void RecordResult(BaseHostHealth host, bool success)
-    {
-        base.RecordResult(host, success);
-        // Random selection doesn't need additional result tracking
     }
 }

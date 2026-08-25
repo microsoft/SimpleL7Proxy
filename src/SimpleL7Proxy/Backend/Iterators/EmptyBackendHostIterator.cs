@@ -20,21 +20,6 @@ public class EmptyBackendHostIterator : IHostIterator
     object System.Collections.IEnumerator.Current => Current;
 
     /// <summary>
-    /// Indicates whether there are more hosts. Always returns false.
-    /// </summary>
-    public bool HasMoreHosts => false;
-
-    /// <summary>
-    /// Gets the maximum number of attempts. Always returns 0 since there are no hosts.
-    /// </summary>
-    public int MaxAttempts => 0;
-
-    /// <summary>
-    /// Gets the iteration mode. Returns SinglePass by default.
-    /// </summary>
-    public IterationModeEnum Mode => IterationModeEnum.SinglePass;
-
-    /// <summary>
     /// Gets the total number of hosts. Always returns 0 since there are no hosts.
     /// </summary>
     public int HostCount => 0;

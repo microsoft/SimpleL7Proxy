@@ -5,54 +5,29 @@ using System.Collections.Generic;
 namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
-/// Abstract base class for backend host iterators providing common functionality
-/// for iteration mode handling, pass tracking, and basic state management.
+/// Abstract base class for backend host ordering strategies (RoundRobin, Latency,
+/// TimeToFirstByte, PriorityGroup, Random, FixedOrder). Each subclass defines a single
+/// lap's traversal order; <see cref="NextHost"/> owns how many laps to run (SinglePass
+/// vs MultiPass, MaxAttempts) and calls <see cref="Reset"/> to start a new lap.
 /// </summary>
 public abstract class HostIterator : IHostIterator
 {
     protected readonly List<BaseHostHealth> _hosts;
-    protected readonly IterationModeEnum _mode;
-    protected readonly int _maxAttempts;
-    
-    protected int _currentLoop;
-    protected int _totalAttempts; // Track actual backend attempts across all passes
-    protected bool _hasCompletedAllPasses;
 
-    protected HostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+    protected HostIterator(List<BaseHostHealth> hosts)
     {
         _hosts = hosts ?? throw new ArgumentNullException(nameof(hosts));
-        _mode = mode;
-        _maxAttempts = maxAttempts;
-        _currentLoop = 1;
-        _totalAttempts = 0;
-        _hasCompletedAllPasses = false;
     }
 
     /// <summary>
     /// Gets the current host. Must be implemented by derived classes.
     /// </summary>
     public abstract BaseHostHealth Current { get; }
-    
+
     /// <summary>
     /// Gets the current host as object for IEnumerator interface.
     /// </summary>
     object IEnumerator.Current => Current;
-    
-    /// <summary>
-    /// Indicates whether there are more hosts to iterate through.
-    /// </summary>
-    public bool HasMoreHosts => !_hasCompletedAllPasses;
-    
-    /// <summary>
-    /// Gets the maximum number of attempts configured for this iterator.
-    /// A value of 0 disables the attempt limit.
-    /// </summary>
-    public int MaxAttempts => _maxAttempts;
-    
-    /// <summary>
-    /// Gets the iteration mode for this iterator.
-    /// </summary>
-    public IterationModeEnum Mode => _mode;
 
     /// <summary>
     /// Gets the total number of hosts in this iterator.
@@ -61,75 +36,10 @@ public abstract class HostIterator : IHostIterator
     public IReadOnlyList<BaseHostHealth> Hosts => _hosts;
 
     /// <summary>
-    /// Moves to the next host. Handles common pass completion logic.
+    /// Moves to the next host in this lap's order. Returns false once every host in
+    /// this lap has been visited; derived classes implement the specific ordering.
     /// </summary>
-    public bool MoveNext()
-    {
-        if (_hosts.Count == 0 || _hasCompletedAllPasses)
-            return false;
-
-        // In MultiPass mode, check if we've reached max attempts before trying next host
-        if (_mode == IterationModeEnum.MultiPass &&
-            _maxAttempts > 0 &&
-            _totalAttempts >= _maxAttempts)
-        {
-            _hasCompletedAllPasses = true;
-            return false;
-        }
-
-        bool hasNext = MoveToNextHost();
-        
-        if (!hasNext)
-        {
-            // Completed iteration through all hosts
-            return HandlePassCompletion();
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Abstract method that derived classes must implement to move to the next host.
-    /// Should return false when all hosts in the current pass have been visited.
-    /// </summary>
-    protected abstract bool MoveToNextHost();
-
-    /// <summary>
-    /// Handles the completion of a pass through all hosts.
-    /// Returns true if there are more passes to do, false if iteration should stop.
-    /// </summary>
-    protected virtual bool HandlePassCompletion()
-    {
-        switch (_mode)
-        {
-            case IterationModeEnum.SinglePass:
-                _hasCompletedAllPasses = true;
-                return false;
-
-            case IterationModeEnum.MultiPass:
-                if (_maxAttempts > 0 && _currentLoop >= _maxAttempts)
-                {
-                    _hasCompletedAllPasses = true;
-                    return false;
-                }
-                _currentLoop++;
-                OnNewPassStarted();
-                return MoveToNextHost(); // Start the new pass
-                
-            default:
-                _hasCompletedAllPasses = true;
-                return false;
-        }
-    }
-
-    /// <summary>
-    /// Called when a new pass is started in MultiPass mode.
-    /// Derived classes can override this to perform pass-specific initialization.
-    /// </summary>
-    protected virtual void OnNewPassStarted()
-    {
-        // Default implementation does nothing
-    }
+    public abstract bool MoveNext();
 
     /// <summary>
     /// Records an actual request attempt after the host passes pre-send checks.
@@ -137,25 +47,14 @@ public abstract class HostIterator : IHostIterator
     /// </summary>
     public virtual void RecordResult(BaseHostHealth host, bool success)
     {
-        if (_mode == IterationModeEnum.MultiPass)
-            _totalAttempts++;
+        // Default implementation does nothing; pass/attempt accounting lives in NextHost.
     }
 
     /// <summary>
-    /// Resets the iterator to its initial state.
+    /// Resets the iterator to start a fresh lap (re-shuffle/re-rotate/re-sort as needed
+    /// for the specific ordering strategy).
     /// </summary>
-    public virtual void Reset()
-    {
-        _currentLoop = 1;
-        _totalAttempts = 0;
-        _hasCompletedAllPasses = false;
-        ResetToInitialState();
-    }
-
-    /// <summary>
-    /// Abstract method for derived classes to reset their specific state.
-    /// </summary>
-    protected abstract void ResetToInitialState();
+    public abstract void Reset();
 
     /// <summary>
     /// Disposes the iterator. Default implementation does nothing.

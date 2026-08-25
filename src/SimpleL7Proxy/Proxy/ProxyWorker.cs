@@ -876,23 +876,24 @@ public class ProxyWorker : IConfigChangeSubscriber
         List<S7PRequeueException> retryAfter = new();
 
         var originalPath = request.Path;
-        var (hostIterator, sharedIterator, modifiedPath) = CreateHostIterator(request);
+        var (hostIterator, sharedIterator, modifiedPath, effectiveMaxAttempts) = CreateHostIterator(request);
 
-        // create next host processor
-        var nextHost = new NextHost(hostIterator, sharedIterator, _backends, _options.LoadBalanceMode, originalPath);
-
-        request.Path = modifiedPath;
+        // create next host processor — NextHost owns pass/repeat control (SinglePass vs
+        // MultiPass, MaxAttempts) and circuit-breaker skip/all-open handling; the iterator
+        // itself only orders hosts for one lap. Seeded with LifetimeBackendAttempts so
+        // MaxAttempts is a true ceiling across requeue cycles, not just the current one.
+        var nextHost = new NextHost(hostIterator, sharedIterator, _backends, _options.LoadBalanceMode, originalPath, request.IterationMode, effectiveMaxAttempts, _logger, request.LifetimeBackendAttempts);
 
         // Use the host count from the already-created iterator (avoids redundant GetActiveHosts call
         // and fixes a bug where the old code compared stripped path against configured PartialPath)
         var matchingHostCount = nextHost.HostCount;
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}",
-            request.Guid, matchingHostCount, request.Path);
+            request.Guid, matchingHostCount, modifiedPath);
 
         if (matchingHostCount == 0)
         {
             _logger.LogWarning("[ProxyToBackEnd:{Guid}] ⚠ NO BACKEND HOSTS matched path {Path} - Request will fail",
-                request.Guid, request.Path);
+                request.Guid, modifiedPath);
             
             // Log all available hosts and their paths for debugging
             var activeHosts = _backends.GetActiveHosts();
@@ -908,60 +909,10 @@ public class ProxyWorker : IConfigChangeSubscriber
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
-        bool loop_once = request.IterationMode == IterationModeEnum.SinglePass;
-        bool loop_for_max_attempts = request.IterationMode == IterationModeEnum.MultiPass;
-
-        // For shared iterators, compute the max attempts for this request so the
-        // circular iterator doesn't spin forever.  Per-request iterators already
-        // track their own limits internally, so we use int.MaxValue for them.
-        int maxSharedAttempts = int.MaxValue;
-        if (sharedIterator != null)
-        {
-            if (loop_once)
-                maxSharedAttempts = matchingHostCount;              // SinglePass: try each host once
-            else if (loop_for_max_attempts && _options.MaxAttempts > 0)
-                maxSharedAttempts = _options.MaxAttempts;           // MultiPass: use configured max
-            // else: no attempt-count limit
-        }
-
         BaseHostHealth? host;
-        while (request.BackendAttempts < maxSharedAttempts && nextHost.TryGet(out host) && host != null)
+        while (nextHost.TryGet(out host) && host != null)
         {
             DateTime proxyStartDate = DateTime.UtcNow;
-
-            // Check circuit breaker before sending request 
-            int timeToRetry = host.Config.GetMsToNextRetry();
-            if (timeToRetry > 0)
-            {
-                if (request.Debug) {
-                    _logger.LogWarning("[ProxyToBackEnd:{Guid}] ⚠ Circuit breaker host: {Host} - retrying after {TimeToRetry}ms",
-                        request.Guid, host.Host, timeToRetry);
-                }
-
-                // Evaluates other matching hosts and reports whether all are blocked and the shortest retry delay.
-                var (allCircuitBreakersOpen, retryAfterMs, checkedHostCount) = nextHost.EvalHostAvailability(host, timeToRetry);
-
-                if (allCircuitBreakersOpen)
-                {
-                    if (loop_once)
-                    {
-                        _logger.LogWarning(
-                            "[ProxyToBackEnd:{Guid}] All {HostCount} matching backend circuit breakers are open; SinglePass will return the terminal backend result",
-                            request.Guid, checkedHostCount);
-                        break;
-                    }
-
-                    _logger.LogWarning(
-                        "[ProxyToBackEnd:{Guid}] All {HostCount} matching backend circuit breakers are open; requeueing after {RetryAfterMs}ms",
-                        request.Guid, checkedHostCount, retryAfterMs);
-                    throw new S7PRequeueException(
-                        "All matching backend circuit breakers are open",
-                        new ProxyData(),
-                        retryAfterMs);
-                }
-
-                continue;
-            }
 
             // track the number of attempts
             request.BackendAttempts++;
@@ -1006,7 +957,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Timeout = (int)(minDate - DateTime.UtcNow).TotalMilliseconds;
 
                 request.Headers.Set("Host", host.Hostname);
-                request.FullURL = host.Config.BuildDestinationUrl(request.Path);
+                request.FullURL = host.Config.BuildDestinationUrl(modifiedPath);
 
                 requestState = "Cache Body";
 
@@ -1428,14 +1379,18 @@ public class ProxyWorker : IConfigChangeSubscriber
                 requestAttempt.Duration = DateTime.UtcNow - proxyStartDate;
                 requestAttempt.SendEvent();  // Log the dependent request attempt
                 
-                // Record result for iterator (shared or per-request)
-                if (sharedIterator != null)
-                    sharedIterator.RecordResult(host, SuccessfulRequest);
-                else
-                    hostIterator?.RecordResult(host, SuccessfulRequest);
+                // Record result for the iterator (shared or per-request) and for NextHost's
+                // own attempt count, which enforces MaxAttempts / the shared circular cap.
+                nextHost.RecordResult(host, SuccessfulRequest);
 
-                // Track host status for circuit breaker
-                if (intCode != 412 && intCode != 429 && !_isEvictingAsyncRequest)
+                // Track host status for circuit breaker. 429 is normally excluded (a rate-limited
+                // backend behind APIM isn't necessarily unhealthy), but a direct-mode host returning
+                // 429 with a Retry-After header IS specifically that host telling us to back off it.
+                var isDirectModeRateLimit = intCode == 429 && host.Config.DirectMode &&
+                    responseHeaders != null &&
+                    (responseHeaders.Contains("Retry-After") || responseHeaders.Contains("Retry-After-Ms"));
+
+                if (!_isEvictingAsyncRequest && intCode != 412 && (intCode != 429 || isDirectModeRateLimit))
                     host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.LifetimeBackendAttempts, responseHeaders);
 
                 if (!SuccessfulRequest)
@@ -1457,10 +1412,14 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         // If we get here, then no hosts were able to handle the request
 
+        // A route-level maxattempts= (if any) was already resolved into nextHost's configured value.
+        // Uses LifetimeBackendAttempts (not the per-cycle BackendAttempts, which the requeue worker
+        // resets to 0) so MaxAttempts is a true ceiling across requeue cycles.
+        var effectiveMaxAttemptsForError = nextHost.ConfiguredMaxAttempts;
         var maxAttemptsReached = !ttlExpired &&
             request.IterationMode == IterationModeEnum.MultiPass &&
-            _options.MaxAttempts > 0 &&
-            request.BackendAttempts >= _options.MaxAttempts;
+            effectiveMaxAttemptsForError > 0 &&
+            request.LifetimeBackendAttempts >= effectiveMaxAttemptsForError;
 
         if (!maxAttemptsReached && retryAfter.Count > 0)
         {
@@ -1482,7 +1441,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         if (maxAttemptsReached)
         {
             lastStatusCode = HttpStatusCode.PreconditionFailed;
-            errorDetail = $"Maximum backend attempts reached ({_options.MaxAttempts}).";
+            errorDetail = $"Maximum backend attempts reached ({effectiveMaxAttemptsForError}).";
         }
         else
         {
@@ -1652,16 +1611,19 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// <summary>
     /// Creates a host iterator for routing requests to backend hosts.
     /// Uses shared iterators (fair distribution across concurrent requests) or per-request iterators
-    /// based on configuration.
+    /// based on configuration. The iterator itself only orders hosts for one lap — pass/repeat
+    /// control (SinglePass vs MultiPass, MaxAttempts) is resolved here and applied by NextHost.
     /// </summary>
-    /// <returns>A tuple of (per-request iterator, shared iterator, modified path). Exactly one iterator will be non-null.</returns>
-    private (IHostIterator? hostIterator, ISharedHostIterator? sharedIterator, string modifiedPath) CreateHostIterator(RequestData request)
+    /// <returns>A tuple of (per-request iterator, shared iterator, modified path, effective MaxAttempts). Exactly one iterator will be non-null.</returns>
+    private (IHostIterator? hostIterator, ISharedHostIterator? sharedIterator, string modifiedPath, int maxAttempts) CreateHostIterator(RequestData request)
     {
         string modifiedPath = "";
         IHostIterator? hostIterator = null;
         ISharedHostIterator? sharedIterator = null;
+        int maxAttempts = _options.MaxAttempts;
 
-        var usesPriorityRouting = _backends.MatchRoute(request.Path) != null ||
+        var routeMatch = _backends.MatchRoute(request.Path);
+        var usesPriorityRouting = routeMatch != null ||
             _backends.GetHosts().Any(host =>
                 host.Config.PriorityGroup != 1 || host.Config.AcceptablePriorities.Count > 0);
 
@@ -1689,36 +1651,35 @@ public class ProxyWorker : IConfigChangeSubscriber
                 "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
                 request.Guid, request.Path, sharedIterator.HostCount);
         }
+        else if (routeMatch != null)
+        {
+            // Named Path_* route matched — honor its configured host list and order directly,
+            // regardless of LoadBalanceMode (the route's "hosts=" order is the explicit intent).
+            var candidateHosts = routeMatch.Value.Route.GetCandidateHosts(request.Priority);
+            modifiedPath = routeMatch.Value.ModifiedPath;
+
+            // A route-level maxattempts= overrides the global MaxAttempts option when set.
+            maxAttempts = routeMatch.Value.Route.MaxAttempts ?? _options.MaxAttempts;
+
+            hostIterator = IteratorFactory.CreateFixedOrderIterator(candidateHosts);
+
+            _logger.LogDebug(
+                "[ProxyToBackEnd:{Guid}] Using named route '{RouteName}' for path '{Path}' with {HostCount} hosts (MaxAttempts={MaxAttempts})",
+                request.Guid, routeMatch.Value.Route.Name, request.Path, hostIterator.HostCount, maxAttempts);
+        }
         else
         {
-            // Use per-request iterator (original behavior)
-            hostIterator = request.IterationMode switch
-            {
-                IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    request.Path,
-                    request.Priority,
-                    out modifiedPath),
-
-                IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    _options.MaxAttempts,
-                    request.Path,
-                    request.Priority,
-                    out modifiedPath),
-
-                _ => IteratorFactory.CreateSinglePassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    request.Path,
-                    request.Priority,
-                    out modifiedPath)
-            };
+            // Use per-request iterator (original behavior). The ordering iterator no longer
+            // cares about SinglePass vs MultiPass — NextHost owns that.
+            hostIterator = IteratorFactory.CreateSinglePassIterator(
+                _backends,
+                _options.LoadBalanceMode,
+                request.Path,
+                request.Priority,
+                out modifiedPath);
         }
 
-        return (hostIterator, sharedIterator, modifiedPath);
+        return (hostIterator, sharedIterator, modifiedPath, maxAttempts);
     }
 
     /// <summary>

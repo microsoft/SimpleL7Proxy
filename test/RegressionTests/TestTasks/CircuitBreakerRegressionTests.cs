@@ -340,13 +340,15 @@ internal sealed class HostFixture : IDisposable
 
     internal NextHost CreateNextHost()
     {
-        var iterator = new RoundRobinHostIterator(_hosts, IterationModeEnum.SinglePass, maxAttempts: 1);
+        var iterator = new RoundRobinHostIterator(_hosts);
         return new NextHost(
             iterator,
             sharedIterator: null,
             new StubEndpointMonitor(_hosts),
             Constants.RoundRobin,
-            requestPath: "/");
+            requestPath: "/",
+            IterationModeEnum.SinglePass,
+            maxAttempts: 1);
     }
 
     public void Dispose()
@@ -401,13 +403,15 @@ internal sealed class RealCircuitBreakerHostFixture : IDisposable
 
     internal NextHost CreateNextHost()
     {
-        var iterator = new RoundRobinHostIterator(_hosts, IterationModeEnum.SinglePass, maxAttempts: 1);
+        var iterator = new RoundRobinHostIterator(_hosts);
         return new NextHost(
             iterator,
             sharedIterator: null,
             new StubEndpointMonitor(_hosts),
             Constants.RoundRobin,
-            requestPath: "/");
+            requestPath: "/",
+            IterationModeEnum.SinglePass,
+            maxAttempts: 1);
     }
 
     public void Dispose()

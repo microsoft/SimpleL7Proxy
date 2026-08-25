@@ -11,10 +11,8 @@ public sealed class PriorityGroupHostIterator : HostIterator
 
     public PriorityGroupHostIterator(
         List<BaseHostHealth> hosts,
-        string loadBalanceMode,
-        IterationModeEnum mode,
-        int maxAttempts)
-        : base(hosts, mode, maxAttempts)
+        string loadBalanceMode)
+        : base(hosts)
     {
         _loadBalanceMode = loadBalanceMode;
         OrderHosts();
@@ -23,19 +21,16 @@ public sealed class PriorityGroupHostIterator : HostIterator
 
     public override BaseHostHealth Current => _hosts[_currentHostIndex];
 
-    protected override bool MoveToNextHost()
+    public override bool MoveNext()
     {
         _currentHostIndex++;
         return _currentHostIndex < _hosts.Count;
     }
 
-    protected override void OnNewPassStarted()
-    {
-        OrderHosts();
-        _currentHostIndex = -1;
-    }
-
-    protected override void ResetToInitialState()
+    /// <summary>
+    /// Resets the iterator to start a fresh lap, re-ordering groups/hosts as appropriate.
+    /// </summary>
+    public override void Reset()
     {
         OrderHosts();
         _currentHostIndex = -1;

@@ -43,9 +43,4 @@ public interface ISharedHostIterator
     /// Gets the number of hosts in this iterator.
     /// </summary>
     int HostCount { get; }
-
-    /// <summary>
-    /// Gets the iteration mode for this iterator.
-    /// </summary>
-    IterationModeEnum Mode { get; }
 }

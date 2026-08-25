@@ -18,6 +18,10 @@ import glob
 
 httpd = None  # Declare httpd as a global variable
 
+# Paths excluded from request counting, fail-first, and rate-limit tracking —
+# includes the default APIM probe path so health polling doesn't consume test state.
+_EXCLUDED_TRACKING_PATHS = ('/health', '/status-0123456789abcdef', '/echo/resource')
+
 # Cache: filename -> tuple of pre-encoded HTTP chunks, one per input line
 _file_cache = {}
 # Cache: filename -> full response body bytes without HTTP chunk framing
@@ -126,6 +130,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
     _rate_limit_lock = threading.Lock()
     _rate_limit_window_start = 0.0
     _rate_limit_request_count = 0
+    _fail_first_n = 0
+    _fail_first_status = 429
+    _fail_first_lock = threading.Lock()
+    _fail_first_count = 0
     _retry_after_once_lock = threading.Lock()
     _retry_after_once_keys = set()
     _request_count_lock = threading.Lock()
@@ -168,11 +176,31 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.send_fixed_response(200, body, content_type="application/json")
             return
 
-        if parsed_path.path not in ('/health', '/status-0123456789abcdef'):
+        if parsed_path.path not in _EXCLUDED_TRACKING_PATHS:
             with MyHandler._request_count_lock:
                 MyHandler._request_counts[parsed_path.path] = MyHandler._request_counts.get(parsed_path.path, 0) + 1
 
-        if parsed_path.path not in ('/health', '/status-0123456789abcdef') and MyHandler._rate_limit > 0:
+        # Forces this process's first N non-health requests to fail, regardless of path,
+        # so one backend can simulate an unhealthy host while a second one stays healthy.
+        if parsed_path.path not in _EXCLUDED_TRACKING_PATHS and MyHandler._fail_first_n > 0:
+            with MyHandler._fail_first_lock:
+                should_fail = MyHandler._fail_first_count < MyHandler._fail_first_n
+                if should_fail:
+                    MyHandler._fail_first_count += 1
+
+            if should_fail:
+                self.close_connection = True
+                # S7PREQUEUE=true is required for the proxy to sleep+requeue on 429 exhaustion.
+                extra_headers = {"Retry-After-Ms": "1000", "Connection": "close"}
+                if MyHandler._fail_first_status == 429:
+                    extra_headers["S7PREQUEUE"] = "true"
+                self.send_fixed_response(
+                    MyHandler._fail_first_status,
+                    b"Forced failure (NULL_SERVER_FAIL_FIRST_N)",
+                    extra_headers=extra_headers)
+                return
+
+        if parsed_path.path not in _EXCLUDED_TRACKING_PATHS and MyHandler._rate_limit > 0:
             retry_after_seconds = None
             retry_after_ms = None
 
@@ -514,6 +542,24 @@ class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
         MyHandler._rate_limit = rate_limit
         MyHandler._rate_limit_window_start = time.monotonic()
         MyHandler._rate_limit_request_count = 0
+
+        fail_first_n_value = os.environ.get('NULL_SERVER_FAIL_FIRST_N', '0')
+        try:
+            fail_first_n = int(fail_first_n_value)
+        except ValueError as exc:
+            raise ValueError("NULL_SERVER_FAIL_FIRST_N must be a non-negative integer") from exc
+        if fail_first_n < 0:
+            raise ValueError("NULL_SERVER_FAIL_FIRST_N must be a non-negative integer")
+
+        fail_first_status_value = os.environ.get('NULL_SERVER_FAIL_FIRST_STATUS', '429')
+        try:
+            fail_first_status = int(fail_first_status_value)
+        except ValueError as exc:
+            raise ValueError("NULL_SERVER_FAIL_FIRST_STATUS must be an integer") from exc
+
+        MyHandler._fail_first_n = fail_first_n
+        MyHandler._fail_first_status = fail_first_status
+        MyHandler._fail_first_count = 0
 
         self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         super().server_bind()

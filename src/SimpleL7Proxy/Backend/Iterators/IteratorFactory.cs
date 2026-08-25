@@ -19,13 +19,13 @@ public static class IteratorFactory
     private static readonly ThreadLocal<Random> _threadRandom = new(() => new Random(Guid.NewGuid().GetHashCode()));
 
     /// <summary>
-    /// Creates an iterator that tries each host once in a single pass.
-    /// Best for scenarios where you want to try all backends once and fail fast.
+    /// Creates a host-ordering iterator for the given load balance mode and path.
+    /// Pass/repeat control (SinglePass vs MultiPass, MaxAttempts) is owned by NextHost,
+    /// not the iterator, so the same iterator works for either mode.
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>
-    /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
+    /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", "timetofirstbyte", "prioritygroup", or "random"</param>
     /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
-    /// <returns>An iterator configured for single-pass iteration</returns>
     public static IHostIterator CreateSinglePassIterator(
         IEndpointMonitorService backendService,
         string loadBalanceMode,
@@ -35,6 +35,9 @@ public static class IteratorFactory
         return CreateSinglePassIterator(backendService, loadBalanceMode, requestPath, Constants.AnyPriority, out modifiedPath);
     }
 
+    /// <summary>
+    /// Creates a host-ordering iterator restricted to hosts that accept the given request priority.
+    /// </summary>
     public static IHostIterator CreateSinglePassIterator(
         IEndpointMonitorService backendService,
         string loadBalanceMode,
@@ -42,75 +45,10 @@ public static class IteratorFactory
         int requestPriority,
         out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, requestPath, requestPriority, out modifiedPath);
-    }
-
-    /// <summary>
-    /// Creates an iterator that retries across hosts in multiple passes.
-    /// maxAttempts limits total attempts; set it to 0 to disable that limit.
-    /// Best for high-availability scenarios where you want to retry aggressively.
-    /// </summary>
-    /// <param name="backendService">The backend service to get active hosts from</param>
-    /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
-    /// <param name="maxAttempts">Maximum total number of host attempts across all passes. Set to 0 to disable the attempt-count limit.</param>
-    /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
-    /// <returns>An iterator configured for multi-pass iteration</returns>
-    public static IHostIterator CreateMultiPassIterator(
-        IEndpointMonitorService backendService,
-        string loadBalanceMode,
-        int maxAttempts,
-        string requestPath,
-        out string modifiedPath)
-    {
-        return CreateMultiPassIterator(backendService, loadBalanceMode, maxAttempts, requestPath, Constants.AnyPriority, out modifiedPath);
-    }
-
-    public static IHostIterator CreateMultiPassIterator(
-        IEndpointMonitorService backendService,
-        string loadBalanceMode,
-        int maxAttempts,
-        string requestPath,
-        int requestPriority,
-        out string modifiedPath)
-    {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, requestPath, requestPriority, out modifiedPath);
-    }
-
-    /// <summary>
-    /// Internal method to create a thread-safe iterator for the specified load balance mode.
-    /// This method is optimized for high concurrency with hundreds of proxy workers.
-    /// Filters hosts based on the request path.
-    /// </summary>
-    private static IHostIterator CreateIteratorInternal(
-        IEndpointMonitorService backendService,
-        string loadBalanceMode,
-        IterationModeEnum mode,
-        int maxAttempts,
-        string requestPath,
-        int requestPriority,
-        out string modifiedPath)
-    {
-        var routeMatch = backendService.MatchRoute(requestPath);
-        if (routeMatch != null)
-        {
-            modifiedPath = routeMatch.Value.ModifiedPath;
-            var activeHashes = backendService.GetActiveHosts()
-                .Select(host => host.Config.FrozenHash)
-                .Where(hash => hash != null)
-                .ToHashSet(StringComparer.Ordinal);
-            var routeHosts = routeMatch.Value.Route
-                .GetCandidateHosts(requestPriority)
-                .Where(host => !host.Config.IsSpinningDown &&
-                    (host.Config.DirectMode ||
-                     (host.Config.FrozenHash != null && activeHashes.Contains(host.Config.FrozenHash))))
-                .ToList();
-            return CreateIterator(routeHosts, loadBalanceMode, mode, maxAttempts);
-        }
-
         // Get pre-categorized hosts from backend service
         var specificHosts = backendService.GetSpecificPathHosts();
-        var catchAllHosts = backendService.GetCatchAllHosts();    
-        
+        var catchAllHosts = backendService.GetCatchAllHosts();
+
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
             modifiedPath = requestPath; // No modification
@@ -118,40 +56,40 @@ public static class IteratorFactory
         }
 
         // requestPath is already normalized by server.cs
-        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath, requestPriority);
+        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
         modifiedPath = mp;
+
+        if (requestPriority != Constants.AnyPriority)
+        {
+            filteredHosts = filteredHosts.Where(host => host.Config.AcceptsPriority(requestPriority)).ToList();
+        }
 
         if (filteredHosts.Count == 0)
         {
             return new EmptyBackendHostIterator();
         }
 
-        // TODO: Store or use modifiedPath - it needs to be passed to the iterator or stored somewhere
-        // For now, you'll need to decide where to use the modifiedPath
-
-        return CreateIterator(filteredHosts, loadBalanceMode, mode, maxAttempts);
-    }
-
-    private static IHostIterator CreateIterator(
-        List<BaseHostHealth> hosts,
-        string loadBalanceMode,
-        IterationModeEnum mode,
-        int maxAttempts)
-    {
-        if (hosts.Count == 0)
-            return new EmptyBackendHostIterator();
-
-        if (hosts.Select(host => host.Config.PriorityGroup).Distinct().Skip(1).Any())
-            return new PriorityGroupHostIterator(hosts, loadBalanceMode, mode, maxAttempts);
-
         return loadBalanceMode switch
         {
-            Constants.RoundRobin => new RoundRobinHostIterator(hosts, mode, maxAttempts),
-            Constants.Latency => new LatencyBasedHostIterator(hosts, mode, maxAttempts),
-            Constants.TimeToFirstByte => new TimeToFirstByteHostIterator(hosts, mode, maxAttempts),
-            Constants.Random => new RandomHostIterator(hosts, mode, maxAttempts),
-            _ => new RandomHostIterator(hosts, mode, maxAttempts)
+            Constants.RoundRobin => new RoundRobinHostIterator(filteredHosts),
+            Constants.Latency => new LatencyBasedHostIterator(filteredHosts),
+            Constants.TimeToFirstByte => new TimeToFirstByteHostIterator(filteredHosts),
+            Constants.PriorityGroup => new PriorityGroupHostIterator(filteredHosts, loadBalanceMode),
+            Constants.Random => new RandomHostIterator(filteredHosts),
+            _ => new RandomHostIterator(filteredHosts)
         };
+    }
+
+    /// <summary>
+    /// Creates an iterator that visits an explicit host list strictly in the given order.
+    /// Used by named Path_* routes, whose "hosts=" order is the explicit failover sequence —
+    /// unlike the other iterators, this never reorders or rotates the supplied hosts.
+    /// </summary>
+    public static IHostIterator CreateFixedOrderIterator(List<BaseHostHealth> hosts)
+    {
+        return hosts.Count == 0
+            ? new EmptyBackendHostIterator()
+            : new FixedOrderHostIterator(hosts);
     }
 
     /// <summary>
@@ -161,8 +99,7 @@ public static class IteratorFactory
     private static (List<BaseHostHealth> hosts, string modifiedPath) FilterHostsByPath(
         List<BaseHostHealth> specificHosts, 
         List<BaseHostHealth> catchAllHosts, 
-        string requestPath,
-        int requestPriority = Constants.AnyPriority)
+        string requestPath)
     {
         // Evaluate all matches once, excluding hosts marked for spin-down
         var matchedHosts = specificHosts
@@ -174,19 +111,11 @@ public static class IteratorFactory
         if (matchedHosts.Count > 0)
         {
             // Use the stripped path from the first match (all should strip the same way)
-            return (
-                matchedHosts
-                    .Where(x => requestPriority == Constants.AnyPriority || x.host.Config.AcceptsPriority(requestPriority))
-                    .Select(x => x.host)
-                    .ToList(),
-                matchedHosts[0].result.StrippedPath);
+            return (matchedHosts.Select(x => x.host).ToList(), matchedHosts[0].result.StrippedPath);
         }
         
         // No specific match - return catch-all hosts, excluding spinning-down ones
-        var activeCatchAll = catchAllHosts
-            .Where(host => !host.Config.IsSpinningDown &&
-                (requestPriority == Constants.AnyPriority || host.Config.AcceptsPriority(requestPriority)))
-            .ToList();
+        var activeCatchAll = catchAllHosts.Where(h => !h.Config.IsSpinningDown).ToList();
         return (activeCatchAll, requestPath);
     }
 
@@ -277,7 +206,7 @@ public static class IteratorFactory
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
             modifiedPath = requestPath;
-            return new SharedHostIterator(new List<BaseHostHealth>(), requestPath, requestPath, IterationModeEnum.SinglePass);
+            return new SharedHostIterator(new List<BaseHostHealth>(), requestPath, requestPath);
         }
 
         // requestPath is already normalized by server.cs
@@ -289,11 +218,16 @@ public static class IteratorFactory
         {
             Constants.Latency => filteredHosts.OrderBy(h => h.AverageLatencyMs).ToList(),
             Constants.TimeToFirstByte => filteredHosts.OrderBy(h => h.TimeToFirstByteMs).ToList(),
+            Constants.PriorityGroup => filteredHosts
+                .GroupBy(h => h.Config.PriorityGroup)
+                .OrderBy(group => group.Key)
+                .SelectMany(group => group)
+                .ToList(),
             Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
             _ => filteredHosts // Round-robin uses natural order
         };
 
-        return new SharedHostIterator(orderedHosts, requestPath, modifiedPath, IterationModeEnum.SinglePass);
+        return new SharedHostIterator(orderedHosts, requestPath, modifiedPath);
     }
 
     /// <summary>
@@ -329,6 +263,11 @@ public static class IteratorFactory
         {
             Constants.Latency => filteredHosts.OrderBy(h => h.AverageLatencyMs).ToList(),
             Constants.TimeToFirstByte => filteredHosts.OrderBy(h => h.TimeToFirstByteMs).ToList(),
+            Constants.PriorityGroup => filteredHosts
+                .GroupBy(h => h.Config.PriorityGroup)
+                .OrderBy(group => group.Key)
+                .SelectMany(group => group)
+                .ToList(),
             Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
             _ => filteredHosts
         };

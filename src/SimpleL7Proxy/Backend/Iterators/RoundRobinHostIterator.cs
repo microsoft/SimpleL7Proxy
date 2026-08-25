@@ -13,13 +13,13 @@ public class RoundRobinHostIterator : HostIterator
 {
     private static long _globalCounter = 0;
     private int _currentIndex;
-    private int _hostsVisitedInCurrentPass;
+    private int _hostsVisitedInCurrentLap;
 
-    public RoundRobinHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
-        : base(hosts, mode, maxAttempts)
+    public RoundRobinHostIterator(List<BaseHostHealth> hosts)
+        : base(hosts)
     {
         _currentIndex = -1;
-        _hostsVisitedInCurrentPass = 0;
+        _hostsVisitedInCurrentLap = 0;
     }
 
     /// <summary>
@@ -36,54 +36,33 @@ public class RoundRobinHostIterator : HostIterator
     }
 
     /// <summary>
-    /// Moves to the next host in round-robin order.
-    /// In SinglePass mode: stops after visiting each host once.
-    /// In MultiPass mode: maxAttempts limits total attempts; 0 disables the limit (handled by base class).
+    /// Moves to the next host in round-robin order. Returns false once every host in
+    /// this lap has been visited; NextHost calls Reset() to start a new lap.
     /// </summary>
-    protected override bool MoveToNextHost()
+    public override bool MoveNext()
     {
         if (_hosts.Count == 0) return false;
-        
-        // Complete the current pass after every host has been visited.
-        // The base class decides whether to stop or begin another pass.
-        if (_hostsVisitedInCurrentPass >= _hosts.Count)
+
+        // Complete the current lap after every host has been visited.
+        if (_hostsVisitedInCurrentLap >= _hosts.Count)
         {
-            return false; // Completed this pass
+            return false;
         }
         
         // Use global counter to ensure fair distribution across all iterators
         long counter = Interlocked.Increment(ref _globalCounter);
         _currentIndex = (int)(counter % _hosts.Count);
-        _hostsVisitedInCurrentPass++;
+        _hostsVisitedInCurrentLap++;
         
         return true;
     }
 
     /// <summary>
-    /// Called when starting a new pass - reset the visit counter for the new pass.
+    /// Resets the iterator to start a fresh lap.
     /// </summary>
-    protected override void OnNewPassStarted()
+    public override void Reset()
     {
         _currentIndex = -1;
-        _hostsVisitedInCurrentPass = 0; // Reset counter for new pass
-    }
-
-    /// <summary>
-    /// Resets the iterator to its initial state.
-    /// </summary>
-    protected override void ResetToInitialState()
-    {
-        _currentIndex = -1;
-        _hostsVisitedInCurrentPass = 0;
-    }
-
-    /// <summary>
-    /// Records the result of a request to a host.
-    /// Round robin doesn't adjust selection based on results.
-    /// </summary>
-    public override void RecordResult(BaseHostHealth host, bool success)
-    {
-        base.RecordResult(host, success);
-        // Round robin doesn't make any additional adjustments based on results
+        _hostsVisitedInCurrentLap = 0;
     }
 }

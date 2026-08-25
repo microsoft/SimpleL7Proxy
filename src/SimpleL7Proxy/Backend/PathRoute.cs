@@ -9,8 +9,10 @@ public sealed class PathRouteDefinition
   public string Prefix { get; }
   public IReadOnlyList<string> HostKeys { get; }
   public bool StripPrefix { get; }
+  /// <summary>Overrides the global LoadBalancing:MultiPass:MaxAttempts for this route when set.</summary>
+  public int? MaxAttempts { get; }
 
-  public PathRouteDefinition(string name, string prefix, IEnumerable<string> hostKeys, bool stripPrefix)
+  public PathRouteDefinition(string name, string prefix, IEnumerable<string> hostKeys, bool stripPrefix, int? maxAttempts = null)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(name);
     ArgumentNullException.ThrowIfNull(hostKeys);
@@ -24,12 +26,16 @@ public sealed class PathRouteDefinition
         .ToArray();
     StripPrefix = stripPrefix;
 
+    if (maxAttempts is < 1)
+      throw new UriFormatException($"Path route '{Name}' maxattempts must be a positive integer.");
+    MaxAttempts = maxAttempts;
+
     if (HostKeys.Count == 0)
       throw new UriFormatException($"Path route '{Name}' must reference at least one host.");
   }
 
   internal string Signature =>
-      $"{Name.ToUpperInvariant()}|{Prefix.ToUpperInvariant()}|{StripPrefix}|{string.Join(':', HostKeys.Select(key => key.ToUpperInvariant()))}";
+      $"{Name.ToUpperInvariant()}|{Prefix.ToUpperInvariant()}|{StripPrefix}|{MaxAttempts}|{string.Join(':', HostKeys.Select(key => key.ToUpperInvariant()))}";
 
   private static string NormalizePrefix(string prefix)
   {
@@ -58,6 +64,8 @@ public sealed class PathRoute
   public string Name { get; }
   public string Prefix { get; }
   public bool StripPrefix { get; }
+  /// <summary>Overrides the global LoadBalancing:MultiPass:MaxAttempts for this route when set.</summary>
+  public int? MaxAttempts { get; }
   public IReadOnlyList<HostConfig> ConfiguredHosts { get; }
   public IReadOnlyList<BaseHostHealth> DirectHosts { get; }
   public BaseHostHealth? GatewayHost { get; }
@@ -72,6 +80,7 @@ public sealed class PathRoute
     Name = definition.Name;
     Prefix = definition.Prefix;
     StripPrefix = definition.StripPrefix;
+    MaxAttempts = definition.MaxAttempts;
     ConfiguredHosts = configuredHosts;
     DirectHosts = directHosts;
     GatewayHost = gatewayHost;

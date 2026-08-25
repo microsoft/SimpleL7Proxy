@@ -4,11 +4,27 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Test;
 
 public sealed partial class PolicyScenarioIntegrationTests
 {
+    [TestMethod]
+    public void PriorityGroupLoadBalanceMode_IsAccepted()
+    {
+        var config = new ProxyConfig
+        {
+            LoadBalanceMode = "prioritygroup"
+        };
+
+        ConfigParser.ApplyDerivedSettings(
+            config,
+            typeof(ProxyConfig).GetProperty(nameof(ProxyConfig.LoadBalanceMode))!);
+
+        Assert.AreEqual(Constants.PriorityGroup, config.LoadBalanceMode);
+    }
+
     [TestMethod]
     [RegressionTestCase(
         "round-robin-load-balancer",

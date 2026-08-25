@@ -8,12 +8,11 @@ public class LatencyBasedHostIterator : HostIterator
 {
     private int _currentHostIndex;
 
-    public LatencyBasedHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
-        : base(hosts?.OrderBy(h => h.AverageLatency()).ToList() ?? throw new ArgumentNullException(nameof(hosts)), mode, maxAttempts)
+    public LatencyBasedHostIterator(List<BaseHostHealth> hosts)
+        : base(hosts?.OrderBy(h => h.AverageLatency()).ToList() ?? throw new ArgumentNullException(nameof(hosts)))
     {
         _currentHostIndex = -1; // Will be incremented on first MoveNext
     }
-
 
     /// <summary>
     /// Gets the current host being pointed to by the iterator.
@@ -23,36 +22,17 @@ public class LatencyBasedHostIterator : HostIterator
     /// <summary>
     /// Moves to the next host in latency order.
     /// </summary>
-    protected override bool MoveToNextHost()
+    public override bool MoveNext()
     {
         _currentHostIndex++;
         return _currentHostIndex < _hosts.Count;
     }
 
     /// <summary>
-    /// Called when starting a new pass - reset to beginning of host list.
+    /// Resets the iterator to start a fresh lap.
     /// </summary>
-    protected override void OnNewPassStarted()
-    {
-        _currentHostIndex = -1; // Will be incremented on next MoveToNextHost call
-    }
-
-    /// <summary>
-    /// Resets the iterator to its initial state.
-    /// </summary>
-    protected override void ResetToInitialState()
+    public override void Reset()
     {
         _currentHostIndex = -1;
-    }
-
-    /// <summary>
-    /// Records the result of a request to a host.
-    /// For latency-based iteration, latency is updated by the backend service health checker.
-    /// </summary>
-    public override void RecordResult(BaseHostHealth host, bool success)
-    {
-        base.RecordResult(host, success);
-        // Latency tracking is handled by the backend service health checker
-        // No additional tracking needed for this iterator type
     }
 }

@@ -680,7 +680,8 @@ public static class ConfigFactory
       if (!key.Equals("prefix", StringComparison.OrdinalIgnoreCase) &&
           !key.Equals("hosts", StringComparison.OrdinalIgnoreCase) &&
           !key.Equals("stripprefix", StringComparison.OrdinalIgnoreCase) &&
-          !key.Equals("strippathprefix", StringComparison.OrdinalIgnoreCase))
+          !key.Equals("strippathprefix", StringComparison.OrdinalIgnoreCase) &&
+          !key.Equals("maxattempts", StringComparison.OrdinalIgnoreCase))
       {
         throw new UriFormatException($"Invalid path route configuration key: {key}");
       }
@@ -697,8 +698,16 @@ public static class ConfigFactory
     if (stripPrefixValue != null && !bool.TryParse(stripPrefixValue, out stripPrefix))
       throw new UriFormatException($"Invalid stripprefix value: {stripPrefixValue}");
 
+    int? maxAttempts = null;
+    if (values.TryGetValue("maxattempts", out var maxAttemptsValue))
+    {
+      if (!int.TryParse(maxAttemptsValue, out var parsedMaxAttempts) || parsedMaxAttempts < 1)
+        throw new UriFormatException($"Invalid maxattempts value: {maxAttemptsValue}");
+      maxAttempts = parsedMaxAttempts;
+    }
+
     var hostKeys = hostsValue.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    return new PathRouteDefinition(pathKey, prefix, hostKeys, stripPrefix);
+    return new PathRouteDefinition(pathKey, prefix, hostKeys, stripPrefix, maxAttempts);
   }
 
   private static IEnumerable<string> EnumerateConfigKeys(
