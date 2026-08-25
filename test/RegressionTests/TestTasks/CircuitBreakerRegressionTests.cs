@@ -187,13 +187,13 @@ public sealed class NextHostCircuitBreakerTests : IRegressionTestMetadata
         var secondBreaker = new StubCircuitBreaker(2000);
         var thirdBreaker = new StubCircuitBreaker(7000);
         using var hosts = new HostFixture(firstBreaker, secondBreaker, thirdBreaker);
-        var nextHost = hosts.CreateNextHost();
+        var (iterator, state) = hosts.CreateIterator();
 
-        var result = nextHost.EvalHostAvailability(hosts[0], firstBreaker.GetMsToNextRetry());
+        var result = iterator.EvalHostAvailability(state, hosts[0], firstBreaker.GetMsToNextRetry());
 
         Assert.IsTrue(result.AllOpen);
         Assert.AreEqual(2000, result.RetryAfterMs);
-        Assert.AreEqual(3, result.HostCount);
+        Assert.AreEqual(3, result.CheckedHostCount);
     }
 
     [TestMethod]
@@ -206,12 +206,12 @@ public sealed class NextHostCircuitBreakerTests : IRegressionTestMetadata
         var blockedBreaker = new StubCircuitBreaker(5000);
         var availableBreaker = new StubCircuitBreaker(0);
         using var hosts = new HostFixture(blockedBreaker, availableBreaker);
-        var nextHost = hosts.CreateNextHost();
+        var (iterator, state) = hosts.CreateIterator();
 
-        var result = nextHost.EvalHostAvailability(hosts[0], blockedBreaker.GetMsToNextRetry());
+        var result = iterator.EvalHostAvailability(state, hosts[0], blockedBreaker.GetMsToNextRetry());
 
         Assert.IsFalse(result.AllOpen);
-        Assert.AreEqual(2, result.HostCount);
+        Assert.AreEqual(2, result.CheckedHostCount);
     }
 
     [TestMethod]
@@ -224,11 +224,11 @@ public sealed class NextHostCircuitBreakerTests : IRegressionTestMetadata
         var firstBreaker = new StubCircuitBreaker(5000);
         var secondBreaker = new StubCircuitBreaker(0);
         using var hosts = new HostFixture(firstBreaker, secondBreaker);
-        var nextHost = hosts.CreateNextHost();
+        var (iterator, state) = hosts.CreateIterator();
 
-        Assert.IsFalse(nextHost.EvalHostAvailability(hosts[0], 5000).AllOpen);
+        Assert.IsFalse(iterator.EvalHostAvailability(state, hosts[0], 5000).AllOpen);
         secondBreaker.RetryAfterMs = 1500;
-        var result = nextHost.EvalHostAvailability(hosts[0], 5000);
+        var result = iterator.EvalHostAvailability(state, hosts[0], 5000);
 
         Assert.IsTrue(result.AllOpen);
         Assert.AreEqual(1500, result.RetryAfterMs);
@@ -242,10 +242,10 @@ public sealed class NextHostCircuitBreakerTests : IRegressionTestMetadata
     public void TryGet_TraversesPerRequestIterator()
     {
         using var hosts = new HostFixture(new StubCircuitBreaker(0), new StubCircuitBreaker(0));
-        var nextHost = hosts.CreateNextHost();
+        var (iterator, state) = hosts.CreateIterator();
         var visited = new HashSet<BaseHostHealth>();
 
-        while (nextHost.TryGet(out var host))
+        while (iterator.TryGet(state, out var host))
         {
             Assert.IsNotNull(host);
             visited.Add(host);
@@ -280,19 +280,19 @@ public sealed class CircuitBreakerPerformanceTests : IRegressionTestMetadata
         const int durationSeconds = 10;
         const int batchSize = 1024;
         using var hosts = new RealCircuitBreakerHostFixture(hostCount);
-        var nextHost = hosts.CreateNextHost();
+        var (iterator, state) = hosts.CreateIterator();
         var currentHost = hosts[0];
         var duration = TimeSpan.FromSeconds(durationSeconds);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         long evaluations = 0;
-        (bool AllOpen, int RetryAfterMs, int HostCount) result = default;
+        (bool AllOpen, int RetryAfterMs, int CheckedHostCount) result = default;
 
         do
         {
             for (int batchIndex = 0; batchIndex < batchSize; batchIndex++)
             {
                 var currentRetryAfterMs = currentHost.Config.GetMsToNextRetry();
-                result = nextHost.EvalHostAvailability(currentHost, currentRetryAfterMs);
+                result = iterator.EvalHostAvailability(state, currentHost, currentRetryAfterMs);
                 evaluations++;
             }
         }
@@ -308,7 +308,7 @@ public sealed class CircuitBreakerPerformanceTests : IRegressionTestMetadata
             $"{callsPerSecond:N0} breaker calls/sec.");
 
         Assert.IsTrue(result.AllOpen);
-        Assert.AreEqual(hostCount, result.HostCount);
+        Assert.AreEqual(hostCount, result.CheckedHostCount);
         Assert.IsTrue(result.RetryAfterMs > 0);
         Assert.IsTrue(evaluations > 0);
     }
@@ -338,17 +338,11 @@ internal sealed class HostFixture : IDisposable
 
     internal BaseHostHealth this[int index] => _hosts[index];
 
-    internal NextHost CreateNextHost()
+    internal (BaseIterator Iterator, IterationState State) CreateIterator()
     {
         var iterator = new RoundRobinHostIterator(_hosts);
-        return new NextHost(
-            iterator,
-            sharedIterator: null,
-            new StubEndpointMonitor(_hosts),
-            Constants.RoundRobin,
-            requestPath: "/",
-            IterationModeEnum.SinglePass,
-            maxAttempts: 1);
+        var state = new IterationState(IterationModeEnum.SinglePass, maxAttempts: 1);
+        return (iterator, state);
     }
 
     public void Dispose()
@@ -401,17 +395,11 @@ internal sealed class RealCircuitBreakerHostFixture : IDisposable
 
     internal BaseHostHealth this[int index] => _hosts[index];
 
-    internal NextHost CreateNextHost()
+    internal (BaseIterator Iterator, IterationState State) CreateIterator()
     {
         var iterator = new RoundRobinHostIterator(_hosts);
-        return new NextHost(
-            iterator,
-            sharedIterator: null,
-            new StubEndpointMonitor(_hosts),
-            Constants.RoundRobin,
-            requestPath: "/",
-            IterationModeEnum.SinglePass,
-            maxAttempts: 1);
+        var state = new IterationState(IterationModeEnum.SinglePass, maxAttempts: 1);
+        return (iterator, state);
     }
 
     public void Dispose()
@@ -446,17 +434,4 @@ internal sealed class AzureProvider : IBackendTokenProvider
     public void AddAudience(string audience) { }
     public Task<string> OAuth2Token(string? audience = null) => Task.FromResult(string.Empty);
     public void StartTokenRefresh() { }
-}
-
-internal sealed class StubEndpointMonitor(List<BaseHostHealth> hosts) : IEndpointMonitorService
-{
-    public string HostStatus => string.Empty;
-    public List<BaseHostHealth> GetHosts() => hosts;
-    public List<BaseHostHealth> GetActiveHosts() => hosts;
-    public int ActiveHostCount() => hosts.Count;
-    public int EMSGetBackpressureDelay() => 0;
-    public Task WaitForStartupAsync() => Task.CompletedTask;
-    public Task Stop() => Task.CompletedTask;
-    public List<BaseHostHealth> GetSpecificPathHosts() => [];
-    public List<BaseHostHealth> GetCatchAllHosts() => hosts;
 }
