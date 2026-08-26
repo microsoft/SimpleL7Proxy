@@ -92,7 +92,9 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
     public int Count => _iterators.Count;
 
     /// <inheritdoc/>
-    public ISharedHostIterator GetOrCreate(string path, Func<(IHostIterator iterator, string modifiedPath)> factory)
+    public SharedHostIterator GetOrCreate(
+        string path,
+        Func<(List<BaseHostHealth> hosts, string modifiedPath)> factory)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(SharedIteratorRegistry));
@@ -106,8 +108,7 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
             normalizedPath,
             static (_, state) => new Lazy<SharedHostIterator>(() =>
             {
-                var (baseIterator, modifiedPath) = state.factory();
-                var hosts = ExtractHostsFromIterator(baseIterator);
+                var (hosts, modifiedPath) = state.factory();
                 var iterator = new SharedHostIterator(hosts, state.normalizedPath, modifiedPath);
                 return iterator;
             }, LazyThreadSafetyMode.ExecutionAndPublication),
@@ -181,22 +182,6 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
             normalized = normalized.TrimEnd('/');
 
         return normalized;
-    }
-
-    /// <summary>
-    /// Extracts the list of hosts from a base iterator by iterating through it once.
-    /// </summary>
-    private static List<BaseHostHealth> ExtractHostsFromIterator(IHostIterator iterator)
-    {
-        var hosts = new List<BaseHostHealth>();
-        
-        while (iterator.MoveNext())
-        {
-            hosts.Add(iterator.Current);
-        }
-        
-        iterator.Reset();
-        return hosts;
     }
 
     /// <summary>

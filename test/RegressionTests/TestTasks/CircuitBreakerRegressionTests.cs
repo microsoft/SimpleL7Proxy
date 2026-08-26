@@ -340,7 +340,7 @@ internal sealed class HostFixture : IDisposable
 
     internal (BaseIterator Iterator, IterationState State) CreateIterator()
     {
-        var iterator = new RoundRobinHostIterator(_hosts);
+        var iterator = new PerRequestHostIterator(_hosts, Constants.RoundRobin);
         var state = new IterationState(IterationModeEnum.SinglePass, maxAttempts: 1);
         return (iterator, state);
     }
@@ -397,7 +397,7 @@ internal sealed class RealCircuitBreakerHostFixture : IDisposable
 
     internal (BaseIterator Iterator, IterationState State) CreateIterator()
     {
-        var iterator = new RoundRobinHostIterator(_hosts);
+        var iterator = new PerRequestHostIterator(_hosts, Constants.RoundRobin);
         var state = new IterationState(IterationModeEnum.SinglePass, maxAttempts: 1);
         return (iterator, state);
     }

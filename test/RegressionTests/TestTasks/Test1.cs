@@ -97,7 +97,8 @@ public sealed class Test1 : IRegressionTestMetadata
             S7PHash = 73,
             IterationMode = IterationModeEnum.MultiPass,
             APIMPolicyCycleCounter = 3,
-            LifetimeAPIMPolicyCycleCounter = 7
+            LifetimeAPIMPolicyCycleCounter = 7,
+            RequeueDelayMs = 2345.678
         };
         source.Headers["X-Test"] = "value";
 
@@ -113,6 +114,8 @@ public sealed class Test1 : IRegressionTestMetadata
         Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
         Assert.AreEqual(7, deserialized.LifetimeAPIMPolicyCycleCounter);
         Assert.AreEqual(7, restored.LifetimeAPIMPolicyCycleCounter);
+        Assert.AreEqual(2345.678, deserialized.RequeueDelayMs, 0.001);
+        Assert.AreEqual(2345.678, restored.RequeueDelayMs, 0.001);
         Assert.AreEqual(0, restored.APIMPolicyCycleCounter);
         StringAssert.Contains(json, "\"LifetimePolicyCycleCounter\": 7");
         Assert.IsFalse(json.Contains("LifetimeAPIMPolicyCycleCounter", StringComparison.Ordinal));
@@ -137,6 +140,7 @@ public sealed class Test1 : IRegressionTestMetadata
         Assert.AreEqual((short)0, restored.S7PHash);
         Assert.IsNull(deserialized.IterationMode);
         Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
+        Assert.AreEqual(0, restored.RequeueDelayMs);
     }
 
     [TestMethod]

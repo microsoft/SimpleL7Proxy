@@ -176,6 +176,14 @@ public sealed partial class PolicyScenarioIntegrationTests
                 BaseAddress = new Uri($"http://127.0.0.1:{proxyPort}"),
                 Timeout = TimeSpan.FromSeconds(15)
             };
+            using (var noDelayResponse = await client.GetAsync("/success"))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, noDelayResponse.StatusCode);
+                Assert.IsFalse(
+                    noDelayResponse.Headers.Contains("Request-Requeue-Delay"),
+                    "A response with no completed requeue delay must not include Request-Requeue-Delay.");
+            }
+
             var requestKey = Guid.NewGuid().ToString("N");
             var stopwatch = Stopwatch.StartNew();
             using var response = await client.GetAsync(
@@ -218,6 +226,14 @@ public sealed partial class PolicyScenarioIntegrationTests
                 requeueDelayMs,
                 int.Parse(requeuedMatch.Groups["delay"].Value, CultureInfo.InvariantCulture));
 
+            Assert.IsTrue(
+                response.Headers.TryGetValues("Request-Requeue-Delay", out var singleDelayHeaderValues),
+                "The successful response did not include Request-Requeue-Delay.");
+            var reportedSingleDelayMs = double.Parse(singleDelayHeaderValues.Single(), CultureInfo.InvariantCulture);
+            Assert.IsTrue(
+                reportedSingleDelayMs >= requeueDelayMs - 100,
+                $"Reported requeue delay was {reportedSingleDelayMs:F3}ms; scheduled delay was {requeueDelayMs}ms.");
+
             var attemptMatches = Regex.Matches(
                 proxyLog,
                 @"(?m)^(?<timestamp>\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) " +
@@ -258,10 +274,45 @@ public sealed partial class PolicyScenarioIntegrationTests
                 stopwatch.Elapsed.TotalMilliseconds >= expectedDelayMs - 100,
                 $"Client completed after {stopwatch.Elapsed.TotalMilliseconds:F0}ms; expected a queued retry delay.");
 
+            var proxyLogBeforeRepeatedRequeues = await File.ReadAllTextAsync(proxyStdoutPath);
+            var repeatedRequeueStopwatch = Stopwatch.StartNew();
+            using var repeatedRequeueResponse = await client.GetAsync("/429error?retryAfterMs=50");
+            var repeatedRequeueBody = await repeatedRequeueResponse.Content.ReadAsStringAsync();
+            repeatedRequeueStopwatch.Stop();
+
+            Assert.AreEqual(HttpStatusCode.PreconditionFailed, repeatedRequeueResponse.StatusCode);
+            StringAssert.Contains(repeatedRequeueBody, "Maximum backend attempts reached (5).");
+            Assert.IsTrue(
+                repeatedRequeueResponse.Headers.TryGetValues("Request-Requeue-Delay", out var cumulativeDelayHeaderValues),
+                "The terminal response did not include Request-Requeue-Delay.");
+
+            var proxyLogAfterRepeatedRequeues = await File.ReadAllTextAsync(proxyStdoutPath);
+            var repeatedRequeueLog = proxyLogAfterRepeatedRequeues[proxyLogBeforeRepeatedRequeues.Length..];
+            var repeatedDelayMatches = Regex.Matches(
+                repeatedRequeueLog,
+                @"Starting requeue delay of (?<delay>\d+)ms");
+            Assert.IsTrue(
+                repeatedDelayMatches.Count >= 2,
+                $"Expected at least two completed requeue delays, but found {repeatedDelayMatches.Count}.");
+
+            var scheduledCumulativeDelayMs = repeatedDelayMatches
+                .Select(match => int.Parse(match.Groups["delay"].Value, CultureInfo.InvariantCulture))
+                .Sum();
+            var reportedCumulativeDelayMs = double.Parse(cumulativeDelayHeaderValues.Single(), CultureInfo.InvariantCulture);
+            Assert.IsTrue(
+                reportedCumulativeDelayMs >= scheduledCumulativeDelayMs - 100,
+                $"Reported cumulative delay was {reportedCumulativeDelayMs:F3}ms; " +
+                $"scheduled delays totaled {scheduledCumulativeDelayMs}ms.");
+            Assert.IsTrue(
+                reportedCumulativeDelayMs <= repeatedRequeueStopwatch.Elapsed.TotalMilliseconds,
+                $"Reported cumulative delay {reportedCumulativeDelayMs:F3}ms exceeded total client latency " +
+                $"{repeatedRequeueStopwatch.Elapsed.TotalMilliseconds:F3}ms.");
+
             TestContext.WriteLine(
                 $"Retry-After={retryAfterMs}ms, jitter={Constants.RetryAfterJitterMaxMs}ms, " +
                 $"queued delay={requeueDelayMs}ms, proxy attempt interval={proxyAttemptDelayMs:F0}ms, " +
-                $"backend attempt interval={backendAttemptDelayMs:F0}ms.");
+                $"backend attempt interval={backendAttemptDelayMs:F0}ms, " +
+                $"cumulative requeue delay={reportedCumulativeDelayMs:F3}ms across {repeatedDelayMatches.Count} delays.");
         }
         finally
         {

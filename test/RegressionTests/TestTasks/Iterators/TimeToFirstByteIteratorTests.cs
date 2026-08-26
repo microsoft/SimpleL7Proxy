@@ -39,7 +39,7 @@ public class TimeToFirstByteIteratorTests : IRegressionTestMetadata
         hosts[1].TimeToFirstByteMs = 90;
         hosts[2].TimeToFirstByteMs = 180;
 
-        var iterator = new TimeToFirstByteHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.TimeToFirstByte);
 
         // Act
         var visited = Drain(iterator);
@@ -58,7 +58,7 @@ public class TimeToFirstByteIteratorTests : IRegressionTestMetadata
     {
         // Arrange
         var hosts = TestHostFactory.CreateHosts(3);
-        var iterator = new TimeToFirstByteHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.TimeToFirstByte);
         var state = new IterationState(IterationModeEnum.MultiPass, maxAttempts: 4);
 
         int attempts = 0;
@@ -78,12 +78,14 @@ public class TimeToFirstByteIteratorTests : IRegressionTestMetadata
     [TestMethod]
     [RegressionTestCase(
         "time-to-first-byte-iterator",
-        "Factory dispatches timetofirstbyte mode to the TTFB iterator",
-        "Confirms the load-balance mode string resolves to the correct iterator type.")]
-    public void Factory_CreateSinglePassIterator_UsesTimeToFirstByteIterator()
+        "Factory applies time-to-first-byte ordering",
+        "Confirms the load-balance mode string makes the factory-created iterator select the fastest host first.")]
+    public void Factory_CreateSinglePassIterator_AppliesTimeToFirstByteOrdering()
     {
         // Arrange
         var hosts = TestHostFactory.CreateHosts(2);
+        hosts[0].TimeToFirstByteMs = 50;
+        hosts[1].TimeToFirstByteMs = 200;
         var backendService = new StubEndpointMonitorService(hosts);
 
         // Act
@@ -94,16 +96,17 @@ public class TimeToFirstByteIteratorTests : IRegressionTestMetadata
             out _);
 
         // Assert
-        Assert.IsInstanceOfType(iterator, typeof(TimeToFirstByteHostIterator));
+        var state = new IterationState(IterationModeEnum.SinglePass, maxAttempts: 1);
+        Assert.IsTrue(iterator.TryGet(state, out var selectedHost));
+        Assert.AreSame(hosts[0], selectedHost);
     }
 
-    private static List<BaseHostHealth> Drain(TimeToFirstByteHostIterator iterator)
+    private static List<BaseHostHealth> Drain(PerRequestHostIterator iterator)
     {
         var result = new List<BaseHostHealth>();
         while (iterator.MoveNext())
         {
             result.Add(iterator.Current);
-            iterator.RecordResult(iterator.Current, success: false);
         }
         return result;
     }

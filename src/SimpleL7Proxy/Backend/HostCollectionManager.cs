@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Backend;
@@ -121,7 +120,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
         "[HOSTMGR] ✓ Configuration activated (v{OldVersion} → v{NewVersion}, {HostCount} hosts, {RouteCount} routes)",
         oldSnapshot.Version, candidate.Version, candidate.Hosts.Count, candidate.PathRoutes.Count);
 
-    IteratorFactory.InvalidateCache();
   }
 
   /// <summary>
@@ -176,7 +174,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[HOSTMGR] ✓ Snapshot activated (v{OldVersion} → v{NewVersion}, {Count} hosts)",
         oldVersion, _current.Version, _current.Hosts.Count);
 
-    IteratorFactory.InvalidateCache();
   }
 
   /// <summary>
@@ -322,7 +319,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[CRUD] ✓ Host added: {Host} (v{Version}, total: {Count})",
         config.Host, _version, _current.Hosts.Count);
 
-    IteratorFactory.InvalidateCache();
     return host;
   }
 
@@ -349,7 +345,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[CRUD] ✓ Host removed: {Host} (v{Version}, total: {Count})",
         existing.Host, _version, _current.Hosts.Count);
 
-    IteratorFactory.InvalidateCache();
     return true;
   }
 
@@ -381,7 +376,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[CRUD] ✓ Host updated: {Host} (v{Version})",
         existing.Host, _version);
 
-    IteratorFactory.InvalidateCache();
     return true;
   }
 }

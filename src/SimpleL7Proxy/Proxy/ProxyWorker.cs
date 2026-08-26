@@ -658,6 +658,10 @@ public class ProxyWorker : IConfigChangeSubscriber
             // by value, so late additions wouldn't propagate.
             context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
             context.Response.Headers["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString();
+            if (request.RequeueDelayMs > 0)
+            {
+                context.Response.Headers["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+            }
 
             // These were also added to pr.Headers after the by-value copy in CaptureResponseStream,
             // so forward them here too. Read back from pr.Headers (single computation, consistent
@@ -1179,6 +1183,10 @@ public class ProxyWorker : IConfigChangeSubscriber
                             {
                                 requestSummary["Backend-Host"] = pr.BackendHostname;
                                 requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                                if (request.RequeueDelayMs > 0)
+                                {
+                                    requestSummary["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                                }
                                 requestSummary["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
                                 requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
                             }
@@ -1223,6 +1231,11 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                             pr.Headers["BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
                             pr.Headers["Request-Queue-Duration"] = requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                            if (request.RequeueDelayMs > 0)
+                            {
+                                var requeueDelay = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                                pr.Headers["Request-Requeue-Delay"] = requestSummary["Request-Requeue-Delay"] = requeueDelay;
+                            }
                             pr.Headers["Request-Process-Duration"] = requestSummary["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
                             pr.Headers["Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
 
@@ -1508,6 +1521,10 @@ public class ProxyWorker : IConfigChangeSubscriber
             ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString(),
             ["Model"] = request.Model
         };
+        if (request.RequeueDelayMs > 0)
+        {
+            errorHeaders["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
 
@@ -1603,17 +1620,16 @@ public class ProxyWorker : IConfigChangeSubscriber
 
     /// <summary>
     /// Creates a host iterator for routing requests to backend hosts, paired with the
-    /// per-request <see cref="IterationState"/> that <see cref="BaseIterator"/> uses for
+    /// per-request <see cref="IterationState"/> that <see cref="IHostIterator"/> uses for
     /// pass/repeat control (SinglePass vs MultiPass, MaxAttempts) and circuit-breaker skip/
     /// all-open handling. Uses shared iterators (fair distribution across concurrent requests)
     /// or per-request iterators based on configuration.
     /// </summary>
     /// <returns>The ready-to-use iterator, its per-request state, and the modified path for this request.</returns>
-    private (BaseIterator iterator, IterationState state, string modifiedPath) CreateHostIterator(RequestData request)
+    private (IHostIterator iterator, IterationState state, string modifiedPath) CreateHostIterator(RequestData request)
     {
         string modifiedPath = "";
-        IHostIterator? hostIterator = null;
-        ISharedHostIterator? sharedIterator = null;
+        IHostIterator iterator;
         int maxAttempts = _options.MaxAttempts;
 
         var routeMatch = _backends.MatchRoute(request.Path);
@@ -1632,21 +1648,17 @@ public class ProxyWorker : IConfigChangeSubscriber
         {
             // Use shared iterator - multiple requests to same path share the same iterator
             // The modifiedPath is stored on the iterator itself, so we don't need a second filtering call
-            sharedIterator = _wrkCntxt.SharedIteratorRegistry.GetOrCreate(
+            var sharedIterator = _wrkCntxt.SharedIteratorRegistry.GetOrCreate(
                 request.Path,
-                () =>
-                {
-                    var iterator = IteratorFactory.CreateSinglePassIterator(
-                        _backends,
-                        _options.LoadBalanceMode,
-                        request.Path,
-                        request.Priority,
-                        out var mp);
-                    return (iterator, mp);
-                });
+                () => IteratorFactory.CreateSharedHostSnapshot(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    request.Priority));
 
             // Read modifiedPath from the shared iterator (computed once, cached)
             modifiedPath = sharedIterator.ModifiedPath;
+            iterator = sharedIterator;
 
             _logger.LogDebug(
                 "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
@@ -1662,26 +1674,23 @@ public class ProxyWorker : IConfigChangeSubscriber
             // A route-level maxattempts= overrides the global MaxAttempts option when set.
             maxAttempts = routeMatch.Value.Route.MaxAttempts ?? _options.MaxAttempts;
 
-            hostIterator = IteratorFactory.CreateFixedOrderIterator(candidateHosts);
+            iterator = IteratorFactory.CreateFixedOrderIterator(candidateHosts);
 
             _logger.LogDebug(
                 "[ProxyToBackEnd:{Guid}] Using named route '{RouteName}' for path '{Path}' with {HostCount} hosts (MaxAttempts={MaxAttempts})",
-                request.Guid, routeMatch.Value.Route.Name, request.Path, hostIterator.HostCount, maxAttempts);
+                request.Guid, routeMatch.Value.Route.Name, request.Path, iterator.HostCount, maxAttempts);
         }
         else
         {
             // Use per-request iterator (original behavior). The ordering iterator no longer
             // cares about SinglePass vs MultiPass — NextHost owns that.
-            hostIterator = IteratorFactory.CreateSinglePassIterator(
+            iterator = IteratorFactory.CreateSinglePassIterator(
                 _backends,
                 _options.LoadBalanceMode,
                 request.Path,
                 request.Priority,
                 out modifiedPath);
         }
-
-        // Exactly one of these is ever set by the branches above.
-        var iterator = (hostIterator as BaseIterator) ?? (BaseIterator)sharedIterator!;
 
         // Seeded with LifetimeBackendAttempts so MaxAttempts is a true ceiling across
         // requeue cycles, not just the current one.
@@ -1799,6 +1808,10 @@ public class ProxyWorker : IConfigChangeSubscriber
                     ["Attempts"] = request.BackendAttempts.ToString(),
                     ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString()
                 };
+                if (request.RequeueDelayMs > 0)
+                {
+                    errorHeaders["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                }
 
                 await request.asyncWorker.SaveResponseHeadersAsync(statusCode, errorHeaders);
 
@@ -1822,6 +1835,10 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Context.Response.KeepAlive = false;
 
                 request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+                if (request.RequeueDelayMs > 0)
+                {
+                    request.Context.Response.Headers["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                }
                 request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
                 request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
                 request.Context.Response.Headers["x-MID"] = request.MID;

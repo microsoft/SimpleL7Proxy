@@ -35,7 +35,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     {
         // Arrange
         var hosts = TestHostFactory.CreateHosts(3);
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
 
         // Act
         var visited = Drain(iterator);
@@ -63,7 +63,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         // Act — each iterator gets one host via the global counter
         for (int i = 0; i < 30; i++)
         {
-            var iterator = new RoundRobinHostIterator(hosts);
+            var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
             if (iterator.MoveNext())
             {
                 hitCounts[iterator.Current.Host]++;
@@ -92,7 +92,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         // Act — create 8 separate iterators, take first host from each
         for (int i = 0; i < 8; i++)
         {
-            var it = new RoundRobinHostIterator(hosts);
+            var it = new PerRequestHostIterator(hosts, Constants.RoundRobin);
             Assert.IsTrue(it.MoveNext());
             selectedHosts.Add(it.Current.Host);
         }
@@ -119,7 +119,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         "Confirms MoveNext returns false when no backend hosts are configured.")]
     public void EmptyHostList_MoveNextReturnsFalse()
     {
-        var iterator = new RoundRobinHostIterator(new List<BaseHostHealth>());
+        var iterator = new PerRequestHostIterator(new List<BaseHostHealth>(), Constants.RoundRobin);
 
         Assert.IsFalse(iterator.MoveNext(), "MoveNext on empty list should return false.");
     }
@@ -132,7 +132,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     public void SingleHost_AlwaysReturnsSameHost()
     {
         var hosts = TestHostFactory.CreateHosts(1);
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
 
         Assert.IsTrue(iterator.MoveNext());
         Assert.AreEqual(hosts[0].Host, iterator.Current.Host);
@@ -148,7 +148,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     public void SinglePass_DoesNotExceedHostCount()
     {
         var hosts = TestHostFactory.CreateHosts(3);
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
 
         int count = 0;
         while (iterator.MoveNext()) count++;
@@ -169,7 +169,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     {
         var hosts = TestHostFactory.CreateHosts(3);
         int maxAttempts = 7;
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
         var state = new IterationState(IterationModeEnum.MultiPass, maxAttempts);
 
         int selectedHostCount = 0;
@@ -200,7 +200,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     public void MultiPass_MaxAttemptsLessThanOne_DisablesLimit(int disabledMaxAttempts)
     {
         var hosts = TestHostFactory.CreateHosts(3);
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
         var state = new IterationState(IterationModeEnum.MultiPass, disabledMaxAttempts);
 
         Assert.AreEqual(disabledMaxAttempts, state.MaxAttempts);
@@ -226,7 +226,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     {
         var hosts = TestHostFactory.CreateHosts(2);
         int maxAttempts = 6;
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
         var state = new IterationState(IterationModeEnum.MultiPass, maxAttempts);
 
         var visited = new List<BaseHostHealth>();
@@ -253,7 +253,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     public void HostCount_ReflectsActualHostListSize()
     {
         var hosts = TestHostFactory.CreateHosts(5);
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
 
         Assert.AreEqual(5, iterator.HostCount);
     }
@@ -265,7 +265,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         "Confirms HostCount reports zero for an empty backend list.")]
     public void HostCount_ZeroForEmptyList()
     {
-        var iterator = new RoundRobinHostIterator(new List<BaseHostHealth>());
+        var iterator = new PerRequestHostIterator(new List<BaseHostHealth>(), Constants.RoundRobin);
 
         Assert.AreEqual(0, iterator.HostCount);
     }
@@ -289,7 +289,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         // Act
         Parallel.For(0, totalRequests, _ =>
         {
-            var it = new RoundRobinHostIterator(hosts);
+            var it = new PerRequestHostIterator(hosts, Constants.RoundRobin);
             if (it.MoveNext())
             {
                 bag.Add(it.Current.Host);
@@ -322,7 +322,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         // Act
         Parallel.For(0, parallelism, i =>
         {
-            var it = new RoundRobinHostIterator(hosts);
+            var it = new PerRequestHostIterator(hosts, Constants.RoundRobin);
             var visited = Drain(it);
             if (visited.Count != 3)
             {
@@ -347,7 +347,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     public void Reset_AllowsReIteration()
     {
         var hosts = TestHostFactory.CreateHosts(3);
-        var iterator = new RoundRobinHostIterator(hosts);
+        var iterator = new PerRequestHostIterator(hosts, Constants.RoundRobin);
 
         // Drain fully
         while (iterator.MoveNext()) { }
@@ -363,13 +363,12 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     //  Helpers
     // ──────────────────────────────────────────────────────────────
 
-    private static List<BaseHostHealth> Drain(RoundRobinHostIterator iterator)
+    private static List<BaseHostHealth> Drain(PerRequestHostIterator iterator)
     {
         var result = new List<BaseHostHealth>();
         while (iterator.MoveNext())
         {
             result.Add(iterator.Current);
-            iterator.RecordResult(iterator.Current, success: false);
         }
         return result;
     }

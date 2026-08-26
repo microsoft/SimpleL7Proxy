@@ -18,6 +18,7 @@ namespace SimpleL7Proxy.DTO
         public List<Dictionary<string, string>> IncompleteRequests { get; set; }
         public int AsyncBlobAccessTimeoutSecs { get; set; }
         public int LifetimeBackendAttempts { get; set; }
+        public double RequeueDelayMs { get; set; }=0;
         [JsonPropertyName("LifetimePolicyCycleCounter")]
         public int LifetimeAPIMPolicyCycleCounter { get; set; }
         public IterationModeEnum? IterationMode { get; set; }
@@ -41,6 +42,7 @@ namespace SimpleL7Proxy.DTO
         {
             AsyncBlobAccessTimeoutSecs = data.AsyncBlobAccessTimeoutSecs;
             LifetimeBackendAttempts = data.LifetimeBackendAttempts;
+            RequeueDelayMs = data.RequeueDelayMs;
             LifetimeAPIMPolicyCycleCounter = data.LifetimeAPIMPolicyCycleCounter;
             IterationMode = data.IterationMode;
             BlobContainerName = data.BlobContainerName;
@@ -146,6 +148,7 @@ namespace SimpleL7Proxy.DTO
             data.Populate(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers);
             data.AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs;
             data.LifetimeBackendAttempts = this.LifetimeBackendAttempts;
+            data.RequeueDelayMs = this.RequeueDelayMs;
             data.BackendAttempts = 0;
             data.LifetimeAPIMPolicyCycleCounter = this.LifetimeAPIMPolicyCycleCounter;
             data.APIMPolicyCycleCounter = 0;

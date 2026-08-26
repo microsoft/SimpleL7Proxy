@@ -130,6 +130,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
     _rate_limit_lock = threading.Lock()
     _rate_limit_window_start = 0.0
     _rate_limit_request_count = 0
+    _tpm_limit = 0
+    _tpm_lock = threading.Lock()
+    _tpm_window_start = 0.0
+    _tpm_window_bytes = 0
     _fail_first_n = 0
     _fail_first_status = 429
     _fail_first_lock = threading.Lock()
@@ -320,10 +324,15 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
             request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
             print(f"Request: {parsed_path.path}  Body: {request_body}")
+            try:
+                retry_after_ms = max(1, int(query_params.get('retryAfterMs', ['10000'])[0]))
+            except ValueError:
+                self.send_fixed_response(400, b"retryAfterMs must be a positive integer")
+                return
             body = b"Hello, world!"
             self.send_response(429)
             self.send_header("Content-Type", "text/plain")
-            self.send_header("retry-after-ms", "10000")
+            self.send_header("retry-after-ms", str(retry_after_ms))
             self.send_header("S7PREQUEUE", "true")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -448,6 +457,55 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
     def send_fixed_response(self, code, body, content_type="text/plain", extra_headers=None):
         """Send a non-chunked response with proper Content-Length for HTTP/1.1."""
+        request_path = urlparse(self.path).path
+        if code != 429 and request_path not in _EXCLUDED_TRACKING_PATHS and MyHandler._tpm_limit > 0:
+            now = time.monotonic()
+            retry_after_ms = None
+            retry_after_seconds = None
+            used_tokens = 0.0
+            requested_tokens = len(body) / 4.3
+
+            with MyHandler._tpm_lock:
+                elapsed = now - MyHandler._tpm_window_start
+                if elapsed >= 60.0:
+                    elapsed_windows = int(elapsed // 60.0)
+                    MyHandler._tpm_window_start += elapsed_windows * 60.0
+                    MyHandler._tpm_window_bytes = 0
+
+                projected_bytes = MyHandler._tpm_window_bytes + len(body)
+                projected_tokens = projected_bytes / 4.3
+                if projected_tokens > MyHandler._tpm_limit:
+                    remaining = MyHandler._tpm_window_start + 60.0 - now
+                    retry_after_seconds = max(1, math.ceil(remaining))
+                    retry_after_ms = max(1, math.ceil(remaining * 1000))
+                    used_tokens = MyHandler._tpm_window_bytes / 4.3
+                else:
+                    MyHandler._tpm_window_bytes = projected_bytes
+
+            if retry_after_ms is not None:
+                error_body = json.dumps({
+                    "error": "Token rate limit exceeded",
+                    "limit_tpm": MyHandler._tpm_limit,
+                    "used_tokens": round(used_tokens, 2),
+                    "requested_tokens": round(requested_tokens, 2),
+                    "retry_after_ms": retry_after_ms
+                }).encode('utf-8')
+                self.close_connection = True
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(error_body)))
+                self.send_header("Retry-After", str(retry_after_seconds))
+                self.send_header("retry-after-ms", str(retry_after_ms))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(error_body)
+                print(
+                    f"TPM limit exceeded: used={used_tokens:.2f}, "
+                    f"requested={requested_tokens:.2f}, limit={MyHandler._tpm_limit}, "
+                    f"retry_after_ms={retry_after_ms}",
+                    flush=True)
+                return
+
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -473,14 +531,63 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
     def send_streaming_response(self, filename="openAI.txt", processor="OpenAI", streaming=False):
         """Send a streaming response with the specified file and processor."""
         request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+        body = get_cached_body(filename)
+        if body is None:
+            raise FileNotFoundError(f"File not found: {filename}")
+
+        request_path = urlparse(self.path).path
+        if request_path not in _EXCLUDED_TRACKING_PATHS and MyHandler._tpm_limit > 0:
+            now = time.monotonic()
+            retry_after_ms = None
+            retry_after_seconds = None
+            used_tokens = 0.0
+            requested_tokens = len(body) / 4.3
+
+            with MyHandler._tpm_lock:
+                elapsed = now - MyHandler._tpm_window_start
+                if elapsed >= 60.0:
+                    elapsed_windows = int(elapsed // 60.0)
+                    MyHandler._tpm_window_start += elapsed_windows * 60.0
+                    MyHandler._tpm_window_bytes = 0
+
+                projected_bytes = MyHandler._tpm_window_bytes + len(body)
+                projected_tokens = projected_bytes / 4.3
+                if projected_tokens > MyHandler._tpm_limit:
+                    remaining = MyHandler._tpm_window_start + 60.0 - now
+                    retry_after_seconds = max(1, math.ceil(remaining))
+                    retry_after_ms = max(1, math.ceil(remaining * 1000))
+                    used_tokens = MyHandler._tpm_window_bytes / 4.3
+                else:
+                    MyHandler._tpm_window_bytes = projected_bytes
+
+            if retry_after_ms is not None:
+                error_body = json.dumps({
+                    "error": "Token rate limit exceeded",
+                    "limit_tpm": MyHandler._tpm_limit,
+                    "used_tokens": round(used_tokens, 2),
+                    "requested_tokens": round(requested_tokens, 2),
+                    "retry_after_ms": retry_after_ms
+                }).encode('utf-8')
+                self.close_connection = True
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(error_body)))
+                self.send_header("Retry-After", str(retry_after_seconds))
+                self.send_header("retry-after-ms", str(retry_after_ms))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(error_body)
+                print(
+                    f"TPM limit exceeded: used={used_tokens:.2f}, "
+                    f"requested={requested_tokens:.2f}, limit={MyHandler._tpm_limit}, "
+                    f"retry_after_ms={retry_after_ms}",
+                    flush=True)
+                return
+
         self.send_response(200)
-        body = None
         if streaming:
             self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
         else:
-            body = get_cached_body(filename)
-            if body is None:
-                raise FileNotFoundError(f"File not found: {filename}")
             self.set_fixed_event_response_headers(request_sequence, queue_time, process_time, s7pid, len(body))
         self.send_header('TOKENPROCESSOR', processor)
         self.end_headers()
@@ -543,6 +650,18 @@ class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
         MyHandler._rate_limit_window_start = time.monotonic()
         MyHandler._rate_limit_request_count = 0
 
+        tpm_limit_value = os.environ.get('RATE_LIMIT_TOKENS_PER_MINUTE', '0')
+        try:
+            tpm_limit = int(tpm_limit_value)
+        except ValueError as exc:
+            raise ValueError("RATE_LIMIT_TOKENS_PER_MINUTE must be a non-negative integer") from exc
+        if tpm_limit < 0:
+            raise ValueError("RATE_LIMIT_TOKENS_PER_MINUTE must be a non-negative integer")
+
+        MyHandler._tpm_limit = tpm_limit
+        MyHandler._tpm_window_start = time.monotonic()
+        MyHandler._tpm_window_bytes = 0
+
         fail_first_n_value = os.environ.get('NULL_SERVER_FAIL_FIRST_N', '0')
         try:
             fail_first_n = int(fail_first_n_value)
@@ -588,10 +707,12 @@ def mt_main(port=None, shutdown_after=None):
     httpd = ThreadedTCPServer(("localhost", effective_port), MyHandler)
     rate_limit_status = (f"rate limit {MyHandler._rate_limit} requests/5s"
                          if MyHandler._rate_limit > 0 else "rate limit disabled")
+    tpm_status = (f"TPM limit {MyHandler._tpm_limit} tokens/min"
+                  if MyHandler._tpm_limit > 0 else "TPM limit disabled")
     if shutdown_after is not None:
-        print(f"Server started on port {effective_port} ({rate_limit_status}, will stop after {shutdown_after}s)...")
+        print(f"Server started on port {effective_port} ({rate_limit_status}, {tpm_status}, will stop after {shutdown_after}s)...")
     else:
-        print(f"Server started on port {effective_port} ({rate_limit_status})...")
+        print(f"Server started on port {effective_port} ({rate_limit_status}, {tpm_status})...")
 
     # Start server in a separate thread
     server_thread = threading.Thread(target=httpd.serve_forever)
@@ -625,7 +746,9 @@ def single_main():
     httpd = ThreadedTCPServer(("localhost", 3000), MyHandler)
     rate_limit_status = (f"rate limit {MyHandler._rate_limit} requests/5s"
                          if MyHandler._rate_limit > 0 else "rate limit disabled")
-    print(f"Server started on port 3000 ({rate_limit_status})...")
+    tpm_status = (f"TPM limit {MyHandler._tpm_limit} tokens/min"
+                  if MyHandler._tpm_limit > 0 else "TPM limit disabled")
+    print(f"Server started on port 3000 ({rate_limit_status}, {tpm_status})...")
     try:
         httpd.serve_forever()
     finally:

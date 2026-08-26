@@ -512,29 +512,8 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
 
 
 
-  // public IHostIterator GetHostIterator(
-  //     string loadBalanceMode,
-  //     IterationModeEnum mode = IterationModeEnum.SinglePass,
-  //     int maxRetries = 1,
-  //     string fullURL = "/")
-  // {
-  //   // Use the appropriate factory method based on iteration mode
-  //   if (mode == IterationModeEnum.SinglePass)
-  //   {
-  //     return IteratorFactory.CreateSinglePassIterator(this, loadBalanceMode, fullURL);
-  //   }
-  //   else
-  //   {
-  //     return IteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries, fullURL);
-  //   }
-  // }
-
-  // Add method to invalidate iterator cache when hosts change
   private void InvalidateIteratorCache()
   {
-    IteratorFactory.InvalidateCache();
-    
-    // Also invalidate shared iterators so they get fresh latency ordering
     _sharedIteratorRegistry?.InvalidateAll();
   }
 

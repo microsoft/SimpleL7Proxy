@@ -5,26 +5,10 @@ using System.Threading;
 namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
-/// Thread-safe wrapper around IHostIterator for sharing across multiple concurrent requests.
-/// Provides atomic TryGetNextHost operations and automatic reset when exhausted (circular behavior).
-/// 
-/// DESIGN:
-/// ┌─────────────────────────────────────────────────────────────────────────────┐
-/// │  SharedHostIterator - Thread-Safe Circular Iterator                         │
-/// ├─────────────────────────────────────────────────────────────────────────────┤
-/// │                                                                             │
-/// │  Request1 ───┐                                                              │
-/// │              │    ┌──────────────────────────────────┐                      │
-/// │  Request2 ───┼───►│  TryGetNextHost() [lock]         │───► Host A           │
-/// │              │    │  - Atomic MoveNext + Current     │                      │
-/// │  Request3 ───┘    │  - Auto-reset when exhausted     │                      │
-/// │                   └──────────────────────────────────┘                      │
-/// │                                                                             │
-/// │  Hosts: [A, B, C] ──► Position cycles: 0→1→2→0→1→2→...                      │
-/// │                                                                             │
-/// └─────────────────────────────────────────────────────────────────────────────┘
+/// Shares one circular, atomically advanced host sequence across concurrent requests.
+/// Per-request attempt and circuit-breaker state remains in <see cref="IterationState"/>.
 /// </summary>
-public sealed class SharedHostIterator : BaseIterator, ISharedHostIterator, IDisposable
+public sealed class SharedHostIterator : BaseIterator, IDisposable
 {
     private readonly List<BaseHostHealth> _hosts;
     private readonly string _path;
@@ -50,13 +34,13 @@ public sealed class SharedHostIterator : BaseIterator, ISharedHostIterator, IDis
         _lastUsed = DateTime.UtcNow;
     }
 
-    /// <inheritdoc/>
+    /// <summary>Gets the normalized request path used as the registry key.</summary>
     public string Path => _path;
 
-    /// <inheritdoc/>
+    /// <summary>Gets the request path after removing its matched routing prefix.</summary>
     public string ModifiedPath => _modifiedPath;
 
-    /// <inheritdoc/>
+    /// <summary>Gets the approximate time at which a request last selected a host.</summary>
     public DateTime LastUsed => _lastUsed;
 
     /// <inheritdoc/>
@@ -68,7 +52,7 @@ public sealed class SharedHostIterator : BaseIterator, ISharedHostIterator, IDis
     protected override int SinglePassCap => HostCount;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<BaseHostHealth> Hosts => GetHostsSnapshot();
+    protected override IReadOnlyList<BaseHostHealth> Hosts => GetHostsSnapshot();
 
     /// <summary>
     /// Fetches one candidate via the atomic circular index — no lap concept to reset.
@@ -84,7 +68,7 @@ public sealed class SharedHostIterator : BaseIterator, ISharedHostIterator, IDis
     /// </summary>
     /// <param name="host">The next host, or null if no hosts are available</param>
     /// <returns>True if a host was retrieved, false if no hosts are available</returns>
-    public bool TryGetNextHost(out BaseHostHealth? host)
+    private bool TryGetNextHost(out BaseHostHealth? host)
     {
         if (_disposed)
         {
@@ -110,23 +94,9 @@ public sealed class SharedHostIterator : BaseIterator, ISharedHostIterator, IDis
     }
 
     /// <summary>
-    /// Records the result of a request to a host.
-    /// Currently a no-op for round-robin style sharing, but can be extended
-    /// for adaptive load balancing.
-    /// </summary>
-    /// <param name="host">The host that was used</param>
-    /// <param name="success">Whether the request was successful</param>
-    public override void RecordResult(BaseHostHealth host, bool success)
-    {
-        // For shared iterators, we don't adjust selection based on individual results
-        // The circuit breaker at the host level handles failure tracking
-        // This can be extended later for adaptive load balancing if needed
-    }
-
-    /// <summary>
     /// Gets a snapshot of the current hosts for debugging.
     /// </summary>
-    public IReadOnlyList<BaseHostHealth> GetHostsSnapshot()
+    private IReadOnlyList<BaseHostHealth> GetHostsSnapshot()
     {
         lock (_lock)
         {

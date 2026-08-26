@@ -1,16 +1,16 @@
 namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
-/// Traverses a set of hosts in one ordering strategy's sequence for a single lap.
-/// Pass/repeat control (SinglePass vs MultiPass, MaxAttempts) lives in <see cref="BaseIterator"/>,
-/// not here — MoveNext returning false just means "this lap is done"; Reset starts a new one.
+/// Selects backend hosts while enforcing per-request pass, attempt, and circuit-breaker rules.
 /// </summary>
-public interface IHostIterator : IEnumerator<BaseHostHealth>
+public interface IHostIterator
 {
-    void RecordResult(BaseHostHealth host, bool success);
-    /// <summary>
-    /// Gets the total number of hosts in this iterator.
-    /// </summary>
+    /// <summary>Gets the number of backend hosts available to this iterator.</summary>
     int HostCount { get; }
-    IReadOnlyList<BaseHostHealth> Hosts { get; }
+
+    /// <summary>Gets the next eligible backend host for the request.</summary>
+    bool TryGet(IterationState state, out BaseHostHealth? host);
+
+    /// <summary>Records one completed backend attempt against the request's attempt budget.</summary>
+    void RecordResult(IterationState state, BaseHostHealth host, bool success);
 }

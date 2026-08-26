@@ -70,6 +70,7 @@ public class RequeueDelayWorker : IRequeueWorker, IShutdownParticipant, IDisposa
                     delayMs, request.Guid);
 
                 await delayTask.ConfigureAwait(false);
+                request.RequeueDelayMs += delayMs;
 
                 request.SBStatus = ServiceBusMessageStatusEnum.Requeued;
 
