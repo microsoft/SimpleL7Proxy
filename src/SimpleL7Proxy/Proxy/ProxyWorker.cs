@@ -1621,7 +1621,14 @@ public class ProxyWorker : IConfigChangeSubscriber
             _backends.GetHosts().Any(host =>
                 host.Config.PriorityGroup != 1 || host.Config.AcceptablePriorities.Count > 0);
 
-        if (_options.UseSharedIterators && _wrkCntxt.SharedIteratorRegistry != null && !usesPriorityRouting)
+        // Latency/TTFB re-rank hosts per request using live health metrics — a shared iterator
+        // freezes the order at first creation and cycles it circularly forever, silently
+        // degrading them to round-robin. Only fairness-only, order-agnostic modes may share.
+        var loadBalanceModeSupportsSharing =
+            _options.LoadBalanceMode is Constants.RoundRobin or Constants.Random;
+
+        if (_options.UseSharedIterators && _wrkCntxt.SharedIteratorRegistry != null &&
+            !usesPriorityRouting && loadBalanceModeSupportsSharing)
         {
             // Use shared iterator - multiple requests to same path share the same iterator
             // The modifiedPath is stored on the iterator itself, so we don't need a second filtering call
