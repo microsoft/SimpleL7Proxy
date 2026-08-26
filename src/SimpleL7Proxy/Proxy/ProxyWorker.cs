@@ -1567,7 +1567,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         }
 
         // copy headers from the response to the ProxyData object
-        ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
+        ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr, s_stripResponseHeaders);
         pr.BodyResponseMessage = proxyResponse;
 
         // // HTTP/1.0 backends use connection-close to delimit the response body (no Content-Length,
@@ -2071,7 +2071,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             memoryBuffer.Length, request.Guid);
 
         var pr = new ProxyData();
-        ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
+        ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr, s_stripResponseHeaders);
         if (pr.Headers != null && request.asyncWorker != null)
         {
             await request.asyncWorker.SaveResponseHeadersAsync(proxyResponse.StatusCode!, pr.Headers);

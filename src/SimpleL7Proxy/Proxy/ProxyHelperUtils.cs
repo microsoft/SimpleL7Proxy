@@ -55,18 +55,24 @@ public static class ProxyHelperUtils
     /// </summary>
     /// <param name="response">The HTTP response message to copy headers from</param>
     /// <param name="pr">The ProxyData object to copy headers to</param>
-    public static void CopyResponseHeaders(HttpResponseMessage response, ProxyData pr)
+    /// <param name="stripHeaders">Optional set of response headers that must not be copied</param>
+    public static void CopyResponseHeaders(
+        HttpResponseMessage response,
+        ProxyData pr,
+        IReadOnlySet<string>? stripHeaders = null)
     {
         // Response headers
         foreach (var header in response.Headers)
         {
-            if (ExcludedHeaders.Contains(header.Key)) continue;
+            if (ExcludedHeaders.Contains(header.Key) || stripHeaders?.Contains(header.Key) == true) continue;
             pr.Headers[header.Key] = string.Join(", ", header.Value);
         }
 
         // Content headers
         foreach (var header in response.Content.Headers)
         {
+            if (stripHeaders?.Contains(header.Key) == true) continue;
+
             var value = string.Join(", ", header.Value);
             pr.ContentHeaders[header.Key] = value;
 

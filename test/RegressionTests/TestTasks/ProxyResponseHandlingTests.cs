@@ -17,8 +17,44 @@ public sealed class ProxyResponseHandlingTests : IRegressionTestMetadata
             ["backend-exhaustion"] = new(
                 "Reliability & Capacity",
                 "Exhausted backend response",
-                "Preserves the most useful terminal status and ordered attempt evidence when every backend attempt is exhausted.")
+                "Preserves the most useful terminal status and ordered attempt evidence when every backend attempt is exhausted."),
+            ["response-header-filtering"] = new(
+                "Request & Response Handling",
+                "Response header filtering",
+                "Prevents configured backend response and content headers from reaching synchronous or asynchronous clients.")
         };
+
+    [TestMethod]
+    [RegressionTestCase(
+        "response-header-filtering",
+        "Configured response headers are removed before delivery",
+        "Filters ordinary and content headers case-insensitively while preserving headers that are not configured for removal.")]
+    public void CopyResponseHeaders_FiltersConfiguredResponseAndContentHeaders()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([1, 2, 3])
+        };
+        response.Headers.TryAddWithoutValidation("x-remove-response", "secret");
+        response.Headers.TryAddWithoutValidation("x-keep-response", "visible");
+        response.Content.Headers.TryAddWithoutValidation("x-remove-content", "secret");
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+
+        var stripHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "X-REMOVE-RESPONSE",
+            "X-REMOVE-CONTENT"
+        };
+        var proxyData = new ProxyData();
+
+        ProxyHelperUtils.CopyResponseHeaders(response, proxyData, stripHeaders);
+
+        Assert.IsNull(proxyData.Headers["x-remove-response"]);
+        Assert.IsNull(proxyData.Headers["x-remove-content"]);
+        Assert.IsNull(proxyData.ContentHeaders["x-remove-content"]);
+        Assert.AreEqual("visible", proxyData.Headers["x-keep-response"]);
+        Assert.AreEqual("text/plain", proxyData.ContentHeaders["Content-Type"]);
+    }
 
     [DataTestMethod]
     [RegressionTestCase(
