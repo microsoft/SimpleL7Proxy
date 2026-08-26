@@ -1,5 +1,7 @@
 namespace SimpleL7Proxy.Backend;
 
+using SimpleL7Proxy.Backend.Iterators;
+
 /// <summary>
 /// Unresolved named path configuration loaded from a <c>Path_*</c> setting.
 /// </summary>
@@ -9,10 +11,18 @@ public sealed class PathRouteDefinition
   public string Prefix { get; }
   public IReadOnlyList<string> HostKeys { get; }
   public bool StripPrefix { get; }
+  /// <summary>Overrides the global iteration mode for this route when set.</summary>
+  public IterationModeEnum? IterationMode { get; }
   /// <summary>Overrides the global LoadBalancing:MultiPass:MaxAttempts for this route when set.</summary>
   public int? MaxAttempts { get; }
 
-  public PathRouteDefinition(string name, string prefix, IEnumerable<string> hostKeys, bool stripPrefix, int? maxAttempts = null)
+  public PathRouteDefinition(
+      string name,
+      string prefix,
+      IEnumerable<string> hostKeys,
+      bool stripPrefix,
+      int? maxAttempts = null,
+      IterationModeEnum? iterationMode = null)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(name);
     ArgumentNullException.ThrowIfNull(hostKeys);
@@ -26,6 +36,11 @@ public sealed class PathRouteDefinition
         .ToArray();
     StripPrefix = stripPrefix;
 
+    if (iterationMode.HasValue &&
+        iterationMode.Value is not IterationModeEnum.SinglePass and not IterationModeEnum.MultiPass)
+      throw new UriFormatException($"Path route '{Name}' iterationmode must be SinglePass or MultiPass.");
+    IterationMode = iterationMode;
+
     if (maxAttempts is < 1)
       throw new UriFormatException($"Path route '{Name}' maxattempts must be a positive integer.");
     MaxAttempts = maxAttempts;
@@ -35,7 +50,7 @@ public sealed class PathRouteDefinition
   }
 
   internal string Signature =>
-      $"{Name.ToUpperInvariant()}|{Prefix.ToUpperInvariant()}|{StripPrefix}|{MaxAttempts}|{string.Join(':', HostKeys.Select(key => key.ToUpperInvariant()))}";
+      $"{Name.ToUpperInvariant()}|{Prefix.ToUpperInvariant()}|{StripPrefix}|{IterationMode}|{MaxAttempts}|{string.Join(':', HostKeys.Select(key => key.ToUpperInvariant()))}";
 
   private static string NormalizePrefix(string prefix)
   {
@@ -64,6 +79,8 @@ public sealed class PathRoute
   public string Name { get; }
   public string Prefix { get; }
   public bool StripPrefix { get; }
+  /// <summary>Overrides the global iteration mode for this route when set.</summary>
+  public IterationModeEnum? IterationMode { get; }
   /// <summary>Overrides the global LoadBalancing:MultiPass:MaxAttempts for this route when set.</summary>
   public int? MaxAttempts { get; }
   public IReadOnlyList<HostConfig> ConfiguredHosts { get; }
@@ -80,6 +97,7 @@ public sealed class PathRoute
     Name = definition.Name;
     Prefix = definition.Prefix;
     StripPrefix = definition.StripPrefix;
+    IterationMode = definition.IterationMode;
     MaxAttempts = definition.MaxAttempts;
     ConfiguredHosts = configuredHosts;
     DirectHosts = directHosts;

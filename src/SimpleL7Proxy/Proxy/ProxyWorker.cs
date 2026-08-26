@@ -368,7 +368,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                         );
 
                     // Log circuit breaker details when status code is -1
-                    if (statusCodeInt == -1 || statusCodeInt == 503)
+                    if (incomingRequest.Debug && (statusCodeInt == -1 || statusCodeInt == 503))
                     {
                         _logger.LogCritical("[CircuitBreaker] Status {StatusCode} detected for request {Guid}. Backend host: {HFstreamost}",
                             statusCodeInt, incomingRequest.Guid, pr.BackendHostname);
@@ -887,7 +887,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}",
             request.Guid, matchingHostCount, modifiedPath);
 
-        if (matchingHostCount == 0)
+        if (matchingHostCount == 0 && request.Debug)
         {
             _logger.LogWarning("[ProxyToBackEnd:{Guid}] ⚠ NO BACKEND HOSTS matched path {Path} - Request will fail",
                 request.Guid, modifiedPath);
@@ -1631,6 +1631,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         string modifiedPath = "";
         IHostIterator iterator;
         int maxAttempts = _options.MaxAttempts;
+        var iterationMode = request.IterationMode;
 
         var routeMatch = _backends.MatchRoute(request.Path);
         var usesPriorityRouting = routeMatch != null ||
@@ -1674,11 +1675,23 @@ public class ProxyWorker : IConfigChangeSubscriber
             // A route-level maxattempts= overrides the global MaxAttempts option when set.
             maxAttempts = routeMatch.Value.Route.MaxAttempts ?? _options.MaxAttempts;
 
+            // A valid per-request header remains the most specific override. Otherwise,
+            // use the route mode when configured, then fall back to the global mode.
+            var iterationModeHeader = request.Headers["S7P-Iterator"].AsSpan().Trim();
+            var hasRequestModeOverride =
+                Enum.TryParse(iterationModeHeader, true, out IterationModeEnum requestModeOverride) &&
+                requestModeOverride is IterationModeEnum.SinglePass or IterationModeEnum.MultiPass;
+            if (!hasRequestModeOverride && routeMatch.Value.Route.IterationMode.HasValue)
+            {
+                iterationMode = routeMatch.Value.Route.IterationMode.Value;
+                request.IterationMode = iterationMode;
+            }
+
             iterator = IteratorFactory.CreateFixedOrderIterator(candidateHosts);
 
             _logger.LogDebug(
-                "[ProxyToBackEnd:{Guid}] Using named route '{RouteName}' for path '{Path}' with {HostCount} hosts (MaxAttempts={MaxAttempts})",
-                request.Guid, routeMatch.Value.Route.Name, request.Path, iterator.HostCount, maxAttempts);
+                "[ProxyToBackEnd:{Guid}] Using named route '{RouteName}' for path '{Path}' with {HostCount} hosts (IterationMode={IterationMode}, MaxAttempts={MaxAttempts})",
+                request.Guid, routeMatch.Value.Route.Name, request.Path, iterator.HostCount, iterationMode, maxAttempts);
         }
         else
         {
@@ -1694,7 +1707,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         // Seeded with LifetimeBackendAttempts so MaxAttempts is a true ceiling across
         // requeue cycles, not just the current one.
-        var state = new IterationState(request.IterationMode, maxAttempts, logger: _logger, priorAttempts: request.LifetimeBackendAttempts);
+        var state = new IterationState(iterationMode, maxAttempts, logger: _logger, priorAttempts: request.LifetimeBackendAttempts);
 
         return (iterator, state, modifiedPath);
     }
@@ -1837,7 +1850,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
                 if (request.RequeueDelayMs > 0)
                 {
-                    request.Context.Response.Headers["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                    request.Context.Response.Headers["x-Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
                 }
                 request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
                 request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;

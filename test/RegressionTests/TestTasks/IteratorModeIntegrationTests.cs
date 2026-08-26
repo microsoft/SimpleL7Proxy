@@ -141,6 +141,123 @@ public sealed partial class PolicyScenarioIntegrationTests
 
     [TestMethod]
     [RegressionTestCase(
+        "named-route-iteration-mode",
+        "Named routes override the global iteration mode",
+        "Runs a route configured for SinglePass over a global MultiPass mode, then confirms a valid S7P-Iterator header can override the route for one request.")]
+    [TestCategory("Integration")]
+    [TestCategory("Iterator")]
+    [Timeout(180_000)]
+    public async Task NamedRoute_IterationModeOverridesGlobal_UnlessRequestHeaderIsValid()
+    {
+        var config = IteratorTestLocalConfig.Load();
+        var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
+        var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
+        Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
+        Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
+
+        var artifactRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"simplel7proxy-route-iterator-test-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(artifactRoot);
+        TestContext.WriteLine($"Route iterator test artifacts: {artifactRoot}");
+
+        var ports = GetAvailablePorts(4);
+        var backendPorts = ports.Take(3).ToArray();
+        var proxyPort = ports[3];
+        var backendUrls = backendPorts.Select(port => $"http://127.0.0.1:{port}").ToArray();
+        var backendProcesses = new List<LoggedProcess>();
+        LoggedProcess? proxy = null;
+
+        try
+        {
+            for (int index = 0; index < backendPorts.Length; index++)
+            {
+                backendProcesses.Add(LoggedProcess.Start(
+                    $"route iterator backend {(char)('A' + index)}",
+                    CreateStreamServerStartInfo(pythonExecutable, streamServerPath, backendPorts[index]),
+                    Path.Combine(artifactRoot, $"backend-{index + 1}.stdout.log"),
+                    Path.Combine(artifactRoot, $"backend-{index + 1}.stderr.log")));
+            }
+
+            await Task.WhenAll(backendProcesses.Select((process, index) =>
+                WaitUntilReadyAsync(process, new Uri($"{backendUrls[index]}/health"), timeout)));
+
+            var proxyEnvironment = new Dictionary<string, string>(config.ProxyEnvironment, StringComparer.OrdinalIgnoreCase)
+            {
+                ["IterationMode"] = "MultiPass",
+                ["MaxAttempts"] = "5",
+                ["UseSharedIterators"] = "false",
+                ["Path_iterator"] =
+                    "prefix=/route;hosts=Host_iterator_a:Host_iterator_b:Host_iterator_c;" +
+                    "stripprefix=true;iterationmode=SinglePass;maxattempts=5"
+            };
+            var eventLogPath = Path.Combine(artifactRoot, "events.ndjson");
+            proxy = LoggedProcess.Start(
+                "route iterator test proxy",
+                CreateIteratorProxyStartInfo(
+                    proxyEnvironment,
+                    proxyAssembly,
+                    proxyPort,
+                    eventLogPath,
+                    backendPorts),
+                Path.Combine(artifactRoot, "proxy.stdout.log"),
+                Path.Combine(artifactRoot, "proxy.stderr.log"));
+
+            await WaitUntilReadyAsync(proxy, new Uri($"http://127.0.0.1:{proxyPort}/startup"), timeout);
+            await WaitForActiveBackendsAsync(proxy, eventLogPath, backendPorts.Length, timeout);
+
+            using var client = new HttpClient
+            {
+                BaseAddress = new Uri($"http://127.0.0.1:{proxyPort}"),
+                Timeout = timeout
+            };
+
+            await RunIteratorCaseAsync(
+                client,
+                eventLogPath,
+                new IteratorCase(
+                    "route-single-pass",
+                    null,
+                    3,
+                    HttpStatusCode.InternalServerError,
+                    "\"Attempt-3\"",
+                    "/route/500error"),
+                backendUrls,
+                timeout);
+
+            await RunIteratorCaseAsync(
+                client,
+                eventLogPath,
+                new IteratorCase(
+                    "header-multi-pass",
+                    "MultiPass",
+                    5,
+                    HttpStatusCode.PreconditionFailed,
+                    "Maximum backend attempts reached (5).",
+                    "/route/500error"),
+                backendUrls,
+                timeout);
+        }
+        finally
+        {
+            if (proxy != null)
+            {
+                await proxy.DisposeAsync();
+            }
+
+            foreach (var backend in backendProcesses)
+            {
+                await backend.DisposeAsync();
+            }
+
+            AttachScenarioArtifacts(artifactRoot);
+        }
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
         "time-to-first-byte-load",
         "TTFB mode prefers the fastest active backend under real latency",
         "Starts one deliberately slow backend and two fast backends, sends multiple requests in timetofirstbyte mode, and confirms the slow backend is avoided.")]
@@ -321,7 +438,7 @@ public sealed partial class PolicyScenarioIntegrationTests
     {
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            $"/500error?case={Uri.EscapeDataString(testCase.Name)}")
+            $"{testCase.Path}?case={Uri.EscapeDataString(testCase.Name)}")
         {
             Content = new StringContent("{}", Encoding.UTF8, "application/json")
         };
@@ -679,6 +796,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         string? IteratorHeader,
         int ExpectedAttempts,
         HttpStatusCode ExpectedStatusCode,
-        string ExpectedBodyText);
+        string ExpectedBodyText,
+        string Path = "/500error");
     private sealed record IteratorBackendAttempt(int Attempt, string BackendHost);
 }

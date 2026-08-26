@@ -126,6 +126,7 @@ def parse_delay(value):
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
+    _debug_requests = False
     _rate_limit = 0
     _rate_limit_lock = threading.Lock()
     _rate_limit_window_start = 0.0
@@ -145,7 +146,43 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         self.gotAuth = ""
+        self._request_started_at = 0.0
+        self._request_timing_logged = False
+        self._debug_request_body = None
         super().__init__(*args, **kwargs)
+
+    def parse_request(self):
+        self._request_started_at = time.perf_counter()
+        self._request_timing_logged = False
+        self._debug_request_body = None
+        return super().parse_request()
+
+    def flush_headers(self):
+        super().flush_headers()
+        if MyHandler._debug_requests and not self._request_timing_logged:
+            self._request_timing_logged = True
+            self.log_request_timing()
+
+    @staticmethod
+    def parse_duration_ms(value):
+        match = _re.match(r'^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))', str(value))
+        return float(match.group(1)) if match else 0.0
+
+    def log_request_timing(self):
+        request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+        server_ttfb_ms = max(0.0, (time.perf_counter() - self._request_started_at) * 1000.0)
+        total_ttfb_ms = (
+            self.parse_duration_ms(queue_time)
+            + self.parse_duration_ms(process_time)
+            + server_ttfb_ms
+        )
+        request_path = urlparse(getattr(self, 'path', '')).path or 'N/A'
+        body_info = f" Body: {self._debug_request_body}" if self._debug_request_body is not None else ""
+        print(
+            f"Request: {request_path}  Sequence: {request_sequence} "
+            f"QueueTime: {queue_time} ProcessTime: {process_time} "
+            f"TTFB: {total_ttfb_ms:.4f}ms ID: {s7pid}{body_info}",
+            flush=True)
     
     def log_message(self, format, *args):
         """Override the default log message to include Authorization and delay info"""
@@ -276,8 +313,9 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             key = query_params.get('key', ['default'])[0]
             try:
                 retry_after_ms = max(1, int(query_params.get('retryAfterMs', ['1500'])[0]))
+                failure_count = max(1, int(query_params.get('failures', ['1'])[0]))
             except ValueError:
-                self.send_fixed_response(400, b"retryAfterMs must be a positive integer")
+                self.send_fixed_response(400, b"retryAfterMs and failures must be positive integers")
                 return
 
             throttle_port = query_params.get('throttlePort', [None])[0]
@@ -297,16 +335,18 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                     return
 
             with MyHandler._retry_after_once_lock:
-                first_attempt = key not in MyHandler._retry_after_once_keys
-                MyHandler._retry_after_once_keys.add(key)
+                attempt = 1
+                while f"{key}:{attempt}" in MyHandler._retry_after_once_keys:
+                    attempt += 1
+                MyHandler._retry_after_once_keys.add(f"{key}:{attempt}")
 
-            attempt = 1 if first_attempt else 2
+            should_throttle = attempt <= failure_count
             print(
                 f"RETRY_AFTER_ONCE key={key} attempt={attempt} "
-                f"timestamp={time.time():.6f} retry_after_ms={retry_after_ms} throttled={str(first_attempt).lower()}",
+                f"timestamp={time.time():.6f} retry_after_ms={retry_after_ms} throttled={str(should_throttle).lower()}",
                 flush=True)
 
-            if first_attempt:
+            if should_throttle:
                 self.close_connection = True
                 self.send_fixed_response(
                     503,
@@ -323,7 +363,8 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             # Read the body
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
             request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
-            print(f"Request: {parsed_path.path}  Body: {request_body}")
+            if MyHandler._debug_requests:
+                self._debug_request_body = request_body
             try:
                 retry_after_ms = max(1, int(query_params.get('retryAfterMs', ['10000'])[0]))
             except ValueError:
@@ -385,7 +426,8 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             # Read the body
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
             request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
-            print(f"Request: {parsed_path.path}  Body: {request_body}")
+            if MyHandler._debug_requests:
+                self._debug_request_body = request_body
             body = b"Hello, world!"
             self.send_response(429)
             self.send_header("Content-Type", "text/plain")
@@ -445,11 +487,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
 
         # Default response
-        # Extract specific headers
-        request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
-
-        print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")
-
         try:
             self.send_streaming_response("stream_data.txt", processor, streaming)
         except BrokenPipeError:
@@ -516,10 +553,11 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def extract_request_headers(self):
-        request_sequence = self.headers.get('x-Request-Sequence', 'N/A')
-        queue_time = self.headers.get('x-Request-Queue-Duration', 'N/A')
-        process_time = self.headers.get('x-Request-Process-Duration', 'N/A')
-        s7pid = self.headers.get('x-S7PID', 'N/A')
+        headers = getattr(self, 'headers', {})
+        request_sequence = headers.get('x-Request-Sequence', 'N/A')
+        queue_time = headers.get('x-Request-Queue-Duration', 'N/A')
+        process_time = headers.get('x-Request-Process-Duration', 'N/A')
+        s7pid = headers.get('x-S7PID', 'N/A')
         return request_sequence,queue_time,process_time,s7pid
     
     def handle_delay_endpoint(self, delay_seconds, streaming=False):
@@ -689,7 +727,7 @@ def handle_sigint(signum, frame):
     print("\nReceived interrupt, shutting down server...")
     shutdown_event.set()
 
-def mt_main(port=None, shutdown_after=None):
+def mt_main(port=None, shutdown_after=None, debug=False):
     """Start the threaded HTTP server.
 
     Args:
@@ -704,6 +742,7 @@ def mt_main(port=None, shutdown_after=None):
     if effective_port < 1024 or effective_port > 65535:
         raise ValueError("Port must be between 1024 and 65535")
 
+    MyHandler._debug_requests = debug
     httpd = ThreadedTCPServer(("localhost", effective_port), MyHandler)
     rate_limit_status = (f"rate limit {MyHandler._rate_limit} requests/5s"
                          if MyHandler._rate_limit > 0 else "rate limit disabled")
@@ -759,6 +798,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_sigint)
     parser = argparse.ArgumentParser(description='Lightweight stream/null server for local testing')
     parser.add_argument('--port', '-p', type=int, help='Port to listen on (overrides PORT env var)')
+    parser.add_argument('--debug', '-d', action='store_true', help='Log per-request queue, process, and TTFB timing')
     # Short flag --shutdown/-s is the preferred name. Keep --shutdown-after as a long-only compatibility alias.
     parser.add_argument('--shutdown', '-s', type=float, dest='shutdown_after', help='If provided, server will automatically stop after N seconds (useful for tests)')
     parser.add_argument('--shutdown-after', type=float, dest='shutdown_after', help=argparse.SUPPRESS)
@@ -769,4 +809,4 @@ if __name__ == '__main__':
     shutdown_after = args.shutdown_after if args.shutdown_after is not None else None
 
     load_file_cache()
-    mt_main(port=cli_port, shutdown_after=shutdown_after)
+    mt_main(port=cli_port, shutdown_after=shutdown_after, debug=args.debug)

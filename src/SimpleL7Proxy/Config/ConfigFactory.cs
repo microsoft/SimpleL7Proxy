@@ -681,6 +681,7 @@ public static class ConfigFactory
           !key.Equals("hosts", StringComparison.OrdinalIgnoreCase) &&
           !key.Equals("stripprefix", StringComparison.OrdinalIgnoreCase) &&
           !key.Equals("strippathprefix", StringComparison.OrdinalIgnoreCase) &&
+          !key.Equals("iterationmode", StringComparison.OrdinalIgnoreCase) &&
           !key.Equals("maxattempts", StringComparison.OrdinalIgnoreCase))
       {
         throw new UriFormatException($"Invalid path route configuration key: {key}");
@@ -698,6 +699,15 @@ public static class ConfigFactory
     if (stripPrefixValue != null && !bool.TryParse(stripPrefixValue, out stripPrefix))
       throw new UriFormatException($"Invalid stripprefix value: {stripPrefixValue}");
 
+    IterationModeEnum? iterationMode = null;
+    if (values.TryGetValue("iterationmode", out var iterationModeValue))
+    {
+      if (!Enum.TryParse(iterationModeValue, true, out IterationModeEnum parsedIterationMode) ||
+          parsedIterationMode is not IterationModeEnum.SinglePass and not IterationModeEnum.MultiPass)
+        throw new UriFormatException($"Invalid iterationmode value: {iterationModeValue}");
+      iterationMode = parsedIterationMode;
+    }
+
     int? maxAttempts = null;
     if (values.TryGetValue("maxattempts", out var maxAttemptsValue))
     {
@@ -707,7 +717,7 @@ public static class ConfigFactory
     }
 
     var hostKeys = hostsValue.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    return new PathRouteDefinition(pathKey, prefix, hostKeys, stripPrefix, maxAttempts);
+    return new PathRouteDefinition(pathKey, prefix, hostKeys, stripPrefix, maxAttempts, iterationMode);
   }
 
   private static IEnumerable<string> EnumerateConfigKeys(

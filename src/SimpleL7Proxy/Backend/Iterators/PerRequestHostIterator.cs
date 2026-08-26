@@ -131,15 +131,17 @@ public sealed class PerRequestHostIterator : BaseIterator
             _ => HostOrder.Random
         };
 
+
+    // the LB magic is here... based on the loadBalanceMode, we can change the order of the hosts for each lap
     private static List<BaseHostHealth> CreateOrderedSnapshot(
         List<BaseHostHealth> hosts,
         HostOrder hostOrder)
     {
         var orderedHosts = hostOrder switch
         {
-            HostOrder.Latency => hosts.OrderBy(host => host.AverageLatency()).ToList(),
-            HostOrder.TimeToFirstByte => hosts.OrderBy(host => host.TimeToFirstByteMs).ToList(),
-            HostOrder.PriorityGroup => hosts
+            HostOrder.Latency => hosts.OrderBy(host => host.AverageLatency()).ToList(),          // as measured by the probe
+            HostOrder.TimeToFirstByte => hosts.OrderBy(host => host.TimeToFirstByteMs).ToList(), // as measured by the requests
+            HostOrder.PriorityGroup => hosts                                                     // based on the configured priority group
                 .OrderBy(host => host.Config.PriorityGroup)
                 .ToList(),
             _ => new List<BaseHostHealth>(hosts)

@@ -239,13 +239,15 @@ public sealed partial class PolicyScenarioIntegrationTests
                 @"(?m)^(?<timestamp>\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) " +
                 @"\[ProxyToBackEnd:(?<guid>[^\]]+)\] Attempting backend host: .+ " +
                 @"\(Attempt #(?<attempt>\d+)\)");
-            var firstAttempt = attemptMatches.Cast<Match>()
-                .FirstOrDefault(match => match.Groups["attempt"].Value == "1");
             var secondAttempt = attemptMatches.Cast<Match>()
                 .FirstOrDefault(match => match.Groups["attempt"].Value == "2");
-            Assert.IsNotNull(firstAttempt, "The first proxy backend attempt was not logged.");
             Assert.IsNotNull(secondAttempt, "The retried proxy backend attempt was not logged.");
-            Assert.AreEqual(firstAttempt.Groups["guid"].Value, secondAttempt.Groups["guid"].Value);
+            var retryRequestGuid = secondAttempt.Groups["guid"].Value;
+            var firstAttempt = attemptMatches.Cast<Match>()
+                .FirstOrDefault(match =>
+                    match.Groups["attempt"].Value == "1" &&
+                    match.Groups["guid"].Value == retryRequestGuid);
+            Assert.IsNotNull(firstAttempt, "The first proxy backend attempt was not logged.");
 
             var firstProxyAttempt = ParseCircuitBreakerLogTimestamp(firstAttempt.Groups["timestamp"].Value);
             var secondProxyAttempt = ParseCircuitBreakerLogTimestamp(secondAttempt.Groups["timestamp"].Value);
@@ -274,17 +276,19 @@ public sealed partial class PolicyScenarioIntegrationTests
                 stopwatch.Elapsed.TotalMilliseconds >= expectedDelayMs - 100,
                 $"Client completed after {stopwatch.Elapsed.TotalMilliseconds:F0}ms; expected a queued retry delay.");
 
+            var repeatedRequestKey = Guid.NewGuid().ToString("N");
             var proxyLogBeforeRepeatedRequeues = await File.ReadAllTextAsync(proxyStdoutPath);
             var repeatedRequeueStopwatch = Stopwatch.StartNew();
-            using var repeatedRequeueResponse = await client.GetAsync("/429error?retryAfterMs=50");
+            using var repeatedRequeueResponse = await client.GetAsync(
+                $"/retry-after-once?key={repeatedRequestKey}&retryAfterMs=50&failures=2");
             var repeatedRequeueBody = await repeatedRequeueResponse.Content.ReadAsStringAsync();
             repeatedRequeueStopwatch.Stop();
 
-            Assert.AreEqual(HttpStatusCode.PreconditionFailed, repeatedRequeueResponse.StatusCode);
-            StringAssert.Contains(repeatedRequeueBody, "Maximum backend attempts reached (5).");
+            Assert.AreEqual(HttpStatusCode.OK, repeatedRequeueResponse.StatusCode);
+            Assert.AreEqual("Retry succeeded", repeatedRequeueBody);
             Assert.IsTrue(
                 repeatedRequeueResponse.Headers.TryGetValues("Request-Requeue-Delay", out var cumulativeDelayHeaderValues),
-                "The terminal response did not include Request-Requeue-Delay.");
+                "The response did not include cumulative Request-Requeue-Delay.");
 
             var proxyLogAfterRepeatedRequeues = await File.ReadAllTextAsync(proxyStdoutPath);
             var repeatedRequeueLog = proxyLogAfterRepeatedRequeues[proxyLogBeforeRepeatedRequeues.Length..];
@@ -292,8 +296,8 @@ public sealed partial class PolicyScenarioIntegrationTests
                 repeatedRequeueLog,
                 @"Starting requeue delay of (?<delay>\d+)ms");
             Assert.IsTrue(
-                repeatedDelayMatches.Count >= 2,
-                $"Expected at least two completed requeue delays, but found {repeatedDelayMatches.Count}.");
+                repeatedDelayMatches.Count == 2,
+                $"Expected exactly two completed requeue delays, but found {repeatedDelayMatches.Count}.");
 
             var scheduledCumulativeDelayMs = repeatedDelayMatches
                 .Select(match => int.Parse(match.Groups["delay"].Value, CultureInfo.InvariantCulture))
