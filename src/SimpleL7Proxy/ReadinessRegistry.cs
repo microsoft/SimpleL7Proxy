@@ -70,12 +70,12 @@ public sealed class ReadinessRegistry
         int idx = (int)p;
         if (Interlocked.Exchange(ref _state[idx], 1) != 0) return;
 
-        // _logger.LogInformation("[GATE] \u2713 {Name} ready", p);
+         _logger.LogInformation("[GATE] \u2713 {Name} ready", p);
         if (_expected[idx]
             && Interlocked.Increment(ref _readyCount) == _expectedCount
             && _ready.TrySetResult())
         {
-            // _logger.LogInformation("[GATE] \u2713 All participants ready");
+            _logger.LogInformation("[GATE] \u2713 All participants ready");
         }
     }
 

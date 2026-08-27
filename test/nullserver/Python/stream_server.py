@@ -127,6 +127,13 @@ def parse_delay(value):
 class MyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     _debug_requests = False
+    _control_lock = threading.Lock()
+    _hold_requests = threading.Event()
+    _hold_requests.set()
+    _health_status = 200
+    _health_delay_ms = 0
+    _health_request_count = 0
+    _arrivals = []
     _rate_limit = 0
     _rate_limit_lock = threading.Lock()
     _rate_limit_window_start = 0.0
@@ -204,6 +211,80 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         
         print(f"{self.address_string()} - - [{self.log_date_time_string()}] {modified_message}")
 
+    def send_json_response(self, code, value):
+        body = json.dumps(value, sort_keys=True).encode('utf-8')
+        self.send_fixed_response(code, body, content_type="application/json")
+
+    def handle_test_control(self, parsed_path):
+        query_params = parse_qs(parsed_path.query)
+
+        if parsed_path.path == '/test-control/reset':
+            with MyHandler._control_lock:
+                MyHandler._health_status = 200
+                MyHandler._health_delay_ms = 0
+                MyHandler._health_request_count = 0
+                MyHandler._arrivals = []
+            with MyHandler._request_count_lock:
+                MyHandler._request_counts = {}
+            with MyHandler._retry_after_once_lock:
+                MyHandler._retry_after_once_keys = set()
+            MyHandler._hold_requests.set()
+            self.send_json_response(200, {"reset": True})
+            return
+
+        if parsed_path.path == '/test-control/hold':
+            MyHandler._hold_requests.clear()
+            self.send_json_response(200, {"held": True})
+            return
+
+        if parsed_path.path == '/test-control/release':
+            MyHandler._hold_requests.set()
+            self.send_json_response(200, {"held": False})
+            return
+
+        if parsed_path.path == '/test-control/health':
+            try:
+                status = int(query_params.get('status', ['200'])[0])
+                delay_ms = int(query_params.get('delayMs', ['0'])[0])
+                if status < 100 or status > 599 or delay_ms < 0:
+                    raise ValueError
+            except ValueError:
+                self.send_json_response(400, {"error": "status must be 100-599 and delayMs must be non-negative"})
+                return
+
+            with MyHandler._control_lock:
+                MyHandler._health_status = status
+                MyHandler._health_delay_ms = delay_ms
+            self.send_json_response(200, {"health_status": status, "health_delay_ms": delay_ms})
+            return
+
+        if parsed_path.path == '/test-control/state':
+            with MyHandler._control_lock:
+                state = {
+                    "held": not MyHandler._hold_requests.is_set(),
+                    "health_status": MyHandler._health_status,
+                    "health_delay_ms": MyHandler._health_delay_ms,
+                    "health_requests": MyHandler._health_request_count,
+                    "arrivals": list(MyHandler._arrivals)
+                }
+            self.send_json_response(200, state)
+            return
+
+        self.send_json_response(404, {"error": "unknown test control"})
+
+    def record_arrival(self, parsed_path):
+        if parsed_path.path in _EXCLUDED_TRACKING_PATHS:
+            return
+
+        with MyHandler._control_lock:
+            MyHandler._arrivals.append({
+                "index": len(MyHandler._arrivals) + 1,
+                "path": parsed_path.path,
+                "sequence": self.headers.get('x-Request-Sequence', 'N/A'),
+                "priority": self.headers.get('x-S7PPriority', 'N/A'),
+                "timestamp": time.time()
+            })
+
     def do_POST(self):
         self.do_GET()
         
@@ -211,11 +292,17 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
 
+        if parsed_path.path.startswith('/test-control/'):
+            self.handle_test_control(parsed_path)
+            return
+
         if parsed_path.path == '/stress-stats':
             with MyHandler._request_count_lock:
                 body = json.dumps(MyHandler._request_counts, sort_keys=True).encode('utf-8')
             self.send_fixed_response(200, body, content_type="application/json")
             return
+
+        self.record_arrival(parsed_path)
 
         if parsed_path.path not in _EXCLUDED_TRACKING_PATHS:
             with MyHandler._request_count_lock:
@@ -306,7 +393,27 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         
         # Example: /health endpoint
         if parsed_path.path == '/health':
-            self.send_fixed_response(200, b"OK")
+            with MyHandler._control_lock:
+                MyHandler._health_request_count += 1
+                health_status = MyHandler._health_status
+                health_delay_ms = MyHandler._health_delay_ms
+            if health_delay_ms > 0:
+                time.sleep(health_delay_ms / 1000.0)
+            body = b"OK" if 200 <= health_status < 300 else b"Unhealthy"
+            self.send_fixed_response(health_status, body)
+            return
+
+        if parsed_path.path == '/test-hold':
+            try:
+                hold_timeout = max(1, int(query_params.get('timeout', ['60'])[0]))
+            except ValueError:
+                self.send_fixed_response(400, b"timeout must be a positive integer")
+                return
+
+            if not MyHandler._hold_requests.wait(timeout=hold_timeout):
+                self.send_fixed_response(504, b"Hold timed out")
+                return
+            self.send_fixed_response(200, b"Released")
             return
 
         if parsed_path.path == '/retry-after-once':
@@ -452,7 +559,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if parsed_path.path.startswith('/openai'):
-            self.send_streaming_response("openAI.txt", "OpenAI", streaming)
+            self.send_streaming_response("openAI.txt", "AllUsage", streaming)
             return
 
         if parsed_path.path == '/openai-ml':

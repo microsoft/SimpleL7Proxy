@@ -27,6 +27,18 @@ namespace SimpleL7Proxy.StreamProcessor
             try
             {
                 var jsonNode = ParseJsonLine(primaryLine);
+
+                for (var index = lastLines.Length - 1;
+                     jsonNode?["usage"] is not JsonObject && index >= 0;
+                     index--)
+                {
+                    var candidate = ParseJsonLine(lastLines[index]);
+                    if (candidate?["usage"] is JsonObject)
+                    {
+                        jsonNode = candidate;
+                    }
+                }
+
                 if (jsonNode != null)
                 {
                     ExtractAllFields(jsonNode, "Usage");

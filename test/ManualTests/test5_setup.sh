@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # WHAT THIS TESTS
 #   User-profile matching and the request validation pipeline:
 #     - missing and unknown profiles return HTTP 403
@@ -12,8 +13,7 @@
 #   Use fresh terminals so environment variables from another setup do not
 #   affect this scenario. Run these commands from the repository root.
 #
-#   Terminal 1: cd test/nullserver/Python && python3 stream_server.py --port 3000 -d
-#               The nullserver serves test5_profiles.json from this directory.
+#   Terminal 1: ./test/ManualTests/start_nullservers.sh 5
 #   Terminal 2: source test/ManualTests/test5_setup.sh && \
 #               dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj --no-launch-profile
 #   Terminal 3: ./test/ManualTests/test5_setup.sh verify
@@ -24,13 +24,7 @@
 #   observes x-S7PID=N/A because the request value was stripped, and confirms
 #   x-Random-Header is absent while the unstripped Random-Header remains.
 
-unset Host_api_A Host_api_B Host_api2_A Host_api2_B Host1 Host2 Host3
-unset Path_api Path_api2 Path_api_special Path_inherit Path_keep
-unset UseProfiles UserConfigRequired UserConfigUrl UserIDFieldName UserProfileHeader
-unset UserConfigRefreshIntervalSecs UserSoftDeleteTTLMinutes UniqueUserHeaders
-unset RequiredHeaders ValidateHeaders DisallowedHeaders StripRequestHeaders StripResponseHeaders
-unset ValidateAuthAppID ValidateAuthAppIDUrl ValidateAuthConfig ValidateAuthKey1 ValidateAuthKey2
-unset IterationMode MaxAttempts UseSharedIterators
+source "$(dirname -- "${BASH_SOURCE[0]}")/reset_proxy_settings.sh"
 
 export Host1="host=http://localhost:3000;mode=direct;path=/;processor=DefaultStream"
 export LoadBalanceMode=prioritygroup

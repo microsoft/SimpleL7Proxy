@@ -38,6 +38,7 @@ public sealed class IncomingAuthValidator
         {
 
             FromConfigString(ValidateAuthConfig);
+            ValidateAuthViaKeyHeader = Header;
 
             var normalizedMode = Mode.Trim().ToLowerInvariant();
 

@@ -1119,7 +1119,9 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                             // Check if the status code of the response is in the set of allowed status codes, else try the next host
                             intCode = (int)proxyResponse.StatusCode;
-                            if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
+                            var acceptableStatusCode = _options.AcceptableStatusCodes.Contains(intCode);
+                            if (!acceptableStatusCode &&
+                                ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500))
                             {
                                 requestState = $"Backend proxy status code: {intCode}";
 
@@ -1202,13 +1204,15 @@ public class ProxyWorker : IConfigChangeSubscriber
                                 }
                             }
 
-                            var (shouldRequeue, retryMs) = CheckRequeueResponse(proxyResponse, intCode, requestAttempt, ref requestState);
+                            var (shouldRequeue, retryMs) = acceptableStatusCode
+                                ? (false, 0)
+                                : CheckRequeueResponse(proxyResponse, intCode, requestAttempt, ref requestState);
 
                             if (shouldRequeue)
                             {
                                 throw new S7PRequeueException("Requeue request", pr, retryMs);
                             }
-                            else if (intCode == 429)
+                            else if (!acceptableStatusCode && intCode == 429)
                             {
                                 // S7PREQUEUE was not "true" — capture backend response headers
                                 // (e.g. backendLog, retry-after) into the attempt summary before

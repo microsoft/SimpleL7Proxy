@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # WHAT THIS TESTS
 #   Legacy per-host path filtering, prefix stripping, and priority-group ordering:
 #     /api  -> port 3000, then port 3001
@@ -8,10 +9,10 @@
 #   Use fresh terminals so environment variables from another test setup do not
 #   affect this scenario. Run these commands from the repository root.
 #
-#   Terminal 1: cd test/nullserver/Python && python3 stream_server.py --port 3000 -d
-#   Terminal 2: cd test/nullserver/Python && python3 stream_server.py --port 3001 -d
-#   Terminal 3: cd src/SimpleL7Proxy && source ./test2_setup.sh && dotnet run --no-launch-profile
-#   Terminal 4: ./src/SimpleL7Proxy/test2_setup.sh verify
+#   Terminal 1: ./test/ManualTests/start_nullservers.sh 2
+#   Terminal 2: source test/ManualTests/test2_setup.sh && \
+#               dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj --no-launch-profile
+#   Terminal 3: ./test/ManualTests/test2_setup.sh verify
 #
 # WHAT TO EXPECT
 #   /api/success returns HTTP 200 from port 3000; /api2/success returns HTTP 200
@@ -19,8 +20,7 @@
 #   The two /500error responses return HTTP 500 and list their two attempts in the
 #   route orders above. /apix does not match /api. Query strings survive prefix
 #   stripping. Unmatched paths return HTTP 503 with Attempts: 0.
-unset Host_api_A Host_api_B Host_api2_A Host_api2_B Host1 Host2 Host3 Path_api Path_api2
-unset IterationMode MaxAttempts UseSharedIterators
+source "$(dirname -- "${BASH_SOURCE[0]}")/reset_proxy_settings.sh"
 
 export Host_api_A="host=http://localhost:3000;mode=direct;path=api;prioritygroup=1"
 export Host_api_B="host=http://localhost:3001;mode=direct;path=api;prioritygroup=2"
@@ -32,6 +32,7 @@ export IterationMode=SinglePass
 export MaxAttempts=10
 export UseSharedIterators=false
 export CBErrorThreshold=50
+export LogToConsole="-poller,-BackendRequest,-ProxyRequestEnqueued"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	if [[ "${1:-}" != "verify" ]]; then

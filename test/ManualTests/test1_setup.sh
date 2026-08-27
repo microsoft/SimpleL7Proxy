@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # WHAT THIS TESTS
 #   Priority-group ordering and acceptable-priority filtering for catch-all
 #   backends. Equal-group hosts must preserve their configured order.
@@ -7,20 +8,17 @@
 #   Use fresh terminals so environment variables from another test setup do not
 #   affect this scenario. Run these commands from the repository root.
 #
-#   Terminal 1: cd test/nullserver/Python && python3 stream_server.py --port 3000 -d
-#   Terminal 2: cd test/nullserver/Python && python3 stream_server.py --port 3001 -d
-#   Terminal 3: cd test/nullserver/Python && python3 stream_server.py --port 3002 -d
-#   Terminal 4: cd src/SimpleL7Proxy && source ./test1_setup.sh && dotnet run --no-launch-profile
-#   Terminal 5: ./src/SimpleL7Proxy/test1_setup.sh verify
+#   Terminal 1: ./test/ManualTests/start_nullservers.sh 1
+#   Terminal 2: source test/ManualTests/test1_setup.sh && \
+#               dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj --no-launch-profile
+#   Terminal 3: ./test/ManualTests/test1_setup.sh verify
 #
 # WHAT TO EXPECT
 #   high selects Host1, medium selects Host2, and low selects Host3. Priority 4
 #   has no eligible host and returns HTTP 503 with Attempts: 0. A failing high-
 #   priority request tries Host1, Host2, and Host3 in that exact order.
 #
-# Unset leftover named-route vars from earlier sessions so these hosts stay in the normal host pool.
-unset Host_api_A Host_api_B Host_api2_A Host_api2_B Host1 Host2 Host3 Path_api Path_api2
-unset IterationMode MaxAttempts UseSharedIterators PriorityKeyHeader PriorityKeys PriorityValues DefaultPriority
+source "$(dirname -- "${BASH_SOURCE[0]}")/reset_proxy_settings.sh"
 
 export Host1="host=http://localhost:3000;mode=direct;prioritygroup=1;acceptablepriorities=1"
 export Host2="host=http://localhost:3001;mode=direct;prioritygroup=2;acceptablepriorities=1:2"
@@ -34,6 +32,7 @@ export PriorityKeys=high,medium,low,none
 export PriorityValues=1,2,3,4
 export DefaultPriority=1
 export CBErrorThreshold=50
+export LogToConsole="-poller,-BackendRequest,-ProxyRequestEnqueued"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	if [[ "${1:-}" != "verify" ]]; then

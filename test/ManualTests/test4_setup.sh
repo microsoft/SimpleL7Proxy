@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # WHAT THIS TESTS
 #   Named Path_* routing, prefix stripping, declared host order, route-level
 #   IterationMode, route-level MaxAttempts, longest-prefix matching, and
@@ -10,11 +11,10 @@
 #   Use fresh terminals so environment variables from another test setup do not
 #   affect this scenario. Run these commands from the repository root.
 #
-#   Terminal 1: cd test/nullserver/Python && python3 stream_server.py --port 3000 -d
-#   Terminal 2: cd test/nullserver/Python && python3 stream_server.py --port 3001 -d
-#   Terminal 3: cd test/nullserver/Python && python3 stream_server.py --port 3002 -d
-#   Terminal 4: cd src/SimpleL7Proxy && source ./test4_setup.sh && dotnet run --no-launch-profile
-#   Terminal 5: ./src/SimpleL7Proxy/test4_setup.sh verify
+#   Terminal 1: ./test/ManualTests/start_nullservers.sh 4
+#   Terminal 2: source test/ManualTests/test4_setup.sh && \
+#               dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj --no-launch-profile
+#   Terminal 3: ./test/ManualTests/test4_setup.sh verify
 #
 # WHAT TO EXPECT
 #   /api/success returns HTTP 200 from port 3000;
@@ -29,9 +29,7 @@
 #       own host is ineligible. /keep preserves its prefix. /success is unmatched,
 #       returns HTTP 503 with Attempts: 0, and does not strand the worker.
 
-unset Host_api_A Host_api_B Host_api2_A Host_api2_B Host1 Host2 Host3
-unset Path_api Path_api2 Path_api_special Path_inherit Path_keep
-unset IterationMode MaxAttempts UseSharedIterators PriorityKeyHeader PriorityKeys PriorityValues DefaultPriority
+source "$(dirname -- "${BASH_SOURCE[0]}")/reset_proxy_settings.sh"
 
 export Host1="host=http://localhost:3000;mode=direct;prioritygroup=1;acceptablepriorities=1:2:3:4"
 export Host2="host=http://localhost:3001;mode=direct;prioritygroup=2;acceptablepriorities=1:2:3:4"

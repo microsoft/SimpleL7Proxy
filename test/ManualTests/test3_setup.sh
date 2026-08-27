@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # WHAT THIS TESTS
 #   MultiPass retry behavior and the global MaxAttempts limit. Failed requests must
 #   cycle through Host1 -> Host2 and begin again at Host1 until five attempts occur.
@@ -7,10 +8,10 @@
 #   Use fresh terminals so environment variables from another test setup do not
 #   affect this scenario. Run these commands from the repository root.
 #
-#   Terminal 1: cd test/nullserver/Python && python3 stream_server.py --port 3000 -d
-#   Terminal 2: cd test/nullserver/Python && python3 stream_server.py --port 3001 -d
-#   Terminal 3: cd src/SimpleL7Proxy && source ./test3_setup.sh && dotnet run --no-launch-profile
-#   Terminal 4: ./src/SimpleL7Proxy/test3_setup.sh verify
+#   Terminal 1: ./test/ManualTests/start_nullservers.sh 3
+#   Terminal 2: source test/ManualTests/test3_setup.sh && \
+#               dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj --no-launch-profile
+#   Terminal 3: ./test/ManualTests/test3_setup.sh verify
 #
 # WHAT TO EXPECT
 #   The response is HTTP 412 with Attempts: 5 and contains
@@ -18,8 +19,7 @@
 #   port 3001, port 3000, port 3001, port 3000. A request that repeatedly opens
 #   both host circuits also stops at five lifetime attempts across requeue cycles,
 #   reports the accumulated requeue delay, and makes no sixth backend call.
-unset Host_api_A Host_api_B Host_api2_A Host_api2_B Host1 Host2 Host3 Path_api Path_api2
-unset IterationMode MaxAttempts UseSharedIterators
+source "$(dirname -- "${BASH_SOURCE[0]}")/reset_proxy_settings.sh"
 
 export Host1="host=http://localhost:3000;mode=direct;prioritygroup=1;acceptablepriorities=1:2:3;retryafter=true"
 export Host2="host=http://localhost:3001;mode=direct;prioritygroup=2;acceptablepriorities=1:2:3;retryafter=true"
@@ -29,6 +29,7 @@ export MaxAttempts=5
 export UseSharedIterators=false
 export CBErrorThreshold=50
 export CBTimeslice=60
+export LogToConsole="-poller,-BackendRequest,-ProxyRequestEnqueued"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	if [[ "${1:-}" != "verify" ]]; then

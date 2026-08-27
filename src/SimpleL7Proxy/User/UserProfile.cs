@@ -180,9 +180,9 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             {
                 if (!doUserConfig && !doSuspendedUserConfig && !doAuthAppIDConfig )
                 {
-                    await _waitingConfigTimer.WaitForNextTickAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
                     isInitialized = true;
                     this.RegisterReady();
+                    await _waitingConfigTimer.WaitForNextTickAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
                     continue;
                 }
 
