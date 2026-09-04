@@ -1,12 +1,118 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace SimpleL7Proxy.Test;
 
 public sealed partial class PolicyScenarioIntegrationTests
 {
+    [TestMethod]
+    [RegressionTestCase(
+        "request-body-read-failure",
+        "Client disconnect during request body returns HTTP 400",
+        "A client that ends the upload before its declared Content-Length must receive HTTP 400, emit an S7P exception, and never reach the backend.")]
+    [TestCategory("Integration")]
+    [TestCategory("RequestLifecycle")]
+    [Timeout(120_000)]
+    public async Task RequestBody_ClientDisconnect_ReturnsBadRequestWithoutBackendCall()
+    {
+        var timeout = TimeSpan.FromSeconds(45);
+        var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
+        Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
+        Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
+
+        var artifactRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"simplel7proxy-client-read-test-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(artifactRoot);
+        TestContext.WriteLine($"Client-read test artifacts: {artifactRoot}");
+
+        var ports = GetAvailablePorts(2);
+        var backendPort = ports[0];
+        var proxyPort = ports[1];
+        var backendUrl = $"http://127.0.0.1:{backendPort}";
+        var eventLogPath = Path.Combine(artifactRoot, "events.ndjson");
+        LoggedProcess? backend = null;
+        LoggedProcess? proxy = null;
+        try
+        {
+            backend = LoggedProcess.Start(
+                "client-read backend",
+                CreateStreamServerStartInfo(pythonExecutable, streamServerPath, backendPort),
+                Path.Combine(artifactRoot, "backend.stdout.log"),
+                Path.Combine(artifactRoot, "backend.stderr.log"));
+            await WaitUntilReadyAsync(backend, new Uri($"{backendUrl}/health"), timeout);
+
+            var proxyEnvironment = CreateCircuitBreakerProxyEnvironment();
+            proxyEnvironment["LogToEvents"] = "backend,proxy,circuitbreaker,exception";
+            proxyEnvironment["IterationMode"] = "SinglePass";
+            proxy = LoggedProcess.Start(
+                "client-read proxy",
+                CreateIteratorProxyStartInfo(
+                    proxyEnvironment,
+                    proxyAssembly,
+                    proxyPort,
+                    eventLogPath,
+                    [backendPort]),
+                Path.Combine(artifactRoot, "proxy.stdout.log"),
+                Path.Combine(artifactRoot, "proxy.stderr.log"));
+            await WaitForActiveBackendsAsync(proxy, eventLogPath, expectedCount: 1, timeout);
+
+            var requestPath = "/client-read-disconnect-" + Guid.NewGuid().ToString("N");
+            var partialBody = Encoding.UTF8.GetBytes("{\"message\":\"partial\"}");
+            var responseText = await SendTruncatedRequestAsync(
+                proxyPort,
+                requestPath,
+                partialBody,
+                partialBody.Length + 32,
+                timeout);
+
+            var statusLine = responseText.Split("\r\n", 2, StringSplitOptions.None)[0];
+            StringAssert.StartsWith(statusLine, "HTTP/1.1 400");
+            StringAssert.Contains(responseText, "Unable to read request body");
+
+            var exceptionEvent = await WaitForClientReadExceptionEventAsync(
+                eventLogPath,
+                requestPath,
+                timeout);
+            Assert.AreEqual("S7P-Exception", GetProperty(exceptionEvent, "Type"));
+            Assert.AreEqual("400", GetProperty(exceptionEvent, "Status"));
+            Assert.AreEqual("Client Read Exception", GetProperty(exceptionEvent, "Error"));
+
+            using var backendClient = new HttpClient
+            {
+                BaseAddress = new Uri(backendUrl),
+                Timeout = TimeSpan.FromSeconds(10)
+            };
+            using var statsResponse = await backendClient.GetAsync("/stress-stats");
+            statsResponse.EnsureSuccessStatusCode();
+            using var stats = JsonDocument.Parse(await statsResponse.Content.ReadAsStringAsync());
+            Assert.IsFalse(
+                stats.RootElement.TryGetProperty(requestPath, out _),
+                "The incomplete request was forwarded to the backend.");
+
+        }
+        finally
+        {
+            if (proxy is not null)
+            {
+                await proxy.DisposeAsync();
+            }
+            if (backend is not null)
+            {
+                await backend.DisposeAsync();
+            }
+
+            AttachScenarioArtifacts(artifactRoot);
+        }
+    }
+
     [TestMethod]
     [RegressionTestCase(
         "circuit-breaker-retry-after",
@@ -21,9 +127,6 @@ public sealed partial class PolicyScenarioIntegrationTests
         var expectedDelayMs = retryAfterMs + Constants.RetryAfterJitterMaxMs;
         var timeout = TimeSpan.FromSeconds(45);
         var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
-        var keepArtifacts = !bool.TryParse(
-            Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_KEEP_ARTIFACTS"),
-            out var configuredKeepArtifacts) || configuredKeepArtifacts;
 
         var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
@@ -44,8 +147,6 @@ public sealed partial class PolicyScenarioIntegrationTests
         var backendStdoutPath = Path.Combine(artifactRoot, "backend.stdout.log");
         LoggedProcess? backend = null;
         LoggedProcess? proxy = null;
-        var passed = false;
-
         try
         {
             backend = LoggedProcess.Start(
@@ -75,6 +176,14 @@ public sealed partial class PolicyScenarioIntegrationTests
                 BaseAddress = new Uri($"http://127.0.0.1:{proxyPort}"),
                 Timeout = TimeSpan.FromSeconds(15)
             };
+            using (var noDelayResponse = await client.GetAsync("/success"))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, noDelayResponse.StatusCode);
+                Assert.IsFalse(
+                    noDelayResponse.Headers.Contains("Request-Requeue-Delay"),
+                    "A response with no completed requeue delay must not include Request-Requeue-Delay.");
+            }
+
             var requestKey = Guid.NewGuid().ToString("N");
             var stopwatch = Stopwatch.StartNew();
             using var response = await client.GetAsync(
@@ -117,18 +226,28 @@ public sealed partial class PolicyScenarioIntegrationTests
                 requeueDelayMs,
                 int.Parse(requeuedMatch.Groups["delay"].Value, CultureInfo.InvariantCulture));
 
+            Assert.IsTrue(
+                response.Headers.TryGetValues("Request-Requeue-Delay", out var singleDelayHeaderValues),
+                "The successful response did not include Request-Requeue-Delay.");
+            var reportedSingleDelayMs = double.Parse(singleDelayHeaderValues.Single(), CultureInfo.InvariantCulture);
+            Assert.IsTrue(
+                reportedSingleDelayMs >= requeueDelayMs - 100,
+                $"Reported requeue delay was {reportedSingleDelayMs:F3}ms; scheduled delay was {requeueDelayMs}ms.");
+
             var attemptMatches = Regex.Matches(
                 proxyLog,
                 @"(?m)^(?<timestamp>\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) " +
                 @"\[ProxyToBackEnd:(?<guid>[^\]]+)\] Attempting backend host: .+ " +
                 @"\(Attempt #(?<attempt>\d+)\)");
-            var firstAttempt = attemptMatches.Cast<Match>()
-                .FirstOrDefault(match => match.Groups["attempt"].Value == "1");
             var secondAttempt = attemptMatches.Cast<Match>()
                 .FirstOrDefault(match => match.Groups["attempt"].Value == "2");
-            Assert.IsNotNull(firstAttempt, "The first proxy backend attempt was not logged.");
             Assert.IsNotNull(secondAttempt, "The retried proxy backend attempt was not logged.");
-            Assert.AreEqual(firstAttempt.Groups["guid"].Value, secondAttempt.Groups["guid"].Value);
+            var retryRequestGuid = secondAttempt.Groups["guid"].Value;
+            var firstAttempt = attemptMatches.Cast<Match>()
+                .FirstOrDefault(match =>
+                    match.Groups["attempt"].Value == "1" &&
+                    match.Groups["guid"].Value == retryRequestGuid);
+            Assert.IsNotNull(firstAttempt, "The first proxy backend attempt was not logged.");
 
             var firstProxyAttempt = ParseCircuitBreakerLogTimestamp(firstAttempt.Groups["timestamp"].Value);
             var secondProxyAttempt = ParseCircuitBreakerLogTimestamp(secondAttempt.Groups["timestamp"].Value);
@@ -157,11 +276,47 @@ public sealed partial class PolicyScenarioIntegrationTests
                 stopwatch.Elapsed.TotalMilliseconds >= expectedDelayMs - 100,
                 $"Client completed after {stopwatch.Elapsed.TotalMilliseconds:F0}ms; expected a queued retry delay.");
 
+            var repeatedRequestKey = Guid.NewGuid().ToString("N");
+            var proxyLogBeforeRepeatedRequeues = await File.ReadAllTextAsync(proxyStdoutPath);
+            var repeatedRequeueStopwatch = Stopwatch.StartNew();
+            using var repeatedRequeueResponse = await client.GetAsync(
+                $"/retry-after-once?key={repeatedRequestKey}&retryAfterMs=50&failures=2");
+            var repeatedRequeueBody = await repeatedRequeueResponse.Content.ReadAsStringAsync();
+            repeatedRequeueStopwatch.Stop();
+
+            Assert.AreEqual(HttpStatusCode.OK, repeatedRequeueResponse.StatusCode);
+            Assert.AreEqual("Retry succeeded", repeatedRequeueBody);
+            Assert.IsTrue(
+                repeatedRequeueResponse.Headers.TryGetValues("Request-Requeue-Delay", out var cumulativeDelayHeaderValues),
+                "The response did not include cumulative Request-Requeue-Delay.");
+
+            var proxyLogAfterRepeatedRequeues = await File.ReadAllTextAsync(proxyStdoutPath);
+            var repeatedRequeueLog = proxyLogAfterRepeatedRequeues[proxyLogBeforeRepeatedRequeues.Length..];
+            var repeatedDelayMatches = Regex.Matches(
+                repeatedRequeueLog,
+                @"Starting requeue delay of (?<delay>\d+)ms");
+            Assert.IsTrue(
+                repeatedDelayMatches.Count == 2,
+                $"Expected exactly two completed requeue delays, but found {repeatedDelayMatches.Count}.");
+
+            var scheduledCumulativeDelayMs = repeatedDelayMatches
+                .Select(match => int.Parse(match.Groups["delay"].Value, CultureInfo.InvariantCulture))
+                .Sum();
+            var reportedCumulativeDelayMs = double.Parse(cumulativeDelayHeaderValues.Single(), CultureInfo.InvariantCulture);
+            Assert.IsTrue(
+                reportedCumulativeDelayMs >= scheduledCumulativeDelayMs - 100,
+                $"Reported cumulative delay was {reportedCumulativeDelayMs:F3}ms; " +
+                $"scheduled delays totaled {scheduledCumulativeDelayMs}ms.");
+            Assert.IsTrue(
+                reportedCumulativeDelayMs <= repeatedRequeueStopwatch.Elapsed.TotalMilliseconds,
+                $"Reported cumulative delay {reportedCumulativeDelayMs:F3}ms exceeded total client latency " +
+                $"{repeatedRequeueStopwatch.Elapsed.TotalMilliseconds:F3}ms.");
+
             TestContext.WriteLine(
                 $"Retry-After={retryAfterMs}ms, jitter={Constants.RetryAfterJitterMaxMs}ms, " +
                 $"queued delay={requeueDelayMs}ms, proxy attempt interval={proxyAttemptDelayMs:F0}ms, " +
-                $"backend attempt interval={backendAttemptDelayMs:F0}ms.");
-            passed = true;
+                $"backend attempt interval={backendAttemptDelayMs:F0}ms, " +
+                $"cumulative requeue delay={reportedCumulativeDelayMs:F3}ms across {repeatedDelayMatches.Count} delays.");
         }
         finally
         {
@@ -175,14 +330,7 @@ public sealed partial class PolicyScenarioIntegrationTests
                 await backend.DisposeAsync();
             }
 
-            if (!passed || keepArtifacts)
-            {
-                AttachScenarioArtifacts(artifactRoot);
-            }
-            else if (Directory.Exists(artifactRoot))
-            {
-                Directory.Delete(artifactRoot, recursive: true);
-            }
+            AttachScenarioArtifacts(artifactRoot);
         }
     }
 
@@ -199,9 +347,6 @@ public sealed partial class PolicyScenarioIntegrationTests
         const int retryAfterMs = 5000;
         var timeout = TimeSpan.FromSeconds(45);
         var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
-        var keepArtifacts = !bool.TryParse(
-            Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_KEEP_ARTIFACTS"),
-            out var configuredKeepArtifacts) || configuredKeepArtifacts;
         var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
@@ -224,8 +369,6 @@ public sealed partial class PolicyScenarioIntegrationTests
         var proxyLogPath = Path.Combine(artifactRoot, "proxy.stdout.log");
         var backends = new List<LoggedProcess>();
         LoggedProcess? proxy = null;
-        var passed = false;
-
         try
         {
             backends.Add(LoggedProcess.Start(
@@ -335,7 +478,6 @@ public sealed partial class PolicyScenarioIntegrationTests
             TestContext.WriteLine(
                 $"First request: {throttledUrl} 503 -> {availableUrl} 200. " +
                 $"Second request: skipped {throttledUrl} -> {availableUrl} 200.");
-            passed = true;
         }
         finally
         {
@@ -349,14 +491,7 @@ public sealed partial class PolicyScenarioIntegrationTests
                 await backend.DisposeAsync();
             }
 
-            if (!passed || keepArtifacts)
-            {
-                AttachScenarioArtifacts(artifactRoot);
-            }
-            else if (Directory.Exists(artifactRoot))
-            {
-                Directory.Delete(artifactRoot, recursive: true);
-            }
+            AttachScenarioArtifacts(artifactRoot);
         }
     }
 
@@ -438,6 +573,77 @@ public sealed partial class PolicyScenarioIntegrationTests
 
         throw new TimeoutException(
             $"Timed out waiting for '{expectedText}' in {path}." + Environment.NewLine + log);
+    }
+
+    private static async Task<string> SendTruncatedRequestAsync(
+        int proxyPort,
+        string requestPath,
+        byte[] partialBody,
+        int declaredContentLength,
+        TimeSpan timeout)
+    {
+        using var client = new TcpClient();
+        using var cancellation = new CancellationTokenSource(timeout);
+        await client.ConnectAsync(IPAddress.Loopback, proxyPort, cancellation.Token);
+        await using var stream = client.GetStream();
+        var headers = Encoding.ASCII.GetBytes(
+            $"POST {requestPath} HTTP/1.1\r\n" +
+            $"Host: 127.0.0.1:{proxyPort}\r\n" +
+            "Content-Type: application/json\r\n" +
+            $"Content-Length: {declaredContentLength}\r\n" +
+            "Connection: close\r\n\r\n");
+        await stream.WriteAsync(headers, cancellation.Token);
+        await stream.WriteAsync(partialBody, cancellation.Token);
+        await stream.FlushAsync(cancellation.Token);
+        client.Client.Shutdown(SocketShutdown.Send);
+
+        using var response = new MemoryStream();
+        await stream.CopyToAsync(response, cancellation.Token);
+        return Encoding.ASCII.GetString(response.ToArray());
+    }
+
+    private static async Task<JsonElement> WaitForClientReadExceptionEventAsync(
+        string eventLogPath,
+        string requestPath,
+        TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            if (File.Exists(eventLogPath))
+            {
+                try
+                {
+                    foreach (var line in File.ReadLines(eventLogPath))
+                    {
+                        try
+                        {
+                            using var document = JsonDocument.Parse(line);
+                            var root = document.RootElement;
+                            if (string.Equals(GetProperty(root, "Type"), "S7P-Exception", StringComparison.Ordinal) &&
+                                string.Equals(GetProperty(root, "Path"), requestPath, StringComparison.Ordinal) &&
+                                string.Equals(GetProperty(root, "Error"), "Client Read Exception", StringComparison.Ordinal))
+                            {
+                                return root.Clone();
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            // Ignore a line that is still being written.
+                        }
+                    }
+                }
+                catch (IOException)
+                {
+                    // The file logger may be flushing; retry on the next poll.
+                }
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException(
+            $"Timed out waiting for the client-read exception event for {requestPath} in {eventLogPath}.");
     }
 
     private static DateTime ParseCircuitBreakerLogTimestamp(string value)

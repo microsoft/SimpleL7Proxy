@@ -25,6 +25,13 @@ public interface IHostHealthCollection
   void LoadFromConfig(IEnumerable<HostConfig> hostConfigs);
 
   /// <summary>
+  /// Validates and atomically replaces the complete host and named-route configuration.
+  /// </summary>
+  void ReplaceConfiguration(
+      IEnumerable<HostConfig> hostConfigs,
+      IEnumerable<PathRouteDefinition> routeDefinitions);
+
+  /// <summary>
   /// Atomically swaps the pending snapshot in as Current.
   /// </summary>
   void Activate();

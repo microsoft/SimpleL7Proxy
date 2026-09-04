@@ -61,7 +61,7 @@ internal static class Program
 
         if (File.Exists(options.TrxPath))
         {
-            ParseTrx(options.TrxPath, catalog, execution);
+            ParseTrx(options, catalog, execution);
         }
         else
         {
@@ -167,10 +167,17 @@ internal static class Program
         }
     }
 
-    private static void ParseTrx(string path, MetadataCatalog catalog, ExecutionRecord execution)
+    private static void ParseTrx(CommandOptions options, MetadataCatalog catalog, ExecutionRecord execution)
     {
-        var document = XDocument.Load(path);
+        var document = XDocument.Load(options.TrxPath);
         var root = document.Root ?? throw new InvalidDataException("TRX has no root element.");
+        var artifactsRoot = Path.Combine(Path.GetDirectoryName(options.TrxPath)!, "artifacts");
+        if (Directory.Exists(artifactsRoot))
+        {
+            Directory.Delete(artifactsRoot, recursive: true);
+        }
+        Directory.CreateDirectory(artifactsRoot);
+        var artifactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var definitions = root
             .Descendants(TrxNamespace + "UnitTest")
             .Where(element => element.Parent?.Name == TrxNamespace + "TestDefinitions")
@@ -214,6 +221,59 @@ internal static class Program
                 ErrorMessage = ElementText(output?.Element(TrxNamespace + "ErrorInfo"), "Message"),
                 StackTrace = ElementText(output?.Element(TrxNamespace + "ErrorInfo"), "StackTrace")
             };
+
+            var resultFiles = result.Element(TrxNamespace + "ResultFiles")?
+                .Elements(TrxNamespace + "ResultFile")
+                .Select(element => Attribute(element, "path"))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => Path.IsPathRooted(path)
+                    ? Path.GetFullPath(path)
+                    : Path.GetFullPath(path, Path.GetDirectoryName(options.TrxPath)!))
+                .Where(File.Exists)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray() ?? [];
+            var artifactDirectoryName = SanitizePathPart(record.MethodName.Length > 0 ? record.MethodName : record.Name);
+            if (artifactDirectoryName.Length == 0)
+            {
+                artifactDirectoryName = "test";
+            }
+            var baseArtifactDirectoryName = artifactDirectoryName;
+            var directorySuffix = 2;
+            while (!artifactDirectories.Add(artifactDirectoryName))
+            {
+                artifactDirectoryName = $"{baseArtifactDirectoryName}-{directorySuffix}";
+                directorySuffix++;
+            }
+            var testArtifactDirectory = Path.Combine(artifactsRoot, artifactDirectoryName);
+            Directory.CreateDirectory(testArtifactDirectory);
+
+            File.WriteAllText(Path.Combine(testArtifactDirectory, "test-output.log"), record.Stdout, new UTF8Encoding(false));
+            if (!string.IsNullOrEmpty(record.Stderr))
+            {
+                File.WriteAllText(Path.Combine(testArtifactDirectory, "test-error.log"), record.Stderr, new UTF8Encoding(false));
+            }
+
+            foreach (var sourcePath in resultFiles)
+            {
+                var destinationPath = Path.Combine(testArtifactDirectory, Path.GetFileName(sourcePath));
+                if (File.Exists(destinationPath) && !string.Equals(sourcePath, destinationPath, StringComparison.Ordinal))
+                {
+                    var extension = Path.GetExtension(destinationPath);
+                    var name = Path.GetFileNameWithoutExtension(destinationPath);
+                    var suffix = 2;
+                    do
+                    {
+                        destinationPath = Path.Combine(testArtifactDirectory, $"{name}-{suffix}{extension}");
+                        suffix++;
+                    } while (File.Exists(destinationPath));
+                }
+                File.Copy(sourcePath, destinationPath, overwrite: true);
+            }
+
+            record.Artifacts = Directory.EnumerateFiles(testArtifactDirectory)
+                .Order(StringComparer.Ordinal)
+                .Select(path => Path.GetRelativePath(Path.GetDirectoryName(options.HtmlPath)!, path).Replace('\\', '/'))
+                .ToList();
             catalog.Apply(record);
             execution.Tests.Add(record);
         }
@@ -223,6 +283,28 @@ internal static class Program
         execution.TrxRunName = Attribute(root, "name");
         execution.TrxStartedUtc = Attribute(times, "start");
         execution.TrxCompletedUtc = Attribute(times, "finish");
+    }
+
+    private static string SanitizePathPart(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(invalid.Contains(character) || char.IsWhiteSpace(character) ? '-' : character);
+        }
+
+        var sanitized = builder.ToString().Trim('-');
+        const int maxPathPartLength = 80;
+        if (sanitized.Length <= maxPathPartLength)
+        {
+            return sanitized;
+        }
+
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sanitized));
+        var hash = Convert.ToHexString(hashBytes.AsSpan(0, 6)).ToLowerInvariant();
+        var prefixLength = maxPathPartLength - hash.Length - 1;
+        return $"{sanitized[..prefixLength].TrimEnd('-')}-{hash}";
     }
 
     private static FileStream AcquireLock(string path, TimeSpan timeout)

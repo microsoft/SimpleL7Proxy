@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -38,8 +39,7 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
         return Task.CompletedTask;
     }
 
-    private readonly Dictionary<string, SharedHostIterator> _iterators = new();
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<string, Lazy<SharedHostIterator>> _iterators = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<SharedIteratorRegistry> _logger;
     private readonly ProxyConfig _options;
     private readonly Timer _cleanupTimer;
@@ -89,19 +89,12 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
         _cleanupInterval = TimeSpan.FromSeconds(Math.Max(5, _options.SharedIteratorCleanupIntervalSeconds));
     }
     /// <inheritdoc/>
-    public int Count
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return _iterators.Count;
-            }
-        }
-    }
+    public int Count => _iterators.Count;
 
     /// <inheritdoc/>
-    public ISharedHostIterator GetOrCreate(string path, Func<(IHostIterator iterator, string modifiedPath)> factory)
+    public SharedHostIterator GetOrCreate(
+        string path,
+        Func<(List<BaseHostHealth> hosts, string modifiedPath)> factory)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(SharedIteratorRegistry));
@@ -111,46 +104,39 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
 
         var normalizedPath = NormalizePath(path);
 
-        lock (_lock)
-        {
-            // Fast path: iterator already exists (modifiedPath is stored on the iterator)
-            if (_iterators.TryGetValue(normalizedPath, out var existing))
-                return existing;
+        var lazyIterator = _iterators.GetOrAdd(
+            normalizedPath,
+            static (_, state) => new Lazy<SharedHostIterator>(() =>
+            {
+                var (hosts, modifiedPath) = state.factory();
+                var iterator = new SharedHostIterator(hosts, state.normalizedPath, modifiedPath);
+                return iterator;
+            }, LazyThreadSafetyMode.ExecutionAndPublication),
+            (factory, normalizedPath));
 
-            // Slow path: create new iterator (factory called exactly once)
-            var (baseIterator, modifiedPath) = factory();
-            var hosts = ExtractHostsFromIterator(baseIterator);
-            
-            _logger.LogDebug(
-                "[SharedIteratorRegistry] Created new iterator for path '{Path}' with {HostCount} hosts, modifiedPath='{ModifiedPath}'",
-                normalizedPath, hosts.Count, modifiedPath);
+        var iterator = lazyIterator.Value;
+        _logger.LogDebug(
+            "[SharedIteratorRegistry] Using iterator for path '{Path}' with {HostCount} hosts",
+            normalizedPath, iterator.HostCount);
 
-            var iterator = new SharedHostIterator(hosts, normalizedPath, modifiedPath, baseIterator.Mode);
-            _iterators[normalizedPath] = iterator;
-            return iterator;
-        }
+        return iterator;
     }
 
     /// <inheritdoc/>
     public void InvalidateAll()
     {
-        List<SharedHostIterator> toDispose;
-        int count;
-        
-        lock (_lock)
+        var entries = _iterators.ToArray();
+        var count = entries.Length;
+
+        foreach (var entry in entries)
         {
-            count = _iterators.Count;
-            toDispose = new List<SharedHostIterator>(_iterators.Values);
-            _iterators.Clear();
+            if (_iterators.TryRemove(entry.Key, out var lazyIterator) && lazyIterator.IsValueCreated)
+            {
+                lazyIterator.Value.Dispose();
+            }
         }
 
-        // Dispose outside lock
-        foreach (var iterator in toDispose)
-        {
-            iterator.Dispose();
-        }
-
-        if ( count > 0)
+        if (count > 0)
             _logger.LogInformation(
                 "[SharedIteratorRegistry] Invalidated all {Count} cached iterators",
                 count);
@@ -160,20 +146,14 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
     public void Invalidate(string path)
     {
         var normalizedPath = NormalizePath(path);
-        SharedHostIterator? iterator = null;
-        
-        lock (_lock)
-        {
-            if (_iterators.TryGetValue(normalizedPath, out iterator))
-            {
-                _iterators.Remove(normalizedPath);
-            }
-        }
 
-        // Dispose outside lock
-        if (iterator != null)
+        if (_iterators.TryRemove(normalizedPath, out var lazyIterator))
         {
-            iterator.Dispose();
+            if (lazyIterator.IsValueCreated)
+            {
+                lazyIterator.Value.Dispose();
+            }
+
             _logger.LogDebug(
                 "[SharedIteratorRegistry] Invalidated iterator for path '{Path}'",
                 normalizedPath);
@@ -205,22 +185,6 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
     }
 
     /// <summary>
-    /// Extracts the list of hosts from a base iterator by iterating through it once.
-    /// </summary>
-    private static List<BaseHostHealth> ExtractHostsFromIterator(IHostIterator iterator)
-    {
-        var hosts = new List<BaseHostHealth>();
-        
-        while (iterator.MoveNext())
-        {
-            hosts.Add(iterator.Current);
-        }
-        
-        iterator.Reset();
-        return hosts;
-    }
-
-    /// <summary>
     /// Timer callback to clean up iterators that haven't been used recently.
     /// </summary>
     private void CleanupStaleIterators(object? state)
@@ -228,31 +192,28 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
         if (_disposed) return;
 
         var cutoff = DateTime.UtcNow - _iteratorTTL;
-        List<SharedHostIterator> toDispose = new();
+        List<(string Key, SharedHostIterator Iterator)> toDispose = new();
 
-        lock (_lock)
+        foreach (var kvp in _iterators)
         {
-            var keysToRemove = new List<string>();
-            
-            foreach (var kvp in _iterators)
+            if (!kvp.Value.IsValueCreated)
             {
-                if (kvp.Value.LastUsed < cutoff)
-                {
-                    keysToRemove.Add(kvp.Key);
-                    toDispose.Add(kvp.Value);
-                }
+                continue;
             }
 
-            foreach (var key in keysToRemove)
+            var iterator = kvp.Value.Value;
+            if (iterator.LastUsed < cutoff)
             {
-                _iterators.Remove(key);
+                if (_iterators.TryRemove(kvp.Key, out _))
+                {
+                    toDispose.Add((kvp.Key, iterator));
+                }
             }
         }
 
-        // Dispose outside lock
-        foreach (var iterator in toDispose)
+        foreach (var entry in toDispose)
         {
-            iterator.Dispose();
+            entry.Iterator.Dispose();
         }
 
         if (toDispose.Count > 0)
@@ -269,18 +230,16 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
         _disposed = true;
 
         _cleanupTimer.Dispose();
-        
-        List<SharedHostIterator> toDispose;
-        lock (_lock)
+
+        foreach (var entry in _iterators)
         {
-            toDispose = new List<SharedHostIterator>(_iterators.Values);
-            _iterators.Clear();
+            if (entry.Value.IsValueCreated)
+            {
+                entry.Value.Value.Dispose();
+            }
         }
 
-        foreach (var iterator in toDispose)
-        {
-            iterator.Dispose();
-        }
+        _iterators.Clear();
     }
 
 }

@@ -175,7 +175,7 @@ public class RequestLifecycleManager
     public void TransitionToRequeued(RequestData request)
     {
         request.Requeued = true;
-        _logger.LogInformation("Request {Guid} ({Type}) requeued for retry", request.Guid, request.Type);
+        _logger.LogDebug("Request {Guid} ({Type}) requeued for retry", request.Guid, request.Type);
     }
 
     // ========== BACKGROUND REQUEST MANAGEMENT ==========

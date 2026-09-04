@@ -173,12 +173,15 @@ public class AppConfigService : BackgroundService
 
         var result = await Task.Run(DownloadConfig, ct);
 
+        if (result == null)
+            return;
+
         var (warm, cold) = result.Value;
         WarmSettings = warm;
         ColdSettings = cold;
         warm.TryGetValue("Sentinel", out _lastSentinel);
 
-        if (result == null || Notifier == null)
+        if (Notifier == null)
             return;
 
         await ConfigFactory.ApplyRefreshV2(

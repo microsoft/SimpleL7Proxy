@@ -172,7 +172,7 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
         {
             return;
         }
-        _logger.LogCritical("Tracking failure for circuit breaker {ID} with code {Code} : codes {codes}", ID, code, _allowableCodesLog);
+        _logger.LogDebug("Tracking failure for circuit breaker {ID} with code {Code} : codes {codes}", ID, code, _allowableCodesLog);
 
         DateTime now = DateTime.UtcNow;
         hostFailureTimes2.Enqueue(now);
@@ -253,7 +253,7 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
 
         _circuitBreakerEvent.SendEvent();
 
-        _logger.LogCritical("[CB-ERROR] cbid-{ID}, Error code: {Code}, Timeslice Errors: {Count}, State: {State}", 
+        _logger.LogDebug("[CB-ERROR] cbid-{ID}, Error code: {Code}, Timeslice Errors: {Count}, State: {State}", 
             ID, code, failureCount, state);
     }
 

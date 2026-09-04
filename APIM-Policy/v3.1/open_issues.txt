@@ -1,5 +1,5 @@
 Priority-with-retry v3.1 Current Issues
-Updated: 2026-07-24
+Updated: 2026-08-24
 
 1. Mixed backend authentication modes (both Managed Identity and API key) are not supported.
 Action: Acquire MI only after selecting an MI backend, or define a fallback.
@@ -18,3 +18,106 @@ Action: Validate APIM traces and add transport-failure failover handling.
 
 6. backendLog and X-Policy-LastError can expose backend URLs and internal errors without S7PDEBUG.
 Action: Disable the backendlog header response if this is a risk for your application.
+
+7. Move route, backend, priority, and retry configuration from the APIM fragment into SimpleL7Proxy.
+Goal: Make the proxy the single source of truth while APIM continues to execute backend selection, retries, authentication, concurrency limits, and throttling.
+Status: Configuration and proxy-native routing implemented 2026-08-24. The signed proxy-to-APIM envelope and APIM parser remain open.
+
+Proposed proxy configuration:
+- Define backends independently as named Host_<name> entries.
+- Add acceptablePriorities=<priority>:<priority> to each backend. Missing or * means all configured request priorities.
+- Add priorityGroup=<positive integer> to each backend. Lower groups are attempted first; missing means group 1.
+- Set mode=indirect;via=Host_<gateway> on each logical backend that APIM must select. Indirect hosts are never called or probed by the proxy.
+- Define the referenced APIM gateway as a normal named host without via, for example Host_apim="host=https://gateway.azure-api.net;mode=apim;probe=/status".
+- Define Path_<name> entries as prefix=<path>;hosts=<Host_name>:<Host_name>;stripprefix=<true|false>.
+- Keep Path_<name> transport-independent; it references logical backends and does not contain via.
+- Keep priority retry/requeue rules in proxy configuration rather than in the APIM fragment.
+- Keep each HostConfig and its health/circuit state shared when the host is referenced by multiple paths.
+
+Example:
+- Host_apim="host=https://gateway.azure-api.net;mode=apim;probe=/status"
+- Host_ptu="host=https://ptu.openai.azure.com/openai;mode=indirect;via=Host_apim;acceptablePriorities=1;priorityGroup=1"
+- Host_paygo="host=https://paygo.openai.azure.com/openai;mode=indirect;via=Host_apim;acceptablePriorities=1:2:3;priorityGroup=2"
+- Path_openai="prefix=/api;hosts=Host_ptu:Host_paygo;stripprefix=true"
+
+Required routing semantics:
+- Resolve the request's numeric priority before backend selection.
+- Select the longest segment-boundary path prefix; do not fall through to a shorter prefix when the selected route has no priority-eligible backend.
+- Filter the route's hosts by acceptablePriorities before applying health, circuit-breaker, or load-balancing rules.
+- A route whose backends use direct or APIM mode without via uses native proxy selection and calls those backends.
+- A route whose logical backends use mode=indirect sends one request to their shared via gateway and serializes the eligible logical backends for APIM selection.
+- All via values on one route must reference the same gateway. Initially reject routes that mix direct and via backends or reference multiple gateways.
+- Resolve via references before activating a configuration snapshot. Require indirect hosts to specify via, reject via on other modes, require an APIM gateway target, and reject missing targets, self-references, chains, and cycles; retain the last known-good snapshot.
+- Never silently call a logical backend directly when its via reference is invalid or its gateway is unavailable.
+- The proxy owns health and circuit state for the gateway transport. APIM owns affinity-keyed throttle state for logical backends behind that gateway.
+- Order eligible hosts by priorityGroup first and the configured load-balancing strategy second.
+- For latency and timetofirstbyte modes, sort only within a priority group; a faster higher-group host must not precede a lower-group host.
+- Exhaust the current group before advancing to the next group.
+- Keep MaxAttempts global across all eligible groups.
+- Key shared selection plans by at least route/path, numeric request priority, and configuration revision. Each request must have its own traversal position so a shared circular cursor cannot begin in a fallback group.
+
+Proxy-to-APIM wire contract:
+- Send only the effective route/model snapshot for the current request, not the complete global catalog.
+- Send the request itself to the host referenced by via; serialize the route's eligible logical hosts as the envelope backends.
+- Do not serialize the via gateway as an APIM-selectable backend.
+- Use a versioned compact JSON envelope, Base64 encoded in a proxy-owned request header.
+- Include schema version, configuration revision, route, effective model, default priority, Managed Identity audience, effective priority retry/requeue rule, and normalized backend entries.
+- Each backend entry must include a stable id/affinity, label, URL, priorityGroup, acceptablePriorities, timeout, auth mode or credential reference, tokenProcessor, limitConcurrency, bufferResponse, defaultRetryAfter, and optional within-group order.
+- Do not include mutable isThrottling or retryAfter values. APIM must continue to overlay its affinity-keyed throttle cache.
+- Do not include literal API keys. Use Managed Identity or an opaque APIM Named Value/Key Vault credential reference.
+- Reserve headers such as x-s7p-route-config, x-s7p-route-config-revision, and x-s7p-route-config-signature. Remove client-supplied copies before adding proxy-generated values.
+- Sign the encoded payload with a versioned HMAC contract, or require an equivalently authenticated private transport. APIM must fail closed when verification is required and the envelope is missing, invalid, expired, oversized, or unsupported.
+- Return the applied configuration revision and selected backend label for correlation.
+
+APIM policy changes:
+- Replace the editable backendCatalog, priorityCfg, authResourceByModel, model fallback, and backend normalization blocks with a versioned envelope parser and validator.
+- Publish the parsed values into the existing listBackends, priorityCfg, authResource, and model variables so the retry policy can retain its current execution flow.
+- Validate schema version, required fields, value ranges, allowed auth/processor/concurrency values, HTTPS backend URLs, duplicate backend ids, and payload size before forwarding.
+- Preserve APIM-owned throttle state in the throttle-<api-id> cache, keyed by stable backend affinity. Receiving a new envelope must not clear unexpired throttle state.
+- Decide whether the proxy-provided within-group order is authoritative. If enabled, APIM must select the lowest available order in the lowest available priorityGroup instead of choosing randomly.
+- Remove remaining policy dependencies on backendCatalog, including the effective-model concurrency key calculation.
+
+Proxy implementation tasks:
+- [x] Extend HostConfig parsing, normalized properties, validation, and hashing with explicit apim/direct/indirect mode, acceptablePriorities, priorityGroup, and via.
+- [x] Add immutable path/route configuration and resolve named Host_<name> references before activating the host snapshot.
+- [x] Resolve each route into either a native direct plan or an APIM plan with one gateway transport and one or more logical backends.
+- [x] Keep gateway hosts in the active health snapshot; do not probe or send native proxy attempts directly to logical hosts that specify via.
+- [x] Pass RequestData.Priority into route filtering and iterator creation.
+- [x] Make round-robin, random, latency, and timetofirstbyte iterators priority-group aware.
+- Build and cache the normalized APIM envelope by configuration revision; serialize only the request-specific projection when forwarding to an APIM-mode host.
+- Add generated headers after copying inbound headers so callers cannot override them.
+- [x] Invalidate route and iterator state atomically on warm host/path configuration changes. Add envelope-cache invalidation with the envelope implementation.
+- [x] Ensure timetofirstbyte has a production metric update path before relying on it for ordering.
+
+Compatibility and rollout:
+- Existing Host1..N and Host_<name> entries without via retain native proxy behavior and require no new environment variables; omitted mode retains APIM/probed behavior.
+- Existing hosts that point directly at APIM without via retain the current opaque-gateway behavior and continue using the fragment fallback; only via enables the new proxy-supplied envelope.
+- When no Path_<name> entries exist, preserve the current host-level path and stripprefix behavior.
+- Phase 1: APIM accepts a valid signed envelope and otherwise uses the existing fragment catalog. Emit telemetry identifying header or fragment source and revision.
+- Phase 2: Require the envelope for selected APIs while retaining an explicit emergency fallback switch.
+- Phase 3: Remove endpoint and priority data from the fragment after all proxy replicas send the supported schema.
+- A warm configuration update must be atomic. Invalid host references or route/envelope validation failures must retain the last known-good active snapshot.
+- Define behavior for requests retried or rehydrated across a configuration revision change; prefer the revision captured when the request was admitted unless it is unavailable or revoked.
+
+Validation and acceptance criteria:
+- Unit-test parsing, defaults, duplicate normalization, invalid values, hashing, via resolution, longest-prefix matching, priority eligibility, and group-first ordering for every iterator mode.
+- Test missing, self-referencing, chained, and cyclic via values; each invalid warm update must preserve the last known-good snapshot.
+- Test routes containing direct hosts, one shared via gateway, mixed direct/via hosts, and multiple gateways. Only the first two forms are valid.
+- Test that an APIM plan sends the HTTP request to the gateway, includes logical hosts in the envelope, and never includes the gateway as a selectable backend.
+- Test legacy direct and opaque-APIM Host1 configurations with all new environment variables absent.
+- Test overlapping paths and verify that no-priority-match returns 503 without falling through to a broader route.
+- Test latency and timetofirstbyte cases where a higher-group host has the best metric and confirm the lower group is still exhausted first.
+- Test shared selection concurrently across paths and priorities and confirm requests never borrow another priority's pool or begin in a fallback group.
+- Test envelope serialization determinism, size limits, signature verification, schema rejection, spoofed inbound header removal, secret exclusion, and revision correlation.
+- Test that APIM preserves throttle state across requests and across configuration revisions when backend affinity is unchanged.
+- Test MI, no-auth, and Named Value/Key Vault API-key references; confirm literal secrets never appear in request headers, logs, or response diagnostics.
+- Run end-to-end scenarios for success, 408, 429 with Retry-After, 5xx, empty 200, permanent 4xx, context-window failover, retry exhaustion, and requeue.
+- Confirm the old fragment fallback and strict envelope-only mode independently before removing the fallback.
+
+Open design decisions:
+- Final Path_<name> syntax; the APIM gateway reference is fixed as host-owned via=Host_<gateway>.
+- Location and reload behavior of per-priority retryCount/requeue settings.
+- Header names, maximum encoded payload size, compression policy, HMAC key distribution, timestamp/expiry rules, and key rotation.
+- Whether to send normalized URLs or separate url/path fields.
+- Whether APIM follows proxy-provided within-group order or retains random selection.
+- How API-key credential references map to APIM Named Values without exposing their values to the proxy or request header.

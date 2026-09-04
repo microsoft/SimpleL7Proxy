@@ -20,8 +20,9 @@ Suites:
   fast          Quick local checks; skips integration, load, and performance tests.
   regression    Standard regression run without load tests. This is the default.
   integration   Integration tests without load tests.
-  load          Load and stress tests. Requires their external dependencies.
-  all           Every test, including load and stress tests.
+    load          Load and stress tests, excluding opt-in long-running tests.
+    longrun       Opt-in long-running tests, including the 24-hour token test.
+    all           Every test except opt-in long-running tests.
 
 Commands:
   test NAME          Run one test method by name.
@@ -42,6 +43,7 @@ Examples:
   ./run-regression-master.sh fast
   ./run-regression-master.sh integration
   ./run-regression-master.sh load
+    ./run-regression-master.sh longrun
   ./run-regression-master.sh test Reset_AllowsReIteration
   ./run-regression-master.sh category CircuitBreaker
   ./run-regression-master.sh list load
@@ -73,11 +75,15 @@ regression_resolve_suite() {
             ;;
         load)
             target_label="Load and stress"
-            target_filter="TestCategory=Load"
+            target_filter="TestCategory=Load&TestCategory!=LongRunning"
+            ;;
+        longrun)
+            target_label="Long-running"
+            target_filter="TestCategory=LongRunning"
             ;;
         all)
-            target_label="All tests"
-            target_filter=""
+            target_label="All non-long-running tests"
+            target_filter="TestCategory!=LongRunning"
             ;;
         *)
             return 2
@@ -284,7 +290,7 @@ regression_main() {
     local list_only=false
 
     case "$command" in
-        fast|regression|integration|load|all)
+        fast|regression|integration|load|longrun|all)
             if ! regression_resolve_suite "$command" default_label filter; then
                 regression_usage_error "Unknown suite '$command'."
                 return 2

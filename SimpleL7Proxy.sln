@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestClient", "TestClient\TestClient.csproj", "{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleL7Proxy.Test", "test\RegressionTests\SimpleL7Proxy.Test.csproj", "{16114946-D4F2-4604-A732-D5AFFEF295A1}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{806C4881-406B-4504-BCC9-781F89BFCCB9}"
@@ -45,18 +43,6 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Debug|x64.Build.0 = Debug|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Debug|x86.Build.0 = Debug|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Release|x64.ActiveCfg = Release|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Release|x64.Build.0 = Release|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Release|x86.ActiveCfg = Release|Any CPU
-		{02F9FFC2-D1EE-469F-B869-80FEF83BF78E}.Release|x86.Build.0 = Release|Any CPU
 		{16114946-D4F2-4604-A732-D5AFFEF295A1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{16114946-D4F2-4604-A732-D5AFFEF295A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{16114946-D4F2-4604-A732-D5AFFEF295A1}.Debug|x64.ActiveCfg = Debug|Any CPU

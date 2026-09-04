@@ -43,6 +43,15 @@ public sealed class ProfileEnricher
             if (!string.IsNullOrEmpty(requestUser))
             {
                 request.profileUserId = requestUser;
+
+                if (_userProfiles.IsUserSuspended(requestUser))
+                {
+                    throw new ProxyErrorException(
+                        ProxyErrorException.ErrorType.UnknownProfile,
+                        System.Net.HttpStatusCode.Forbidden,
+                        "User is suspended: " + requestUser);
+                }
+
                 snapshot = _userProfiles.GetUserProfileSnapshot(requestUser);
 
                 if (snapshot is null)

@@ -1,0 +1,10 @@
+[
+  {
+    "userId": "active-user",
+    "X-Profile-Marker": "active"
+  },
+  {
+    "userId": "suspended-user",
+    "X-Profile-Marker": "suspended"
+  }
+]

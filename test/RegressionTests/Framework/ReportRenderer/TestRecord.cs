@@ -22,4 +22,5 @@ internal sealed class TestRecord
     public string Feature { get; set; } = string.Empty;
     public string Why { get; set; } = string.Empty;
     public string ExecutionLabel { get; set; } = string.Empty;
+    public List<string> Artifacts { get; set; } = [];
 }

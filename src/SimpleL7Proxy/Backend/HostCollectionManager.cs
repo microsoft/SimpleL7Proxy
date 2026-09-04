@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Backend;
@@ -67,6 +66,62 @@ public sealed class HostCollectionManager : IHostHealthCollection
         _version, _pending.Hosts.Count);
   }
 
+  /// <inheritdoc />
+  public void ReplaceConfiguration(
+      IEnumerable<HostConfig> hostConfigs,
+      IEnumerable<PathRouteDefinition> routeDefinitions)
+  {
+    ArgumentNullException.ThrowIfNull(hostConfigs);
+    ArgumentNullException.ThrowIfNull(routeDefinitions);
+
+    var configs = hostConfigs.ToList();
+    var definitions = routeDefinitions.ToList();
+    foreach (var config in configs)
+      config.FreezeHash();
+
+    var uniqueConfigs = DeduplicateStagedConfigs(configs);
+    if (MatchesCurrentSnapshot(uniqueConfigs) && RoutesMatchCurrentSnapshot(definitions))
+    {
+      _logger.LogDebug("[HOSTMGR] Hosts and routes match current snapshot — no changes");
+      return;
+    }
+
+    var nextVersion = _version + 1;
+    var candidate = HostCollectionSnapshot.Build(uniqueConfigs, definitions, _logger, nextVersion);
+    var activatedConfigs = new List<HostConfig>(candidate.Hosts.Count);
+
+    try
+    {
+      foreach (var host in candidate.Hosts)
+      {
+        host.Config.Activate();
+        activatedConfigs.Add(host.Config);
+      }
+
+      candidate.Freeze();
+    }
+    catch
+    {
+      foreach (var config in activatedConfigs)
+        config.SpinDown();
+      throw;
+    }
+
+    var oldSnapshot = _current;
+    foreach (var oldHost in oldSnapshot.Hosts)
+      oldHost.Config.SpinDown();
+
+    _version = nextVersion;
+    _current = candidate;
+    _pending = null;
+    _stagedConfigs = null;
+
+    _logger.LogInformation(
+        "[HOSTMGR] ✓ Configuration activated (v{OldVersion} → v{NewVersion}, {HostCount} hosts, {RouteCount} routes)",
+        oldSnapshot.Version, candidate.Version, candidate.Hosts.Count, candidate.PathRoutes.Count);
+
+  }
+
   /// <summary>
   /// Atomically swaps the pending snapshot in as Current.
   /// If hosts were staged via <see cref="StageHost"/>, deduplicates them by
@@ -119,7 +174,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[HOSTMGR] ✓ Snapshot activated (v{OldVersion} → v{NewVersion}, {Count} hosts)",
         oldVersion, _current.Version, _current.Hosts.Count);
 
-    IteratorFactory.InvalidateCache();
   }
 
   /// <summary>
@@ -163,15 +217,15 @@ public sealed class HostCollectionManager : IHostHealthCollection
   /// </summary>
   private bool MatchesCurrentSnapshot(List<HostConfig> stagedConfigs)
   {
-    var currentHosts = _current.Hosts;
-    if (stagedConfigs.Count != currentHosts.Count)
+    var currentConfigs = _current.Configs;
+    if (stagedConfigs.Count != currentConfigs.Count)
       return false;
 
     // Build a bag of current hashes (multiset comparison — order doesn't matter)
-    var currentHashes = new Dictionary<string, int>(currentHosts.Count, StringComparer.Ordinal);
-    foreach (var host in currentHosts)
+    var currentHashes = new Dictionary<string, int>(currentConfigs.Count, StringComparer.Ordinal);
+    foreach (var config in currentConfigs)
     {
-      var hash = host.Config.FrozenHash;
+      var hash = config.FrozenHash;
       if (hash == null) return false; // unhashed → can't compare, treat as changed
       currentHashes[hash] = currentHashes.GetValueOrDefault(hash) + 1;
     }
@@ -186,6 +240,23 @@ public sealed class HostCollectionManager : IHostHealthCollection
     }
 
     return true;
+  }
+
+  private bool RoutesMatchCurrentSnapshot(IReadOnlyList<PathRouteDefinition> definitions)
+  {
+    if (definitions.Count != _current.RouteDefinitions.Count)
+      return false;
+
+    var currentSignatures = _current.RouteDefinitions
+        .Select(definition => definition.Signature)
+        .OrderBy(signature => signature, StringComparer.Ordinal)
+        .ToArray();
+    var candidateSignatures = definitions
+        .Select(definition => definition.Signature)
+        .OrderBy(signature => signature, StringComparer.Ordinal)
+        .ToArray();
+
+    return currentSignatures.SequenceEqual(candidateSignatures, StringComparer.Ordinal);
   }
 
   /// <summary>
@@ -222,6 +293,12 @@ public sealed class HostCollectionManager : IHostHealthCollection
   public BaseHostHealth AddHost(HostConfig config)
   {
     ArgumentNullException.ThrowIfNull(config, nameof(config));
+    if (config.IndirectMode)
+      throw new InvalidOperationException(
+          "Indirect hosts must be installed with their Path_* route through complete configuration replacement.");
+    if (_current.PathRoutes.Count > 0)
+      throw new InvalidOperationException(
+          "Individual host CRUD is unavailable while named Path_* routes are active. Replace the complete configuration instead.");
 
     // Create the new host health instance
     BaseHostHealth host;
@@ -242,13 +319,18 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[CRUD] ✓ Host added: {Host} (v{Version}, total: {Count})",
         config.Host, _version, _current.Hosts.Count);
 
-    IteratorFactory.InvalidateCache();
     return host;
   }
 
   /// <inheritdoc />
   public bool RemoveHost(Guid hostId)
   {
+    if (_current.PathRoutes.Count > 0)
+    {
+      _logger.LogWarning("[CRUD] Host removal rejected while named Path_* routes are active");
+      return false;
+    }
+
     var existing = _current.Hosts.FirstOrDefault(h => h.guid == hostId);
     if (existing == null)
     {
@@ -263,7 +345,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[CRUD] ✓ Host removed: {Host} (v{Version}, total: {Count})",
         existing.Host, _version, _current.Hosts.Count);
 
-    IteratorFactory.InvalidateCache();
     return true;
   }
 
@@ -271,6 +352,11 @@ public sealed class HostCollectionManager : IHostHealthCollection
   public bool UpdateHost(Guid hostId, Action<HostConfig> mutate)
   {
     ArgumentNullException.ThrowIfNull(mutate, nameof(mutate));
+    if (_current.PathRoutes.Count > 0)
+    {
+      _logger.LogWarning("[CRUD] Host update rejected while named Path_* routes are active");
+      return false;
+    }
 
     var existing = _current.Hosts.FirstOrDefault(h => h.guid == hostId);
     if (existing == null)
@@ -290,7 +376,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger.LogInformation("[CRUD] ✓ Host updated: {Host} (v{Version})",
         existing.Host, _version);
 
-    IteratorFactory.InvalidateCache();
     return true;
   }
 }

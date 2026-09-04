@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
+using System.Reflection;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
@@ -21,7 +22,11 @@ public sealed class Test1 : IRegressionTestMetadata
             ["request-state-compatibility"] = new(
                 "Request Lifecycle",
                 "Request state compatibility",
-                "Preserves routing and telemetry state across persistence, restart, and previously stored request payloads.")
+                "Preserves routing and telemetry state across persistence, restart, and previously stored request payloads."),
+            ["request-body-caching"] = new(
+                "Request Lifecycle",
+                "Request body caching",
+                "Ensures backend retries reuse the cached request body without reading the incoming stream again.")
         };
 
     [TestInitialize]
@@ -92,7 +97,8 @@ public sealed class Test1 : IRegressionTestMetadata
             S7PHash = 73,
             IterationMode = IterationModeEnum.MultiPass,
             APIMPolicyCycleCounter = 3,
-            LifetimeAPIMPolicyCycleCounter = 7
+            LifetimeAPIMPolicyCycleCounter = 7,
+            RequeueDelayMs = 2345.678
         };
         source.Headers["X-Test"] = "value";
 
@@ -108,6 +114,8 @@ public sealed class Test1 : IRegressionTestMetadata
         Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
         Assert.AreEqual(7, deserialized.LifetimeAPIMPolicyCycleCounter);
         Assert.AreEqual(7, restored.LifetimeAPIMPolicyCycleCounter);
+        Assert.AreEqual(2345.678, deserialized.RequeueDelayMs, 0.001);
+        Assert.AreEqual(2345.678, restored.RequeueDelayMs, 0.001);
         Assert.AreEqual(0, restored.APIMPolicyCycleCounter);
         StringAssert.Contains(json, "\"LifetimePolicyCycleCounter\": 7");
         Assert.IsFalse(json.Contains("LifetimeAPIMPolicyCycleCounter", StringComparison.Ordinal));
@@ -132,6 +140,7 @@ public sealed class Test1 : IRegressionTestMetadata
         Assert.AreEqual((short)0, restored.S7PHash);
         Assert.IsNull(deserialized.IterationMode);
         Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
+        Assert.AreEqual(0, restored.RequeueDelayMs);
     }
 
     [TestMethod]
@@ -282,6 +291,100 @@ public sealed class Test1 : IRegressionTestMetadata
         Assert.AreEqual("yes", request.Headers["hash-seen"]);
         Assert.AreEqual("rule", request.Headers["Route"]);
         Assert.AreEqual(6, matchedRuleNames.Length);
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "request-body-caching",
+        "Request body is read only once",
+        "Repeated cache calls must return the original payload from memory without performing additional reads on the incoming stream.")]
+    public async Task RequestData_CacheBodyAsync_SecondCallDoesNotReadSourceAgain()
+    {
+        byte[] payload = [1, 2, 3, 4, 5, 6, 7, 8];
+        var source = new CountingReadStream(payload);
+        using var request = new RequestData();
+        var bodySetter = typeof(RequestData)
+            .GetProperty(nameof(RequestData.Body), BindingFlags.Instance | BindingFlags.Public)?
+            .GetSetMethod(nonPublic: true);
+        Assert.IsNotNull(bodySetter, "RequestData.Body must have a private setter for this regression fixture.");
+        bodySetter.Invoke(request, [source]);
+
+        var firstBody = await request.CacheBodyAsync(out var firstWasCached);
+        var readsAfterFirstCall = source.ReadOperations;
+        var secondBody = await request.CacheBodyAsync(out var secondWasCached);
+
+        Assert.IsFalse(firstWasCached);
+        Assert.IsTrue(secondWasCached);
+        Assert.IsTrue(readsAfterFirstCall > 0, "The first cache call did not read the source stream.");
+        Assert.AreEqual(
+            readsAfterFirstCall,
+            source.ReadOperations,
+            "The second cache call read the source stream again.");
+        Assert.AreEqual(payload.Length, source.BytesRead);
+        Assert.IsTrue(firstBody.Equals(secondBody), "The second call did not return the same cached memory.");
+        CollectionAssert.AreEqual(payload, firstBody.ToArray());
+        CollectionAssert.AreEqual(payload, secondBody.ToArray());
+    }
+
+    private sealed class CountingReadStream(byte[] body) : Stream
+    {
+        private readonly MemoryStream _inner = new(body, writable: false);
+
+        public int ReadOperations { get; private set; }
+        public int BytesRead { get; private set; }
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position
+        {
+            get => _inner.Position;
+            set => _inner.Position = value;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            ReadOperations++;
+            var read = _inner.Read(buffer, offset, count);
+            BytesRead += read;
+            return read;
+        }
+
+        public override async Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken)
+        {
+            ReadOperations++;
+            var read = await _inner.ReadAsync(buffer, offset, count, cancellationToken);
+            BytesRead += read;
+            return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            ReadOperations++;
+            var read = await _inner.ReadAsync(buffer, cancellationToken);
+            BytesRead += read;
+            return read;
+        }
+
+        public override void Flush() => _inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class StubUserProfileService(UserProfileSnapshot? snapshot) : IUserProfileService

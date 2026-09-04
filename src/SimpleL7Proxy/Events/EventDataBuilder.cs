@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -30,6 +31,14 @@ public class EventDataBuilder
     public void EnrichRequestHeaders(RequestData request, string workerId)
     {
         request.Headers["x-Request-Queue-Duration"] = (request.DequeueTime! - request.EnqueueTime!).TotalMilliseconds.ToString();
+        if (request.RequeueDelayMs > 0)
+        {
+            request.Headers["x-Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            request.Headers.Remove("x-Request-Requeue-Delay");
+        }
         request.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - request.DequeueTime).TotalMilliseconds.ToString();
         request.Headers["x-Request-Worker"] = workerId;
         request.Headers["x-S7P-ID"] = request.MID ?? "N/A";
@@ -55,6 +64,10 @@ public class EventDataBuilder
         eventData["RequestContentLength"] = request.Headers["Content-Length"] ?? "N/A";
         eventData["RequestType"] = request.Type.ToString();
         eventData["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
+        if (request.RequeueDelayMs > 0)
+        {
+            eventData["Request-Requeue-Delay"] = request.RequeueDelayMs.ToString("F3", CultureInfo.InvariantCulture);
+        }
         eventData["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
 
         _logger.LogTrace("Populated initial event data for request {Guid}", request.Guid);

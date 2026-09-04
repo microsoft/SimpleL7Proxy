@@ -12,9 +12,11 @@ public interface ISharedIteratorRegistry
     /// Thread-safe: multiple concurrent requests to the same path will share the same iterator.
     /// </summary>
     /// <param name="path">The request path (normalized) to use as the key</param>
-    /// <param name="factory">Factory function to create a new iterator and its modified path if one doesn't exist</param>
+    /// <param name="factory">Factory function that resolves the hosts and modified path for a new entry</param>
     /// <returns>A shared iterator for the path (includes ModifiedPath for prefix-stripped path)</returns>
-    ISharedHostIterator GetOrCreate(string path, Func<(IHostIterator iterator, string modifiedPath)> factory);
+    SharedHostIterator GetOrCreate(
+        string path,
+        Func<(List<BaseHostHealth> hosts, string modifiedPath)> factory);
 
     /// <summary>
     /// Invalidates all cached iterators. Call when backend configuration changes.

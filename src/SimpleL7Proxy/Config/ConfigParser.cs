@@ -350,7 +350,19 @@ public static class ConfigParser
             return (token[0] == '-' || token[0] == '_') && token.Length > 1;
         }
 
+        static bool IsNamedPathVariant(string value)
+        {
+            if (!value.StartsWith("Path", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var token = value["Path".Length..];
+            return token.Length > 1 && (token[0] == '-' || token[0] == '_');
+        }
+
         return IsHostIndexedVariant(normalized)
+            || IsNamedPathVariant(normalized)
             || IsIndexedKey(normalized, "IP")
             || IsIndexedKey(normalized, "Api_Key")
             || IsIndexedKey(normalized, "Probe_path")
@@ -445,7 +457,9 @@ public static class ConfigParser
     {
         backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLowerInvariant();
         if (backendOptions.LoadBalanceMode != Constants.Latency &&
+            backendOptions.LoadBalanceMode != Constants.TimeToFirstByte &&
             backendOptions.LoadBalanceMode != Constants.RoundRobin &&
+            backendOptions.LoadBalanceMode != Constants.PriorityGroup &&
             backendOptions.LoadBalanceMode != Constants.Random)
         {
             backendOptions.LoadBalanceMode = Constants.Latency;

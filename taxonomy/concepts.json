@@ -319,6 +319,17 @@
       "related_concept_ids": ["c-health-poller", "c-processor", "c-backend-host"],
       "docs": ["reference/backend-hosts.md", "reference/ai-foundry-integration.md"]
     },
+    {
+      "id": "c-indirect-mode",
+      "name": "Indirect Mode",
+      "domain_id": "d02",
+      "subdomain_id": "sd02-01",
+      "definition": "Logical backend mode where the proxy never calls or probes the host. The host must name an APIM-mode gateway through via and must belong to a named Path route.",
+      "connection_string_key": "mode",
+      "connection_string_value": "mode=indirect",
+      "related_concept_ids": ["c-backend-host", "c-direct-mode"],
+      "docs": ["reference/backend-hosts.md"]
+    },
 
     {
       "id": "c-health-poller",
@@ -336,10 +347,10 @@
       "name": "Probe Path",
       "domain_id": "d02",
       "subdomain_id": "sd02-02",
-      "definition": "URL path sent as a GET request to test backend health. Ignored when mode=direct.",
+      "definition": "URL path sent as a GET request to test backend health. Used by APIM mode and ignored by direct and indirect modes.",
       "connection_string_key": "probe",
       "default_value": "echo/resource?param1=sample",
-      "related_concept_ids": ["c-health-poller", "c-direct-mode"],
+      "related_concept_ids": ["c-health-poller", "c-direct-mode", "c-indirect-mode"],
       "docs": ["reference/backend-hosts.md"]
     },
     {
@@ -424,10 +435,10 @@
       "subdomain_id": "sd02-03",
       "definition": "Stage 2 of backend selection. Determines the ordering of hosts within the matched set for each request.",
       "key_settings": ["LoadBalanceMode"],
-      "allowed_values": ["roundrobin", "latency", "random"],
+      "allowed_values": ["roundrobin", "latency", "timetofirstbyte", "random"],
       "default_value": "latency",
       "reload_type": "Warm",
-      "related_concept_ids": ["c-round-robin-iterator", "c-latency-iterator", "c-random-iterator"],
+      "related_concept_ids": ["c-round-robin-iterator", "c-latency-iterator", "c-time-to-first-byte-iterator", "c-random-iterator"],
       "docs": ["reference/load-balancing.md"]
     },
     {
@@ -450,6 +461,17 @@
       "definition": "Orders hosts by ascending average probe latency per request. Direct-mode hosts always sort first at 0 ms.",
       "config_value": "LoadBalanceMode=latency",
       "related_concept_ids": ["c-load-balance-mode", "c-average-latency", "c-direct-mode"],
+      "docs": ["reference/load-balancing.md"]
+    },
+    {
+      "id": "c-time-to-first-byte-iterator",
+      "name": "Time-to-First-Byte Iterator",
+      "code_file": "TimeToFirstByteHostIterator.cs",
+      "domain_id": "d02",
+      "subdomain_id": "sd02-03",
+      "definition": "Orders peers within the current priority group by ascending observed backend response-header latency.",
+      "config_value": "LoadBalanceMode=timetofirstbyte",
+      "related_concept_ids": ["c-load-balance-mode"],
       "docs": ["reference/load-balancing.md"]
     },
     {
@@ -1455,7 +1477,7 @@
     { "name": "AsyncStreamingBufferSizeBytes","type":"long","reload":"Cold", "default": 0,       "unit":"bytes","concept_ids": ["c-result-blob"] },
     { "name": "KeepAliveInitialDelaySecs","type":"int",  "reload":"Hidden",  "default": 60,      "unit":"s",    "concept_ids": ["c-backend-host"] },
     { "name": "KeepAlivePingIntervalSecs","type":"int",  "reload":"Hidden",  "default": 60,      "unit":"s",    "concept_ids": ["c-backend-host"] },
-    { "name": "LoadBalanceMode",       "type": "string", "reload": "Warm",   "default": "latency","allowed_values":["roundrobin","latency","random"], "concept_ids": ["c-load-balance-mode"] },
+    { "name": "LoadBalanceMode",       "type": "string", "reload": "Warm",   "default": "latency","allowed_values":["roundrobin","latency","timetofirstbyte","random"], "concept_ids": ["c-load-balance-mode"] },
     { "name": "LOGFILE_NAME",          "type": "string", "reload": "Cold",   "default": "eventslog.json", "concept_ids": ["c-log-file"] },
     { "name": "LogHeaders",            "type": "string[]","reload":"Warm",   "default": [],      "concept_ids": ["c-proxy-event"] },
     { "name": "LogAllRequestHeaders",  "type": "bool",   "reload": "Warm",   "default": false,   "concept_ids": ["c-proxy-event"] },

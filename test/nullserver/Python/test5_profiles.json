@@ -1,0 +1,29 @@
+[
+  {
+    "userId": "profile-a",
+    "X-Allowed-Models": "gpt-4o,gpt-4*",
+    "X-Profile-Marker": "profile-a",
+    "rules": [
+      {
+        "name": "profile-header-rule",
+        "if": {
+          "name": "profile-match",
+          "field": "ProfileUserID",
+          "match": "equals",
+          "value": "profile-a"
+        },
+        "then": {
+          "name": "add-request-sequence",
+          "set": {
+            "x-Request-Sequence": "profile-rule-added"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "userId": "profile-b",
+    "X-Allowed-Models": "gpt-4o-mini",
+    "X-Profile-Marker": "profile-b"
+  }
+]

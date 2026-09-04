@@ -60,3 +60,8 @@
 - Run terminal diagnostics sequentially because `run_in_terminal` reuses shell state; disable Git pagers with `git --no-pager` for non-interactive checks.
 - After extracting a large declaration with `apply_patch`, inspect both source boundaries before proceeding; malformed context markers can be inserted literally even when the patch reports success.
 - This repository's WSL environment does not include `rg`; use `git grep` for tracked-file searches.
+- Build host and `Path_*` route changes as one candidate snapshot; validate every host, route, and `via` reference before activation so a rejected warm update retains the last known-good snapshot.
+- Preserve each file's existing EOL convention. Use editor-native `apply_patch` for content changes and never use shell commands to normalize or rewrite files.
+- The main solution currently references missing `test/chat_tester/chat_tester.csproj`; validate proxy changes with `src/SimpleL7Proxy/SimpleL7Proxy.csproj` and `test/RegressionTests/SimpleL7Proxy.Test.csproj` until the solution entry is corrected.
+- When invoking WSL `bash -lc` through PowerShell, write critical executable paths explicitly instead of relying on an intermediate Bash variable; wrapper quoting can remove the variable and turn the next option into the `dotnet` command name.
+- `git diff --check` does not inspect untracked files; run a direct trailing-whitespace check on newly created scripts and documents until they are tracked.

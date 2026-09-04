@@ -4,11 +4,27 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Test;
 
 public sealed partial class PolicyScenarioIntegrationTests
 {
+    [TestMethod]
+    public void PriorityGroupLoadBalanceMode_IsAccepted()
+    {
+        var config = new ProxyConfig
+        {
+            LoadBalanceMode = "prioritygroup"
+        };
+
+        ConfigParser.ApplyDerivedSettings(
+            config,
+            typeof(ProxyConfig).GetProperty(nameof(ProxyConfig.LoadBalanceMode))!);
+
+        Assert.AreEqual(Constants.PriorityGroup, config.LoadBalanceMode);
+    }
+
     [TestMethod]
     [RegressionTestCase(
         "round-robin-load-balancer",
@@ -21,7 +37,6 @@ public sealed partial class PolicyScenarioIntegrationTests
     {
         var config = IteratorTestLocalConfig.Load();
         var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
-        var keepArtifacts = config.GetBool("ITERATOR_TEST_KEEP_ARTIFACTS", true);
         var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
 
         var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
@@ -44,8 +59,6 @@ public sealed partial class PolicyScenarioIntegrationTests
 
         var backendProcesses = new List<LoggedProcess>();
         LoggedProcess? proxy = null;
-        var passed = false;
-
         try
         {
             for (int index = 0; index < backendPorts.Length; index++)
@@ -109,7 +122,6 @@ public sealed partial class PolicyScenarioIntegrationTests
                     $"hosts={string.Join(" -> ", result.Select(attempt => attempt.BackendHost))}");
             }
 
-            passed = true;
         }
         finally
         {
@@ -123,14 +135,297 @@ public sealed partial class PolicyScenarioIntegrationTests
                 await backend.DisposeAsync();
             }
 
-            if (!passed || keepArtifacts)
+            AttachScenarioArtifacts(artifactRoot);
+        }
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "named-route-iteration-mode",
+        "Named routes override the global iteration mode",
+        "Runs a route configured for SinglePass over a global MultiPass mode, then confirms a valid S7P-Iterator header can override the route for one request.")]
+    [TestCategory("Integration")]
+    [TestCategory("Iterator")]
+    [Timeout(180_000)]
+    public async Task NamedRoute_IterationModeOverridesGlobal_UnlessRequestHeaderIsValid()
+    {
+        var config = IteratorTestLocalConfig.Load();
+        var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
+        var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
+        Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
+        Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
+
+        var artifactRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"simplel7proxy-route-iterator-test-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(artifactRoot);
+        TestContext.WriteLine($"Route iterator test artifacts: {artifactRoot}");
+
+        var ports = GetAvailablePorts(4);
+        var backendPorts = ports.Take(3).ToArray();
+        var proxyPort = ports[3];
+        var backendUrls = backendPorts.Select(port => $"http://127.0.0.1:{port}").ToArray();
+        var backendProcesses = new List<LoggedProcess>();
+        LoggedProcess? proxy = null;
+
+        try
+        {
+            for (int index = 0; index < backendPorts.Length; index++)
             {
-                AttachScenarioArtifacts(artifactRoot);
+                backendProcesses.Add(LoggedProcess.Start(
+                    $"route iterator backend {(char)('A' + index)}",
+                    CreateStreamServerStartInfo(pythonExecutable, streamServerPath, backendPorts[index]),
+                    Path.Combine(artifactRoot, $"backend-{index + 1}.stdout.log"),
+                    Path.Combine(artifactRoot, $"backend-{index + 1}.stderr.log")));
             }
-            else if (Directory.Exists(artifactRoot))
+
+            await Task.WhenAll(backendProcesses.Select((process, index) =>
+                WaitUntilReadyAsync(process, new Uri($"{backendUrls[index]}/health"), timeout)));
+
+            var proxyEnvironment = new Dictionary<string, string>(config.ProxyEnvironment, StringComparer.OrdinalIgnoreCase)
             {
-                Directory.Delete(artifactRoot, recursive: true);
+                ["IterationMode"] = "MultiPass",
+                ["MaxAttempts"] = "5",
+                ["UseSharedIterators"] = "false",
+                ["Path_iterator"] =
+                    "prefix=/route;hosts=Host_iterator_a:Host_iterator_b:Host_iterator_c;" +
+                    "stripprefix=true;iterationmode=SinglePass;maxattempts=5"
+            };
+            var eventLogPath = Path.Combine(artifactRoot, "events.ndjson");
+            proxy = LoggedProcess.Start(
+                "route iterator test proxy",
+                CreateIteratorProxyStartInfo(
+                    proxyEnvironment,
+                    proxyAssembly,
+                    proxyPort,
+                    eventLogPath,
+                    backendPorts),
+                Path.Combine(artifactRoot, "proxy.stdout.log"),
+                Path.Combine(artifactRoot, "proxy.stderr.log"));
+
+            await WaitUntilReadyAsync(proxy, new Uri($"http://127.0.0.1:{proxyPort}/startup"), timeout);
+            await WaitForActiveBackendsAsync(proxy, eventLogPath, backendPorts.Length, timeout);
+
+            using var client = new HttpClient
+            {
+                BaseAddress = new Uri($"http://127.0.0.1:{proxyPort}"),
+                Timeout = timeout
+            };
+
+            await RunIteratorCaseAsync(
+                client,
+                eventLogPath,
+                new IteratorCase(
+                    "route-single-pass",
+                    null,
+                    3,
+                    HttpStatusCode.InternalServerError,
+                    "\"Attempt-3\"",
+                    "/route/500error"),
+                backendUrls,
+                timeout);
+
+            await RunIteratorCaseAsync(
+                client,
+                eventLogPath,
+                new IteratorCase(
+                    "header-multi-pass",
+                    "MultiPass",
+                    5,
+                    HttpStatusCode.PreconditionFailed,
+                    "Maximum backend attempts reached (5).",
+                    "/route/500error"),
+                backendUrls,
+                timeout);
+        }
+        finally
+        {
+            if (proxy != null)
+            {
+                await proxy.DisposeAsync();
             }
+
+            foreach (var backend in backendProcesses)
+            {
+                await backend.DisposeAsync();
+            }
+
+            AttachScenarioArtifacts(artifactRoot);
+        }
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "time-to-first-byte-load",
+        "TTFB mode prefers the fastest active backend under real latency",
+        "Starts one deliberately slow backend and two fast backends, sends multiple requests in timetofirstbyte mode, and confirms the slow backend is avoided.")]
+    [TestCategory("Integration")]
+    [TestCategory("Iterator")]
+    [TestCategory("Load")]
+    [Timeout(180_000)]
+    public async Task TTFBMode_PrefersFastestBackend_WhenOneBackendIsSlow()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Inconclusive("The TTFB load harness requires Linux or WSL with python3 available on PATH.");
+        }
+
+        var config = IteratorTestLocalConfig.Load();
+        var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
+        var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
+        Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
+        Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
+
+        var artifactRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"simplel7proxy-ttfb-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(artifactRoot);
+        TestContext.WriteLine($"TTFB load artifacts: {artifactRoot}");
+
+        var ports = GetAvailablePorts(4);
+        var backendPorts = ports.Take(3).ToArray();
+        var proxyPort = ports[3];
+        var backendUrls = backendPorts.Select(port => $"http://127.0.0.1:{port}").ToArray();
+        var backendProcesses = new List<LoggedProcess>();
+        LoggedProcess? proxy = null;
+
+        try
+        {
+            for (int index = 0; index < backendPorts.Length; index++)
+            {
+                var startInfo = CreateStreamServerStartInfo(
+                    pythonExecutable,
+                    streamServerPath,
+                    backendPorts[index]);
+                startInfo.Environment["NULL_SERVER_QUIET"] = "true";
+                if (index == 0)
+                {
+                    startInfo.Environment["NULL_SERVER_DELAY_MS"] = "800";
+                }
+                else
+                {
+                    startInfo.Environment["NULL_SERVER_DELAY_MS"] = "0";
+                }
+
+                backendProcesses.Add(LoggedProcess.Start(
+                    $"ttfb backend {(char)('A' + index)}",
+                    startInfo,
+                    Path.Combine(artifactRoot, $"backend-{index + 1}.stdout.log"),
+                    Path.Combine(artifactRoot, $"backend-{index + 1}.stderr.log")));
+            }
+
+            await Task.WhenAll(backendProcesses.Select((process, index) =>
+                WaitUntilReadyAsync(
+                    process,
+                    new Uri($"{backendUrls[index]}/health"),
+                    timeout)));
+
+            var proxyEnvironment = new Dictionary<string, string>(config.ProxyEnvironment, StringComparer.OrdinalIgnoreCase)
+            {
+                ["LoadBalanceMode"] = "timetofirstbyte",
+                ["IterationMode"] = "SinglePass",
+                ["UseSharedIterators"] = "true",
+                ["MaxAttempts"] = "3",
+                ["Host_iterator_a"] = $"host=http://127.0.0.1:{backendPorts[0]}; path=/; processor=DefaultStream; probe=/health; enabled=true",
+                ["Host_iterator_b"] = $"host=http://127.0.0.1:{backendPorts[1]}; path=/; processor=DefaultStream; probe=/health; enabled=true",
+                ["Host_iterator_c"] = $"host=http://127.0.0.1:{backendPorts[2]}; path=/; processor=DefaultStream; probe=/health; enabled=true"
+            };
+
+            var eventLogPath = Path.Combine(artifactRoot, "events.ndjson");
+            proxy = LoggedProcess.Start(
+                "ttfb proxy",
+                CreateIteratorProxyStartInfo(
+                    proxyEnvironment,
+                    proxyAssembly,
+                    proxyPort,
+                    eventLogPath,
+                    backendPorts),
+                Path.Combine(artifactRoot, "proxy.stdout.log"),
+                Path.Combine(artifactRoot, "proxy.stderr.log"));
+
+            await WaitUntilReadyAsync(
+                proxy,
+                new Uri($"http://127.0.0.1:{proxyPort}/startup"),
+                timeout);
+            await WaitForActiveBackendsAsync(proxy, eventLogPath, backendPorts.Length, timeout);
+
+            using var client = new HttpClient
+            {
+                BaseAddress = new Uri($"http://127.0.0.1:{proxyPort}"),
+                Timeout = timeout
+            };
+
+            var requests = Enumerable.Range(0, 12)
+                .Select(async _ => await client.GetAsync("/success"))
+                .ToArray();
+
+            var responses = await Task.WhenAll(requests);
+            foreach (var response in responses)
+            {
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                response.Dispose();
+            }
+
+            var backendCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in File.ReadLines(eventLogPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
+                    if (!string.Equals(GetProperty(root, "Type"), "S7P-BackendRequest", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var backendHost = GetProperty(root, "Backend-Host");
+                    if (!string.IsNullOrWhiteSpace(backendHost))
+                    {
+                        backendCounts[backendHost] = backendCounts.GetValueOrDefault(backendHost) + 1;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Another process may still be writing to the log; ignore partial lines.
+                }
+            }
+
+            var slowBackendHost = $"http://127.0.0.1:{backendPorts[0]}";
+            var fastBackendHostCount = backendPorts
+                .Skip(1)
+                .Select(port => $"http://127.0.0.1:{port}")
+                .Sum(host => backendCounts.GetValueOrDefault(host));
+            var slowBackendCount = backendCounts.GetValueOrDefault(slowBackendHost);
+
+            Assert.IsTrue(
+                fastBackendHostCount > slowBackendCount,
+                $"TTFB mode did not prefer the faster backend. Counts: {string.Join(", ", backendCounts.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
+            Assert.IsTrue(
+                slowBackendCount < 3,
+                $"Slow backend was still selected too often under TTFB mode. Counts: {string.Join(", ", backendCounts.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
+        }
+        finally
+        {
+            if (proxy != null)
+            {
+                await proxy.DisposeAsync();
+            }
+
+            foreach (var backend in backendProcesses)
+            {
+                await backend.DisposeAsync();
+            }
+
+            AttachScenarioArtifacts(artifactRoot);
         }
     }
 
@@ -143,7 +438,7 @@ public sealed partial class PolicyScenarioIntegrationTests
     {
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            $"/500error?case={Uri.EscapeDataString(testCase.Name)}")
+            $"{testCase.Path}?case={Uri.EscapeDataString(testCase.Name)}")
         {
             Content = new StringContent("{}", Encoding.UTF8, "application/json")
         };
@@ -501,6 +796,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         string? IteratorHeader,
         int ExpectedAttempts,
         HttpStatusCode ExpectedStatusCode,
-        string ExpectedBodyText);
+        string ExpectedBodyText,
+        string Path = "/500error");
     private sealed record IteratorBackendAttempt(int Attempt, string BackendHost);
 }

@@ -1,0 +1,30 @@
+{
+  "enabled": true,
+  "durationSeconds": 300,
+  "requestIntervalSeconds": 30,
+  "tokenAcquisitionTimeoutSeconds": 180,
+  "requestTimeoutSeconds": 60,
+  "useAzureGovernment": false,
+  "outputPath": "",
+  "endpoints": [
+    {
+      "name": "protected-api",
+      "url": "https://example.invalid/health",
+      "method": "GET",
+      "audience": "api://00000000-0000-0000-0000-000000000000/.default",
+      "headers": {
+        "Accept": "application/json"
+      },
+      "expectedStatusCodes": [
+        200
+      ],
+      "expectedClaims": {
+        "aud": "api://00000000-0000-0000-0000-000000000000",
+        "tid": "00000000-0000-0000-0000-000000000000",
+        "roles": [
+          "Api.Access"
+        ]
+      }
+    }
+  ]
+}

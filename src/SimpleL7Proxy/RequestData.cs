@@ -194,6 +194,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     // Number of times Proxy calls the backend
     public int BackendAttempts { get; set; } = 0;
     public int LifetimeBackendAttempts { get; set; } = 0;
+    public double RequeueDelayMs { get; set; } = 0;
     /// <summary>Routing mode captured from the current proxy configuration when the request is created.</summary>
     public IterationModeEnum IterationMode { get; set; } =
         BackendOptionsStatic?.IterationMode ?? IterationModeEnum.SinglePass;

@@ -1,0 +1,13 @@
+# Proxy settings exported by the manual-test setup scripts.
+unset Host_api_A Host_api_B Host_api2_A Host_api2_B Host1 Host2 Host3
+unset Path_api Path_api2 Path_api_special Path_inherit Path_keep
+unset LoadBalanceMode IterationMode MaxAttempts UseSharedIterators
+unset Workers PriorityWorkers MaxQueueLength DefaultTTLSecs Timeout AcceptableStatusCodes
+unset CBErrorThreshold CBTimeslice PollInterval PollTimeout SuccessRate HealthProbeSidecar
+unset PriorityKeyHeader PriorityKeys PriorityValues DefaultPriority
+unset UseProfiles UserConfigRequired UserConfigUrl UserIDFieldName UserProfileHeader
+unset UserConfigRefreshIntervalSecs UserSoftDeleteTTLMinutes UniqueUserHeaders SuspendedUserConfigUrl
+unset RequiredHeaders ValidateHeaders DisallowedHeaders StripRequestHeaders StripResponseHeaders
+unset ValidateAuthAppID ValidateAuthAppIDUrl ValidateAuthAppIDHeader ValidateAuthAppFieldName
+unset ValidateAuthConfig ValidateAuthKey1 ValidateAuthKey2
+unset AsyncModeEnabled EVENT_LOGGERS LOGFILE_NAME LogToEvents LogToConsole
