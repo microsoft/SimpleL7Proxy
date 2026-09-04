@@ -2,7 +2,8 @@
 
 Depending on whether you are serving live users, high-priority business workflows, or low-priority background jobs, you will likely want control over when, where, and how your traffic is fulfilled. AI backends can throttle, regions can become constrained, and models eventually reach the end of their lifecycle. These are some of the reasons teams place a proxy in front of their AI services. The questions below are the ones most teams ask when deciding whether this approach fits their architecture.
 
----
+<a href="https://www.youtube.com/watch?v=sHvhYOcZa7o"><img src="youtube-video.png" alt="Watch the video" width="480"></a>
+
 
 ## Where do you want to start?
 
