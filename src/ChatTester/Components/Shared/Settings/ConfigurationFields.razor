@@ -6,7 +6,7 @@
         var secret = setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase)
             || setting.Name.ToLowerInvariant() is "auth:key1" or "auth:key2";
         var multiline = !secret && (setting.LoadedValue.Length > 100 || setting.LoadedValue.IndexOfAny(new[] { ',', '\n', '[', '{' }) >= 0);
-        <div class="config-newhost-field" @key="setting">
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
             <div class="config-setting-heading">
                 <label class="form-label" for="@setting.Key" title="@setting.Key">@Label(setting.Name)</label>
                 <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name" />
@@ -35,10 +35,11 @@
             {
                 <div class="d-flex align-items-start gap-2 mt-1">
                     <span class="small text-muted text-break">Current: @(secret ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</span>
-                    <button class="btn btn-sm btn-link p-0 ms-auto" type="button" title="Reset this setting"
+                    <button class="btn btn-sm btn-outline-secondary text-nowrap ms-auto" type="button"
+                            title="Discard this edit and restore the current loaded value"
+                            aria-label="@($"Revert {Label(setting.Name)} to its loaded value")"
                             @onclick="() => SetValue(setting, setting.LoadedValue)">
-                        <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
-                        <span class="visually-hidden">Reset @Label(setting.Name)</span>
+                        <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                     </button>
                 </div>
             }

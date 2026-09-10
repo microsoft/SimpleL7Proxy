@@ -23,7 +23,7 @@
             <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting"
                 @onclick="() => EditHost(setting)">
                 <th scope="row">
-                    <div class="fw-semibold">@setting.Name</div>
+                    <button type="button" class="btn btn-link p-0 fw-semibold text-start" @onclick:stopPropagation="true" @onclick="() => EditHost(setting)">@setting.Name</button>
                 </th>
                 @foreach (var column in HostColumns)
                 {
@@ -47,8 +47,18 @@
 
 @if (_showNewHostDialog)
 {
+    var loadedHost = _editingHost is null ? null : _editingHost with { DraftValue = _editingHost.LoadedValue };
+    var changedFields = HostFieldSchema.Where(field =>
+    {
+        var loadedValue = loadedHost is null ? string.Empty : HostFieldValue(loadedHost, field.Name);
+        if (field.Kind == "bool" && string.IsNullOrEmpty(loadedValue))
+        {
+            loadedValue = field.Default;
+        }
+        return !string.Equals(NewHostValue(field.Name), loadedValue, StringComparison.Ordinal);
+    }).Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
     <div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
-        <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="New host">
+        <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
                 <div>
                     <h2 class="h5 mb-0">@(_editingHost is null ? "New host" : "Edit host")</h2>
@@ -57,11 +67,11 @@
                         <a class="small" href="@HostDocsUrl" target="_blank" rel="noopener">Backend host settings reference</a>
                     }
                 </div>
-                <button type="button" class="btn-close" aria-label="Close" @onclick="CancelNewHost"></button>
+                <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelNewHost"></button>
             </div>
             <div class="config-newhost-body">
                 <div class="config-newhost-grid">
-                    <div class="config-newhost-field">
+                    <div class="config-newhost-field @(!string.Equals(_newHostName, _editingHost?.Name ?? string.Empty, StringComparison.Ordinal) ? "config-field-changed" : string.Empty)">
                         <div class="config-setting-heading">
                             <label class="form-label" for="newHostName">Name</label>
                             <ConfigurationHelp Section="Hosts" Topic="Host name" HelpTopic="Name" />
@@ -72,7 +82,7 @@
                     </div>
                     @foreach (var field in DialogHostFields)
                     {
-                        <div class="config-newhost-field@(string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase) ? " config-field-break" : string.Empty)">
+                        <div class='config-newhost-field @((changedFields.Contains(field.Name) || (field.Name == "host" && changedFields.Contains("ipaddress"))) ? "config-field-changed" : string.Empty) @(string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase) ? "config-field-break" : string.Empty)'>
                             <div class="config-setting-heading">
                                 <label class="form-label" title="@field.Description">@HostLabel(field)</label>
                                 <ConfigurationHelp Section="Hosts" Topic="@field.Name"
@@ -145,7 +155,7 @@
                     }
                 </div>
                 <div class="config-auth-section">
-                    <div class="config-newhost-field config-auth-toggle">
+                    <div class='config-newhost-field config-auth-toggle @(changedFields.Contains("usemi") ? "config-field-changed" : string.Empty)'>
                         <div class="config-setting-heading">
                             <label class="form-label">use token auth</label>
                             <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication" />
@@ -158,7 +168,7 @@
                         <div class="config-auth-col @(IsTokenAuth ? string.Empty : "config-auth-dim")">
                             <div class="config-auth-subheading">Token auth</div>
                             <div class="config-auth-fields">
-                                <div class="config-newhost-field">
+                                <div class='config-newhost-field @(changedFields.Contains("authprovider") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <label class="form-label">auth provider</label>
                                         <ConfigurationHelp Section="Hosts" Topic="authprovider" />
@@ -176,7 +186,7 @@
                                         }
                                     </select>
                                 </div>
-                                <div class="config-newhost-field">
+                                <div class='config-newhost-field @(changedFields.Contains("audience") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <label class="form-label">audience</label>
                                         <ConfigurationHelp Section="Hosts" Topic="audience" />
@@ -189,7 +199,7 @@
                         <div class="config-auth-col @(IsTokenAuth ? "config-auth-dim" : string.Empty)">
                             <div class="config-auth-subheading">Key based auth</div>
                             <div class="config-auth-fields">
-                                <div class="config-newhost-field">
+                                <div class='config-newhost-field @(changedFields.Contains("api-key-header") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <label class="form-label">api-key-header</label>
                                         <ConfigurationHelp Section="Hosts" Topic="api-key-header" />
@@ -197,7 +207,7 @@
                                     <input class="form-control form-control-sm" placeholder="api-key" value='@NewHostValue("api-key-header")' disabled="@IsTokenAuth"
                                            @oninput='args => SetNewHostValue("api-key-header", args.Value?.ToString())' />
                                 </div>
-                                <div class="config-newhost-field">
+                                <div class='config-newhost-field @(changedFields.Contains("api-key") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <label class="form-label">api-key</label>
                                         <ConfigurationHelp Section="Hosts" Topic="api-key" />

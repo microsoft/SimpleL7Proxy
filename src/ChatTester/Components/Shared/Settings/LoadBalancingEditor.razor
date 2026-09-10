@@ -3,7 +3,7 @@
 <div class="config-newhost-grid">
     @foreach (var setting in Settings)
     {
-        <div class="config-newhost-field" @key="setting">
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
             <div class="config-setting-heading">
                 <label class="form-label">@FieldLabel(setting.Name)</label>
                 <ConfigurationHelp Section="LoadBalancing" Topic="@setting.Name" />
@@ -36,7 +36,15 @@
             }
             @if (setting.IsChanged)
             {
-                <div class="small text-muted text-break mt-1">Current: @DisplayLoadedValue(setting.LoadedValue)</div>
+                <div class="d-flex align-items-center justify-content-between gap-2 mt-1">
+                    <div class="small text-muted text-break">Current: @DisplayLoadedValue(setting.LoadedValue)</div>
+                    <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button"
+                            title="Discard this edit and restore the current loaded value"
+                            aria-label="@($"Revert {setting.Name} to its loaded value")"
+                            @onclick="() => SetValue(setting, new ChangeEventArgs { Value = setting.LoadedValue })">
+                        <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
+                    </button>
+                </div>
             }
         </div>
     }

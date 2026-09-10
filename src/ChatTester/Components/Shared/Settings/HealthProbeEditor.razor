@@ -2,8 +2,9 @@
 
 @if (Setting is not null)
 {
+    var loadedSetting = Setting with { DraftValue = Setting.LoadedValue };
     <div class="config-healthprobe-grid">
-        <div class="config-newhost-field">
+        <div class="config-newhost-field @(Enabled != IsEnabled(loadedSetting) ? "config-field-changed" : string.Empty)">
             <div class="config-setting-heading">
                 <label class="form-label">enabled</label>
                 <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe enabled" />
@@ -13,7 +14,7 @@
                 <input class="form-check-input" type="checkbox" checked="@Enabled" @onchange="OnEnabledChanged" />
             </div>
         </div>
-        <div class="config-newhost-field">
+        <div class='config-newhost-field @(!string.Equals(Url, Field(loadedSetting, "url"), StringComparison.Ordinal) ? "config-field-changed" : string.Empty)'>
             <div class="config-setting-heading">
                 <label class="form-label">url</label>
                 <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL" />

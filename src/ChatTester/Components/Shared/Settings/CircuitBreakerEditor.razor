@@ -3,7 +3,7 @@
 <div class="config-newhost-grid">
     @foreach (var setting in Settings)
     {
-        <div class="config-newhost-field" @key="setting">
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
             <div class="config-setting-heading">
                 <label class="form-label">@FieldLabel(setting.Name)</label>
                 <ConfigurationHelp Section="CircuitBreaker" Topic="@setting.Name" />

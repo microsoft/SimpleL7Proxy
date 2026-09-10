@@ -1,5 +1,8 @@
 using Azure.Data.AppConfiguration;
 using Azure.Identity;
+using SimpleL7Proxy.Config;
+using System.Collections;
+using System.Globalization;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
@@ -15,6 +18,8 @@ public sealed record AppConfigurationScaffoldSetting(
     string Label,
     string LoadedValue)
 {
+    public DateTimeOffset? LastModified { get; init; }
+
     public string DraftValue { get; set; } = LoadedValue;
 
     // Editable identifier for newly-added rows (existing settings keep their Name).
@@ -22,7 +27,7 @@ public sealed record AppConfigurationScaffoldSetting(
 
     public bool IsNew { get; set; }
 
-    public bool IsChanged => !string.Equals(LoadedValue, DraftValue, StringComparison.Ordinal);
+    public bool IsChanged => IsNew || !string.Equals(LoadedValue, DraftValue, StringComparison.Ordinal);
 }
 
 public sealed class AppConfigurationScaffoldService
@@ -74,6 +79,59 @@ public sealed class AppConfigurationScaffoldService
 
     public IReadOnlyList<string> HostListColumns => _options.Hosts.ListColumns;
 
+    public int ApplyProxyDefaults(IReadOnlyCollection<AppConfigurationScaffoldSetting> settings)
+    {
+        var defaults = ReadProxyDefaults();
+        var changedCount = 0;
+        foreach (var setting in settings)
+        {
+            if (string.Equals(setting.Section, "Hosts", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(setting.Key, "Warm:Sentinel", StringComparison.OrdinalIgnoreCase)
+                || !defaults.TryGetValue(setting.Key, out var defaultValue))
+            {
+                continue;
+            }
+
+            setting.DraftValue = defaultValue;
+            if (setting.IsChanged)
+            {
+                changedCount++;
+            }
+        }
+
+        return changedCount;
+    }
+
+    /// <summary>Creates local defaults or copies saved proxy settings without writing to the store.</summary>
+    public IReadOnlyList<AppConfigurationScaffoldSetting> CreateLabelDraft(
+        string label, IReadOnlyCollection<AppConfigurationScaffoldSetting>? source = null)
+    {
+        if (string.IsNullOrWhiteSpace(label) || label.Length > 256 || label.IndexOfAny(['*', ',', '\\', '\0']) >= 0)
+        {
+            throw new ArgumentException("Enter a label of 1-256 characters without *, comma, backslash, or null characters.");
+        }
+
+        var values = source is null
+            ? ReadProxyDefaults()
+            : source.ToDictionary(setting => setting.Key, setting => setting.LoadedValue, StringComparer.Ordinal);
+        var drafts = new List<AppConfigurationScaffoldSetting>();
+        foreach (var entry in values)
+        {
+            if (TryParsePublishedKey(entry.Key, out var mode, out var section, out var name))
+            {
+                drafts.Add(new(entry.Key, mode, section, name, label, string.Empty) {
+                    DraftValue = entry.Key == "Warm:Sentinel" ? string.Empty : entry.Value,
+                    IsNew = true
+                });
+            }
+        }
+        if (!drafts.Any(setting => setting.Key == "Warm:Sentinel"))
+        {
+            drafts.Add(new("Warm:Sentinel", "Warm", "General", "Sentinel", label, string.Empty) { IsNew = true });
+        }
+        return drafts;
+    }
+
     public async Task<IReadOnlyList<AppConfigurationScaffoldSetting>> LoadAsync(
         string endpoint,
         CancellationToken cancellationToken = default)
@@ -91,8 +149,8 @@ public sealed class AppConfigurationScaffoldService
                 CachedEndpoint = endpoint;
                 CachedLabels = diskSettings
                     .Select(setting => setting.Label)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(label => label, StringComparer.OrdinalIgnoreCase)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(label => label, StringComparer.Ordinal)
                     .ToList();
                 CachedLabelsEndpoint = endpoint;
                 _logger.LogInformation("Loaded {Count} settings from disk cache (BypassConfig)", diskSettings.Count);
@@ -111,18 +169,29 @@ public sealed class AppConfigurationScaffoldService
         string endpoint,
         string label,
         IReadOnlyCollection<AppConfigurationScaffoldSetting> settings,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool createLabel = false)
     {
         var endpointUri = ParseEndpoint(endpoint);
         var client = GetClient(endpointUri);
+        if (createLabel)
+        {
+            await foreach (var existing in client.GetConfigurationSettingsAsync(new SettingSelector { KeyFilter = "*" }, cancellationToken))
+            {
+                if (string.Equals(existing.Label ?? string.Empty, label, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"Label '{label}' already exists. Reload the label list and choose another name.");
+                }
+            }
+        }
         var changedSettings = settings
             .Where(setting => setting.IsChanged
-                && string.Equals(setting.Label, label, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(setting.Label, label, StringComparison.Ordinal)
                 && !string.Equals(setting.Key, "Warm:Sentinel", StringComparison.OrdinalIgnoreCase))
             .ToList();
         var sentinel = settings.FirstOrDefault(setting =>
             string.Equals(setting.Key, "Warm:Sentinel", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(setting.Label, label, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(setting.Label, label, StringComparison.Ordinal));
 
         if (sentinel is null)
         {
@@ -140,25 +209,31 @@ public sealed class AppConfigurationScaffoldService
 
         foreach (var setting in changedSettings)
         {
-            await client.SetConfigurationSettingAsync(
-                setting.Key,
-                setting.DraftValue,
-                configurationLabel,
-                cancellationToken);
+            if (createLabel)
+            {
+                await client.AddConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
+            }
+            else
+            {
+                await client.SetConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
+            }
         }
 
-        await client.SetConfigurationSettingAsync(
-            "Warm:Sentinel",
-            newSentinel,
-            configurationLabel,
-            cancellationToken);
+        if (createLabel)
+        {
+            await client.AddConfigurationSettingAsync("Warm:Sentinel", newSentinel, configurationLabel, cancellationToken);
+        }
+        else
+        {
+            await client.SetConfigurationSettingAsync("Warm:Sentinel", newSentinel, configurationLabel, cancellationToken);
+        }
 
         var downloadedSettings = await DownloadAsync(endpoint, endpointUri, client, cancellationToken);
         foreach (var submittedSetting in changedSettings)
         {
             var downloadedSetting = downloadedSettings.FirstOrDefault(setting =>
                 string.Equals(setting.Key, submittedSetting.Key, StringComparison.Ordinal)
-                && string.Equals(setting.Label, label, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(setting.Label, label, StringComparison.Ordinal));
             if (downloadedSetting is null
                 || !string.Equals(downloadedSetting.LoadedValue, submittedSetting.DraftValue, StringComparison.Ordinal))
             {
@@ -168,7 +243,7 @@ public sealed class AppConfigurationScaffoldService
 
         var downloadedSentinel = downloadedSettings.FirstOrDefault(setting =>
             string.Equals(setting.Key, "Warm:Sentinel", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(setting.Label, label, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(setting.Label, label, StringComparison.Ordinal));
         if (!string.Equals(downloadedSentinel?.LoadedValue, newSentinel, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Verification failed after re-downloading Warm:Sentinel.");
@@ -188,7 +263,7 @@ public sealed class AppConfigurationScaffoldService
         // Single round-trip across all labels — mirrors the proxy's one-call download.
         var selector = new SettingSelector { KeyFilter = "*" };
         var settings = new List<AppConfigurationScaffoldSetting>();
-        var labels = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var labels = new SortedSet<string>(StringComparer.Ordinal);
         var stopwatch = Stopwatch.StartNew();
         long firstItemMs = -1;
 
@@ -199,20 +274,20 @@ public sealed class AppConfigurationScaffoldService
                 firstItemMs = stopwatch.ElapsedMilliseconds;
             }
 
+            var label = setting.Label ?? string.Empty;
+            labels.Add(label);
             if (!TryParsePublishedKey(setting.Key, out var mode, out var section, out var name))
             {
                 continue;
             }
 
-            var label = setting.Label ?? string.Empty;
-            labels.Add(label);
             settings.Add(new AppConfigurationScaffoldSetting(
                 setting.Key,
                 mode,
                 section,
                 name,
                 label,
-                setting.Value ?? string.Empty));
+                setting.Value ?? string.Empty) { LastModified = setting.LastModified });
         }
 
         var elapsedMs = stopwatch.ElapsedMilliseconds;
@@ -249,7 +324,34 @@ public sealed class AppConfigurationScaffoldService
         string Section,
         string Name,
         string Label,
-        string LoadedValue);
+        string LoadedValue)
+    {
+        public DateTimeOffset? LastModified { get; init; }
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadProxyDefaults()
+    {
+        var proxyConfig = new ProxyConfig();
+        return ConfigMetadata.GetPublishableDescriptors()
+            .ToDictionary(
+                descriptor => $"{descriptor.Mode}:{descriptor.Attribute.KeyPath}",
+                descriptor => FormatProxyDefault(descriptor.Property.GetValue(proxyConfig)),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string FormatProxyDefault(object? value)
+    {
+        return value switch
+        {
+            null => string.Empty,
+            string text => text,
+            bool boolean => boolean.ToString().ToLowerInvariant(),
+            IDictionary dictionary when dictionary.Count == 0 => string.Empty,
+            IEnumerable sequence => string.Join(',', sequence.Cast<object?>().Select(FormatProxyDefault)),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
+            _ => value.ToString() ?? string.Empty
+        };
+    }
 
     private string DiskCachePath(string endpoint)
     {
@@ -278,8 +380,8 @@ public sealed class AppConfigurationScaffoldService
 
             settings = dtos
                 .Select(dto => TryParsePublishedKey(dto.Key, out var mode, out var section, out var name)
-                    ? new AppConfigurationScaffoldSetting(dto.Key, mode, section, name, dto.Label, dto.LoadedValue)
-                    : new AppConfigurationScaffoldSetting(dto.Key, dto.Mode, dto.Section, dto.Name, dto.Label, dto.LoadedValue))
+                    ? new AppConfigurationScaffoldSetting(dto.Key, mode, section, name, dto.Label, dto.LoadedValue) { LastModified = dto.LastModified }
+                    : new AppConfigurationScaffoldSetting(dto.Key, dto.Mode, dto.Section, dto.Name, dto.Label, dto.LoadedValue) { LastModified = dto.LastModified })
                 .OrderBy(setting => setting.Section, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(setting => setting.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -300,7 +402,7 @@ public sealed class AppConfigurationScaffoldService
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var dtos = settings
                 .Select(setting => new CachedSettingDto(
-                    setting.Key, setting.Mode, setting.Section, setting.Name, setting.Label, setting.LoadedValue))
+                    setting.Key, setting.Mode, setting.Section, setting.Name, setting.Label, setting.LoadedValue) { LastModified = setting.LastModified })
                 .ToList();
             File.WriteAllText(path, JsonSerializer.Serialize(dtos, new JsonSerializerOptions { WriteIndented = true }));
             _logger.LogInformation("Saved {Count} settings to disk cache at {Path} (BypassConfig)", settings.Count, path);

@@ -8,7 +8,7 @@
         var loggerSetting = Settings.FirstOrDefault(setting => string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase));
         var enabled = destination.Logger.Length == 0 || LoggerEnabled(destination.Logger);
         <div class="logging-destination-row">
-            <div class="logging-destination-label">
+            <div class="logging-destination-label config-newhost-field @(loggerSetting?.IsChanged == true && destination.Logger.Length > 0 ? "config-field-changed" : string.Empty)">
                 @if (destination.Logger.Length > 0)
                 {
                     <label class="d-inline-flex align-items-center gap-2">
@@ -24,34 +24,45 @@
                 }
                 <ConfigurationHelp Section="Logging" Topic="@destination.Name" />
             </div>
-            <fieldset class="logging-destination-details" disabled="@(!enabled)" aria-label="@destination.Name">
+            <div class="logging-destination-details" role="group" aria-label="@destination.Name">
                 <ConfigurationExplanation Section="Logging" Topic="@destination.Name" />
                 <div class="config-newhost-grid">
                     @foreach (var setting in Settings.Where(setting => GroupName(setting.Name) == destination.Name))
                     {
-                        <div class="config-newhost-field" @key="setting">
+                        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
                             <div class="config-setting-heading">
                                 <label class="form-label" for="@setting.Key">@FieldLabel(setting.Name.StartsWith("EventHub:", StringComparison.OrdinalIgnoreCase) ? setting.Name[9..] : setting.Name)</label>
                                 <ConfigurationHelp Section="Logging" Topic="@setting.Name" />
                             </div>
                             <ConfigurationExplanation Section="Logging" Topic="@setting.Name" />
                             <input id="@setting.Key" class="form-control form-control-sm" autocomplete="off"
+                                disabled="@(!enabled)"
                                    type='@(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "password" : decimal.TryParse(setting.LoadedValue, out _) ? "number" : "text")'
                                    value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
                             @if (setting.IsChanged)
                             {
                                 <div class="small text-muted text-break mt-1">Current: @(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</div>
-                                <button class="btn btn-sm btn-link align-self-start px-0" type="button" title="Reset this setting"
+                                <button class="btn btn-sm btn-outline-secondary text-nowrap align-self-start" type="button" title="Discard this edit and restore the current loaded value"
+                                        aria-label="@($"Revert {FieldLabel(setting.Name)} to its loaded value")"
                                         @onclick="() => SetValue(setting, setting.LoadedValue)">
-                                    <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
-                                    <span class="visually-hidden">Reset @FieldLabel(setting.Name)</span>
+                                    <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                                 </button>
                             }
                         </div>
                     }
                 </div>
-            </fieldset>
+            </div>
         </div>
+    }
+    @if (Settings.FirstOrDefault(setting => string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase)) is { IsChanged: true } changedLoggers)
+    {
+        <div class="small text-muted text-break mt-1">Current destinations: @changedLoggers.LoadedValue</div>
+        <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button"
+                title="Discard destination edits and restore the current loaded value"
+                aria-label="Revert event loggers to their loaded value"
+                @onclick="() => SetValue(changedLoggers, changedLoggers.LoadedValue)">
+            <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
+        </button>
     }
 </section>
 
@@ -85,8 +96,8 @@
                     "logheaders" => responseHeadersEnabled,
                     _ => false,
                 };
-                <fieldset class='config-newhost-field logging-setting @(group.Key == "Headers" && setting.Name.ToLowerInvariant() is not ("logallrequestheaders" or "logallrequestheadersexcept" or "logallresponseheaders" or "logallresponseheadersexcept") ? "logging-header-wide" : string.Empty)'
-                          disabled="@inactive" @key="setting">
+                 <div class='config-newhost-field logging-setting @(setting.IsChanged ? "config-field-changed" : string.Empty) @(group.Key == "Headers" && setting.Name.ToLowerInvariant() is not ("logallrequestheaders" or "logallrequestheadersexcept" or "logallresponseheaders" or "logallresponseheadersexcept") ? "logging-header-wide" : string.Empty)'
+                     @key="setting">
                       <div class="config-setting-heading">
                     <label class="form-label" for="@setting.Key">@(setting.Name.ToLowerInvariant() switch
                     {
@@ -109,6 +120,7 @@
                                 <div class="d-inline-flex align-items-center gap-2 text-break">
                                 <label class="d-inline-flex align-items-center gap-2 text-break">
                                     <input class="form-check-input m-0 flex-shrink-0" type="checkbox"
+                                         disabled="@inactive"
                                            checked="@SelectedLoggers(setting).Contains(logger)"
                                            @onchange="args => ToggleLogger(setting, logger, args.Value is true)" />
                                     <span>@(logger switch { "file" => "File", "eventhub" => "Event Hub", "none" => "None", _ => logger })</span>
@@ -121,6 +133,7 @@
                     else if (setting.Name.ToLowerInvariant() is "logtoai" or "logtoconsole" or "logtoevents")
                     {
                         <button id="@setting.Key" class="logging-event-summary small text-break" type="button"
+                            disabled="@inactive"
                                 title="Edit event types" aria-haspopup="dialog" @onclick="() => EditEventTypes(setting)">
                             @EventTypeSummary(setting.DraftValue)
                         </button>
@@ -129,6 +142,7 @@
                     {
                         <div class="form-check">
                             <input id="@setting.Key" class="form-check-input" type="checkbox"
+                                disabled="@inactive"
                                    checked='@string.Equals(setting.DraftValue, "true", StringComparison.OrdinalIgnoreCase)'
                                    @onchange='args => SetValue(setting, args.Value is true ? "true" : "false")' />
                         </div>
@@ -136,29 +150,32 @@
                     else if (setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase))
                     {
                         <input id="@setting.Key" class="form-control form-control-sm" type="password" autocomplete="off"
+                               disabled="@inactive"
                                value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
                     }
                     else if (setting.LoadedValue.Length > 100 || setting.LoadedValue.Contains(',') || setting.LoadedValue.Contains('\n'))
                     {
                         <textarea id="@setting.Key" class="form-control form-control-sm" rows="3"
+                                  disabled="@inactive"
                                   value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())"></textarea>
                     }
                     else
                     {
                         <input id="@setting.Key" class="form-control form-control-sm"
+                               disabled="@inactive"
                                type='@(decimal.TryParse(setting.LoadedValue, out _) ? "number" : "text")'
                                value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
                     }
                     @if (setting.IsChanged)
                     {
                         <div class="small text-muted text-break mt-1">Current: @(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</div>
-                        <button class="btn btn-sm btn-link align-self-start px-0" type="button" title="Reset this setting"
+                        <button class="btn btn-sm btn-outline-secondary text-nowrap align-self-start" type="button" title="Discard this edit and restore the current loaded value"
+                                aria-label="@($"Revert {FieldLabel(setting.Name)} to its loaded value")"
                                 @onclick="() => SetValue(setting, setting.LoadedValue)">
-                            <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
-                            <span class="visually-hidden">Reset @FieldLabel(setting.Name)</span>
+                            <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                         </button>
                     }
-                </fieldset>
+                </div>
             }
         </div>
     </section>
@@ -166,16 +183,21 @@
 
 @if (_editingEventTypes is { } eventSetting)
 {
+    var loadedTokens = eventSetting.LoadedValue.Trim().Trim('[', ']').Split(',')
+        .Select(token => token.Trim().Trim('"')).ToHashSet(StringComparer.OrdinalIgnoreCase);
     <div class="config-modal-backdrop config-modal-backdrop-top" @onclick="() => _editingEventTypes = null">
         <div class="config-modal logging-event-modal" role="dialog" aria-modal="true" aria-label="@FieldLabel(eventSetting.Name)"
              @onclick:stopPropagation="true">
             <div class="config-modal-header">
                 <h2 class="h5 mb-0">@FieldLabel(eventSetting.Name) <ConfigurationHelp Section="Logging" Topic="@eventSetting.Name" /></h2>
-                <button class="btn-close" type="button" aria-label="Close" @onclick="() => _editingEventTypes = null"></button>
+                <button class="btn-close" type="button" aria-label="Close" data-dialog-cancel @onclick="() => _editingEventTypes = null"></button>
             </div>
             <div class="config-modal-body logging-event-grid">
                 @foreach (var eventType in EventTypeChoices)
                 {
+                    var loadedEnabled = (loadedTokens.Contains("*") || loadedTokens.Contains(eventType.Key))
+                        && !loadedTokens.Contains($"-{eventType.Key}");
+                    <div class="config-newhost-field @(EventTypeEnabled(eventType.Key) != loadedEnabled ? "config-field-changed" : string.Empty)">
                     <div class="d-flex align-items-center gap-2">
                     <label class="d-flex align-items-center gap-2">
                         <input class="form-check-input m-0" type="checkbox" checked="@EventTypeEnabled(eventType.Key)"
@@ -183,6 +205,7 @@
                         <span>@eventType.Label</span>
                     </label>
                     <ConfigurationHelp Section="Logging" Topic="@eventType.Label" />
+                    </div>
                     </div>
                 }
             </div>

@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Update="chat-models.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

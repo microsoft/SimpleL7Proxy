@@ -5,52 +5,92 @@
 @inject AppConfigurationScaffoldService AppConfiguration
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Components.Routing
 @using Azure
 @using Azure.Identity
 @using chat_tester.Components.Shared
 @using Microsoft.JSInterop
 
 <PageTitle>Proxy Configuration</PageTitle>
+<HeadContent>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
+</HeadContent>
+<NavigationLock ConfirmExternalNavigation="@HasPendingChanges" OnBeforeInternalNavigation="BeforeNavigationAsync" />
 
 <SectionContent SectionName="page-heading">
     <div class="d-flex align-items-center gap-2">
         <h1 class="h4 mb-0">Proxy Configuration</h1>
-        <span class="badge text-bg-secondary">Preview only</span>
     </div>
 </SectionContent>
 
-<div class="config-admin-shell">
-    <div class="config-header-bar">
-        <div class="config-header-row">
+<div class="config-admin-shell @(!_editingLabel ? "config-selection-shell" : string.Empty)">
+    @if (_editingLabel)
+    {
+        <div class="config-label-toolbar">
+            <button class="btn btn-outline-secondary" type="button" disabled="@IsLoading" @onclick="BackToLabelsAsync">
+                <span class="bi bi-chevron-left me-1" aria-hidden="true"></span>Back to Labels
+            </button>
+            <h2 class="h5 mb-0 text-break">@LabelDisplay(Label)</h2>
+            @if (HasPendingChanges)
+            {
+                <span class="badge text-bg-warning">Unsaved Changes</span>
+            }
+            @if (_newLabelDraft)
+            {
+                <span class="badge text-bg-secondary">New Label</span>
+            }
+        </div>
+    }
+    <div class="config-header-bar @(!_editingLabel && LabelsReady && !_showEndpointSettings ? "config-header-collapsed" : string.Empty)">
+        @if (LabelsReady)
+        {
+            <div class="config-connection-actions">
+                <span class="config-connection-caption">App Config:</span>
+                <button class="btn btn-outline-secondary config-icon-button" type="button" title="App Configuration settings" aria-label="App Configuration settings"
+                        aria-expanded="@(_showEndpointSettings ? "true" : "false")" aria-controls="config-connection-form"
+                        disabled="@IsLoading" @onclick="() => _showEndpointSettings = !_showEndpointSettings">
+                    <span class="bi bi-gear" aria-hidden="true"></span>
+                </button>
+                <button class="btn btn-outline-secondary config-icon-button" type="button" title="Refresh configurations" aria-label="Refresh configurations"
+                    disabled="@(IsLoading || _editingLabel)" @onclick="LoadSettingsAsync">
+                    <span class="bi bi-arrow-clockwise" aria-hidden="true"></span>
+                </button>
+            </div>
+        }
+        @if (!LabelsReady || _showEndpointSettings)
+        {
+        <div id="config-connection-form" class="config-header-row">
         <div class="config-header-endpoint">
             <label class="form-label small mb-1" for="config-endpoint">App Configuration URL</label>
             <ConfigurationHelp Section="General" Topic="App Configuration URL" />
             <input id="config-endpoint" class="form-control form-control-sm" type="url"
+                     disabled="@(_editingLabel || IsLoading)"
                    placeholder="https://&lt;store&gt;.azconfig.io" @bind="Endpoint" @bind:event="oninput" />
         </div>
-        <div class="config-header-label">
-            <label class="form-label small mb-1" for="config-label">Label</label>
-            <ConfigurationHelp Section="General" Topic="App Configuration label" />
-            <select id="config-label" class="form-select form-select-sm" @bind="Label" @bind:after="ApplyLabelFilter">
-                @foreach (var option in LabelOptions)
-                {
-                    <option value="@option">@LabelDisplay(option)</option>
-                }
-            </select>
-        </div>
-        <button class="btn btn-primary btn-sm config-header-load align-self-end" type="button" disabled="@IsLoading" @onclick="LoadSettingsAsync">
-            <span class="bi bi-arrow-clockwise me-1" aria-hidden="true"></span>@(IsLoading ? "Loading..." : "Load")
-        </button>
-        @if (IsLoading || _elapsed > TimeSpan.Zero)
+        @if (!_editingLabel && !LabelsReady)
+        {
+            <button class="btn btn-outline-secondary config-header-load align-self-end" type="button" disabled="@IsLoading" @onclick="LoadSettingsAsync">
+                <span class="bi bi-arrow-clockwise me-1" aria-hidden="true"></span>@(IsLoading ? "Refreshing..." : "Refresh")
+            </button>
+        }
+        @if (IsLoading || (_editingLabel && _elapsed > TimeSpan.Zero))
         {
             <span class="badge config-header-timer @(IsLoading ? "text-bg-info" : "text-bg-light")">@_elapsed.TotalSeconds.ToString("0.0") s</span>
         }
         </div>
+        }
+        @if (_editingLabel || !LabelsReady || IsLoading || HasLoadError)
+        {
         <div class="config-header-row">
         <span class="small config-header-status @(HasLoadError ? "text-danger" : "text-muted")" role="status">
-            @if (!IsLoading && !HasLoadError && Settings.Count > 0)
+            @if (_editingLabel && !IsLoading && !HasLoadError && Settings.Count > 0)
             {
-                <text>@StatusMessage · Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "(not found)")</text>
+                @if (!string.IsNullOrEmpty(StatusMessage))
+                {
+                    <text>@StatusMessage · </text>
+                }
+                <text>Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "(not found)")</text>
                 <ConfigurationHelp Section="General" Topic="Sentinel" />
             }
             else
@@ -58,7 +98,17 @@
                 @StatusMessage
             }
         </span>
-        @if (ChangedCount > 0)
+        @if (_editingLabel && !IsLoading && Settings.Count > 0)
+        {
+            @if (!Settings.Any(setting => string.Equals(setting.Section, "Hosts", StringComparison.OrdinalIgnoreCase)))
+            {
+                <button class="btn btn-outline-secondary" type="button" @onclick='() => SelectSection("Hosts")'><span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add Host</button>
+            }
+            <button class="btn btn-sm btn-outline-warning text-nowrap" type="button" @onclick="ResetToDefaultsAsync">
+                <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset to defaults
+            </button>
+        }
+        @if (_editingLabel && HasPendingChanges)
         {
             <div class="d-flex align-items-center gap-2 ms-auto">
                 <button class="btn btn-sm btn-warning text-nowrap" type="button"
@@ -71,9 +121,66 @@
             </div>
         }
         </div>
+        }
     </div>
 
-    @if (Settings.Count > 0)
+    @if (!_editingLabel && LabelsReady && !_showEndpointSettings)
+    {
+        <section class="config-selection" aria-labelledby="config-label-heading">
+            <div class="config-selection-heading">
+                <h2 id="config-label-heading">Configurations</h2>
+            </div>
+            <div class="config-action-picker" role="group" aria-label="Configuration action">
+                <button type="button" class="btn btn-outline-secondary" disabled="@IsLoading" @onclick="async () => { _configurationAction = null; await OpenLabelDialogAsync(null); }">
+                    <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>New
+                </button>
+                <button type="button" class="btn @(_configurationAction == "Update" ? "btn-primary" : "btn-outline-secondary")" aria-pressed="@(_configurationAction == "Update" ? "true" : "false")" disabled="@(IsLoading || AvailableLabels.Count == 0)" @onclick='() => _configurationAction = "Update"'>
+                    <span class="bi bi-pencil me-1" aria-hidden="true"></span>Update
+                </button>
+                <button type="button" class="btn @(_configurationAction == "Duplicate" ? "btn-primary" : "btn-outline-secondary")" aria-pressed="@(_configurationAction == "Duplicate" ? "true" : "false")" disabled="@(IsLoading || AvailableLabels.Count == 0)" @onclick='() => _configurationAction = "Duplicate"'>
+                    <span class="bi bi-copy me-1" aria-hidden="true"></span>Duplicate
+                </button>
+            </div>
+            @if (_configurationAction is not null)
+            {
+            <div class="config-selection-row">
+                <div class="config-selection-field">
+                    <label class="form-label" for="config-label">Starting configuration (label)</label>
+                    <select id="config-label" class="form-select" @bind="Label" disabled="@(!LabelsReady || IsLoading || AvailableLabels.Count == 0)">
+                        @if (AvailableLabels.Count == 0 || !AvailableLabels.Contains(Label, StringComparer.Ordinal))
+                        {
+                            <option value="@Label" disabled>@(LabelsReady && AvailableLabels.Count == 0 ? "No labels found" : "Select a label")</option>
+                        }
+                        @foreach (var item in AvailableLabels.OrderBy(value => value, StringComparer.Ordinal))
+                        {
+                            <option value="@item">@LabelDisplay(item)</option>
+                        }
+                    </select>
+                </div>
+                <div class="config-selection-actions">
+                    <button type="button" class="btn btn-primary" disabled="@(IsLoading || !AvailableLabels.Contains(Label, StringComparer.Ordinal))" @onclick='async () => { if (_configurationAction == "Update") { OpenLabel(Label); } else { await OpenLabelDialogAsync(Label); } }'>Continue<span class="bi bi-arrow-right" aria-hidden="true"></span></button>
+                </div>
+            </div>
+            @if (LabelsReady && AvailableLabels.Contains(Label, StringComparer.Ordinal))
+            {
+                var lastEdited = _allSettings.Where(setting => string.Equals(setting.Label, Label, StringComparison.Ordinal)).Max(setting => setting.LastModified);
+                <div class="config-selection-metadata" role="status">
+                    Last edited:
+                    @if (lastEdited is { } timestamp)
+                    {
+                        <time datetime="@timestamp.ToString("O")">@timestamp.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") UTC</time>
+                    }
+                    else
+                    {
+                        <span>Unavailable</span>
+                    }
+                </div>
+            }
+            }
+        </section>
+    }
+
+    @if (_editingLabel && Settings.Count > 0)
     {
         <div class="config-section-grid">
             @foreach (var group in VisibleGroups)
@@ -197,7 +304,7 @@
                                     <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset all
                                 </button>
                             }
-                            <button type="button" class="btn-close" aria-label="Close" @onclick="CloseSection"></button>
+                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
                         </div>
                     </div>
                     <div class="config-modal-body">
@@ -317,11 +424,14 @@
                                             }
                                         </td>
                                         <td class="text-end">
-                                            <button class="btn btn-sm btn-outline-secondary" type="button" title="Reset this setting"
-                                                    disabled="@(!setting.IsChanged)" @onclick="() => Reset(setting)">
-                                                <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
-                                                <span class="visually-hidden">Reset @setting.Name</span>
-                                            </button>
+                                            @if (setting.IsChanged)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button" title="Discard this edit and restore the current loaded value"
+                                                        aria-label="@($"Revert {setting.Name} to its loaded value")"
+                                                        @onclick="() => Reset(setting)">
+                                                    <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
+                                                </button>
+                                            }
                                         </td>
                                     </tr>
                                 }
@@ -336,7 +446,78 @@
     }
 </div>
 
+<dialog @ref="_labelDialog" class="config-label-dialog" aria-labelledby="label-dialog-title">
+    <form @onsubmit="CreateLabelDraftAsync" @onsubmit:preventDefault="true">
+        <h2 id="label-dialog-title" class="h5">@(_duplicateSource is null ? "New Label" : "Duplicate Label")</h2>
+        @if (_duplicateSource is not null)
+        {
+            <p class="small text-muted text-break">Source: @LabelDisplay(_duplicateSource)</p>
+        }
+        <label for="new-config-label" class="form-label">Label name</label>
+        <input id="new-config-label" class="form-control" autofocus autocomplete="off" maxlength="256"
+               @bind="_draftLabelName" @bind:event="oninput" aria-describedby="label-name-error" aria-invalid="@(!string.IsNullOrEmpty(LabelNameError))" />
+        <div id="label-name-error" class="text-danger small mt-2" role="status">@LabelNameError</div>
+        <div class="d-flex justify-content-end gap-2 mt-4">
+            <button type="button" class="btn btn-outline-secondary" data-dialog-cancel @onclick="CancelLabelDialogAsync">Cancel</button>
+            <button type="submit" class="btn btn-primary" disabled="@(!string.IsNullOrEmpty(LabelNameError) || string.IsNullOrWhiteSpace(_draftLabelName))">@(_duplicateSource is null ? "Create Draft" : "Duplicate Draft")</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog @ref="_leaveDialog" class="config-label-dialog" aria-labelledby="leave-dialog-title">
+    <h2 id="leave-dialog-title" class="h5">Save changes to @LabelDisplay(Label)?</h2>
+    <p>Your changes have not been saved.</p>
+    @if (HasLoadError)
+    {
+        <p class="text-danger small" role="alert">@StatusMessage</p>
+    }
+    <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+        <button type="button" class="btn btn-outline-secondary" data-dialog-cancel disabled="@IsLoading" @onclick="CancelLeaveAsync">Cancel</button>
+        <button type="button" class="btn btn-outline-danger" disabled="@IsLoading" @onclick="DiscardAndLeaveAsync">Discard Changes</button>
+        <button type="button" class="btn btn-primary" disabled="@IsLoading" @onclick="SaveAndLeaveAsync">@(IsLoading ? "Saving..." : "Save Changes")</button>
+    </div>
+</dialog>
+
 <style>
+    .config-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 1rem 0; }
+    .config-label-toolbar .btn, .config-label-dialog .btn { min-height: 44px; }
+    .config-admin-shell.config-selection-shell { margin: 0; max-width: 64rem; color: #1d1d1f; }
+    .config-selection-shell .config-header-bar { padding: 0 0 1.5rem; background: transparent; border-bottom-color: #d2d2d7; }
+    .config-selection-shell .config-header-bar.config-header-collapsed { padding: 0; border-bottom: 0; }
+    .config-connection-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+    .config-connection-caption { font-size: 0.8125rem; color: #6e6e73; margin-right: 0.25rem; }
+    .config-admin-shell .config-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; font-size: 1.125rem; }
+    .config-selection-shell .config-header-endpoint { min-width: 0; }
+    .config-selection-shell .config-header-row { gap: 0.75rem; }
+    .config-selection-shell .config-header-row:has(.config-header-status:empty) { display: none; }
+    .config-selection-shell .btn, .config-selection-shell .form-control, .config-selection-shell .form-select { min-height: 44px; border-radius: 6px; font-size: 0.9375rem; }
+    .config-selection-shell .btn { padding: 0.5rem 1rem; white-space: nowrap; }
+    .config-selection-shell .config-icon-button { padding: 0; }
+    .config-selection-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; }
+    .config-selection-actions .btn .bi { margin-right: 0 !important; }
+    .config-selection-shell .btn-primary { background: #0066cc; border-color: #0066cc; }
+    .config-selection-shell .btn-primary:hover { background: #0055ad; border-color: #0055ad; }
+    .config-selection-shell .btn-outline-secondary { color: #0066cc; border-color: #d2d2d7; background: #f5f5f7; }
+    .config-selection-shell .btn-outline-secondary:hover { background: #e8e8ed; }
+    .config-selection-shell .form-label { color: #515154; font-size: 0.8125rem; margin-bottom: 0.5rem; }
+    .config-selection-shell .form-control, .config-selection-shell .form-select { border-color: #a1a1a6; }
+    .config-selection { padding: 1rem 0 1.5rem; }
+    .config-selection-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .config-selection-heading h2 { font-size: 1.25rem; font-weight: 600; margin: 0; }
+    .config-action-picker { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .config-selection-row { display: flex; align-items: flex-end; gap: 1rem; }
+    .config-selection-field { flex: 1; min-width: 0; }
+    .config-selection-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .config-selection-metadata { margin-top: 0.5rem; font-size: 0.8125rem; color: #6e6e73; overflow-wrap: anywhere; }
+    @@media (max-width: 767.98px) {
+        .config-selection-row { flex-direction: column; align-items: stretch; gap: 1rem; }
+        .config-selection-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+        .config-selection-actions .btn { padding-inline: 0.5rem; white-space: normal; }
+        .config-selection-shell .config-header-endpoint { flex-basis: 100%; }
+    }
+    .config-label-dialog { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; border: 1px solid #d2d2d7; border-radius: 8px; padding: 1.5rem; color: #1d1d1f; background: #fff; box-shadow: 0 16px 48px #0003; }
+    .config-label-dialog::backdrop { background: #0006; }
+    .config-label-dialog :focus-visible, .config-selection-shell :focus-visible, .config-label-toolbar :focus-visible { outline: 3px solid #007aff; outline-offset: 3px; }
     .config-explanation {
         white-space: pre-line;
         overflow-wrap: anywhere;
@@ -664,6 +845,16 @@
         min-width: 0;
     }
 
+    .config-modal .config-newhost-field {
+        padding: 0.5rem;
+        border-radius: 4px;
+        background-color: #f5f6f8;
+    }
+
+    .config-modal .config-field-changed {
+        background-color: #fff8dc;
+    }
+
     .config-healthprobe-grid {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
@@ -921,7 +1112,26 @@
     private bool _configurationHelpLoaded;
     private DateTime? _dataReadyAtUtc;
     private System.Timers.Timer? _uiTimer;
+    private CancellationTokenSource? _statusClearCancellation;
     private TimeSpan _elapsed;
+    private bool _editingLabel;
+    private string? _configurationAction;
+    private bool _showEndpointSettings;
+    private bool _newLabelDraft;
+    private string? _loadedEndpoint;
+    private string _draftLabelName = string.Empty;
+    private string? _duplicateSource;
+    private ElementReference _labelDialog;
+    private ElementReference _leaveDialog;
+    private IJSObjectReference? _dialogModule;
+    private DotNetObjectReference<AdminConfigurationPage>? _pageReference;
+    private Func<Task>? _pendingLeave;
+    private bool LabelsReady => _dialogModule is not null && string.Equals(_loadedEndpoint, Endpoint.Trim(), StringComparison.OrdinalIgnoreCase);
+    private bool HasPendingChanges => _editingLabel && (_newLabelDraft || ChangedCount > 0);
+    private string? LabelNameError => string.IsNullOrWhiteSpace(_draftLabelName) ? null
+        : _draftLabelName.Trim().IndexOfAny(['*', ',', '\\', '\0']) >= 0 ? "Names cannot contain *, comma, backslash, or null characters."
+        : AvailableLabels.Contains(_draftLabelName.Trim(), StringComparer.Ordinal) ? "A label with this name already exists."
+        : null;
 
     private IEnumerable<IGrouping<string, AppConfigurationScaffoldSetting>> VisibleGroups => Settings
         .Where(setting => !string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))
@@ -943,16 +1153,15 @@
         if (AppConfiguration.CachedSettings != null
             && string.Equals(AppConfiguration.CachedEndpoint, Endpoint, StringComparison.OrdinalIgnoreCase))
         {
-            _allSettings = AppConfiguration.CachedSettings.ToList();
-            ApplyLabelFilter();
-            StatusMessage = Settings.Count == 0
-                ? $"No settings for label '{LabelDisplay(Label)}' (cached)."
-                : $"Loaded {Settings.Count} settings across {Settings.Select(setting => setting.Section).Distinct(StringComparer.OrdinalIgnoreCase).Count()} sections (cached).";
+            _allSettings = AppConfiguration.CachedSettings.Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false }).ToList();
+            _loadedEndpoint = Endpoint.Trim();
+            StatusMessage = $"{AvailableLabels.Count} labels loaded from cache.";
         }
     }
 
     private async Task LoadSettingsAsync()
     {
+        CancelStatusClear();
         IsLoading = true;
         HasLoadError = false;
         StatusMessage = "Loading settings with DefaultAzureCredential...";
@@ -963,20 +1172,20 @@
         {
             _allSettings = (await AppConfiguration.LoadAsync(Endpoint.Trim())).ToList();
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
-            if (!AvailableLabels.Contains(Label, StringComparer.OrdinalIgnoreCase))
+            if (!AvailableLabels.Contains(Label, StringComparer.Ordinal))
             {
-                Label = AvailableLabels.Contains(AppConfiguration.DefaultLabel, StringComparer.OrdinalIgnoreCase)
+                Label = AvailableLabels.Contains(AppConfiguration.DefaultLabel, StringComparer.Ordinal)
                     ? AppConfiguration.DefaultLabel
                     : AvailableLabels.FirstOrDefault() ?? string.Empty;
             }
-            ApplyLabelFilter();
+            _loadedEndpoint = Endpoint.Trim();
+            _showEndpointSettings = false;
+            Settings.Clear();
 
             var totalMs = stopwatch.ElapsedMilliseconds;
             var source = AppConfiguration.LastLoadFromDisk ? "disk cache · " : string.Empty;
             var timing = $"{source}connect {AppConfiguration.LastConnectMs} ms · download {AppConfiguration.LastDownloadMs} ms · total {totalMs} ms";
-            StatusMessage = Settings.Count == 0
-                ? $"No Warm: or Cold: settings were found for label '{LabelDisplay(Label)}'. ({timing})"
-                : $"Loaded {Settings.Count} settings across {Settings.Select(setting => setting.Section).Distinct(StringComparer.OrdinalIgnoreCase).Count()} sections — {timing}.";
+            StatusMessage = $"Loaded {AvailableLabels.Count} labels and {_allSettings.Count} proxy settings. {timing}.";
 
             _dataReadyAtUtc = DateTime.UtcNow;
             StateHasChanged();
@@ -1007,6 +1216,7 @@
 
     private async Task UpdateSettingsAsync()
     {
+        CancelStatusClear();
         IsLoading = true;
         HasLoadError = false;
         StatusMessage = $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
@@ -1015,8 +1225,9 @@
         StartTimer(stopwatch);
         try
         {
-            var result = await AppConfiguration.UpdateAsync(Endpoint.Trim(), Label, Settings);
+            var result = await AppConfiguration.UpdateAsync(Endpoint.Trim(), Label, Settings, createLabel: _newLabelDraft);
             _allSettings = result.Settings.ToList();
+            _newLabelDraft = false;
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
             ApplyLabelFilter();
 
@@ -1041,6 +1252,10 @@
         }
         finally
         {
+            if (HasLoadError)
+            {
+                StatusMessage += " Some writes may have completed. Reload the label list to inspect saved values before retrying.";
+            }
             stopwatch.Stop();
             _elapsed = stopwatch.Elapsed;
             IsLoading = false;
@@ -1068,7 +1283,46 @@
         _uiTimer = null;
     }
 
-    public void Dispose() => _uiTimer?.Dispose();
+    private void CancelStatusClear()
+    {
+        _statusClearCancellation?.Cancel();
+        _statusClearCancellation?.Dispose();
+        _statusClearCancellation = null;
+    }
+
+    private async Task ClearStatusAfterDelayAsync()
+    {
+        CancelStatusClear();
+        _statusClearCancellation = new CancellationTokenSource();
+        var cancellationToken = _statusClearCancellation.Token;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            StatusMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        _uiTimer?.Dispose();
+        CancelStatusClear();
+        if (_dialogModule is not null) _ = DisposeDialogModuleAsync();
+    }
+
+    private async Task DisposeDialogModuleAsync()
+    {
+        try
+        {
+            await _dialogModule!.InvokeVoidAsync("detachNavigationGuard");
+            await _dialogModule!.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        finally { _pageReference?.Dispose(); }
+    }
 
     private void SelectSection(string section) => SelectedSection = section;
 
@@ -1076,7 +1330,6 @@
 
     private void AddCreatedHost(AppConfigurationScaffoldSetting host)
     {
-        _allSettings.Insert(0, host);
         Settings.Insert(0, host);
     }
 
@@ -1141,14 +1394,121 @@
         AppConfiguration.CachedLabel = Label;
         SelectedSection = null;
         Settings = _allSettings
-            .Where(setting => string.Equals(setting.Label, Label ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            .Where(setting => string.Equals(setting.Label, Label ?? string.Empty, StringComparison.Ordinal))
+            .Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false })
             .ToList();
+    }
+
+    private void OpenLabel(string label)
+    {
+        CancelStatusClear();
+        Label = label;
+        ApplyLabelFilter();
+        _editingLabel = true;
+        _newLabelDraft = false;
+        HasLoadError = false;
+        StatusMessage = Settings.Count == 0 ? "No proxy settings are defined for this label." : string.Empty;
+    }
+
+    private async Task OpenLabelDialogAsync(string? source)
+    {
+        _duplicateSource = source;
+        _draftLabelName = string.Empty;
+        await _dialogModule!.InvokeVoidAsync("open", _labelDialog);
+    }
+
+    private async Task CancelLabelDialogAsync() => await _dialogModule!.InvokeVoidAsync("close", _labelDialog);
+
+    private async Task CreateLabelDraftAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draftLabelName) || LabelNameError is not null)
+        {
+            return;
+        }
+        var source = _duplicateSource is null ? null : _allSettings.Where(setting => string.Equals(setting.Label, _duplicateSource, StringComparison.Ordinal)).ToList();
+        Settings = AppConfiguration.CreateLabelDraft(_draftLabelName.Trim(), source).ToList();
+        Label = _draftLabelName.Trim();
+        _newLabelDraft = true;
+        _editingLabel = true;
+        SelectedSection = null;
+        CancelStatusClear();
+        _dataReadyAtUtc = null;
+        HasLoadError = false;
+        StatusMessage = string.Empty;
+        await CancelLabelDialogAsync();
+    }
+
+    private async Task BackToLabelsAsync()
+    {
+        if (HasPendingChanges)
+        {
+            _pendingLeave = () => { ShowLabels(); return Task.CompletedTask; };
+            await _dialogModule!.InvokeVoidAsync("open", _leaveDialog);
+            return;
+        }
+        ShowLabels();
+    }
+
+    private void ShowLabels()
+    {
+        CancelStatusClear();
+        _dataReadyAtUtc = null;
+        _editingLabel = false;
+        _configurationAction = null;
+        _newLabelDraft = false;
+        Settings.Clear();
+        SelectedSection = null;
+        StatusMessage = string.Empty;
+        HasLoadError = false;
+    }
+
+    private async Task BeforeNavigationAsync(LocationChangingContext context)
+    {
+        if (!HasPendingChanges && !IsLoading) return;
+        context.PreventNavigation();
+        await RequestLeaveAsync(context.TargetLocation);
+    }
+
+    /// <summary>Guards enhanced navigation links while local edits are pending.</summary>
+    [JSInvokable]
+    public async Task RequestLeaveAsync(string targetLocation)
+    {
+        if (IsLoading) return;
+        _pendingLeave = async () =>
+        {
+            ShowLabels();
+            await _dialogModule!.InvokeVoidAsync("detachNavigationGuard");
+            Navigation.NavigateTo(targetLocation);
+        };
+        await _dialogModule!.InvokeVoidAsync("open", _leaveDialog);
+    }
+
+    private async Task CancelLeaveAsync()
+    {
+        if (IsLoading) return;
+        _pendingLeave = null;
+        await _dialogModule!.InvokeVoidAsync("close", _leaveDialog);
+    }
+
+    private async Task DiscardAndLeaveAsync()
+    {
+        var leave = _pendingLeave;
+        await CancelLeaveAsync();
+        if (leave is not null) await leave();
+    }
+
+    private async Task SaveAndLeaveAsync()
+    {
+        await UpdateSettingsAsync();
+        if (!HasLoadError) await DiscardAndLeaveAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            _dialogModule = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/AdminConfigurationPage.razor.js");
+            _pageReference = DotNetObjectReference.Create(this);
             try
             {
                 var savedHelp = await JS.InvokeAsync<string?>("sessionStorage.getItem", "chat-tester.configuration.help");
@@ -1159,7 +1519,16 @@
                 Console.Error.WriteLine($"Unable to restore configuration Help preference: {ex.Message}");
             }
             _configurationHelpLoaded = true;
+            if (_loadedEndpoint is null && !string.IsNullOrWhiteSpace(Endpoint))
+            {
+                await LoadSettingsAsync();
+            }
             StateHasChanged();
+        }
+
+        if (_dialogModule is not null)
+        {
+            await _dialogModule.InvokeVoidAsync("setNavigationGuard", _pageReference, HasPendingChanges, IsLoading);
         }
 
         // Measures the gap between data being ready and the browser actually painting it.
@@ -1169,6 +1538,7 @@
             _dataReadyAtUtc = null;
             StatusMessage += $" · render +{renderLagMs} ms";
             StateHasChanged();
+            _ = ClearStatusAfterDelayAsync();
         }
     }
 
@@ -1191,5 +1561,26 @@
         {
             Reset(setting);
         }
+    }
+
+    private Task ResetToDefaultsAsync()
+    {
+        CancelStatusClear();
+        _dataReadyAtUtc = null;
+        try
+        {
+            var changedCount = AppConfiguration.ApplyProxyDefaults(Settings);
+            HasLoadError = false;
+            StatusMessage = changedCount == 0
+                ? "All non-host settings already match ProxyConfig defaults."
+                : $"Staged {changedCount} non-host default setting(s). Changes have not been saved.";
+        }
+        catch (Exception ex)
+        {
+            HasLoadError = true;
+            StatusMessage = ex.Message;
+        }
+
+        return Task.CompletedTask;
     }
 }
