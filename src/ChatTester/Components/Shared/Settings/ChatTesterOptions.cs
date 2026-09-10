@@ -10,6 +10,19 @@ public class ChatTesterOptions
     /// <summary>Configuration section these options bind from.</summary>
     public const string SectionName = "chat-tester";
 
+    public string AppConfigurationEndpoint { get; set; } = string.Empty;
+
+    public string AppConfigurationLabel { get; set; } = string.Empty;
+
+    /// <summary>Dev-only: read/write the App Configuration snapshot from disk to skip the live download.</summary>
+    public bool BypassConfig { get; set; }
+
+    /// <summary>Config-driven guidance for grouping/customizing published settings (e.g. "Host*" -> "Hosts").</summary>
+    public List<AppConfigurationSettingRule> AppConfigurationRules { get; set; } = new();
+
+    /// <summary>Host-specific presentation settings for the Proxy Configuration admin page.</summary>
+    public AppConfigHostSettings Hosts { get; set; } = new();
+
     public string ServerBaseUrl { get; set; } = "http://localhost:8080";
 
     public string DefaultMethod { get; set; } = "GET";
@@ -106,4 +119,31 @@ public static class HistoryStorageMode
     public const string Disk = "Disk";
     public const string BlobStorage = "BlobStorage";
     public const string CosmosDb = "CosmosDb";
+}
+
+/// <summary>
+/// Config-driven guidance for a group of published settings. The <see cref="Match"/> glob is
+/// tested against the key path after the <c>Warm:</c>/<c>Cold:</c> prefix; matching settings are
+/// placed in <see cref="Section"/>. Supports <c>prefix*</c>, <c>*suffix</c>, <c>*contains*</c>, or exact.
+/// </summary>
+public sealed class AppConfigurationSettingRule
+{
+    public string Match { get; set; } = string.Empty;
+
+    public string? Section { get; set; }
+}
+
+/// <summary>
+/// Host-specific presentation settings for the Proxy Configuration admin page: dropdown
+/// choices for host table columns (e.g. "mode", "processor") and the docs URL used by the
+/// New host dialog. Processor choices mirror StreamProcessorFactory.
+/// </summary>
+public sealed class AppConfigHostSettings
+{
+    public Dictionary<string, string[]> FieldChoices { get; set; } = new();
+
+    public string FieldsDocUrl { get; set; } = string.Empty;
+
+    /// <summary>Columns shown in the Hosts list table (the host name is always the first column).</summary>
+    public string[] ListColumns { get; set; } = System.Array.Empty<string>();
 }

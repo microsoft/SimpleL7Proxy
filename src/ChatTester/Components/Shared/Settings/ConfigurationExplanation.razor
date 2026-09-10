@@ -1,0 +1,31 @@
+@namespace chat_tester.Components.Shared
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+@if (ShowDetails)
+{
+    var entry = Configuration.GetSection($"chat-tester:PopupHelp:{Section}:{Topic}");
+    var text = entry.Value ?? string.Join(Environment.NewLine, entry.GetChildren().Select(line => line.Value));
+    @if (!string.IsNullOrWhiteSpace(text))
+    {
+        <div class="config-explanation small text-muted">
+            @foreach (var line in text.Split('\n'))
+            {
+                @if (Uri.TryCreate(line.Trim(), UriKind.Absolute, out var link)
+                    && (link.Scheme == Uri.UriSchemeHttps || link.Scheme == Uri.UriSchemeHttp))
+                {
+                    <div><a href="@link.AbsoluteUri" target="_blank" rel="noopener noreferrer">Read documentation</a></div>
+                }
+                else
+                {
+                    <div>@line</div>
+                }
+            }
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter(Name = "ShowConfigurationDetails")] public bool ShowDetails { get; set; }
+    [Parameter, EditorRequired] public string Section { get; set; } = string.Empty;
+    [Parameter] public string Topic { get; set; } = "top";
+}

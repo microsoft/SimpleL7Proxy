@@ -76,7 +76,11 @@ First attempt:  min(60 s, 45 s) = 45 s effective
 
 ## Async Requests
 
-Once `AsyncTriggerTimeout` elapses, the client is unblocked right away and the proxy keeps working in the background under `AsyncTimeout`.
+**Use async mode when the caller cannot keep its connection open for the full backend operation.** Once `AsyncTriggerTimeout` elapses, the proxy returns **202 Accepted** with result-blob URIs and continues processing under `AsyncTimeout`. A 202 means work continues, not that the result is ready.
+
+Async must be enabled at three levels: `AsyncModeEnabled` on the proxy, `async-config` in the user profile, and the request opt-in header (`S7PAsyncMode` by default). The user profile selects result storage and the Service Bus topic used for lifecycle notifications.
+
+The 202 response body and `x-Data-Blob-URI` / `x-Header-Blob-URI` headers identify the result blobs. The data is written as background work completes; blob deletion is controlled by storage lifecycle policy, not the request TTL. See [Async Processing](../concepts/async-processing.md) for setup and the retrieval workflow.
 
 ![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](async-timeouts.png)
 
@@ -90,7 +94,7 @@ AsyncTTLSecs:        86400    → async request expiration resets to 24 h
 > **There are no header overrides for async settings** — configure them through environment variables only.
 
 > [!TIP]
-> **Background work finishing too early?** Check `AsyncTTLSecs`.
+> **Background work finishing too early?** Check `AsyncTTLSecs` and `AsyncTimeout`. **No async upgrade?** Check all three enablement levels before increasing the trigger timeout.
 
 ---
 

@@ -1,6 +1,7 @@
 using chat_tester.Components;
 using chat_tester.Components.Shared;
 using chat_tester.Components.Shared.EventHub;
+using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 
@@ -33,6 +34,8 @@ builder.Services.AddSingleton<RequestDebugSettings>();
 builder.Services.AddSingleton<AutoCollapseSettings>();
 builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<VisionModelCatalog>();
+builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
+builder.Services.AddSingleton<AppConfigurationScaffoldService>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.AddSingleton<EventHubMonitorStore>();

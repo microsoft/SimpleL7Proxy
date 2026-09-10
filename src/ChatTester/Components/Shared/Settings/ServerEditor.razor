@@ -1,0 +1,38 @@
+@namespace chat_tester.Components.Shared
+
+@foreach (var group in Settings.GroupBy(GroupName).OrderBy(group => group.Key switch
+{
+    "Runtime and capacity" => 0,
+    "Polling" => 1,
+    "Shared iterators" => 2,
+    "Extensions" => 3,
+    _ => 4,
+}))
+{
+    <section class="mb-3">
+        <h3 class="h6 border-bottom pb-2">@group.Key</h3>
+        <ConfigurationExplanation Section="Server" Topic="@group.Key" />
+        <ConfigurationFields Settings="group.ToList()" OnChanged="OnChanged" />
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private static string GroupName(AppConfigurationScaffoldSetting setting)
+    {
+        if (setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Security";
+        }
+
+        return setting.Name.ToLowerInvariant() switch
+        {
+            var key when key.StartsWith("poll") => "Polling",
+            var key when key.Contains("sharediterator") => "Shared iterators",
+            "authproviderclass" or "envpluginclass" or "requestpreprocessorplugins" => "Extensions",
+            _ => "Runtime and capacity",
+        };
+    }
+}

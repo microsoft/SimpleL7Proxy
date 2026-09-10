@@ -1,0 +1,705 @@
+@namespace chat_tester.Components.Shared
+@inject AppConfigurationScaffoldService AppConfiguration
+
+<div class="config-host-toolbar">
+    <button type="button" class="btn btn-sm btn-primary" @onclick="AddHost">
+        <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add host
+    </button>
+</div>
+
+<table class="table table-sm align-middle config-host-table config-host-list mb-0">
+    <thead>
+        <tr>
+            <th scope="col">Host</th>
+            @foreach (var column in HostColumns)
+            {
+                <th scope="col">@column <ConfigurationHelp Section="Hosts" Topic="@column" /></th>
+            }
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var setting in Hosts)
+        {
+            <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting"
+                @onclick="() => EditHost(setting)">
+                <th scope="row">
+                    <div class="fw-semibold">@setting.Name</div>
+                </th>
+                @foreach (var column in HostColumns)
+                {
+                    var fieldValue = HostFieldValue(setting, column);
+                    <td>
+                        @if (IsBooleanColumn(column))
+                        {
+                            <input class="form-check-input" type="checkbox" checked="@HostListChecked(column, fieldValue)"
+                                   @onclick:stopPropagation="true" @onchange="args => ToggleHostBool(setting, column, args)" />
+                        }
+                        else
+                        {
+                            <span class="text-break">@fieldValue</span>
+                        }
+                    </td>
+                }
+            </tr>
+        }
+    </tbody>
+</table>
+
+@if (_showNewHostDialog)
+{
+    <div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
+        <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="New host">
+            <div class="config-modal-header">
+                <div>
+                    <h2 class="h5 mb-0">@(_editingHost is null ? "New host" : "Edit host")</h2>
+                    @if (!string.IsNullOrEmpty(HostDocsUrl))
+                    {
+                        <a class="small" href="@HostDocsUrl" target="_blank" rel="noopener">Backend host settings reference</a>
+                    }
+                </div>
+                <button type="button" class="btn-close" aria-label="Close" @onclick="CancelNewHost"></button>
+            </div>
+            <div class="config-newhost-body">
+                <div class="config-newhost-grid">
+                    <div class="config-newhost-field">
+                        <div class="config-setting-heading">
+                            <label class="form-label" for="newHostName">Name</label>
+                            <ConfigurationHelp Section="Hosts" Topic="Host name" HelpTopic="Name" />
+                        </div>
+                        <input id="newHostName" @ref="_newHostNameInput" class="form-control form-control-sm" placeholder="Host_name"
+                               disabled="@(_editingHost is not null)"
+                               value="@_newHostName" @oninput="args => _newHostName = args.Value?.ToString() ?? string.Empty" />
+                    </div>
+                    @foreach (var field in DialogHostFields)
+                    {
+                        <div class="config-newhost-field@(string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase) ? " config-field-break" : string.Empty)">
+                            <div class="config-setting-heading">
+                                <label class="form-label" title="@field.Description">@HostLabel(field)</label>
+                                <ConfigurationHelp Section="Hosts" Topic="@field.Name"
+                                                   HelpTopic='@(string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase) ? "Hostname" : field.Name)' />
+                            </div>
+                            @if (string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <div class="config-priority-group">
+                                    @foreach (var priority in PriorityValueChoices)
+                                    {
+                                        <label class="config-priority-item">
+                                            <input type="checkbox" class="form-check-input" checked="@IsPriorityChecked(priority)"
+                                                   @onchange="args => TogglePriority(priority, args)" />
+                                            <span>@priority</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                            else if (string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <input class="form-control form-control-sm" placeholder="host.address.com[ip]"
+                                       value="@HostCombinedValue()" @oninput="args => SetHostCombined(args.Value?.ToString())" />
+                            }
+                            else if (string.Equals(field.Name, "via", StringComparison.OrdinalIgnoreCase))
+                            {
+                                @if (string.Equals(NewHostValue("mode"), "indirect", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <select class="form-select form-select-sm" value="@NewHostValue(field.Name)"
+                                            @onchange="args => SetNewHostValue(field.Name, args.Value?.ToString())">
+                                        <option value=""></option>
+                                        @if (!string.IsNullOrEmpty(NewHostValue(field.Name)) && !OtherHostNames.Contains(NewHostValue(field.Name), StringComparer.OrdinalIgnoreCase))
+                                        {
+                                            <option value="@NewHostValue(field.Name)">@NewHostValue(field.Name)</option>
+                                        }
+                                        @foreach (var otherName in OtherHostNames)
+                                        {
+                                            <option value="@otherName">@otherName</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input class="form-control form-control-sm" disabled />
+                                }
+                            }
+                            else if (field.Kind == "bool")
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" checked="@(NewHostValue(field.Name) == "true")"
+                                           @onchange="args => SetNewHostBool(field.Name, args)" />
+                                </div>
+                            }
+                            else if (HostChoices(field.Name) is { } choices)
+                            {
+                                <select class="form-select form-select-sm" value="@NewHostValue(field.Name)" disabled="@IsFieldDisabled(field.Name)"
+                                        @onchange="args => SetNewHostValue(field.Name, args.Value?.ToString())">
+                                    <option value=""></option>
+                                    @foreach (var choice in choices)
+                                    {
+                                        <option value="@choice">@choice</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="form-control form-control-sm" placeholder="@field.Default" value="@NewHostValue(field.Name)"
+                                       @oninput="args => SetNewHostValue(field.Name, args.Value?.ToString())" />
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="config-auth-section">
+                    <div class="config-newhost-field config-auth-toggle">
+                        <div class="config-setting-heading">
+                            <label class="form-label">use token auth</label>
+                            <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication" />
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" checked="@IsTokenAuth" @onchange="SetTokenAuth" />
+                        </div>
+                    </div>
+                    <div class="config-auth-columns">
+                        <div class="config-auth-col @(IsTokenAuth ? string.Empty : "config-auth-dim")">
+                            <div class="config-auth-subheading">Token auth</div>
+                            <div class="config-auth-fields">
+                                <div class="config-newhost-field">
+                                    <div class="config-setting-heading">
+                                        <label class="form-label">auth provider</label>
+                                        <ConfigurationHelp Section="Hosts" Topic="authprovider" />
+                                    </div>
+                                    <select class="form-select form-select-sm" value='@NewHostValue("authprovider")' disabled="@(!IsTokenAuth)"
+                                            @onchange='args => SetNewHostValue("authprovider", args.Value?.ToString())'>
+                                        <option value=""></option>
+                                        @if (!string.IsNullOrEmpty(NewHostValue("authprovider")) && !AuthProviderChoices.Contains(NewHostValue("authprovider"), StringComparer.OrdinalIgnoreCase))
+                                        {
+                                            <option value='@NewHostValue("authprovider")'>@NewHostValue("authprovider")</option>
+                                        }
+                                        @foreach (var provider in AuthProviderChoices)
+                                        {
+                                            <option value="@provider">@provider</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="config-newhost-field">
+                                    <div class="config-setting-heading">
+                                        <label class="form-label">audience</label>
+                                        <ConfigurationHelp Section="Hosts" Topic="audience" />
+                                    </div>
+                                    <input class="form-control form-control-sm" value='@NewHostValue("audience")' disabled="@(!IsTokenAuth)"
+                                           @oninput='args => SetNewHostValue("audience", args.Value?.ToString())' />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-auth-col @(IsTokenAuth ? "config-auth-dim" : string.Empty)">
+                            <div class="config-auth-subheading">Key based auth</div>
+                            <div class="config-auth-fields">
+                                <div class="config-newhost-field">
+                                    <div class="config-setting-heading">
+                                        <label class="form-label">api-key-header</label>
+                                        <ConfigurationHelp Section="Hosts" Topic="api-key-header" />
+                                    </div>
+                                    <input class="form-control form-control-sm" placeholder="api-key" value='@NewHostValue("api-key-header")' disabled="@IsTokenAuth"
+                                           @oninput='args => SetNewHostValue("api-key-header", args.Value?.ToString())' />
+                                </div>
+                                <div class="config-newhost-field">
+                                    <div class="config-setting-heading">
+                                        <label class="form-label">api-key</label>
+                                        <ConfigurationHelp Section="Hosts" Topic="api-key" />
+                                    </div>
+                                    <input class="form-control form-control-sm" value='@NewHostValue("api-key")' disabled="@IsTokenAuth"
+                                           @oninput='args => SetNewHostValue("api-key", args.Value?.ToString())' />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="config-newhost-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelNewHost">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" disabled="@string.IsNullOrWhiteSpace(_newHostName)" @onclick="CommitNewHost">@(_editingHost is null ? "Add host" : "Save")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .config-host-toolbar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Hosts { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    // Full label-filtered settings, used to source authprovider and priority choices from sibling keys.
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    [Parameter] public string Label { get; set; } = string.Empty;
+
+    [Parameter] public EventCallback<AppConfigurationScaffoldSetting> OnHostCreated { get; set; }
+
+    private bool _showNewHostDialog;
+    private AppConfigurationScaffoldSetting? _editingHost;
+    private string _newHostName = string.Empty;
+    private readonly Dictionary<string, string> _newHostFields = new(StringComparer.OrdinalIgnoreCase);
+    private ElementReference _newHostNameInput;
+    private bool _focusNewHostName;
+
+    private string HostDocsUrl => AppConfiguration.HostFieldsDocUrl;
+
+    private sealed record HostFieldDef(string Name, string Kind, string Default, string Description);
+
+    // Canonical backend host schema (see docs/reference/backend-hosts.md).
+    private static readonly HostFieldDef[] HostFieldSchema =
+    {
+        new("host", "text", string.Empty, "Backend hostname. Pin a DNS override inline as host[ip], e.g. api.backend.com[10.0.1.5]. https:// is assumed if omitted."),
+        new("ipaddress", "text", string.Empty, "DNS override IP; entered inline in the hostname as host[ip]."),
+        new("mode", "choice", "apim", "apim probes and calls the host; direct calls it without probes; indirect delegates through 'via'."),
+        new("via", "text", string.Empty, "Named apim gateway host (e.g. Host_apim); required with mode=indirect."),
+        new("path", "text", "/", "Path prefix used for routing."),
+        new("probe", "text", "echo/resource?param1=sample", "Health probe path (used only by mode=apim)."),
+        new("processor", "choice", string.Empty, "Custom stream processor name (auto-defaulted in direct mode)."),
+        new("priorityGroup", "text", "1", "Failover group; lower groups are exhausted before higher ones."),
+        new("acceptablePriorities", "text", "*", "Priorities accepted by this host (from Request:Priority:PriorityValues). All (or none) checked accepts every priority."),
+        new("stripprefix", "bool", "true", "Strip the matched path prefix before forwarding."),
+        new("retryafter", "bool", "true", "Honour the Retry-After header returned by the backend."),
+        new("usemi", "bool", "false", "Attach a Managed Identity / OAuth token to every request and probe."),
+        new("audience", "text", string.Empty, "OAuth token audience; required when usemi=true."),
+        new("authprovider", "text", "AzureProvider", "Simple class name of an IBackendTokenProvider."),
+        new("api-key", "text", string.Empty, "API key sent on every forwarded request and probe."),
+        new("api-key-header", "text", "api-key", "Header name used when api-key is set."),
+        // Managed via the Hosts list toggle; kept in the schema but not shown in the dialog.
+        new("enabled", "bool", "true", "Whether this host is eligible for selection; set false to disable it without removing it."),
+    };
+
+    // Auth fields render in a dedicated two-column Token/Key section, not the generic grid.
+    private static readonly HashSet<string> AuthFields =
+        new(StringComparer.OrdinalIgnoreCase) { "usemi", "audience", "authprovider", "api-key", "api-key-header" };
+
+    private static IEnumerable<HostFieldDef> DialogHostFields =>
+        HostFieldSchema.Where(item =>
+            !string.Equals(item.Name, "enabled", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(item.Name, "ipaddress", StringComparison.OrdinalIgnoreCase)
+            && !AuthFields.Contains(item.Name));
+
+    // Display labels differ from the connection-string keys for a couple of fields.
+    private static string HostLabel(HostFieldDef field) => field.Name.ToLowerInvariant() switch
+    {
+        "host" => "hostname",
+        "processor" => "token metrics processor",
+        "prioritygroup" => "priority group",
+        "acceptablepriorities" => "acceptable priorities",
+        "stripprefix" => "strip prefix",
+        "retryafter" => "retry after",
+        "authprovider" => "auth provider",
+        "usemi" => "use token auth",
+        _ => field.Name,
+    };
+
+    private void AddHost()
+    {
+        _editingHost = null;
+        _newHostName = string.Empty;
+        _newHostFields.Clear();
+        foreach (var field in HostFieldSchema)
+        {
+            _newHostFields[field.Name] = field.Kind == "bool" ? field.Default : string.Empty;
+        }
+
+        _showNewHostDialog = true;
+        _focusNewHostName = true;
+    }
+
+    private void EditHost(AppConfigurationScaffoldSetting setting)
+    {
+        _editingHost = setting;
+        _newHostName = setting.DraftName;
+        _newHostFields.Clear();
+        foreach (var field in HostFieldSchema)
+        {
+            var current = HostFieldValue(setting, field.Name);
+            _newHostFields[field.Name] = field.Kind == "bool" && string.IsNullOrEmpty(current)
+                ? field.Default
+                : current;
+        }
+
+        _showNewHostDialog = true;
+        _focusNewHostName = true;
+    }
+
+    private void CancelNewHost()
+    {
+        _showNewHostDialog = false;
+        _editingHost = null;
+    }
+
+    private string NewHostValue(string name) =>
+        _newHostFields.TryGetValue(name, out var value) ? value : string.Empty;
+
+    private void SetNewHostValue(string name, string? value)
+    {
+        _newHostFields[name] = value ?? string.Empty;
+
+        // via is only valid with mode=indirect; clear it when mode changes away.
+        if (string.Equals(name, "mode", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(_newHostFields[name], "indirect", StringComparison.OrdinalIgnoreCase))
+        {
+            _newHostFields["via"] = string.Empty;
+        }
+    }
+
+    // hostname merges host + ipaddress as host[ip].
+    private string HostCombinedValue()
+    {
+        var host = NewHostValue("host");
+        var ip = NewHostValue("ipaddress");
+        return string.IsNullOrEmpty(ip) ? host : $"{host}[{ip}]";
+    }
+
+    private void SetHostCombined(string? value)
+    {
+        var text = value ?? string.Empty;
+        var open = text.IndexOf('[');
+        var close = text.IndexOf(']');
+        if (open >= 0 && close > open)
+        {
+            _newHostFields["host"] = text[..open].Trim();
+            _newHostFields["ipaddress"] = text[(open + 1)..close].Trim();
+        }
+        else
+        {
+            _newHostFields["host"] = text.Trim();
+            _newHostFields["ipaddress"] = string.Empty;
+        }
+    }
+
+    // via targets must be apim gateways; an omitted mode defaults to apim per the docs.
+    private IEnumerable<string> OtherHostNames =>
+        Hosts
+            .Where(setting => !ReferenceEquals(setting, _editingHost))
+            .Where(IsApimHost)
+            .Select(setting => setting.Name)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsApimHost(AppConfigurationScaffoldSetting setting)
+    {
+        var mode = HostFieldValue(setting, "mode");
+        return string.IsNullOrEmpty(mode) || string.Equals(mode, "apim", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void SetNewHostBool(string name, ChangeEventArgs args) =>
+        _newHostFields[name] = args.Value is bool isChecked && isChecked ? "true" : "false";
+
+    // Token (managed identity/OAuth) and key auth are mutually exclusive in the dialog.
+    private bool IsTokenAuth => string.Equals(NewHostValue("usemi"), "true", StringComparison.OrdinalIgnoreCase);
+
+    private void SetTokenAuth(ChangeEventArgs args) =>
+        _newHostFields["usemi"] = args.Value is bool on && on ? "true" : "false";
+
+    // authprovider choices come from the proxy's AuthProviderClass setting (comma-delimited),
+    // reduced to simple class names; falls back to the proxy default when unset.
+    private IEnumerable<string> AuthProviderChoices
+    {
+        get
+        {
+            var setting = Settings.FirstOrDefault(s => string.Equals(s.Name, "AuthProviderClass", StringComparison.OrdinalIgnoreCase));
+            var raw = string.IsNullOrWhiteSpace(setting?.DraftValue) ? "Auth.AzureProvider" : setting!.DraftValue;
+            return raw
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(SimpleClassName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string SimpleClassName(string fullName)
+    {
+        var dot = fullName.LastIndexOf('.');
+        return dot >= 0 ? fullName[(dot + 1)..] : fullName;
+    }
+
+    // Priority checkboxes are sourced from the proxy's Request:Priority:PriorityValues setting.
+    private IEnumerable<string> PriorityValueChoices
+    {
+        get
+        {
+            var setting = Settings.FirstOrDefault(s => s.Key.EndsWith("Request:Priority:PriorityValues", StringComparison.OrdinalIgnoreCase));
+            var raw = string.IsNullOrWhiteSpace(setting?.DraftValue) ? "1,2,3" : setting!.DraftValue;
+            return raw
+                .Split(new[] { '[', ']', ',', ':', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(value => value.Trim())
+                .Where(value => value.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private HashSet<string> AcceptedPriorities()
+    {
+        var raw = NewHostValue("acceptablePriorities").Trim();
+        if (string.IsNullOrEmpty(raw) || raw == "*")
+        {
+            return new HashSet<string>(PriorityValueChoices, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return new HashSet<string>(
+            raw.Split(':', StringSplitOptions.RemoveEmptyEntries).Select(value => value.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private bool IsPriorityChecked(string value) => AcceptedPriorities().Contains(value);
+
+    private void TogglePriority(string value, ChangeEventArgs args)
+    {
+        var accepted = AcceptedPriorities();
+        if (args.Value is bool on && on)
+        {
+            accepted.Add(value);
+        }
+        else
+        {
+            accepted.Remove(value);
+        }
+
+        _newHostFields["acceptablePriorities"] = string.Join(":", PriorityValueChoices.Where(accepted.Contains));
+    }
+
+    private string BuildHostValue()
+    {
+        // Token and key auth are mutually exclusive; emit only the active side.
+        var isToken = string.Equals(NewHostValue("usemi"), "true", StringComparison.OrdinalIgnoreCase);
+        var parts = new List<string>();
+        foreach (var field in HostFieldSchema)
+        {
+            if (isToken && (string.Equals(field.Name, "api-key", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field.Name, "api-key-header", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+            if (!isToken && (string.Equals(field.Name, "audience", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field.Name, "authprovider", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var value = NewHostValue(field.Name).Trim();
+            if (field.Kind == "bool")
+            {
+                if (!string.Equals(value, field.Default, StringComparison.OrdinalIgnoreCase))
+                {
+                    parts.Add($"{field.Name}={value}");
+                }
+            }
+            else if (!string.IsNullOrEmpty(value))
+            {
+                parts.Add($"{field.Name}={value}");
+            }
+        }
+
+        return string.Join(", ", parts);
+    }
+
+    private async Task CommitNewHost()
+    {
+        var name = _newHostName.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return;
+        }
+
+        var value = BuildHostValue();
+
+        if (_editingHost is { } editing)
+        {
+            editing.DraftValue = value;
+        }
+        else
+        {
+            var host = new AppConfigurationScaffoldSetting(
+                Key: $"Warm:{name}",
+                Mode: "Warm",
+                Section: "Hosts",
+                Name: name,
+                Label: Label,
+                LoadedValue: string.Empty)
+            {
+                IsNew = true,
+                DraftName = name,
+                DraftValue = value,
+            };
+
+            await OnHostCreated.InvokeAsync(host);
+        }
+
+        _showNewHostDialog = false;
+        _editingHost = null;
+    }
+
+    private static readonly string[] HostColumnOrder =
+        { "host", "path", "probe", "mode", "processor", "api-key-header", "api-key", "audience", "usemi", "enabled" };
+
+    private IReadOnlyList<string> HostColumns
+    {
+        get
+        {
+            // Config-driven list columns; fall back to the union of all fields.
+            if (AppConfiguration.HostListColumns.Count > 0)
+            {
+                return AppConfiguration.HostListColumns;
+            }
+
+            var keys = new List<string>();
+            foreach (var setting in Hosts)
+            {
+                foreach (var (key, _) in ParseHostFields(setting.DraftValue))
+                {
+                    if (!keys.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        keys.Add(key);
+                    }
+                }
+            }
+
+            return keys
+                .OrderBy(key =>
+                {
+                    var index = Array.FindIndex(HostColumnOrder, column => string.Equals(column, key, StringComparison.OrdinalIgnoreCase));
+                    return index < 0 ? int.MaxValue : index;
+                })
+                .ThenBy(key => key, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private static List<(string Key, string Value)> ParseHostFields(string value)
+    {
+        var fields = new List<(string, string)>();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fields;
+        }
+
+        foreach (var token in value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = token.Trim();
+            var equals = trimmed.IndexOf('=');
+            if (equals <= 0)
+            {
+                continue;
+            }
+
+            fields.Add((trimmed[..equals].Trim(), trimmed[(equals + 1)..].Trim()));
+        }
+
+        return fields;
+    }
+
+    private static string HostFieldValue(AppConfigurationScaffoldSetting setting, string column)
+    {
+        foreach (var (key, value) in ParseHostFields(setting.DraftValue))
+        {
+            if (string.Equals(key, column, StringComparison.OrdinalIgnoreCase))
+            {
+                return value;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsHostBoolean(string value) =>
+        string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
+
+    // A column is boolean if every host that sets it uses true/false; empty cells then render as unchecked.
+    private bool IsBooleanColumn(string column)
+    {
+        var hasBooleanValue = false;
+        foreach (var setting in Hosts)
+        {
+            var value = HostFieldValue(setting, column);
+            if (string.IsNullOrEmpty(value))
+            {
+                continue;
+            }
+
+            if (!IsHostBoolean(value))
+            {
+                return false;
+            }
+
+            hasBooleanValue = true;
+        }
+
+        return hasBooleanValue;
+    }
+
+    // List checkbox state honours the schema default when the field is absent (e.g. enabled defaults true).
+    private static bool HostListChecked(string column, string value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var field = HostFieldSchema.FirstOrDefault(f => string.Equals(f.Name, column, StringComparison.OrdinalIgnoreCase));
+        return field is not null && string.Equals(field.Default, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ToggleHostBool(AppConfigurationScaffoldSetting setting, string column, ChangeEventArgs args)
+    {
+        var value = args.Value is bool isChecked && isChecked ? "true" : "false";
+        var field = HostFieldSchema.FirstOrDefault(f => string.Equals(f.Name, column, StringComparison.OrdinalIgnoreCase));
+        var isDefault = field is not null && string.Equals(field.Default, value, StringComparison.OrdinalIgnoreCase);
+        SetHostFieldValue(setting, column, isDefault ? string.Empty : value);
+    }
+
+    private static void SetHostFieldValue(AppConfigurationScaffoldSetting setting, string column, string value)
+    {
+        var fields = ParseHostFields(setting.DraftValue);
+        var index = fields.FindIndex(field => string.Equals(field.Key, column, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(value))
+        {
+            if (index >= 0)
+            {
+                fields.RemoveAt(index);
+            }
+        }
+        else if (index >= 0)
+        {
+            fields[index] = (fields[index].Key, value);
+        }
+        else
+        {
+            fields.Add((column, value));
+        }
+
+        setting.DraftValue = string.Join(", ", fields.Select(field => $"{field.Key}={field.Value}"));
+    }
+
+    private string[]? HostChoices(string column)
+    {
+        foreach (var choice in AppConfiguration.HostFieldChoices)
+        {
+            if (string.Equals(choice.Key, column, StringComparison.OrdinalIgnoreCase))
+            {
+                return choice.Value;
+            }
+        }
+
+        return null;
+    }
+
+    // token metrics processor only applies in direct mode.
+    private bool IsFieldDisabled(string name) =>
+        string.Equals(name, "processor", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(NewHostValue("mode"), "direct", StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusNewHostName)
+        {
+            _focusNewHostName = false;
+            await _newHostNameInput.FocusAsync();
+        }
+    }
+}

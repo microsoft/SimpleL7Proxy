@@ -1,0 +1,83 @@
+@namespace chat_tester.Components.Shared
+
+<div class="configuration-fields-grid">
+    @foreach (var setting in Settings)
+    {
+        var secret = setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase)
+            || setting.Name.ToLowerInvariant() is "auth:key1" or "auth:key2";
+        var multiline = !secret && (setting.LoadedValue.Length > 100 || setting.LoadedValue.IndexOfAny(new[] { ',', '\n', '[', '{' }) >= 0);
+        <div class="config-newhost-field" @key="setting">
+            <div class="config-setting-heading">
+                <label class="form-label" for="@setting.Key" title="@setting.Key">@Label(setting.Name)</label>
+                <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name" />
+            </div>
+            <ConfigurationExplanation Section="@setting.Section" Topic="@setting.Name" />
+            @if (bool.TryParse(setting.LoadedValue, out _))
+            {
+                <div class="form-check">
+                    <input id="@setting.Key" class="form-check-input" type="checkbox"
+                           checked='@string.Equals(setting.DraftValue, "true", StringComparison.OrdinalIgnoreCase)'
+                           @onchange='args => SetValue(setting, args.Value is true ? "true" : "false")' />
+                </div>
+            }
+            else if (multiline)
+            {
+                <textarea id="@setting.Key" class="form-control form-control-sm" rows="3"
+                          value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())"></textarea>
+            }
+            else
+            {
+                <input id="@setting.Key" class="form-control form-control-sm" autocomplete="off" step="any"
+                       type='@(secret ? "password" : decimal.TryParse(setting.LoadedValue, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _) ? "number" : "text")'
+                       value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+            }
+            @if (setting.IsChanged)
+            {
+                <div class="d-flex align-items-start gap-2 mt-1">
+                    <span class="small text-muted text-break">Current: @(secret ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</span>
+                    <button class="btn btn-sm btn-link p-0 ms-auto" type="button" title="Reset this setting"
+                            @onclick="() => SetValue(setting, setting.LoadedValue)">
+                        <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
+                        <span class="visually-hidden">Reset @Label(setting.Name)</span>
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .configuration-fields-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+        gap: 1rem;
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private async Task SetValue(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+
+    private static string Label(string name)
+    {
+        var label = name[(name.LastIndexOf(':') + 1)..];
+        return label switch
+        {
+            "DefaultTimeout" => "Default timeout (ms)",
+            "DefaultTTLSecs" => "Default TTL (seconds)",
+            "RefreshIntervalSecs" => "Refresh interval (seconds)",
+            "SoftDeleteTTLMinutes" => "Soft delete TTL (minutes)",
+            "DependancyHeaders" => "Dependency headers",
+            "IgnoreSSLCert" => "Ignore SSL certificate validation",
+            _ => System.Text.RegularExpressions.Regex.Replace(
+                System.Text.RegularExpressions.Regex.Replace(label, "([A-Z]+)([A-Z][a-z])", "$1 $2"),
+                "(?<=[a-z0-9])([A-Z])", " $1"),
+        };
+    }
+}

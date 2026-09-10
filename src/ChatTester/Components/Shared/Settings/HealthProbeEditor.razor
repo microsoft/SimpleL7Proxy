@@ -1,0 +1,67 @@
+@namespace chat_tester.Components.Shared
+
+@if (Setting is not null)
+{
+    <div class="config-healthprobe-grid">
+        <div class="config-newhost-field">
+            <div class="config-setting-heading">
+                <label class="form-label">enabled</label>
+                <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe enabled" />
+            </div>
+            <ConfigurationExplanation Section="HealthProbe" Topic="enabled" />
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" checked="@Enabled" @onchange="OnEnabledChanged" />
+            </div>
+        </div>
+        <div class="config-newhost-field">
+            <div class="config-setting-heading">
+                <label class="form-label">url</label>
+                <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL" />
+            </div>
+            <ConfigurationExplanation Section="HealthProbe" Topic="url" />
+            <input class="form-control form-control-sm" placeholder="http://localhost:9000"
+                   value="@Url" @oninput="OnUrlChanged" />
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AppConfigurationScaffoldSetting Setting { get; set; } = default!;
+
+    private bool Enabled => IsEnabled(Setting);
+
+    private string Url => Field(Setting, "url");
+
+    // Shared with the page's section-box "Enabled/Disabled" label.
+    public static bool IsEnabled(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(Field(setting, "Enabled"), "true", StringComparison.OrdinalIgnoreCase);
+
+    private static string Field(AppConfigurationScaffoldSetting setting, string key)
+    {
+        foreach (var token in (setting.DraftValue ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = token.Trim();
+            var equals = trimmed.IndexOf('=');
+            if (equals <= 0)
+            {
+                continue;
+            }
+
+            if (string.Equals(trimmed[..equals].Trim(), key, StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed[(equals + 1)..].Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private void OnEnabledChanged(ChangeEventArgs args) =>
+        SetValue(args.Value is bool isChecked && isChecked, Url);
+
+    private void OnUrlChanged(ChangeEventArgs args) =>
+        SetValue(Enabled, args.Value?.ToString() ?? string.Empty);
+
+    private void SetValue(bool enabled, string url) =>
+        Setting.DraftValue = $"Enabled={(enabled ? "true" : "false")};url={url}";
+}

@@ -1,0 +1,455 @@
+@namespace chat_tester.Components.Shared
+
+<section class="mb-3">
+    <h3 class="h6 border-bottom pb-2">Destinations</h3>
+    <ConfigurationExplanation Section="Logging" Topic="Destinations" />
+    @foreach (var destination in new[] { (Name: "File", Logger: "file"), (Name: "Application Insights", Logger: ""), (Name: "Event Hub", Logger: "eventhub") })
+    {
+        var loggerSetting = Settings.FirstOrDefault(setting => string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase));
+        var enabled = destination.Logger.Length == 0 || LoggerEnabled(destination.Logger);
+        <div class="logging-destination-row">
+            <div class="logging-destination-label">
+                @if (destination.Logger.Length > 0)
+                {
+                    <label class="d-inline-flex align-items-center gap-2">
+                        <input class="form-check-input m-0 flex-shrink-0" type="checkbox" checked="@enabled"
+                               disabled="@(loggerSetting is null)"
+                               @onchange="args => ToggleLogger(loggerSetting!, destination.Logger, args.Value is true)" />
+                        <span>@destination.Name</span>
+                    </label>
+                }
+                else
+                {
+                    <span>@destination.Name</span>
+                }
+                <ConfigurationHelp Section="Logging" Topic="@destination.Name" />
+            </div>
+            <fieldset class="logging-destination-details" disabled="@(!enabled)" aria-label="@destination.Name">
+                <ConfigurationExplanation Section="Logging" Topic="@destination.Name" />
+                <div class="config-newhost-grid">
+                    @foreach (var setting in Settings.Where(setting => GroupName(setting.Name) == destination.Name))
+                    {
+                        <div class="config-newhost-field" @key="setting">
+                            <div class="config-setting-heading">
+                                <label class="form-label" for="@setting.Key">@FieldLabel(setting.Name.StartsWith("EventHub:", StringComparison.OrdinalIgnoreCase) ? setting.Name[9..] : setting.Name)</label>
+                                <ConfigurationHelp Section="Logging" Topic="@setting.Name" />
+                            </div>
+                            <ConfigurationExplanation Section="Logging" Topic="@setting.Name" />
+                            <input id="@setting.Key" class="form-control form-control-sm" autocomplete="off"
+                                   type='@(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "password" : decimal.TryParse(setting.LoadedValue, out _) ? "number" : "text")'
+                                   value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                            @if (setting.IsChanged)
+                            {
+                                <div class="small text-muted text-break mt-1">Current: @(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</div>
+                                <button class="btn btn-sm btn-link align-self-start px-0" type="button" title="Reset this setting"
+                                        @onclick="() => SetValue(setting, setting.LoadedValue)">
+                                    <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
+                                    <span class="visually-hidden">Reset @FieldLabel(setting.Name)</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            </fieldset>
+        </div>
+    }
+</section>
+
+@foreach (var group in Settings
+    .Where(setting => GroupName(setting.Name) is "Headers" or "Options")
+    .Where(setting => !string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase) || LoggerChoices(setting).Any())
+    .GroupBy(setting => GroupName(setting.Name))
+    .OrderBy(group => group.Key == "Headers" ? 0 : 1))
+{
+    <section class="mb-3">
+        <h3 class="h6 border-bottom pb-2">@group.Key</h3>
+        <ConfigurationExplanation Section="Logging" Topic="@group.Key" />
+        <div class='@(group.Key == "Headers" ? "logging-headers-grid" : "config-newhost-grid")'>
+            @foreach (var setting in group.OrderBy(setting => group.Key == "Headers" ? setting.Name.ToLowerInvariant() switch
+            {
+                "logallrequestheaders" => 0,
+                "logallrequestheadersexcept" => 1,
+                "logallresponseheaders" => 2,
+                "logallresponseheadersexcept" => 3,
+                "logheaders" => 4,
+                "eventdata" => 5,
+                _ => 6,
+            } : 0))
+            {
+                var requestHeadersEnabled = Settings.Any(item => string.Equals(item.Name, "LogAllRequestHeaders", StringComparison.OrdinalIgnoreCase) && string.Equals(item.DraftValue, "true", StringComparison.OrdinalIgnoreCase));
+                var responseHeadersEnabled = Settings.Any(item => string.Equals(item.Name, "LogAllResponseHeaders", StringComparison.OrdinalIgnoreCase) && string.Equals(item.DraftValue, "true", StringComparison.OrdinalIgnoreCase));
+                var inactive = setting.Name.ToLowerInvariant() switch
+                {
+                    "logallrequestheadersexcept" => !requestHeadersEnabled,
+                    "logallresponseheadersexcept" => !responseHeadersEnabled,
+                    "logheaders" => responseHeadersEnabled,
+                    _ => false,
+                };
+                <fieldset class='config-newhost-field logging-setting @(group.Key == "Headers" && setting.Name.ToLowerInvariant() is not ("logallrequestheaders" or "logallrequestheadersexcept" or "logallresponseheaders" or "logallresponseheadersexcept") ? "logging-header-wide" : string.Empty)'
+                          disabled="@inactive" @key="setting">
+                      <div class="config-setting-heading">
+                    <label class="form-label" for="@setting.Key">@(setting.Name.ToLowerInvariant() switch
+                    {
+                        "logallrequestheaders" => "All request headers",
+                        "logallrequestheadersexcept" => "Exclude request headers",
+                        "logallresponseheaders" => "All response headers",
+                        "logallresponseheadersexcept" => "Exclude response headers",
+                        "logheaders" => "Selected response headers",
+                        "eventdata" => "Event data provider",
+                        _ => FieldLabel(setting.Name),
+                    })</label>
+                    <ConfigurationHelp Section="Logging" Topic="@setting.Name" />
+                    </div>
+                    <ConfigurationExplanation Section="Logging" Topic="@setting.Name" />
+                    @if (string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <div id="@setting.Key" class="d-flex flex-wrap gap-3" role="group" aria-label="Event loggers">
+                            @foreach (var logger in LoggerChoices(setting))
+                            {
+                                <div class="d-inline-flex align-items-center gap-2 text-break">
+                                <label class="d-inline-flex align-items-center gap-2 text-break">
+                                    <input class="form-check-input m-0 flex-shrink-0" type="checkbox"
+                                           checked="@SelectedLoggers(setting).Contains(logger)"
+                                           @onchange="args => ToggleLogger(setting, logger, args.Value is true)" />
+                                    <span>@(logger switch { "file" => "File", "eventhub" => "Event Hub", "none" => "None", _ => logger })</span>
+                                </label>
+                                <ConfigurationHelp Section="Logging" Topic="@logger" />
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (setting.Name.ToLowerInvariant() is "logtoai" or "logtoconsole" or "logtoevents")
+                    {
+                        <button id="@setting.Key" class="logging-event-summary small text-break" type="button"
+                                title="Edit event types" aria-haspopup="dialog" @onclick="() => EditEventTypes(setting)">
+                            @EventTypeSummary(setting.DraftValue)
+                        </button>
+                    }
+                    else if (bool.TryParse(setting.LoadedValue, out _))
+                    {
+                        <div class="form-check">
+                            <input id="@setting.Key" class="form-check-input" type="checkbox"
+                                   checked='@string.Equals(setting.DraftValue, "true", StringComparison.OrdinalIgnoreCase)'
+                                   @onchange='args => SetValue(setting, args.Value is true ? "true" : "false")' />
+                        </div>
+                    }
+                    else if (setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <input id="@setting.Key" class="form-control form-control-sm" type="password" autocomplete="off"
+                               value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                    }
+                    else if (setting.LoadedValue.Length > 100 || setting.LoadedValue.Contains(',') || setting.LoadedValue.Contains('\n'))
+                    {
+                        <textarea id="@setting.Key" class="form-control form-control-sm" rows="3"
+                                  value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())"></textarea>
+                    }
+                    else
+                    {
+                        <input id="@setting.Key" class="form-control form-control-sm"
+                               type='@(decimal.TryParse(setting.LoadedValue, out _) ? "number" : "text")'
+                               value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                    }
+                    @if (setting.IsChanged)
+                    {
+                        <div class="small text-muted text-break mt-1">Current: @(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</div>
+                        <button class="btn btn-sm btn-link align-self-start px-0" type="button" title="Reset this setting"
+                                @onclick="() => SetValue(setting, setting.LoadedValue)">
+                            <span class="bi bi-arrow-counterclockwise" aria-hidden="true"></span>
+                            <span class="visually-hidden">Reset @FieldLabel(setting.Name)</span>
+                        </button>
+                    }
+                </fieldset>
+            }
+        </div>
+    </section>
+}
+
+@if (_editingEventTypes is { } eventSetting)
+{
+    <div class="config-modal-backdrop config-modal-backdrop-top" @onclick="() => _editingEventTypes = null">
+        <div class="config-modal logging-event-modal" role="dialog" aria-modal="true" aria-label="@FieldLabel(eventSetting.Name)"
+             @onclick:stopPropagation="true">
+            <div class="config-modal-header">
+                <h2 class="h5 mb-0">@FieldLabel(eventSetting.Name) <ConfigurationHelp Section="Logging" Topic="@eventSetting.Name" /></h2>
+                <button class="btn-close" type="button" aria-label="Close" @onclick="() => _editingEventTypes = null"></button>
+            </div>
+            <div class="config-modal-body logging-event-grid">
+                @foreach (var eventType in EventTypeChoices)
+                {
+                    <div class="d-flex align-items-center gap-2">
+                    <label class="d-flex align-items-center gap-2">
+                        <input class="form-check-input m-0" type="checkbox" checked="@EventTypeEnabled(eventType.Key)"
+                               @onchange="args => ToggleEventType(eventType.Key, args.Value is true)" />
+                        <span>@eventType.Label</span>
+                    </label>
+                    <ConfigurationHelp Section="Logging" Topic="@eventType.Label" />
+                    </div>
+                }
+            </div>
+            <div class="config-newhost-footer">
+                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => _editingEventTypes = null">Cancel</button>
+                <button class="btn btn-sm btn-primary" type="button" @onclick="SaveEventTypes">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .logging-headers-grid {
+        display: grid;
+        grid-template-columns: 12rem minmax(0, 1fr);
+        gap: 1rem;
+    }
+
+    .logging-setting {
+        border: 0;
+        padding: 0;
+        margin: 0;
+    }
+
+    .logging-setting:disabled {
+        opacity: 0.5;
+    }
+
+    .logging-header-wide {
+        grid-column: 1 / -1;
+        border-top: 1px solid #e5e5ea;
+        padding-top: 0.85rem;
+    }
+
+    @@media (max-width: 575.98px) {
+        .logging-headers-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .logging-event-summary {
+        background: none;
+        border: 0;
+        padding: 0;
+        text-align: left;
+        color: inherit;
+        cursor: pointer;
+    }
+
+    .logging-event-summary:hover {
+        text-decoration: underline;
+    }
+
+    .logging-event-modal {
+        width: min(34rem, 100%);
+    }
+
+    .logging-event-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 0.85rem;
+        padding: 1rem;
+    }
+
+    .logging-destination-row {
+        display: grid;
+        grid-template-columns: 10rem minmax(0, 1fr);
+        gap: 1rem;
+        padding: 0.85rem 0;
+        border-bottom: 1px solid #e5e5ea;
+    }
+
+    .logging-destination-label {
+        padding-top: 0.3rem;
+        min-width: 0;
+    }
+
+    .logging-destination-details {
+        min-width: 0;
+        margin: 0;
+        padding: 0 0 0 1rem;
+        border: 0;
+        border-left: 1px solid #e5e5ea;
+    }
+
+    .logging-destination-details:disabled {
+        opacity: 0.5;
+    }
+
+    @@media (max-width: 575.98px) {
+        .logging-destination-row {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.5rem;
+        }
+
+        .logging-destination-details {
+            padding-left: 0;
+            border-left: 0;
+        }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private AppConfigurationScaffoldSetting? _editingEventTypes;
+    private List<string> _eventTypeTokens = new();
+    private bool _eventTypesChanged;
+
+    private static readonly (string Key, string Label)[] EventTypeChoices =
+    {
+        ("async", "Async"), ("backend", "Backend requests"), ("probe", "Probe"),
+        ("poller", "Poller"), ("circuitbreaker", "Circuit breaker"), ("console", "Console"),
+        ("custom", "Custom events"), ("exception", "Exceptions"), ("profile", "Profile errors"),
+        ("proxy", "Proxy requests"), ("enqueued", "Enqueued requests"),
+        ("auth", "Authentication"), ("metric", "Metrics"),
+    };
+
+    private static string EventTypeSummary(string rawValue)
+    {
+        var value = rawValue.Trim();
+        if (value.StartsWith('[') && value.EndsWith(']'))
+        {
+            value = value[1..^1];
+        }
+
+        var tokens = value.Split(',').Select(token => token.Trim().Trim('"')).Where(token => token.Length > 0).ToList();
+        var enabled = new List<string>();
+        var disabled = new List<string>();
+        foreach (var eventType in EventTypeChoices)
+        {
+            var isEnabled = (tokens.Contains("*") || tokens.Contains(eventType.Key, StringComparer.OrdinalIgnoreCase))
+                && !tokens.Contains($"-{eventType.Key}", StringComparer.OrdinalIgnoreCase);
+            (isEnabled ? enabled : disabled).Add(eventType.Key);
+        }
+
+        if (disabled.Count == 0)
+        {
+            return "everything";
+        }
+
+        if (enabled.Count == 0)
+        {
+            return "none";
+        }
+
+        var included = string.Join(", ", enabled);
+        var excluded = $"all except: {string.Join(", ", disabled)}";
+        return excluded.Length < included.Length ? excluded : included;
+    }
+
+    private void EditEventTypes(AppConfigurationScaffoldSetting setting)
+    {
+        var value = setting.DraftValue.Trim();
+        if (value.StartsWith('[') && value.EndsWith(']'))
+        {
+            value = value[1..^1];
+        }
+
+        _eventTypeTokens = value.Split(',').Select(token => token.Trim().Trim('"')).Where(token => token.Length > 0).ToList();
+        _editingEventTypes = setting;
+        _eventTypesChanged = false;
+    }
+
+    private bool EventTypeEnabled(string key) =>
+        (_eventTypeTokens.Contains("*") || _eventTypeTokens.Contains(key, StringComparer.OrdinalIgnoreCase))
+        && !_eventTypeTokens.Contains($"-{key}", StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleEventType(string key, bool enabled)
+    {
+        _eventTypeTokens.RemoveAll(token => string.Equals(token, key, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(token, $"-{key}", StringComparison.OrdinalIgnoreCase));
+        if (_eventTypeTokens.Contains("*"))
+        {
+            if (!enabled)
+            {
+                _eventTypeTokens.Add($"-{key}");
+            }
+        }
+        else if (enabled)
+        {
+            _eventTypeTokens.Add(key);
+        }
+
+        _eventTypesChanged = true;
+    }
+
+    private async Task SaveEventTypes()
+    {
+        if (_editingEventTypes is { } setting && _eventTypesChanged)
+        {
+            await SetValue(setting, System.Text.Json.JsonSerializer.Serialize(_eventTypeTokens));
+        }
+
+        _editingEventTypes = null;
+    }
+
+    private bool LoggerEnabled(string logger) => Settings
+        .Where(setting => string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase))
+        .Any(setting => SelectedLoggers(setting).Contains(logger)
+            || SelectedLoggers(setting).Contains(logger == "file" ? "SimpleL7Proxy.Events.LogFileEventClient" : "SimpleL7Proxy.Events.EventHubClient"));
+
+    private static HashSet<string> SelectedLoggers(AppConfigurationScaffoldSetting setting) =>
+        new(setting.DraftValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> LoggerChoices(AppConfigurationScaffoldSetting setting) =>
+        setting.LoadedValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Concat(SelectedLoggers(setting))
+            .Where(logger => logger.ToLowerInvariant() is not ("file" or "eventhub" or "none" or "simplel7proxy.events.logfileeventclient" or "simplel7proxy.events.eventhubclient"))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private async Task ToggleLogger(AppConfigurationScaffoldSetting setting, string logger, bool enabled)
+    {
+        var selected = SelectedLoggers(setting);
+        if (logger == "file")
+        {
+            selected.Remove("SimpleL7Proxy.Events.LogFileEventClient");
+        }
+        else if (logger == "eventhub")
+        {
+            selected.Remove("SimpleL7Proxy.Events.EventHubClient");
+        }
+        if (enabled)
+        {
+            if (string.Equals(logger, "none", StringComparison.OrdinalIgnoreCase))
+            {
+                selected.Clear();
+            }
+            else
+            {
+                selected.Remove("none");
+            }
+
+            selected.Add(logger);
+        }
+        else
+        {
+            selected.Remove(logger);
+        }
+
+        await SetValue(setting, selected.Count == 0 ? "none" : string.Join(",", selected));
+    }
+
+    /// <summary>Returns only the configured event loggers for the section summary.</summary>
+    public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var value = settings.FirstOrDefault(setting => string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase))?.DraftValue;
+        return string.IsNullOrWhiteSpace(value) ? "Loggers not configured" : value;
+    }
+
+    private async Task SetValue(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+
+    private static string GroupName(string name) => name.ToLowerInvariant() switch
+    {
+        var key when key.StartsWith("eventhub:") => "Event Hub",
+        "appinsightsconnectionstring" => "Application Insights",
+        "logfilename" => "File",
+        var key when key.Contains("header") || key == "eventdata" => "Headers",
+        _ => "Options",
+    };
+
+    private static string FieldLabel(string name) =>
+        System.Text.RegularExpressions.Regex.Replace(name.Replace(":", ": "), "(?<=[a-z0-9])([A-Z])", " $1");
+}

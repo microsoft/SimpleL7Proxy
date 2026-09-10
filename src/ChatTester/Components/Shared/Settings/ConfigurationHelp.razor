@@ -1,0 +1,45 @@
+@namespace chat_tester.Components.Shared
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+@{
+    var configuredUrl = string.IsNullOrWhiteSpace(Topic)
+        ? Configuration[$"chat-tester:Documentation:{Section}"]
+        : Configuration[$"chat-tester:TopicDocumentation:{Section}:{Topic}"];
+    var description = $"Documentation: {Topic ?? Section}";
+    var helpEntry = Configuration.GetSection($"chat-tester:PopupHelp:{Section}:{HelpTopic ?? Topic ?? "top"}");
+    var helpLines = (helpEntry.Value is { } value
+        ? new[] { value }
+        : helpEntry.GetChildren().Select(line => line.Value ?? string.Empty))
+        .Where(line => !string.IsNullOrWhiteSpace(line))
+        .ToList();
+    var helpText = helpLines.FirstOrDefault(line => !Uri.TryCreate(line.Trim(), UriKind.Absolute, out _));
+    var helpUrl = helpLines.FirstOrDefault(line => Uri.TryCreate(line.Trim(), UriKind.Absolute, out var candidate)
+        && (candidate.Scheme == Uri.UriSchemeHttps || candidate.Scheme == Uri.UriSchemeHttp));
+}
+@if (Uri.TryCreate(configuredUrl, UriKind.Absolute, out var url)
+    && (url.Scheme == Uri.UriSchemeHttps || url.Scheme == Uri.UriSchemeHttp))
+{
+    <span class="config-help">
+        <a class="config-help-link" href="@url.AbsoluteUri" target="_blank" rel="noopener noreferrer"
+           title="@(helpText is null ? description : null)" aria-label="@description" aria-describedby="@(helpText is null ? null : TooltipId)"
+           @onclick:stopPropagation="true">?</a>
+        @if (helpText is not null)
+        {
+            <span id="@TooltipId" class="config-help-popover" role="tooltip">
+                <span>@helpText</span>
+                @if (helpUrl is not null)
+                {
+                    <a href="@helpUrl" target="_blank" rel="noopener noreferrer">Read documentation</a>
+                }
+            </span>
+        }
+    </span>
+}
+
+@code {
+    [Parameter] public string Section { get; set; } = string.Empty;
+    [Parameter] public string? Topic { get; set; }
+    [Parameter] public string? HelpTopic { get; set; }
+
+    private string TooltipId { get; } = $"config-help-{Guid.NewGuid():N}";
+}

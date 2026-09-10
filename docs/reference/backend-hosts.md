@@ -41,6 +41,11 @@ Configure backend hosts and optional named path routes using semicolon-separated
 
 **Rule: Use the connection string format for all new hosts — it keeps every option for a host in one variable.**
 
+`host` is the destination's base URL. Set `ipaddress` only when requests must reach a specific address without using DNS resolution for that host, for example when testing a selected backend instance. Leave it empty to follow DNS changes; a pinned address does not update when the DNS record changes.
+
+> [!TIP]
+> **A host fails after an address change?** Check for an old `ipaddress` override. Remove it to resume DNS resolution, or update it to the intended address.
+
 ```bash
 # Minimal — standard probed host
 Host1="host=https://api.backend.com;probe=/health"
@@ -66,7 +71,20 @@ Host7="host=https://api.backend.com;ipaddress=10.0.1.5;probe=/health"
 
 ## Per-Host Auth Behavior
 
-Auth is configured per host via the `HostN` connection string, not by a global `UseOAuth` switch.
+**Choose authentication per host so the proxy can meet each backend's requirements without callers supplying backend credentials.** Managed identity avoids storing an API key; API-key mode supports backends that require a shared secret. Auth is configured through the host connection string, not a global `UseOAuth` switch.
+
+`host` identifies where to send the request. `audience` identifies the resource the token is intended for; it is not necessarily the backend's hostname. With `usemi=true`, set the audience required by that backend and select a registered `authprovider` to acquire the token.
+
+```text
+host=https://example.openai.azure.com
+usemi=true;audience=https://cognitiveservices.azure.com
+authprovider=AzureProvider
+```
+
+These lines describe fields in one host connection string. For Azure OpenAI, the token resource is `https://cognitiveservices.azure.com` even though the endpoint has its own hostname.
+
+> [!TIP]
+> **Backend returns 401 or 403?** Check the expected token audience and the identity's backend permissions. Changing the destination hostname does not automatically change the audience or grant access.
 
 | Host connection string values | Effective auth mode |
 |-------------------------------|---------------------|

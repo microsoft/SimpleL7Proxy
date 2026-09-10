@@ -1,0 +1,72 @@
+@page "/tests"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+
+<PageTitle>Tests</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Tests</h1>
+        <span class="text-muted small mb-0">Run URL, stress, and rapid disconnect tests from one workspace.</span>
+    </div>
+</SectionContent>
+
+<div class="tests-workspace">
+    <nav class="nav nav-tabs tests-tabs" aria-label="Test type">
+        <button class="nav-link @(ActiveTest == UrlTest ? "active" : string.Empty)" type="button"
+                aria-selected="@(ActiveTest == UrlTest)" @onclick="() => SelectTest(UrlTest)">
+            URL test
+        </button>
+        <button class="nav-link @(ActiveTest == StressTest ? "active" : string.Empty)" type="button"
+                aria-selected="@(ActiveTest == StressTest)" @onclick="() => SelectTest(StressTest)">
+            Stress test
+        </button>
+        <button class="nav-link @(ActiveTest == AbortTest ? "active" : string.Empty)" type="button"
+                aria-selected="@(ActiveTest == AbortTest)" @onclick="() => SelectTest(AbortTest)">
+            Abort test
+        </button>
+    </nav>
+
+    <div class="tests-content">
+        @switch (ActiveTest)
+        {
+            case StressTest:
+                <StressTestPage />
+                break;
+            case AbortTest:
+                <AbortTestPage />
+                break;
+            default:
+                <UrlTesterPage />
+                break;
+        }
+    </div>
+</div>
+
+<style>
+    .tests-workspace {
+        min-width: 0;
+    }
+
+    .tests-tabs {
+        margin-bottom: 1rem;
+    }
+
+    .tests-tabs .nav-link {
+        letter-spacing: 0;
+    }
+
+    .tests-content {
+        min-width: 0;
+    }
+</style>
+
+@code {
+    private const string UrlTest = "url";
+    private const string StressTest = "stress";
+    private const string AbortTest = "abort";
+
+    private string ActiveTest { get; set; } = UrlTest;
+
+    private void SelectTest(string test) => ActiveTest = test;
+}

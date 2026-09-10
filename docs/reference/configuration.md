@@ -331,16 +331,30 @@ LogToAI=*
 
 ## Request telemetry
 
-For long term observability, it is necessary to capture relevant data from each request.  Use this section to customize the collection.
+**Capture headers to correlate failures and backend behavior; select only the fields needed for the investigation.** `LogHeaders` selects **response headers only** when `LogAllResponseHeaders=false`. It does not capture request headers or change what is forwarded to the backend.
 
 By default, headers are not captured in telemetry to avoid logging sensitive data. Expand to enable header capture for debugging or audit purposes, with options to exclude specific header values.
+
+```env
+LogAllResponseHeaders=false
+LogHeaders=x-request-id,retry-after
+LogAllRequestHeaders=false
+```
+
+This records `Response-x-request-id` and `Response-retry-after` in request events; an absent selected header is recorded as `N/A`. Enable `LogAllRequestHeaders` for request-header capture, and use `LogAllRequestHeadersExcept` to exclude sensitive names. All-response capture uses `LogAllResponseHeadersExcept` instead of the selected list.
+
+> [!WARNING]
+> **Exclusion lists apply to the corresponding all-headers mode, not to `LogHeaders`.** Do not put secrets in the selected response-header list. The default exclusions are not a complete secret filter; check your application's custom credential headers too.
+
+> [!TIP]
+> **Selected header missing?** Check that it is a response header and that the event destination is enabled. If all-response capture is on, check its exclusion list; the selected list is not evaluated in that mode.
 
 <details>
 <summary><strong>Header capture</strong></summary>
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Logging:LogHeaders`</small> | <small>`LogHeaders`</small> | <small>`[]`</small> | Captures only selected headers for focused diagnostics/audit needs. |
+| <small>`Logging:LogHeaders`</small> | <small>`LogHeaders`</small> | <small>`[]`</small> | Captures selected response headers when `LogAllResponseHeaders=false`; does not select request headers. |
 | <small>`Logging:LogAllRequestHeaders`</small> | <small>`LogAllRequestHeaders`</small> | <small>`false`</small> | Enables broad request-header capture during investigations. |
 | <small>`Logging:LogAllRequestHeadersExcept`</small> | <small>`LogAllRequestHeadersExcept`</small> | <small>`Authorization`</small> | Protects sensitive request headers while broad capture is enabled. |
 | <small>`Logging:LogAllResponseHeaders`</small> | <small>`LogAllResponseHeaders`</small> | <small>`false`</small> | Enables broad response-header capture during investigations. |
