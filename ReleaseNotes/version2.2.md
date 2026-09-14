@@ -21,6 +21,9 @@ Proxy:
 Stream Parser:
 * Bug fix: `AllUsage` now skips OpenAI response chunks with `usage: null` and extracts token counts from the final usage record
 
+Chat Tester:
+* Update deployment pages
+* Org navigation into hierarchy
 
   Package updates:
 * [Microsoft.Extensions.Configuration.AzureAppConfiguration 8.5.0 to 8.6.0](https://github.com/Azure/AppConfiguration-DotnetProvider/releases/tag/8.6.0)

@@ -36,6 +36,16 @@
     </span>
 }
 
+<style>
+    .config-help-link { display: inline-flex; align-items: center; justify-content: center; width: .8rem; height: .8rem; flex-shrink: 0; font-size: .55rem; font-weight: 600; line-height: 1; text-decoration: none; border: 1px solid currentColor; border-radius: 50%; vertical-align: middle; }
+    .config-help-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+    .config-help { position: relative; display: inline-flex; flex-shrink: 0; }
+    .config-help-popover { position: absolute; left: 50%; top: calc(100% + .5rem); z-index: 1080; display: none; width: max-content; max-width: min(20rem, calc(100vw - 3rem)); padding: .65rem .75rem; border: 1px solid #ced4da; border-radius: 6px; background: #f5f8fc; box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15); color: #212529; font-size: .8rem; font-weight: 400; line-height: 1.4; text-align: left; text-transform: none; transform: translateX(-50%); white-space: normal; }
+    .config-help-popover > a { display: block; margin-top: .35rem; }
+    .config-help-popover::before { content: ""; position: absolute; right: 0; bottom: 100%; left: 0; height: .5rem; }
+    .config-help:hover .config-help-popover, .config-help:focus-within .config-help-popover { display: block; }
+</style>
+
 @code {
     [Parameter] public string Section { get; set; } = string.Empty;
     [Parameter] public string? Topic { get; set; }

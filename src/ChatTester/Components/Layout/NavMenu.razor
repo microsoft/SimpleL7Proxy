@@ -24,19 +24,23 @@
                 </NavLink>
             </div>
 
-            <div class="nav-item px-3">
+            <div class="nav-item px-3 mt-3">
+                <span class="nav-section-label text-uppercase small text-white-50 fw-semibold">Explore</span>
+            </div>
+
+            <div class="nav-item nav-child-item px-3">
                 <NavLink class="nav-link fw-bold" href="investigator" title="Investigator">
                     <span class="bi bi-eye-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Investigator</span>
                 </NavLink>
             </div>
 
-            <div class="nav-item px-3">
+            <div class="nav-item nav-child-item px-3">
                 <NavLink class="nav-link fw-bold" href="chat" title="Chat">
                     <span class="bi bi-chat-dots-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Chat</span>
                 </NavLink>
             </div>
 
-            <div class="nav-item px-3">
+            <div class="nav-item nav-child-item px-3">
                 <span class="onboarding-target @(IsOnboardingStep("eventhub") ? "is-active" : string.Empty)">
                     @if (IsOnboardingStep("eventhub"))
                     {
@@ -48,7 +52,7 @@
                 </span>
             </div>
 
-            <div class="nav-item px-3">
+            <div class="nav-item nav-child-item px-3">
                 <span class="onboarding-target @(IsOnboardingStep("insights") ? "is-active" : string.Empty)">
                     @if (IsOnboardingStep("insights"))
                     {
@@ -58,6 +62,18 @@
                         <span class="bi bi-graph-up-nav-menu" aria-hidden="true"></span> <span class="nav-text">Insights</span>
                     </NavLink>
                 </span>
+            </div>
+
+            <div class="nav-item nav-child-item px-3">
+                <NavLink class="nav-link fw-bold" href="history" title="History">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> <span class="nav-text">History</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item nav-child-item px-3">
+                <NavLink class="nav-link fw-bold" href="user-preferences" title="User Preferences">
+                    <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">User Preferences</span>
+                </NavLink>
             </div>
 
             <div class="nav-item px-3 mt-3">
@@ -75,20 +91,13 @@
             </div>
 
             <div class="nav-item px-3">
-                <NavLink class="nav-link" href="history" title="History">
-                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> <span class="nav-text">History</span>
-                </NavLink>
-            </div>
-
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="user-preferences" title="User Preferences">
-                    <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">User Preferences</span>
-                </NavLink>
-            </div>
-
-            <div class="nav-item px-3">
                 <NavLink class="nav-link" href="admin/configuration" title="Proxy Configuration">
                     <span class="bi bi-gear-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Proxy Configuration</span>
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/deployment" title="Deployment Setup">
+                    <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Deployment Setup</span>
                 </NavLink>
             </div>
         </nav>

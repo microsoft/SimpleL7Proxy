@@ -1,6 +1,15 @@
 @namespace chat_tester.Components.Shared
 @inject AppConfigurationScaffoldService AppConfiguration
+@inject IJSRuntime JS
 
+@if (SingleHost is { } singleHost)
+{
+    <textarea id="HOST1" class="form-control" aria-label="Host1 value" aria-haspopup="dialog" rows="2"
+              @bind:get="singleHost.DraftValue" @bind:set="@(value => OnHostSaved.InvokeAsync(value))" @bind:event="oninput"
+              @onclick="() => EditHost(singleHost)"></textarea>
+}
+else
+{
 <div class="config-host-toolbar">
     <button type="button" class="btn btn-sm btn-primary" @onclick="AddHost">
         <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add host
@@ -44,6 +53,7 @@
         }
     </tbody>
 </table>
+}
 
 @if (_showNewHostDialog)
 {
@@ -57,7 +67,7 @@
         }
         return !string.Equals(NewHostValue(field.Name), loadedValue, StringComparison.Ordinal);
     }).Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-    <div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
+    RenderFragment hostDialog = @<div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
         <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
                 <div>
@@ -95,6 +105,7 @@
                                     {
                                         <label class="config-priority-item">
                                             <input type="checkbox" class="form-check-input" checked="@IsPriorityChecked(priority)"
+                                                  disabled="@(SingleHost is not null)"
                                                    @onchange="args => TogglePriority(priority, args)" />
                                             <span>@priority</span>
                                         </label>
@@ -149,7 +160,12 @@
                             else
                             {
                                 <input class="form-control form-control-sm" placeholder="@field.Default" value="@NewHostValue(field.Name)"
+                                        disabled="@(SingleHost is not null && string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase))"
                                        @oninput="args => SetNewHostValue(field.Name, args.Value?.ToString())" />
+                            }
+                            @if (SingleHost is not null && field.Name is "priorityGroup" or "acceptablePriorities")
+                            {
+                                <small class="text-muted mt-auto pt-1">Only available with App Config mode.</small>
                             }
                         </div>
                     }
@@ -225,10 +241,61 @@
                 <button type="button" class="btn btn-sm btn-primary" disabled="@string.IsNullOrWhiteSpace(_newHostName)" @onclick="CommitNewHost">@(_editingHost is null ? "Add host" : "Save")</button>
             </div>
         </div>
-    </div>
+    </div>;
+    @if (SingleHost is not null)
+    {
+        <dialog @ref="_singleHostDialog" class="config-single-host-dialog" aria-label="Edit Host1">
+            @hostDialog
+        </dialog>
+    }
+    else
+    {
+        @hostDialog
+    }
 }
 
 <style>
+    .config-single-host-dialog { border: 0; padding: 0; margin: 0; width: 100vw; height: 100dvh; background: transparent; max-width: none; max-height: none; overflow: visible; }
+    .config-single-host-dialog::backdrop { background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(8px); }
+    .config-single-host-dialog .config-modal-backdrop { position: fixed; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 1rem; background: transparent; }
+    .config-single-host-dialog .config-modal { width: min(70rem, 100%); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; min-height: 0; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .config-single-host-dialog .config-modal h2 { font-weight: 600; }
+    .config-single-host-dialog .config-setting-heading { display: flex; align-items: baseline; gap: .35rem; min-width: 0; }
+    .config-single-host-dialog .config-setting-heading > label { min-width: 0; overflow-wrap: anywhere; }
+    .config-single-host-dialog .form-control:focus, .config-single-host-dialog .form-select:focus { border-color: #007aff; box-shadow: 0 0 0 3px rgba(0, 122, 255, .25); outline: none; }
+    .config-single-host-dialog .form-control:disabled { background: #f5f5f7; color: #86868b; }
+    .config-single-host-dialog .form-check-input { width: 1.15rem; height: 1.15rem; border-radius: 6px; border: 1px solid #c7c7cc; }
+    .config-single-host-dialog .form-check-input:checked { background-color: #007aff; border-color: #007aff; }
+    .config-single-host-dialog .btn-primary { background: #007aff; border: none; border-radius: 8px; padding: .45rem 1.2rem; font-weight: 500; }
+    .config-single-host-dialog .btn-primary:hover:enabled { background: #0066d6; }
+    .config-single-host-dialog .btn-outline-secondary { background: #f0f0f2; border: none; color: #1d1d1f; border-radius: 8px; padding: .45rem 1.1rem; font-weight: 500; }
+    .config-single-host-dialog .btn-outline-secondary:hover { background: #e4e4e8; }
+    .config-single-host-dialog .config-modal-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid #f2f2f4; }
+    .config-single-host-dialog .config-newhost-body { padding: 1.25rem 1.5rem; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+    .config-single-host-dialog .config-newhost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr)); gap: 1rem 1.25rem; }
+    .config-single-host-dialog .config-newhost-field { display: flex; flex-direction: column; min-width: 0; padding: .5rem; border-radius: 4px; background: #f5f6f8; }
+    .config-single-host-dialog .config-field-changed { background: #fff8dc; }
+    .config-single-host-dialog .form-label { margin-bottom: .3rem; font-weight: 500; font-size: .72rem; text-transform: uppercase; color: #6e6e73; }
+    .config-single-host-dialog .form-control, .config-single-host-dialog .form-select { min-width: 0; border: 1px solid #d2d2d7; border-radius: 8px; padding: .4rem .6rem; font-size: .9rem; }
+    .config-single-host-dialog .config-field-break { grid-column-start: 1; }
+    .config-single-host-dialog .config-priority-group { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding-top: .15rem; }
+    .config-single-host-dialog .config-priority-item { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: .9rem; cursor: pointer; }
+    .config-single-host-dialog .config-priority-item .form-check-input { margin: 0; }
+    .config-single-host-dialog .config-auth-section, .config-single-host-dialog .config-auth-toggle { margin-top: .75rem; }
+    .config-single-host-dialog .config-auth-toggle { max-width: 16rem; }
+    .config-single-host-dialog .config-auth-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: .85rem; }
+    .config-single-host-dialog .config-auth-col { display: flex; flex-direction: column; gap: .85rem; padding: 0 1.5rem; transition: opacity .15s; }
+    .config-single-host-dialog .config-auth-col:first-child { padding-left: 0; }
+    .config-single-host-dialog .config-auth-col:last-child { border-left: 1px solid #e5e5ea; }
+    .config-single-host-dialog .config-auth-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .config-single-host-dialog .config-auth-subheading { font-size: .72rem; font-weight: 600; text-transform: uppercase; color: #86868b; }
+    .config-single-host-dialog .config-auth-dim { opacity: .4; }
+    .config-single-host-dialog .config-newhost-footer { flex-shrink: 0; display: flex; justify-content: flex-end; gap: .6rem; padding: 1rem 1.5rem; border-top: 1px solid #f2f2f4; }
+    @@media (max-width: 600px) {
+        .config-single-host-dialog .config-auth-columns, .config-single-host-dialog .config-auth-fields { grid-template-columns: minmax(0, 1fr); }
+        .config-single-host-dialog .config-auth-col { padding: 0; }
+        .config-single-host-dialog .config-auth-col:last-child { border-left: 0; margin-top: 1rem; }
+    }
     .config-host-toolbar {
         display: flex;
         justify-content: flex-end;
@@ -245,6 +312,12 @@
     [Parameter] public string Label { get; set; } = string.Empty;
 
     [Parameter] public EventCallback<AppConfigurationScaffoldSetting> OnHostCreated { get; set; }
+
+    [Parameter] public AppConfigurationScaffoldSetting? SingleHost { get; set; }
+
+    [Parameter] public EventCallback<string> OnHostSaved { get; set; }
+
+    private ElementReference _singleHostDialog;
 
     private bool _showNewHostDialog;
     private AppConfigurationScaffoldSetting? _editingHost;
@@ -335,8 +408,13 @@
         _focusNewHostName = true;
     }
 
-    private void CancelNewHost()
+    private async Task CancelNewHost()
     {
+        if (SingleHost is not null)
+        {
+            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/AdminConfigurationPage.razor.js");
+            await module.InvokeVoidAsync("close", _singleHostDialog);
+        }
         _showNewHostDialog = false;
         _editingHost = null;
     }
@@ -520,7 +598,14 @@
 
         if (_editingHost is { } editing)
         {
-            editing.DraftValue = value;
+            if (SingleHost is not null)
+            {
+                await OnHostSaved.InvokeAsync(value);
+            }
+            else
+            {
+                editing.DraftValue = value;
+            }
         }
         else
         {
@@ -540,8 +625,7 @@
             await OnHostCreated.InvokeAsync(host);
         }
 
-        _showNewHostDialog = false;
-        _editingHost = null;
+        await CancelNewHost();
     }
 
     private static readonly string[] HostColumnOrder =
@@ -709,7 +793,15 @@
         if (_focusNewHostName)
         {
             _focusNewHostName = false;
-            await _newHostNameInput.FocusAsync();
+            if (SingleHost is not null)
+            {
+                await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/AdminConfigurationPage.razor.js");
+                await module.InvokeVoidAsync("open", _singleHostDialog);
+            }
+            else
+            {
+                await _newHostNameInput.FocusAsync();
+            }
         }
     }
 }

@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+    <EmbeddedResource Include="..\..\deployment\deploy.parameters.example.sh" LogicalName="DeploymentParameterTemplate" />
+    <EmbeddedResource Include="..\HealthProbe\Constants.cs" LogicalName="HealthProbeVersionSource" />
   </ItemGroup>
 
   <ItemGroup>

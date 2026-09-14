@@ -1149,6 +1149,7 @@
     // onboarding state persisted in the cookie is honored and the popup never flashes on first render.
     private bool ShowOnboarding => _preferencesLoaded
         && !_isOnboardingDismissed
+        && !Preferences.IsOnboardingStep("home")
         && !Preferences.IsOnboardingStep("complete");
 
     private static readonly (string Id, string Text)[] OnboardingSteps =

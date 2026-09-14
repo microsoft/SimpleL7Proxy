@@ -128,7 +128,19 @@
     {
         <section class="config-selection" aria-labelledby="config-label-heading">
             <div class="config-selection-heading">
-                <h2 id="config-label-heading">Configurations</h2>
+                <div>
+                    <h2 id="config-label-heading">Configurations</h2>
+                    @if (AvailableLabels.Count == 0)
+                    {
+                        <p class="text-muted mb-0 mt-2">No configurations found. Select New to create one, or refresh to check App Configuration again.</p>
+                    }
+                    else
+                    {
+                        <p class="text-muted mb-0 mt-2">
+                            @AvailableLabels.Count @(AvailableLabels.Count == 1 ? "configuration" : "configurations") loaded. Select Update to edit one, Duplicate to use one as a starting point, or New to create one.
+                        </p>
+                    }
+                </div>
             </div>
             <div class="config-action-picker" role="group" aria-label="Configuration action">
                 <button type="button" class="btn btn-outline-secondary" disabled="@IsLoading" @onclick="async () => { _configurationAction = null; await OpenLabelDialogAsync(null); }">
@@ -594,75 +606,6 @@
         padding: 1rem;
     }
 
-    .config-help-link {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 0.8rem;
-        height: 0.8rem;
-        flex-shrink: 0;
-        font-size: 0.55rem;
-        font-weight: 600;
-        line-height: 1;
-        text-decoration: none;
-        border: 1px solid currentColor;
-        border-radius: 50%;
-        vertical-align: middle;
-    }
-
-    .config-help-link:focus-visible {
-        outline: 2px solid currentColor;
-        outline-offset: 2px;
-    }
-
-    .config-help {
-        position: relative;
-        display: inline-flex;
-        flex-shrink: 0;
-    }
-
-    .config-help-popover {
-        position: absolute;
-        left: 50%;
-        top: calc(100% + 0.5rem);
-        z-index: 1080;
-        display: none;
-        width: max-content;
-        max-width: min(20rem, calc(100vw - 3rem));
-        padding: 0.65rem 0.75rem;
-        border: 1px solid #ced4da;
-        border-radius: 6px;
-        background: #f5f8fc;
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-        color: #212529;
-        font-size: 0.8rem;
-        font-weight: 400;
-        line-height: 1.4;
-        text-align: left;
-        text-transform: none;
-        transform: translateX(-50%);
-        white-space: normal;
-    }
-
-    .config-help-popover > a {
-        display: block;
-        margin-top: 0.35rem;
-    }
-
-    .config-help-popover::before {
-        content: "";
-        position: absolute;
-        right: 0;
-        bottom: 100%;
-        left: 0;
-        height: 0.5rem;
-    }
-
-    .config-help:hover .config-help-popover,
-    .config-help:focus-within .config-help-popover {
-        display: block;
-    }
-
     .config-section-tile {
         position: relative;
         display: flex;
@@ -1124,6 +1067,7 @@
     private ElementReference _labelDialog;
     private ElementReference _leaveDialog;
     private IJSObjectReference? _dialogModule;
+    private bool _disposed;
     private DotNetObjectReference<AdminConfigurationPage>? _pageReference;
     private Func<Task>? _pendingLeave;
     private bool LabelsReady => _dialogModule is not null && string.Equals(_loadedEndpoint, Endpoint.Trim(), StringComparison.OrdinalIgnoreCase);
@@ -1308,20 +1252,35 @@
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _uiTimer?.Dispose();
         CancelStatusClear();
-        if (_dialogModule is not null) _ = DisposeDialogModuleAsync();
+        _ = DisposeDialogModuleAsync();
     }
 
     private async Task DisposeDialogModuleAsync()
     {
+        var dialogModule = _dialogModule;
+        var pageReference = _pageReference;
+        _dialogModule = null;
+        _pageReference = null;
         try
         {
-            await _dialogModule!.InvokeVoidAsync("detachNavigationGuard");
-            await _dialogModule!.DisposeAsync();
+            if (dialogModule is not null)
+            {
+                try
+                {
+                    await dialogModule.InvokeVoidAsync("detachNavigationGuard");
+                }
+                finally
+                {
+                    await dialogModule.DisposeAsync();
+                }
+            }
         }
         catch (JSDisconnectedException) { }
-        finally { _pageReference?.Dispose(); }
+        finally { pageReference?.Dispose(); }
     }
 
     private void SelectSection(string section) => SelectedSection = section;
@@ -1505,9 +1464,15 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_disposed) return;
         if (firstRender)
         {
             _dialogModule = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/AdminConfigurationPage.razor.js");
+            if (_disposed)
+            {
+                await DisposeDialogModuleAsync();
+                return;
+            }
             _pageReference = DotNetObjectReference.Create(this);
             try
             {
@@ -1518,11 +1483,13 @@
             {
                 Console.Error.WriteLine($"Unable to restore configuration Help preference: {ex.Message}");
             }
+            if (_disposed) return;
             _configurationHelpLoaded = true;
             if (_loadedEndpoint is null && !string.IsNullOrWhiteSpace(Endpoint))
             {
                 await LoadSettingsAsync();
             }
+            if (_disposed) return;
             StateHasChanged();
         }
 
@@ -1531,6 +1498,7 @@
             await _dialogModule.InvokeVoidAsync("setNavigationGuard", _pageReference, HasPendingChanges, IsLoading);
         }
 
+        if (_disposed) return;
         // Measures the gap between data being ready and the browser actually painting it.
         if (_dataReadyAtUtc is { } readyAt)
         {
