@@ -1,11 +1,11 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
-/// Strongly typed settings for the chat tester, bound from the <c>chat-tester</c>
+/// Strongly typed settings for CompanionApp, bound from the <c>chat-tester</c>
 /// configuration section. Property initializers act as the defaults used when a
 /// key is absent from configuration.
 /// </summary>
-public class ChatTesterOptions
+public class CompanionAppOptions
 {
     /// <summary>Configuration section these options bind from.</summary>
     public const string SectionName = "chat-tester";

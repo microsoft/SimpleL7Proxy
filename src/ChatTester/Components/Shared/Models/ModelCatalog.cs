@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// A selectable model template. Add or edit entries in <see cref="ModelCatalog.Templates"/>.

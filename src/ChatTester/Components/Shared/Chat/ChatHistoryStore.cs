@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 public sealed class ChatHistoryStore
 {
@@ -114,8 +114,8 @@ public sealed class ChatHistoryStore
 
     private RequestHistoryEntry RedactSensitiveHeaders(RequestHistoryEntry request)
     {
-        request.RequestHeadersText = ChatTesterHttp.RedactSensitiveHeaders(request.RequestHeadersText, _authSettings.HeaderName);
-        request.ResponseHeadersText = ChatTesterHttp.RedactSensitiveHeaders(request.ResponseHeadersText, _authSettings.HeaderName);
+        request.RequestHeadersText = CompanionAppHttp.RedactSensitiveHeaders(request.RequestHeadersText, _authSettings.HeaderName);
+        request.ResponseHeadersText = CompanionAppHttp.RedactSensitiveHeaders(request.ResponseHeadersText, _authSettings.HeaderName);
         return request;
     }
 

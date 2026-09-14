@@ -1,6 +1,6 @@
-using chat_tester.Components;
-using chat_tester.Components.Shared;
-using chat_tester.Components.Shared.EventHub;
+using CompanionApp.Components;
+using CompanionApp.Components.Shared;
+using CompanionApp.Components.Shared.EventHub;
 using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
@@ -45,17 +45,17 @@ if (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath))
     builder.Services.AddHostedService<EventHubReader>();
 }
 builder.Services.AddScoped<UserPreferencesService>();
-builder.Services.Configure<ChatTesterOptions>(
-    builder.Configuration.GetSection(ChatTesterOptions.SectionName));
+builder.Services.Configure<CompanionAppOptions>(
+    builder.Configuration.GetSection(CompanionAppOptions.SectionName));
 builder.Services.Configure<EventHubMonitorOptions>(
     builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
 
 var app = builder.Build();
-var chatTesterOptions = app.Services.GetRequiredService<IOptions<ChatTesterOptions>>().Value;
+var companionAppOptions = app.Services.GetRequiredService<IOptions<CompanionAppOptions>>().Value;
 app.Services.GetRequiredService<HistorySettings>()
-    .ApplyDefaultsIfMissing(chatTesterOptions.History);
+    .ApplyDefaultsIfMissing(companionAppOptions.History);
 app.Services.GetRequiredService<ConversationSettings>()
-    .ApplyDefaultsIfMissing(chatTesterOptions.Conversations);
+    .ApplyDefaultsIfMissing(companionAppOptions.Conversations);
 await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
 await app.Services.GetRequiredService<ChatConversationStore>().ReloadAsync();
 

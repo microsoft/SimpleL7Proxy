@@ -20,7 +20,7 @@ Options:
   -h                    Show this help
 
 Example:
-  ./update_settings.sh -n my-chat-tester -g my-resource-group
+    ./update_settings.sh -n my-companion-app -g my-resource-group
 USAGE
 }
 

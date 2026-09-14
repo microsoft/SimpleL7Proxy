@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Shared, server-lifetime settings for request debugging. Registered as a singleton

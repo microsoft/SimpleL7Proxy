@@ -20,7 +20,7 @@
 	"forwardPorts": [5259],
 	"portsAttributes": {
 		"5259": {
-			"label": "chat_tester",
+			"label": "CompanionApp",
 			"protocol": "http",
 			"onAutoForward": "notify"
 		}

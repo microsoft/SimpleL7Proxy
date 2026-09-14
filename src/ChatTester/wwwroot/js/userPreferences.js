@@ -20,9 +20,9 @@ window.userPreferences = {
         document.cookie = name + "=; path=/; Max-Age=0; SameSite=Lax";
     },
     setOnboardingStep: function (step) {
-        window.chatTesterOnboarding = { currentStep: step };
-        window.dispatchEvent(new CustomEvent("chat-tester:onboarding-changed", {
-            detail: window.chatTesterOnboarding
+        window.companionAppOnboarding = { currentStep: step };
+        window.dispatchEvent(new CustomEvent("companion-app:onboarding-changed", {
+            detail: window.companionAppOnboarding
         }));
     },
     subscribeOnboarding: function (dotNetReference) {
@@ -34,11 +34,11 @@ window.userPreferences = {
         };
 
         window.userPreferences.onboardingHandler = handler;
-        window.addEventListener("chat-tester:onboarding-changed", handler);
+        window.addEventListener("companion-app:onboarding-changed", handler);
     },
     unsubscribeOnboarding: function () {
         if (window.userPreferences.onboardingHandler) {
-            window.removeEventListener("chat-tester:onboarding-changed", window.userPreferences.onboardingHandler);
+            window.removeEventListener("companion-app:onboarding-changed", window.userPreferences.onboardingHandler);
             delete window.userPreferences.onboardingHandler;
         }
     }

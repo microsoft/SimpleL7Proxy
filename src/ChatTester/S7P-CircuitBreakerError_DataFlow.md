@@ -53,7 +53,7 @@
 ## How Data Flows Through The System
 
 ### 1. **Event Received by Test Client**
-   - **File:** [test/chat_tester/Components/Shared/EventHub/EventHubReader.cs](Components/Shared/EventHub/EventHubReader.cs#L428-L432)
+   - **File:** [Components/Shared/EventHub/EventHubReader.cs](Components/Shared/EventHub/EventHubReader.cs)
    - **Handler:** Identifies event type as `S7P-CircuitBreakerError`
 
 ### 2. **Processing**
@@ -65,7 +65,7 @@
    ```
 
 ### 3. **Lifecycle Tracking** 
-   - **File:** [test/chat_tester/Components/Shared/EventHub/EventHubReader.cs](Components/Shared/EventHub/EventHubReader.cs#L562)
+   - **File:** [Components/Shared/EventHub/EventHubReader.cs](Components/Shared/EventHub/EventHubReader.cs)
    - **Method:** `TrackLifecycleEvent()`
    - Captures:
      - Timestamp (from `Time` field)
@@ -74,19 +74,19 @@
      - Stores in `_requestLifecycle` dictionary
 
 ### 4. **Store Update**
-   - **File:** [test/chat_tester/Components/Shared/EventHub/EventHubMonitorStore.cs](Components/Shared/EventHub/EventHubMonitorStore.cs#L130-L137)
+   - **File:** [Components/Shared/EventHub/EventHubMonitorStore.cs](Components/Shared/EventHub/EventHubMonitorStore.cs)
    - **Method:** `MarkServerCircuitBreakerSignal()`
    - Sets: `_serverCircuitBreakerOpen = true`
    - Raises: `Changed` event to notify UI
 
 ### 5. **Snapshot Creation**
-   - **File:** [test/chat_tester/Components/Shared/EventHub/EventHubMonitorStore.cs](Components/Shared/EventHub/EventHubMonitorStore.cs#L244)
+   - **File:** [Components/Shared/EventHub/EventHubMonitorStore.cs](Components/Shared/EventHub/EventHubMonitorStore.cs)
    - Creates `RuntimeStatsSnapshot` with:
      - `ServerCircuitBreakerOpen = true`
      - `EndpointCircuitBreakerOpenCount` (related endpoint CBreakers)
 
 ### 6. **UI Rendering**
-   - **File:** [test/chat_tester/Components/Pages/EventHubMonitorPage.razor](Components/Pages/EventHubMonitorPage.razor#L761-L768)
+   - **File:** [Components/Pages/EventHubMonitorPage.razor](Components/Pages/EventHubMonitorPage.razor)
    - Displays stat tile for circuit breaker status
 
 ---

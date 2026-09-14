@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Parses server-sent event (SSE) chat streams, extracting the assistant text

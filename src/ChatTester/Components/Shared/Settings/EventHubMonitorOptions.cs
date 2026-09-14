@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Configuration;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Strongly typed Event Hub monitor settings, bound from the <c>EventHubMonitor</c>

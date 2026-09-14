@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Shared, server-lifetime setting for the request inspector layout.

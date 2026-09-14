@@ -3,7 +3,7 @@ using Azure.Identity;
 using Azure.Storage.Blobs;
 using Microsoft.Azure.Cosmos;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Shared storage-backend helpers used by the chat history and conversation stores to

@@ -1,12 +1,12 @@
 @page "/stress-test"
-@namespace chat_tester.Components.Pages
+@namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
-@inject IOptions<ChatTesterOptions> Options
+@inject IOptions<CompanionAppOptions> Options
 @inject HttpClient Http
 @inject RequestDebugSettings DebugSettings
 @inject ChatHistoryStore ChatHistoryStore
 @inject IJSRuntime JS
-@using chat_tester.Components.Shared
+@using CompanionApp.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Options
 @using Microsoft.JSInterop
@@ -129,7 +129,7 @@
 @code {
     private string InitialServerBaseUrl { get; set; } = string.Empty;
     private string InitialEndpointPath { get; set; } = string.Empty;
-    private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    private string InitialContentType { get; set; } = CompanionAppHttp.JsonContentType;
     private int ParallelCount { get; set; } = 10;
 
     [Inject]
@@ -193,8 +193,8 @@
         var count = Math.Clamp(ParallelCount, 1, 2000);
         ParallelCount = count;
         var requestBody = BodyPanel?.RequestBody ?? string.Empty;
-        var contentType = BodyPanel?.ContentType ?? ChatTesterHttp.JsonContentType;
-        var uri = ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath);
+        var contentType = BodyPanel?.ContentType ?? CompanionAppHttp.JsonContentType;
+        var uri = CompanionAppHttp.BuildUri(serverBaseUrl, endpointPath);
 
         // Resolve the authorization header once so all parallel requests reuse it.
         var headerName = AuthSettings.HeaderName;
@@ -249,16 +249,16 @@
             {
                 Content = new StringContent(body, System.Text.Encoding.UTF8, contentType)
             };
-            request.Headers.TryAddWithoutValidation(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
+            request.Headers.TryAddWithoutValidation(CompanionAppHttp.AcceptHeaderName, CompanionAppHttp.EventStreamContentType);
 
-            ChatTesterHttp.TryApplyHeader(request, headerName, headerValue);
+            CompanionAppHttp.TryApplyHeader(request, headerName, headerValue);
             UserSettings.ApplyUser(request, index);
             HeaderSettings.ApplyHeaders(request, index);
-            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
-            requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
+            CompanionAppHttp.ApplyDebugHeader(request, DebugSettings);
+            requestHeaders = CompanionAppHttp.SummarizeRequestHeaders(request);
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-            var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
+            var responseHeaders = CompanionAppHttp.SummarizeResponseHeaders(response);
             using var stream = await response.Content.ReadAsStreamAsync();
             var buffer = new byte[8192];
             int read;

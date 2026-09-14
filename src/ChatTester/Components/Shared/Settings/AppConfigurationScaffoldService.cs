@@ -8,7 +8,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 public sealed record AppConfigurationScaffoldSetting(
     string Key,
@@ -32,7 +32,7 @@ public sealed record AppConfigurationScaffoldSetting(
 
 public sealed class AppConfigurationScaffoldService
 {
-    private readonly ChatTesterOptions _options;
+    private readonly CompanionAppOptions _options;
     private readonly ILogger<AppConfigurationScaffoldService> _logger;
     private readonly DefaultAzureCredential _defaultCredential;
     private ConfigurationClient? _cachedClient;
@@ -58,7 +58,7 @@ public sealed class AppConfigurationScaffoldService
     private readonly IHostEnvironment _environment;
 
     public AppConfigurationScaffoldService(
-        IOptions<ChatTesterOptions> options,
+        IOptions<CompanionAppOptions> options,
         ILogger<AppConfigurationScaffoldService> logger,
         DefaultAzureCredential defaultCredential,
         IHostEnvironment environment)

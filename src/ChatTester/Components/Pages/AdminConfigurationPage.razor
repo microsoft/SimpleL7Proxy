@@ -1,15 +1,15 @@
 @page "/admin/configuration"
-@namespace chat_tester.Components.Pages
+@namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
 @implements IDisposable
 @inject AppConfigurationScaffoldService AppConfiguration
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
-@using Microsoft.AspNetCore.Components.Routing
 @using Azure
 @using Azure.Identity
-@using chat_tester.Components.Shared
+@using CompanionApp.Components.Shared
+@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.JSInterop
 
 <PageTitle>Proxy Configuration</PageTitle>

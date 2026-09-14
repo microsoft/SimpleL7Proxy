@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Custom request headers entered on the Headers tab. Registered as a singleton so

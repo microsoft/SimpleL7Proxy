@@ -2,24 +2,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_FILE="$SCRIPT_DIR/chat_tester.csproj"
+PROJECT_FILE="$SCRIPT_DIR/CompanionApp.csproj"
 ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
 PUBLISH_DIR="$ARTIFACTS_DIR/publish"
-ZIP_FILE="$ARTIFACTS_DIR/chat-tester-appservice.zip"
+ZIP_FILE="$ARTIFACTS_DIR/companion-app-appservice.zip"
 CONFIGURATION="${CONFIGURATION:-Release}"
 
 usage() {
     cat <<USAGE
 Usage: ./make-zip.sh [output-zip]
 
-Creates an Azure App Service deployment package for chat-tester.
+Creates an Azure App Service deployment package for CompanionApp.
 
 Environment variables:
   CONFIGURATION   Build configuration to publish. Default: Release
 
 Examples:
   ./make-zip.sh
-  ./make-zip.sh ./artifacts/chat-tester.zip
+    ./make-zip.sh ./artifacts/companion-app.zip
   CONFIGURATION=Debug ./make-zip.sh
 USAGE
 }

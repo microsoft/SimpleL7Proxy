@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// An outgoing model request produced by a model component: the endpoint path to send it to,

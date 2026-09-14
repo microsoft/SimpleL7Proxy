@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Detects and extracts SimpleL7Proxy backend log entries. A backend log may be delivered

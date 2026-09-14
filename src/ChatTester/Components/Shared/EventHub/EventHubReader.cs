@@ -5,12 +5,12 @@ using Azure.Core;
 using Azure.Identity;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Consumer;
-using chat_tester.Components.Shared.EventHub;
+using CompanionApp.Components.Shared.EventHub;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 public sealed class EventHubReader : BackgroundService
 {

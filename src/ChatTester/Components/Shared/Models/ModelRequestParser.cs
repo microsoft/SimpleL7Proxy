@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Reads values back out of an existing request body so they can be carried over when the

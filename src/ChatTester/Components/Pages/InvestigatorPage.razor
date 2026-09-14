@@ -1,8 +1,8 @@
 @page "/investigator"
 @page "/vision"
-@namespace chat_tester.Components.Pages
+@namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
-@inject IOptions<ChatTesterOptions> Options
+@inject IOptions<CompanionAppOptions> Options
 @inject HttpClient Http
 @inject VisionModelCatalog VisionCatalog
 @inject RequestDebugSettings DebugSettings
@@ -10,15 +10,15 @@
 @inject ChatHistoryStore ChatHistoryStore
 @inject ModelDefaults ChatCatalog
 @inject UserPreferencesService Preferences
-@using chat_tester.Components.Shared
-@using Microsoft.AspNetCore.Components
-@using Microsoft.AspNetCore.Components.Forms
-@using Microsoft.AspNetCore.Components.Web
-@using Microsoft.Extensions.Options
 @using System.Diagnostics
 @using System.Globalization
 @using System.Text
 @using System.Text.Json
+@using CompanionApp.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Options
 
 <PageTitle>Investigator</PageTitle>
 
@@ -1057,7 +1057,7 @@
     private string ImageMimeType { get; set; } = "image/jpeg";
     private string ImageFileName { get; set; } = string.Empty;
     private string EndpointPath { get; set; } = string.Empty;
-    private string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    private string ContentType { get; set; } = CompanionAppHttp.JsonContentType;
     private bool UseCustomJson { get; set; }
     private bool IsImagePreviewOpen { get; set; }
     private bool IsRawExchangeModalOpen { get; set; }
@@ -1306,7 +1306,7 @@
     private string CurrentErrorRequestUrl =>
         string.IsNullOrWhiteSpace(FormPanel?.ServerBaseUrl)
             ? EndpointPath
-            : ChatTesterHttp.BuildUri(FormPanel.ServerBaseUrl, EndpointPath).ToString();
+            : CompanionAppHttp.BuildUri(FormPanel.ServerBaseUrl, EndpointPath).ToString();
 
     private bool IsResponseColumnHidden => ShowMultiRequestStatus ? false : IsVisionResultMinimized && IsRawResponseMinimized;
 
@@ -1572,7 +1572,7 @@
         selections.EndpointPath = string.Equals(EndpointPath, GeneratedEndpointPath(), StringComparison.Ordinal) || string.IsNullOrEmpty(EndpointPath)
             ? null
             : EndpointPath;
-        selections.ContentType = string.Equals(ContentType, ChatTesterHttp.JsonContentType, StringComparison.Ordinal)
+        selections.ContentType = string.Equals(ContentType, CompanionAppHttp.JsonContentType, StringComparison.Ordinal)
             ? null
             : ContentType;
         selections.RequestCount = NumberOfRequests == 1 ? null : NumberOfRequests;
@@ -1765,9 +1765,9 @@
 
         try
         {
-            using var request = ChatTesterHttp.CreateRequest(SelectedApiInfo?.Method ?? "POST", ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath), requestBody, ContentType);
-            request.Headers.TryAddWithoutValidation(ChatTesterHttp.AcceptHeaderName, IsStreamingRequested ? ChatTesterHttp.EventStreamContentType : ChatTesterHttp.JsonContentType);
-            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+            using var request = CompanionAppHttp.CreateRequest(SelectedApiInfo?.Method ?? "POST", CompanionAppHttp.BuildUri(serverBaseUrl, endpointPath), requestBody, ContentType);
+            request.Headers.TryAddWithoutValidation(CompanionAppHttp.AcceptHeaderName, IsStreamingRequested ? CompanionAppHttp.EventStreamContentType : CompanionAppHttp.JsonContentType);
+            CompanionAppHttp.ApplyDebugHeader(request, DebugSettings);
 
             if (FormPanel is not null)
             {
@@ -1776,7 +1776,7 @@
                 FormPanel.ApplyHeaders(request, requestIndex);
             }
 
-            RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+            RequestHeadersText = CompanionAppHttp.SummarizeRequestHeaders(request);
 
             var cancellationToken = RequestCts?.Token ?? CancellationToken.None;
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -1784,7 +1784,7 @@
             ResponseMetrics.TimeToFirstByte = stopwatch.Elapsed;
             ResponseMetrics.Status = $"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
             ResponseMetrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
-            ResponseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
+            ResponseHeadersText = CompanionAppHttp.SummarizeResponseHeaders(response);
             StatusMessage = NumberOfRequests == 1
                 ? $"Reading response: {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim()
                 : $"Reading response {requestNumber} of {NumberOfRequests}: {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
@@ -1878,16 +1878,16 @@
 
     private async Task<PreparedVisionRequest> PrepareVisionRequestAsync(string serverBaseUrl, string endpointPath, string requestBody, int requestIndex)
     {
-        var request = ChatTesterHttp.CreateRequest(
+        var request = CompanionAppHttp.CreateRequest(
             SelectedApiInfo?.Method ?? "POST",
-            ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath),
+            CompanionAppHttp.BuildUri(serverBaseUrl, endpointPath),
             requestBody,
             ContentType);
 
         request.Headers.TryAddWithoutValidation(
-            ChatTesterHttp.AcceptHeaderName,
-            IsStreamingRequested ? ChatTesterHttp.EventStreamContentType : ChatTesterHttp.JsonContentType);
-        ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+            CompanionAppHttp.AcceptHeaderName,
+            IsStreamingRequested ? CompanionAppHttp.EventStreamContentType : CompanionAppHttp.JsonContentType);
+        CompanionAppHttp.ApplyDebugHeader(request, DebugSettings);
 
         if (FormPanel is not null)
         {
@@ -1896,7 +1896,7 @@
             FormPanel.ApplyHeaders(request, requestIndex);
         }
 
-        return new PreparedVisionRequest(requestIndex, request, ChatTesterHttp.SummarizeRequestHeaders(request));
+        return new PreparedVisionRequest(requestIndex, request, CompanionAppHttp.SummarizeRequestHeaders(request));
     }
 
     private async Task<VisionBatchResult> SendVisionBatchRequestAsync(HttpClient client, PreparedVisionRequest preparedRequest)
@@ -1918,7 +1918,7 @@
             metrics.TimeToFirstByte = stopwatch.Elapsed;
             metrics.Status = $"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
             metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
-            var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
+            var responseHeaders = CompanionAppHttp.SummarizeResponseHeaders(response);
             UpdateMultiRequestStatus(statusItem, metrics, statusCode, isComplete: false, isFailed: false, $"Reading response {preparedRequest.RequestIndex + 1} of {NumberOfRequests}: {metrics.Status}");
             await RefreshBatchStatusAsync();
 
@@ -2115,7 +2115,7 @@
         FormPanel?.LoadServerBaseUrl(entry.ServerBaseUrl);
 
         EndpointPath = entry.EndpointPath;
-        ContentType = string.IsNullOrWhiteSpace(entry.ContentType) ? ChatTesterHttp.JsonContentType : entry.ContentType;
+        ContentType = string.IsNullOrWhiteSpace(entry.ContentType) ? CompanionAppHttp.JsonContentType : entry.ContentType;
         UseCustomJson = true;
         CustomRequestBody = entry.RequestBody;
         CustomRequestBodyDirty = true;
@@ -2558,7 +2558,7 @@
 
     private async Task OnContentTypeChanged(ChangeEventArgs args)
     {
-        ContentType = args.Value?.ToString() ?? ChatTesterHttp.JsonContentType;
+        ContentType = args.Value?.ToString() ?? CompanionAppHttp.JsonContentType;
         await PersistSelectionsAsync();
     }
 

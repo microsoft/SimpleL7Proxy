@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 public sealed class ChatConversationStore
 {

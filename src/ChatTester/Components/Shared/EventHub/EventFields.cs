@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared.EventHub;
+namespace CompanionApp.Components.Shared.EventHub;
 
 /// <summary>
 /// Single source of truth for reading fields out of a parsed Event Hub record. Previously these

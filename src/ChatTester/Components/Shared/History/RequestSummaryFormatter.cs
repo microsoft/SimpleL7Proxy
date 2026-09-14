@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 public static class RequestSummaryFormatter
 {

@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Microsoft.JSInterop;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Bridge between the live settings singletons and a base64-encoded JSON
@@ -37,7 +37,7 @@ public sealed class UserPreferencesService
     };
 
     private readonly IJSRuntime _js;
-    private readonly ChatTesterOptions _defaults;
+    private readonly CompanionAppOptions _defaults;
     private readonly AuthTokenSettings _auth;
     private readonly UserSettings _user;
     private readonly HeaderSettings _headers;
@@ -50,7 +50,7 @@ public sealed class UserPreferencesService
 
     public UserPreferencesService(
         IJSRuntime js,
-        IOptions<ChatTesterOptions> defaults,
+        IOptions<CompanionAppOptions> defaults,
         AuthTokenSettings auth,
         UserSettings user,
         HeaderSettings headers,

@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace chat_tester.Components.Pages;
+namespace CompanionApp.Components.Pages;
 
 /// <summary>Builds a self-contained ARM deployment from Deployment Setup values.</summary>
 public sealed class DeploymentArmTemplate {

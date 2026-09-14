@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared.EventHub;
+namespace CompanionApp.Components.Shared.EventHub;
 
 /// <summary>
 /// A single Event Hub record parsed exactly once into a case-insensitive field map, carried

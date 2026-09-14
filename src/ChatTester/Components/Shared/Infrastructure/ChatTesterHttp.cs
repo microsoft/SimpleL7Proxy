@@ -1,10 +1,10 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Shared HTTP helpers used by the test pages to build request URIs, parse the
 /// editable target-URL lists, and apply the debug header consistently.
 /// </summary>
-public static class ChatTesterHttp
+public static class CompanionAppHttp
 {
     private static readonly string[] LineSeparators = { "\r\n", "\n" };
 

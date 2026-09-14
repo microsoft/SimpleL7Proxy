@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Temporary stand-in for the server-side Event Hub reader (not built yet). Seeds the

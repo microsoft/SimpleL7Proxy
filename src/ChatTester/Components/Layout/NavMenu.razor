@@ -1,6 +1,6 @@
-﻿@namespace chat_tester.Components.Layout
+﻿@namespace CompanionApp.Components.Layout
 @rendermode InteractiveServer
-@inject chat_tester.Components.Shared.UserPreferencesService Preferences
+@inject CompanionApp.Components.Shared.UserPreferencesService Preferences
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 @{
@@ -12,7 +12,7 @@
         <div class="container-fluid">
             <button type="button" class="nav-toggler" title="@(collapsed ? "Expand navigation menu" : "Collapse navigation menu")"
                     aria-label="Toggle navigation menu" aria-expanded="@(!collapsed)" @onclick="ToggleMenu"></button>
-            <a class="navbar-brand" href="">chat-tester</a>
+            <a class="navbar-brand" href="">CompanionApp</a>
         </div>
     </div>
 

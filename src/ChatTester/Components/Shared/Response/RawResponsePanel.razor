@@ -1,4 +1,4 @@
-@namespace chat_tester.Components.Shared
+@namespace CompanionApp.Components.Shared
 @using System.Net
 @using System.Text
 @using System.Text.Json
@@ -13,7 +13,7 @@
                 @HeaderActions
                 @if (ShowDisplayToggle)
                 {
-                    <chat_tester.Components.Shared.PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
+                    <CompanionApp.Components.Shared.PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
                 }
             </div>
         </div>

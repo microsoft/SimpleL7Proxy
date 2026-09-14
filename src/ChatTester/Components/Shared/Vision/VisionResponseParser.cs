@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Interprets raw proxy responses into the <see cref="VisionResultView"/> projection and

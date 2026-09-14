@@ -1,10 +1,10 @@
 @page "/abort-test"
-@namespace chat_tester.Components.Pages
+@namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
-@inject IOptions<ChatTesterOptions> Options
+@inject IOptions<CompanionAppOptions> Options
 @inject HttpClient Http
 @inject ChatHistoryStore ChatHistoryStore
-@using chat_tester.Components.Shared
+@using CompanionApp.Components.Shared
 @using Microsoft.Extensions.Options
 
 <PageTitle>Rapid disconnect test</PageTitle>
@@ -143,7 +143,7 @@
             return;
         }
 
-        var targets = ChatTesterHttp.ParseTargetLines(UrlTargetsText);
+        var targets = CompanionAppHttp.ParseTargetLines(UrlTargetsText);
         if (targets.Count == 0)
         {
             StatusMessage = "Add at least one target URL before running the burst.";
@@ -178,9 +178,9 @@
             for (var index = 1; index <= RequestCount; index++)
             {
                 var targetPath = targets[(index - 1) % targets.Count];
-                var endpoint = ChatTesterHttp.BuildSessionEndpoint(serverBaseUrl, targetPath, index);
+                var endpoint = CompanionAppHttp.BuildSessionEndpoint(serverBaseUrl, targetPath, index);
                 var request = BuildRequest(endpoint, index, headerName, headerValue);
-                var requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
+                var requestHeaders = CompanionAppHttp.SummarizeRequestHeaders(request);
                 var cts = new CancellationTokenSource(Math.Max(1, AbortDelayMilliseconds));
 
                 try
@@ -188,7 +188,7 @@
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
                     sw.Stop();
-                    var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
+                    var responseHeaders = CompanionAppHttp.SummarizeResponseHeaders(response);
                     Results.Add(new ScenarioResult(index, endpoint.ToString(), "Completed unexpectedly", (int)sw.ElapsedMilliseconds));
                     await ChatHistoryStore.AddRequest(new RequestHistoryEntry
                     {
@@ -263,9 +263,9 @@
 
     private HttpRequestMessage BuildRequest(Uri endpoint, int index, string headerName, string headerValue)
     {
-        var request = ChatTesterHttp.CreateRequest(SelectedMethod, endpoint, Payload);
+        var request = CompanionAppHttp.CreateRequest(SelectedMethod, endpoint, Payload);
 
-        ChatTesterHttp.TryApplyHeader(request, headerName, headerValue);
+        CompanionAppHttp.TryApplyHeader(request, headerName, headerValue);
         UserSettings.ApplyUser(request, index);
 
         request.Headers.Add("X-Failure-Test-Id", index.ToString());

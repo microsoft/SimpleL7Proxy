@@ -1,9 +1,9 @@
     /// <summary>The current onboarding step: home, server, model, model-select, path, prompt, parameters, include-usage, send, raw-exchange, eventhub, insights, or complete.</summary>
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Per-user preferences: the override values a user has chosen across the UI that take
-/// precedence over the defaults from the configuration file (<see cref="ChatTesterOptions"/>).
+/// precedence over the defaults from the configuration file (<see cref="CompanionAppOptions"/>).
 /// <para>
 /// Intended to be serialized (JSON) and persisted per user, keyed by <see cref="UserId"/>.
 /// A scalar left <c>null</c> (or an empty collection) means "no override" and the corresponding
@@ -58,17 +58,17 @@ public sealed class OnboardingPreferences
 /// <summary>Server target overrides.</summary>
 public sealed class ServerPreferences
 {
-    /// <summary>Overrides <see cref="ChatTesterOptions.ServerBaseUrl"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.ServerBaseUrl"/> when set.</summary>
     public string? ServerBaseUrl { get; set; }
 }
 
 /// <summary>User-identity header overrides mirroring <see cref="UserSettings"/>.</summary>
 public sealed class UserIdentityPreferences
 {
-    /// <summary>Overrides <see cref="ChatTesterOptions.UserHeaderName"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.UserHeaderName"/> when set.</summary>
     public string? HeaderName { get; set; }
 
-    /// <summary>Overrides <see cref="ChatTesterOptions.PriorityKeyHeader"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.PriorityKeyHeader"/> when set.</summary>
     public string? PriorityHeaderName { get; set; }
 
     /// <summary>"None", "Selected", "Random", or "Rotating".</summary>
@@ -84,19 +84,19 @@ public sealed class UserIdentityPreferences
 /// <summary>Request-composition and model-selection overrides used across the pages.</summary>
 public sealed class RequestPreferences
 {
-    /// <summary>Overrides <see cref="ChatTesterOptions.DefaultMethod"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.DefaultMethod"/> when set.</summary>
     public string? Method { get; set; }
 
-    /// <summary>Overrides <see cref="ChatTesterOptions.ChatEndpointPath"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.ChatEndpointPath"/> when set.</summary>
     public string? EndpointPath { get; set; }
 
-    /// <summary>Overrides <see cref="ChatTesterOptions.ChatRequestBody"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.ChatRequestBody"/> when set.</summary>
     public string? RequestBody { get; set; }
 
     /// <summary>Request <c>Content-Type</c> chosen in the UI.</summary>
     public string? ContentType { get; set; }
 
-    /// <summary>Overrides <see cref="ChatTesterOptions.RequestCount"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.RequestCount"/> when set.</summary>
     public int? RequestCount { get; set; }
 
     /// <summary>The model id selected in the model/API picker.</summary>
@@ -138,9 +138,9 @@ public sealed class DisplayPreferences
 /// </summary>
 public sealed class StoragePreferences
 {
-    /// <summary>Overrides <see cref="ChatTesterOptions.History"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.History"/> when set.</summary>
     public HistoryStorageSettings? History { get; set; }
 
-    /// <summary>Overrides <see cref="ChatTesterOptions.Conversations"/> when set.</summary>
+    /// <summary>Overrides <see cref="CompanionAppOptions.Conversations"/> when set.</summary>
     public ConversationStorageSettings? Conversations { get; set; }
 }

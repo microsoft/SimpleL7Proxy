@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>A single result row from a URL-tester run.</summary>
 public sealed class ProbeResult

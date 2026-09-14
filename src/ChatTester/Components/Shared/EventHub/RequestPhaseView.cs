@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared.EventHub;
+namespace CompanionApp.Components.Shared.EventHub;
 
 /// <summary>
 /// Structured, per-phase view of a single request's EventHub records, keyed by S7P-ID.

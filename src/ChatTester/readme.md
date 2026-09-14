@@ -1,13 +1,13 @@
-# ChatTester
+# CompanionApp
 
-ChatTester is a local Blazor Server application for exercising SimpleL7Proxy, or another HTTP backend, with chat, vision, request-behavior, and live Event Hub analysis tools.
+CompanionApp is a local Blazor Server application for exercising SimpleL7Proxy, or another HTTP backend, with chat, vision, request-behavior, and live Event Hub analysis tools.
 
 ## Requirements and startup
 
 Requirement: .NET 10 SDK.
 
 ```bash
-cd src/ChatTester
+cd src/CompanionApp
 cp appsettings.json appsettings.Development.json
 ```
 
@@ -50,6 +50,9 @@ Most test pages provide these controls:
 
 The `chat-tester` section controls request defaults and persistence. Values in `appsettings.Development.json` override the base settings.
 
+> [!NOTE]
+> The configuration section and `chat-tester__` environment-variable prefix retain their original names for compatibility. Existing preference cookies, data-protection application name, browser storage keys, and Cosmos database defaults are also unchanged by the CompanionApp rename.
+
 Common settings:
 
 - `ServerBaseUrl`: proxy or backend base URL.
@@ -81,11 +84,11 @@ Configure the `EventHubMonitor` section in `appsettings.Development.json`:
 Use one authentication method:
 
 - **Connection string:** set `ConnectionString` and `EventHubName`. The connection string must allow listen/receive access.
-- **Microsoft Entra ID:** leave `ConnectionString` empty and set `EventHubNamespace` and `EventHubName`. Assign the identity used by ChatTester the **Azure Event Hubs Data Receiver** role on the Event Hub or its namespace. For local development, authenticate that identity with `az login`; when deployed, assign the role to the app's managed identity.
+- **Microsoft Entra ID:** leave `ConnectionString` empty and set `EventHubNamespace` and `EventHubName`. Assign the identity used by CompanionApp the **Azure Event Hubs Data Receiver** role on the Event Hub or its namespace. For local development, authenticate that identity with `az login`; when deployed, assign the role to the app's managed identity.
 
 Environment variables override the equivalent settings when present: `EVENTHUB_CONNECTIONSTRING`, `EVENTHUB_NAME`, `EVENTHUB_CONSUMER_GROUP`, and `EVENTHUB_NAMESPACE`.
 
-`LocalFilePath` is optional. When it points to an existing newline-delimited JSON event file, ChatTester imports the file at startup. Set `eventhub_enabled` to `false` to use only the local file. `StartPosition` accepts `latest` or `earliest`; `RefreshSeconds` controls the tab refresh cadence in seconds.
+`LocalFilePath` is optional. When it points to an existing newline-delimited JSON event file, CompanionApp imports the file at startup. Set `eventhub_enabled` to `false` to use only the local file. `StartPosition` accepts `latest` or `earliest`; `RefreshSeconds` controls the tab refresh cadence in seconds.
 
 > [!NOTE]
 > `CheckpointStorage` is present in configuration but is not used by the current Event Hub reader. It reads every Event Hub partition directly and does not persist checkpoints.

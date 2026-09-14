@@ -1,4 +1,4 @@
-@namespace chat_tester.Components.Shared
+@namespace CompanionApp.Components.Shared
 @using System.Linq
 @using System.Globalization
 @using System.Text.Encodings.Web
@@ -158,7 +158,7 @@
 
     private static readonly string[] ContentTypeOptions =
     {
-        ChatTesterHttp.JsonContentType,
+        CompanionAppHttp.JsonContentType,
         "application/json; charset=utf-8",
         "application/x-ndjson"
     };
@@ -209,7 +209,7 @@
 
     /// <summary>Content-Type header value for the generated request.</summary>
     [Parameter]
-    public string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    public string ContentType { get; set; } = CompanionAppHttp.JsonContentType;
 
     /// <summary>Raised when the Content-Type value changes.</summary>
     [Parameter]
@@ -234,7 +234,7 @@
         await SimpleModeChanged.InvokeAsync(SimpleMode);
 
         ContentType = string.IsNullOrWhiteSpace(request.ContentType)
-            ? ChatTesterHttp.JsonContentType
+            ? CompanionAppHttp.JsonContentType
             : request.ContentType;
         await ContentTypeChanged.InvokeAsync(ContentType);
 
@@ -325,7 +325,7 @@
 
     private async Task OnContentTypeSelected(ChangeEventArgs args)
     {
-        ContentType = args.Value?.ToString() ?? ChatTesterHttp.JsonContentType;
+        ContentType = args.Value?.ToString() ?? CompanionAppHttp.JsonContentType;
         await ContentTypeChanged.InvokeAsync(ContentType);
     }
 

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>Summary details extracted from a history entry for the hover preview.</summary>
 public sealed record HistoryRequestSummary(string Model, string Api, string Stream, string Prompt);

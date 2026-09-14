@@ -1,11 +1,11 @@
 @page "/url-tester"
-@namespace chat_tester.Components.Pages
+@namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
-@inject IOptions<ChatTesterOptions> Options
+@inject IOptions<CompanionAppOptions> Options
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject ChatHistoryStore ChatHistoryStore
-@using chat_tester.Components.Shared
+@using CompanionApp.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Options
 @using System.Diagnostics
@@ -201,7 +201,7 @@
             return;
         }
 
-        var targets = ChatTesterHttp.ParseTargetLines(TargetUrlsText);
+        var targets = CompanionAppHttp.ParseTargetLines(TargetUrlsText);
         if (targets.Count == 0)
         {
             StatusMessage = "Add at least one target URL before running the probe.";
@@ -227,7 +227,7 @@
             {
                 foreach (var target in targets)
                 {
-                    var endpoint = ChatTesterHttp.BuildSessionEndpoint(serverBaseUrl, target, requestIndex);
+                    var endpoint = CompanionAppHttp.BuildSessionEndpoint(serverBaseUrl, target, requestIndex);
                     var request = BuildRequest(endpoint, requestIndex);
                     try
                     {
@@ -238,7 +238,7 @@
 
                         UserSettings.ApplyUser(request, requestIndex);
                         HeaderSettings.ApplyHeaders(request, requestIndex);
-                        var requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
+                        var requestHeaders = CompanionAppHttp.SummarizeRequestHeaders(request);
 
                         var sw = Stopwatch.StartNew();
                         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
@@ -247,7 +247,7 @@
                         sw.Stop();
 
                         var outcome = response.ReasonPhrase?.Trim() ?? string.Empty;
-                        var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
+                        var responseHeaders = CompanionAppHttp.SummarizeResponseHeaders(response);
                         var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
                         Results.Add(new ProbeResult(
                             requestIndex, endpoint.ToString(), (int)response.StatusCode, outcome,
@@ -311,7 +311,7 @@
 
     private HttpRequestMessage BuildRequest(Uri endpoint, int requestIndex)
     {
-        var request = ChatTesterHttp.CreateRequest(SelectedMethod, endpoint, Payload);
+        var request = CompanionAppHttp.CreateRequest(SelectedMethod, endpoint, Payload);
         request.Headers.Add("X-Url-Test-Id", requestIndex.ToString());
         return request;
     }

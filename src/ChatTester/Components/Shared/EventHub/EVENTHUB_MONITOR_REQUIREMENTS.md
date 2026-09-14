@@ -7,7 +7,7 @@
 | Title | EventHub Monitor Page — Requirements & Behavior Specification |
 | Version | 1.0 |
 | Last Updated | 2026-07-13 |
-| Owner | SimpleL7Proxy / chat_tester |
+| Owner | SimpleL7Proxy / CompanionApp |
 | Route | `/eventhub` |
 | Purpose | Authoritative baseline of observable behavior, used to refactor the implementation and re-validate that no behavior changed. |
 | Status | Descriptive — captures current behavior as of `feature/async`. |
@@ -35,7 +35,7 @@
 
 **Out of scope**
 - The proxy that emits the events; Event Hub provisioning; authentication configuration.
-- Other pages in `chat_tester`.
+- Other pages in CompanionApp.
 
 **Dependencies**
 - `Azure.Messaging.EventHubs` consumer client.

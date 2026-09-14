@@ -67,15 +67,15 @@ The event is built dynamically for each backend with a numbered suffix:
    - Transmitted to EventHub connector/test clients
 
 ### 3. **Parsing in Test Client**
-   - **File:** [test/chat_tester/Components/Shared/EventHub/Pipeline/BackendPipelineProcessor.cs](Components/Shared/EventHub/Pipeline/BackendPipelineProcessor.cs)
+   - **File:** [../../EventHubReader.cs](../../EventHubReader.cs)
    - Filters for events with `Type = "S7P-Backend"`
    - Extracts all fields into a `backend` dictionary
-   - **File:** [test/chat_tester/Components/Shared/EventHub/ProxyMetricsCatalog.cs](Components/Shared/EventHub/ProxyMetricsCatalog.cs)
+   - **File:** [../../ProxyMetricsCatalog.cs](../../ProxyMetricsCatalog.cs)
    - Parses the numbered fields (1-Status, 1-Latency, etc.)
    - Converts into `BackendHealthSnapshot` objects
 
 ### 4. **Model Conversion**
-   - **File:** [test/chat_tester/Components/Shared/EventHub/EventHubMonitorModels.cs](Components/Shared/EventHub/EventHubMonitorModels.cs)
+   - **File:** [../../EventHubMonitorModels.cs](../../EventHubMonitorModels.cs)
    - Creates `BackendHealthSnapshot` record with:
      - `Name`: Backend identifier
      - `Url`: Backend URL
@@ -87,7 +87,7 @@ The event is built dynamically for each backend with a numbered suffix:
      - `Css`: CSS class ("healthy" or "degraded")
 
 ### 5. **Display in Web UI**
-   - **File:** [test/chat_tester/Components/Pages/EventHubMonitorPage.razor](Components/Pages/EventHubMonitorPage.razor)
+   - **File:** [../../../../Pages/EventHubMonitorPage.razor](../../../../Pages/EventHubMonitorPage.razor)
    - **Page:** `/eventhub` route
    - Displays in the **Backends** card (left panel)
 

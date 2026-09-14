@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using chat_tester.Components.Shared.EventHub;
+using CompanionApp.Components.Shared.EventHub;
 
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Canonical metric groups and definitions for proxy observability.

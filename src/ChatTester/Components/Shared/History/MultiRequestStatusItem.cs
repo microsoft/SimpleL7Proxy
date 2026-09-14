@@ -1,4 +1,4 @@
-namespace chat_tester.Components.Shared;
+namespace CompanionApp.Components.Shared;
 
 public sealed class MultiRequestStatusItem
 {    public int RequestNumber { get; set; }
@@ -35,7 +35,7 @@ public sealed class MultiRequestStatusItem
     public DateTimeOffset? EnqueuedAtUtc { get; set; }
 
     /// <summary>
-    /// EventHub-only: when ChatTester processed the final request event. Trend charts use this
+    /// EventHub-only: when CompanionApp processed the final request event. Trend charts use this
     /// local observation time so a source timestamp with clock skew cannot delay a new result.
     /// </summary>
     public DateTimeOffset? FinalizedAtUtc { get; set; }

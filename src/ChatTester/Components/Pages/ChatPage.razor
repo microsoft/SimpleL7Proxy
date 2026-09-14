@@ -1,7 +1,7 @@
 @page "/chat"
-@namespace chat_tester.Components.Pages
+@namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
-@inject IOptions<ChatTesterOptions> Options
+@inject IOptions<CompanionAppOptions> Options
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject RequestDebugSettings DebugSettings
@@ -9,7 +9,7 @@
 @inject ChatConversationStore ChatConversationStore
 @inject UserPreferencesService Preferences
 @implements IDisposable
-@using chat_tester.Components.Shared
+@using CompanionApp.Components.Shared
 @using Microsoft.Extensions.Options
 @using System.Diagnostics
 @using System.Globalization
@@ -443,7 +443,7 @@
 
     private string InitialServerBaseUrl { get; set; } = string.Empty;
     private string InitialEndpointPath { get; set; } = string.Empty;
-    private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    private string InitialContentType { get; set; } = CompanionAppHttp.JsonContentType;
     private string InitialRequestBody { get; set; } = string.Empty;
     [Inject]
     private AuthTokenSettings AuthSettings { get; set; } = default!;
@@ -522,7 +522,7 @@
     private async Task SendNextTurnAsync()
     {
         var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
-        var currentRequest = BodyPanel?.CurrentRequest ?? new ModelRequest(string.Empty, string.Empty, ChatTesterHttp.JsonContentType);
+        var currentRequest = BodyPanel?.CurrentRequest ?? new ModelRequest(string.Empty, string.Empty, CompanionAppHttp.JsonContentType);
         var currentUserMessage = ChatInput.Trim();
         if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(currentRequest.EndpointPath))
         {
@@ -561,10 +561,10 @@
         try
         {
             var client = Http;
-            using var request = new HttpRequestMessage(HttpMethod.Post, ChatTesterHttp.BuildUri(serverBaseUrl, currentRequest.EndpointPath));
+            using var request = new HttpRequestMessage(HttpMethod.Post, CompanionAppHttp.BuildUri(serverBaseUrl, currentRequest.EndpointPath));
             request.Content = new StringContent(requestBody, Encoding.UTF8, currentRequest.ContentType);
-            request.Headers.Add(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
-            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+            request.Headers.Add(CompanionAppHttp.AcceptHeaderName, CompanionAppHttp.EventStreamContentType);
+            CompanionAppHttp.ApplyDebugHeader(request, DebugSettings);
 
             if (FormPanel is not null)
             {
@@ -573,13 +573,13 @@
                 FormPanel.ApplyHeaders(request, Conversation.Count);
             }
 
-            requestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+            requestHeadersText = CompanionAppHttp.SummarizeRequestHeaders(request);
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
             metrics.TimeToFirstByte = stopwatch.Elapsed;
             metrics.Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
             metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
-            responseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
+            responseHeadersText = CompanionAppHttp.SummarizeResponseHeaders(response);
             StatusMessage = $"Receiving {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
             if (PendingTurn is not null)
             {

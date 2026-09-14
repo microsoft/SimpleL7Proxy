@@ -1,9 +1,9 @@
-#:project ../../src/ChatTester/chat_tester.csproj
+#:project ../../src/CompanionApp/CompanionApp.csproj
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using chat_tester.Components.Pages;
+using CompanionApp.Components.Pages;
 
 var root = Directory.GetCurrentDirectory();
 var baseline = File.ReadLines(Path.Combine(root, "deployment/deploy.parameters.example.sh"))

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ZIP_FILE="$SCRIPT_DIR/artifacts/chat-tester-appservice.zip"
+ZIP_FILE="$SCRIPT_DIR/artifacts/companion-app-appservice.zip"
 WEBAPP_NAME=""
 RESOURCE_GROUP=""
 
@@ -16,11 +16,11 @@ Build the package first with ./make-zip.sh.
 Options:
   -n <name>              Azure App Service web app name
   -g <resource-group>    Resource group containing the web app
-  -z <zip-file>          Zip package to deploy. Default: ./artifacts/chat-tester-appservice.zip
+    -z <zip-file>          Zip package to deploy. Default: ./artifacts/companion-app-appservice.zip
   -h                    Show this help
 
 Example:
-  ./upload_zip.sh -n my-chat-tester -g my-resource-group
+    ./upload_zip.sh -n my-companion-app -g my-resource-group
 USAGE
 }
 
