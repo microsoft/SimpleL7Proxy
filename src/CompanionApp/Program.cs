@@ -47,6 +47,15 @@ if (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath))
 builder.Services.AddScoped<UserPreferencesService>();
 builder.Services.Configure<CompanionAppOptions>(
     builder.Configuration.GetSection(CompanionAppOptions.SectionName));
+builder.Services.Configure<CompanionAppOptions>(options =>
+{
+    options.AppConfigurationRules = builder.Configuration
+        .GetSection($"{CompanionAppOptions.UiSectionName}:AppConfigurationRules")
+        .Get<List<AppConfigurationSettingRule>>() ?? new();
+    options.Hosts = builder.Configuration
+        .GetSection($"{CompanionAppOptions.UiSectionName}:Hosts")
+        .Get<AppConfigHostSettings>() ?? new();
+});
 builder.Services.Configure<EventHubMonitorOptions>(
     builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
 

@@ -3,14 +3,14 @@ using Microsoft.Extensions.Configuration;
 namespace CompanionApp.Components.Shared;
 
 /// <summary>
-/// Strongly typed Event Hub monitor settings, bound from the <c>EventHubMonitor</c>
+/// Strongly typed Event Hub monitor settings, bound from the <c>CompanionApp:EventHubMonitor</c>
 /// configuration section. These are shared/server-wide values and are configured only in
 /// appsettings.json (no UI). Property initializers act as the defaults when a key is absent.
 /// </summary>
 public sealed class EventHubMonitorOptions
 {
     /// <summary>Configuration section these options bind from.</summary>
-    public const string SectionName = "EventHubMonitor";
+    public const string SectionName = CompanionAppOptions.SectionName + ":EventHubMonitor";
 
     /// <summary>Controls whether the hosted reader should connect to the live Event Hub.</summary>
     [ConfigurationKeyName("eventhub_enabled")]

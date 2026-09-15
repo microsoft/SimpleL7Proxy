@@ -3,10 +3,10 @@
 
 @{
     var configuredUrl = string.IsNullOrWhiteSpace(Topic)
-        ? Configuration[$"chat-tester:Documentation:{Section}"]
-        : Configuration[$"chat-tester:TopicDocumentation:{Section}:{Topic}"];
+        ? Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"]
+        : Configuration[$"{CompanionAppOptions.UiSectionName}:TopicDocumentation:{Section}:{Topic}"];
     var description = $"Documentation: {Topic ?? Section}";
-    var helpEntry = Configuration.GetSection($"chat-tester:PopupHelp:{Section}:{HelpTopic ?? Topic ?? "top"}");
+    var helpEntry = Configuration.GetSection($"{CompanionAppOptions.UiSectionName}:PopupHelp:{Section}:{HelpTopic ?? Topic ?? "top"}");
     var helpLines = (helpEntry.Value is { } value
         ? new[] { value }
         : helpEntry.GetChildren().Select(line => line.Value ?? string.Empty))

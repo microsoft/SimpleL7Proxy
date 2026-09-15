@@ -200,7 +200,7 @@
                 var changedInSection = group.Count(setting => setting.IsChanged);
                 <div class="config-section-tile">
                 <button type="button" class="config-section-box @(changedInSection > 0 ? "is-changed" : string.Empty)"
-                    title='@(Configuration[$"chat-tester:SectionTooltips:{group.Key}"] ?? $"Edit {group.Key} settings.")'
+                    title='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{group.Key}"] ?? $"Edit {group.Key} settings.")'
                         @onclick="() => SelectSection(group.Key)">
                     <span class="config-box-title">@group.Key</span>
                     @if (IsHealthProbeSectionName(group.Key))

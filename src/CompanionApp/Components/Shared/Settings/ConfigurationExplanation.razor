@@ -3,7 +3,7 @@
 
 @if (ShowDetails)
 {
-    var entry = Configuration.GetSection($"chat-tester:PopupHelp:{Section}:{Topic}");
+    var entry = Configuration.GetSection($"{CompanionAppOptions.UiSectionName}:PopupHelp:{Section}:{Topic}");
     var text = entry.Value ?? string.Join(Environment.NewLine, entry.GetChildren().Select(line => line.Value));
     @if (!string.IsNullOrWhiteSpace(text))
     {

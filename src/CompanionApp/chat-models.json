@@ -1,5 +1,5 @@
 {
-  "chat-tester": {
+  "CompanionApp": {
     "DefaultMethod": "GET",
     "ChatEndpointPath": "/openai/v1/chat/completions",
     "ChatRequestBody": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"tell me a joke\"}],\"stream\":true}",

@@ -1,14 +1,17 @@
 namespace CompanionApp.Components.Shared;
 
 /// <summary>
-/// Strongly typed settings for CompanionApp, bound from the <c>chat-tester</c>
-/// configuration section. Property initializers act as the defaults used when a
-/// key is absent from configuration.
+/// Strongly typed settings for CompanionApp. Operational settings bind from
+/// <c>CompanionApp</c>; presentation settings bind from <c>CompanionAppUI</c>.
+/// Property initializers act as the defaults used when a key is absent from configuration.
 /// </summary>
 public class CompanionAppOptions
 {
-    /// <summary>Configuration section these options bind from.</summary>
-    public const string SectionName = "chat-tester";
+    /// <summary>Configuration section for operational settings.</summary>
+    public const string SectionName = "CompanionApp";
+
+    /// <summary>Configuration section for presentation settings and help content.</summary>
+    public const string UiSectionName = "CompanionAppUI";
 
     public string AppConfigurationEndpoint { get; set; } = string.Empty;
 
