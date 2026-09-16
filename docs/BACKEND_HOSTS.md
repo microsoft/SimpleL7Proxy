@@ -29,7 +29,7 @@ Configure any number of backend hosts (`Host1`…`Host9`) using a semicolon-sepa
 | `retryafter` / `useretryafter` | `true` | Honour the `Retry-After` header returned by the backend. |
 | `usegcpauth` | `false` | Enable GCP Workload Identity Federation auth for this host. See [GCP Vertex AI](#gcp-vertex-ai-backends) below. |
 | `gcpproject` | *(required with `usegcpauth`)* | GCP project name used in the backend path (e.g. `a208790-ellms-preprod`). |
-| `gcpprojectnumber` | *(required with `usegcpauth`)* | Numeric GCP project number used in the WIF audience URL (e.g. `753819451045`). |
+| `gcpwifprojectnumber` | *(required with `usegcpauth`)* | Numeric project number of the project **hosting the WIF pool**, used in the STS audience URL (e.g. `753819451045`). Often the same project as `gcpproject`, but not when a shared identity project owns the pool. Formerly `gcpprojectnumber`, which is still accepted with a deprecation warning. |
 | `gcpregion` | *(required with `usegcpauth`)* | GCP region (e.g. `us-east1`). Used in the backend path; also auto-derives `host` if omitted. |
 | `gcppool` | *(required with `usegcpauth`)* | Workload Identity Federation pool ID (e.g. `azure-gcp-identity-federation`). |
 | `gcpprovider` | *(required with `usegcpauth`)* | WIF provider ID (e.g. `azure-gcp-identity-provider`). |
@@ -211,7 +211,7 @@ client prefix stripped  →  /v1/projects/{gcpproject}/locations/{gcpregion}  + 
 Host1="mode=direct;path=/a208790-gemini-2.5-pro;\
 usegcpauth=true;\
 gcpproject=a208790-ellms-preprod;\
-gcpprojectnumber=753819451045;\
+gcpwifprojectnumber=753819451045;\
 gcpregion=us-east1;\
 gcppool=azure-gcp-identity-federation;\
 gcpprovider=azure-gcp-identity-provider;\

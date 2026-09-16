@@ -45,7 +45,7 @@ namespace SimpleL7Proxy.Backend
         public bool StripPrefix;
         public bool UseGcpAuth;
         public string GcpProject;        // project name for backend path (e.g. a208790-ellms-preprod)
-        public string GcpProjectNumber;  // project number for WIF audience (e.g. 753819451045)
+        public string GcpWifProjectNumber;  // project number hosting the WIF pool, used in the STS audience 
         public string GcpRegion;         // e.g. us-east1
         public string GcpPool;           // WIF pool ID
         public string GcpProvider;       // WIF provider ID

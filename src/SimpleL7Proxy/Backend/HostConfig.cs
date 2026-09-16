@@ -44,7 +44,7 @@ namespace SimpleL7Proxy.Backend
     public string GcpServiceAccount => ParsedConfig.GcpServiceAccount;
     public string GcpAzureClientId => ParsedConfig.GcpAzureClientId;
     public string GcpPoolAudience => ParsedConfig.UseGcpAuth
-        ? $"//iam.googleapis.com/projects/{ParsedConfig.GcpProjectNumber}/locations/global/workloadIdentityPools/{ParsedConfig.GcpPool}/providers/{ParsedConfig.GcpProvider}"
+        ? $"//iam.googleapis.com/projects/{ParsedConfig.GcpWifProjectNumber}/locations/global/workloadIdentityPools/{ParsedConfig.GcpPool}/providers/{ParsedConfig.GcpProvider}"
         : string.Empty;
     public string GcpBackendPath => ParsedConfig.UseGcpAuth
         ? $"/v1/projects/{ParsedConfig.GcpProject}/locations/{ParsedConfig.GcpRegion}"
@@ -87,7 +87,7 @@ namespace SimpleL7Proxy.Backend
         sb.Append(UsesRetryAfter).Append('|');
         sb.Append(ParsedConfig.UseGcpAuth).Append('|');
         sb.Append(ParsedConfig.GcpProject ?? string.Empty).Append('|');
-        sb.Append(ParsedConfig.GcpProjectNumber ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpWifProjectNumber ?? string.Empty).Append('|');
         sb.Append(ParsedConfig.GcpRegion ?? string.Empty).Append('|');
         sb.Append(ParsedConfig.GcpPool ?? string.Empty).Append('|');
         sb.Append(ParsedConfig.GcpProvider ?? string.Empty).Append('|');
@@ -354,8 +354,9 @@ namespace SimpleL7Proxy.Backend
             case "gcpproject":
               result.GcpProject = kvp.Value;
               break;
-            case "gcpprojectnumber":
-              result.GcpProjectNumber = kvp.Value;
+            case "gcpwifprojectnumber":
+              result.GcpWifProjectNumber = kvp.Value;
+              break;
               break;
             case "gcpregion":
               result.GcpRegion = kvp.Value;
