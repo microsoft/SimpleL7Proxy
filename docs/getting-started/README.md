@@ -103,20 +103,20 @@ A successful proxied response normally includes these proxy-generated headers:
 
 Exhausted-host error responses use a different set of diagnostic headers, including `x-Request-Queue-Duration` and `x-Total-Latency`. See [Headers and Status Codes](../reference/headers-and-status-codes.md) for the response-specific contract.
 
-### Use Chat Tester
+### Use CompanionApp
 
-**Use Chat Tester for an interactive request and telemetry view.**
+**Use CompanionApp for an interactive request and telemetry view.**
 
 ```bash
-cd src/ChatTester
+cd src/CompanionApp
 dotnet run
 ```
 
-Open the URL printed by Chat Tester, then configure the server as `http://localhost:8000` or use the HTTPS URL assigned to your Container App.
+Open the URL printed by CompanionApp, then configure the server as `http://localhost:8000` or use the HTTPS URL assigned to your Container App.
 
-![Chat Tester request](chat-test.png)
+![CompanionApp request](chat-test.png)
 
-If Event Hub is configured, connect it in Chat Tester to inspect proxy activity. Select a thumbnail to open the full-size image.
+If Event Hub is configured, connect it in CompanionApp to inspect proxy activity. Select a thumbnail to open the full-size image.
 
 <table>
 <tr>
@@ -137,7 +137,7 @@ If Event Hub is configured, connect it in Chat Tester to inspect proxy activity.
 - [ ] `/readiness` returns `200 OK`.
 - [ ] A test request returns the expected backend response.
 - [ ] `BackendHost` identifies the selected backend on a successful proxied response.
-- [ ] Chat Tester or `eventslog.json` shows the request when telemetry is configured.
+- [ ] CompanionApp or `eventslog.json` shows the request when telemetry is configured.
 
 ## Next Steps
 

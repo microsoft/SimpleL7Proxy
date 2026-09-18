@@ -25,7 +25,11 @@ public sealed class ModelRemapTests : IRegressionTestMetadata
             ["model-override"] = new(
                 "AI Request Compatibility",
                 "Model override rewriting",
-                "Keeps rerouted requests valid when the proxy switches a request to a different model family.")
+                "Keeps rerouted requests valid when the proxy switches a request to a different model family."),
+            ["request-word-count"] = new(
+                "AI Request Compatibility",
+                "Request word counting",
+                "Counts whitespace-delimited words in request string values without counting JSON property names or the routing model.")
         };
 
     // ---- Helpers -------------------------------------------------------
@@ -134,6 +138,36 @@ public sealed class ModelRemapTests : IRegressionTestMetadata
 
         Assert.AreEqual("gpt-4o", model);
         Assert.AreEqual(body, result); // body returned unchanged
+    }
+
+    [TestMethod]
+    [RegressionTestCase("request-word-count", "Request words are counted during model detection", "Nested string values, escaped separators, and Unicode whitespace must be counted without including property names or the top-level model.")]
+    public void Detect_CountsWordsInStringValues()
+    {
+        const string body = """{"model":"gpt-4o","messages":[{"role":"user","content":"one\ntwo\u2003three"}]}""";
+        using var request = new RequestData();
+        var input = Encoding.UTF8.GetBytes(body);
+
+        var result = ModelSwapper.ValidateModel(request, input);
+
+        Assert.AreEqual(body, Encoding.UTF8.GetString(result.Span));
+        Assert.AreEqual("gpt-4o", request.Model);
+        Assert.AreEqual(4, request.WordCount);
+    }
+
+    [TestMethod]
+    [RegressionTestCase("request-word-count", "Model overrides retain the inbound word count", "Rewriting the routing model must not add the model name to the request word count or change the count of request text.")]
+    public void Override_RetainsInboundWordCount()
+    {
+        const string body = """{"model":"gpt-4o","messages":[{"content":"one two three"}]}""";
+        using var request = new RequestData();
+        var input = Encoding.UTF8.GetBytes(body);
+
+        var result = ModelSwapper.ValidateModel(request, input, "gpt-5");
+
+        Assert.AreEqual("gpt-5", request.Model);
+        Assert.AreEqual("gpt-5", Parse(Encoding.UTF8.GetString(result.Span)).GetProperty("model").GetString());
+        Assert.AreEqual(3, request.WordCount);
     }
 
     [TestMethod]

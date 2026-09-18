@@ -45,18 +45,34 @@ ProxyEvent.SendEvent()
 
 ### Built-in Backends
 
+**Use File for local inspection and Event Hub for streaming JSON events to downstream consumers.** Both can be enabled together; neither requires replacing the other or disabling Application Insights.
+
 **Local Log File** (`file`)
 - Writes JSON lines to disk via `LogFileEventClient`.
-- Buffers events in a `ConcurrentQueue` and flushes batches of up to 99 events every 500 ms using a reusable `StringBuilder`.
+- Buffers events and flushes them in batches.
 - Suitable for local debugging and testing.
+- `LogFileName` sets the output path inside the proxy process or container; it does not select the file sink. Select `file` in `EventLoggers` and use a persistent mount when logs must survive container replacement.
+
+```text
+EventLoggers=file,eventhub
+LogFileName=/logs/proxy-events.json
+EventHubName=proxy-events
+```
+
+> [!NOTE]
+> **`LogToFile` is a legacy fallback, not an additional destination switch.** It is consulted only when `EventLoggers` is unset: true selects File and false selects Event Hub. An explicit `EventLoggers` value takes precedence; `none` disables event sinks, not the independently configured Application Insights channel.
 
 **Azure Event Hubs** (`eventhub`)
 - Streams events to Azure Event Hubs via `EventHubClient`.
 - Supports connection-string auth or managed-identity auth (`EVENTHUB_NAMESPACE`).
+- Use it when another service needs to consume a high-volume event stream. The sink transports JSON events, including request metrics; downstream storage, dashboards, or alerts are the consumer's responsibility.
 - Batches events using the Event Hubs SDK `EventDataBatch` for throughput.
 - If the Event Hub connection fails at startup, the backend is silently disabled and other backends continue.
 
 Both backends are **sibling sinks** managed by `CompositeEventClient` — they can run simultaneously. Set `EVENT_LOGGERS=file,eventhub` to enable both. Each backend self-registers on successful startup; if one fails (e.g., EventHub timeout), the others continue unaffected.
+
+> [!TIP]
+> **No file output?** Check that File is selected and its path is writable. **No Event Hub output?** Check the hub name, authentication configuration, and logger startup status; selecting a destination does not provide its credentials.
 
 ---
 

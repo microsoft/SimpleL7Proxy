@@ -1,4 +1,4 @@
-using chat_tester.Components.Shared;
+using CompanionApp.Components.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

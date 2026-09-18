@@ -1,0 +1,73 @@
+@namespace CompanionApp.Components.Shared
+
+<div class="config-newhost-grid">
+    @foreach (var setting in Settings)
+    {
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
+            <div class="config-setting-heading">
+                <label class="form-label">@FieldLabel(setting.Name)</label>
+                <ConfigurationHelp Section="CircuitBreaker" Topic="@setting.Name" />
+            </div>
+            <ConfigurationExplanation Section="CircuitBreaker" Topic="@setting.Name" />
+            @if (IsBoolean(setting.LoadedValue))
+            {
+                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValue(setting, args)">
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                </select>
+            }
+            else
+            {
+                <input class="form-control form-control-sm" type="@InputType(setting.LoadedValue)"
+                       value="@setting.DraftValue" @oninput="args => SetValue(setting, args)" />
+            }
+            @if (setting.IsChanged)
+            {
+                <div class="small text-muted text-break mt-1">Current: @DisplayLoadedValue(setting.LoadedValue)</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    // Compact one-line summary of the circuit-breaker values, shown on the section box and modal header.
+    public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        string.Join(" · ", settings.Select(setting => $"{ShortLabel(setting.Name)} {setting.DraftValue}"));
+
+    private static string ShortLabel(string name) => name.ToLowerInvariant() switch
+    {
+        "errorthreshold" => "error",
+        "successrate" => "success",
+        "timeslice" => "slice",
+        _ => name.ToLowerInvariant(),
+    };
+
+    private static void SetValue(AppConfigurationScaffoldSetting setting, ChangeEventArgs args) =>
+        setting.DraftValue = args.Value?.ToString() ?? string.Empty;
+
+    private static bool IsBoolean(string value) => bool.TryParse(value, out _);
+
+    private static string InputType(string value) => decimal.TryParse(value, out _) ? "number" : "text";
+
+    private static string DisplayLoadedValue(string value) => string.IsNullOrEmpty(value) ? "(empty)" : value;
+
+    // Splits a PascalCase key into lowercased words (ErrorThreshold -> "error threshold").
+    private static string FieldLabel(string name)
+    {
+        var builder = new System.Text.StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var character = name[i];
+            if (i > 0 && char.IsUpper(character) && !char.IsUpper(name[i - 1]))
+            {
+                builder.Append(' ');
+            }
+
+            builder.Append(char.ToLowerInvariant(character));
+        }
+
+        return builder.ToString();
+    }
+}

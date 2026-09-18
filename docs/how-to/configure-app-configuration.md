@@ -60,6 +60,17 @@ During a runtime refresh, the proxy applies the `Warm:` keys that are present in
 
 ### Proxy Runtime Variables
 
+**The App Configuration URL selects the store containing proxy settings, not the backend that receives requests.** Use the store endpoint, such as `https://example.azconfig.io`, and select the label for the environment you intend to inspect. The URL identifies the store; it does not supply credentials or grant read access.
+
+```text
+Store endpoint: https://example.azconfig.io
+Label: staging
+Read: settings published in that store under staging
+```
+
+> [!TIP]
+> **Cannot load settings?** Check the store endpoint and the reader's access. **Wrong or empty settings?** Check the selected label before changing any values.
+
 These Container App environment variables tell each replica how to connect to App Configuration. The replica reads them before connecting to the store, so App Configuration does not override them.
 
 | Name | Required/default | What it controls |

@@ -1,0 +1,250 @@
+﻿@page "/"
+@page "/admin"
+@page "/test"
+@page "/explore"
+@namespace CompanionApp.Components.Pages
+@rendermode InteractiveServer
+@inject CompanionApp.Components.Shared.UserPreferencesService Preferences
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea ?? "Home")</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <h1 class="h4 mb-0">@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea ?? "Home")</h1>
+</SectionContent>
+
+<div class="home-layout @(ShowOnboarding ? "home-layout-guided" : string.Empty)">
+<nav class="home-navigation" aria-label="Workspace">
+    @if (_selectedArea is null)
+    {
+    <div class="home-areas" role="group" aria-label="Workspace areas">
+        @foreach (var area in new[] {
+            (Name: "Deploy / Configure", Path: "admin", Description: "Manage proxy configurations in App Configuration and prepare parameters for deployment. Review changes before saving or downloading them."),
+            (Name: "Test", Path: "test", Description: "Run tests against your proxy and review the results to investigate request behavior and failures."),
+            (Name: "Explore", Path: "explore", Description: "Send requests and chat with models, inspect proxy traffic, and review insights and conversation history. Personalize your workspace with user preferences.")
+        })
+        {
+            <a class="home-area" href="@area.Path">
+                <span class="home-area-title">@area.Name</span>
+                <span class="home-area-description">@area.Description</span>
+            </a>
+        }
+    </div>
+    }
+    else
+    {
+            <a class="home-back" href=""><span aria-hidden="true">&#8592;</span> Back to Home</a>
+            <section class="home-options" aria-label="@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea)">
+                @if (_selectedArea != "Deploy / Configure")
+                {
+                    <div class="home-options-heading">
+                        <h2 id="home-options-heading">@_selectedArea</h2>
+                    </div>
+                }
+                <ul class="home-areas">
+                    @if (_selectedArea == "Explore")
+                    {
+                        <li class="onboarding-target @(ShowInvestigatorGuide ? "is-active" : string.Empty)">
+                            <button type="button" class="home-area" @onclick="StartInvestigationAsync"><span class="home-option-title">Investigator</span><span class="home-option-description">Send model requests and inspect the request and response details.</span></button>
+                        </li>
+                        <li><a class="home-area" href="chat"><span class="home-option-title">Chat</span><span class="home-option-description">Chat with models through the configured server.</span></a></li>
+                        <li><a class="home-area" href="eventhub"><span class="home-option-title">EventHub Monitor</span><span class="home-option-description">Monitor proxy requests, backend activity, and runtime events.</span></a></li>
+                        <li><a class="home-area" href="insights"><span class="home-option-title">Insights</span><span class="home-option-description">Analyze the Event Hub feed for proxy behavior and failures.</span></a></li>
+                        <li><a class="home-area" href="history"><span class="home-option-title">History</span><span class="home-option-description">Review previous chat conversations.</span></a></li>
+                        <li><a class="home-area" href="user-preferences"><span class="home-option-title">User Preferences</span><span class="home-option-description">Adjust your personal workspace preferences.</span></a></li>
+                    }
+                    else if (_selectedArea == "Test")
+                    {
+                        <li><a class="home-area" href="url-tester"><span class="home-option-title">URL test</span><span class="home-option-description">Send URL requests and inspect responses.</span></a></li>
+                        <li><a class="home-area" href="stress-test"><span class="home-option-title">Stress test</span><span class="home-option-description">Run stress tests against the configured server.</span></a></li>
+                        <li><a class="home-area" href="abort-test"><span class="home-option-title">Abort test</span><span class="home-option-description">Test rapid client disconnects.</span></a></li>
+                    }
+                    else if (_selectedArea == "Deploy / Configure")
+                    {
+                        <li><a class="home-area" href="admin/deployment"><span class="home-option-title">Deployment Setup</span><span class="home-option-description">Prepare and download parameters for the existing deployment scripts.</span></a></li>
+                        <li><a class="home-area" href="admin/configuration"><span class="home-option-title">Proxy Configuration</span><span class="home-option-description">Create, update, or duplicate a labeled proxy configuration.</span></a></li>
+                    }
+                </ul>
+                @if (_selectedArea == "Explore" && _preferencesReady && !_onboardingExpanded && !_invitationExpired && !Preferences.IsOnboardingStep("complete"))
+                {
+                    <div class="home-wizard-invitation" role="group" aria-label="Optional getting started wizard">
+                        <button type="button" class="home-wizard-open" aria-expanded="false" aria-controls="home-wizard" title="Open the getting started wizard" @onclick="() => { _onboardingExpanded = true; _invitationTimer?.Cancel(); }">Need Help Getting Started?</button>
+                        <button type="button" class="btn-close" aria-label="Dismiss getting started" title="Dismiss getting started" @onclick="CompleteOnboardingAsync"></button>
+                    </div>
+                }
+            </section>
+    }
+</nav>
+
+<style>
+    .home-layout { max-width: 72rem; }
+    .home-layout-guided { display: flex; flex-direction: column; }
+    .home-navigation { min-width: 0; padding-block: 1rem; }
+    .onboarding-steps.home-onboarding { position: static; display: flex; flex-direction: column; order: -1; width: 100%; min-width: 0; max-height: calc(100dvh - 10rem); margin-top: 1rem; z-index: auto; align-self: start; }
+    .home-onboarding h2, .home-onboarding > button { flex-shrink: 0; }
+    .home-onboarding ol { min-height: 0; overflow-y: auto; }
+    .home-onboarding li { overflow-wrap: anywhere; }
+    .home-onboarding > button { min-height: 44px; }
+    @@media (max-width: 799.98px) {
+        .onboarding-steps.home-onboarding { position: fixed; right: max(1rem, env(safe-area-inset-right)); bottom: max(1rem, env(safe-area-inset-bottom)); width: min(21rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem - env(safe-area-inset-bottom)); margin: 0; z-index: 100; }
+    }
+    @@media (min-width: 800px) {
+        .home-layout-guided { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 2rem; align-items: start; }
+        .home-layout-guided .home-onboarding { order: 0; }
+        .home-layout-guided .home-areas { grid-template-columns: minmax(0, 1fr); }
+    }
+    .home-areas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+    .home-area { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; padding: 1.5rem; border: 1px solid #d2d2d7; border-radius: 8px; background: #fafafa; text-align: left; color: #1d1d1f; font: inherit; text-decoration: none; overflow-wrap: anywhere; }
+    .home-area:hover { background: #f2f6fa; border-color: #8cabc8; }
+    .home-area-title, .home-option-title { font-size: 1.25rem; font-weight: 600; }
+    .home-area-description, .home-option-description { color: #515154; font-size: 0.9375rem; line-height: 1.6; overflow-wrap: anywhere; }
+    .home-back { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; margin-bottom: 1rem; padding: 0.5rem; border: 0; border-radius: 4px; background: transparent; color: #0066cc; font: inherit; text-decoration: none; }
+    .home-back:hover { background: #f5f5f7; }
+    .home-options { margin-top: 0; }
+    .home-options-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .home-options-heading h2 { margin: 0; }
+    .home-navigation:has(.home-wizard-invitation) { padding-bottom: 6rem; }
+    .home-wizard-invitation { position: fixed; right: max(1rem, env(safe-area-inset-right)); bottom: max(1rem, env(safe-area-inset-bottom)); z-index: 100; display: flex; align-items: center; gap: 0.25rem; max-width: calc(100% - 2rem); padding: 0.25rem; border-radius: 6px; background: #fff; }
+    .home-options .home-wizard-open { display: inline-flex; width: auto; min-width: 0; min-height: 44px; padding: 0.5rem 0.75rem; border: 1px solid #b42318; border-radius: 6px; background: #b42318; color: #fff; animation: home-wizard-pulse 1.5s ease-in-out infinite; }
+    .home-options .home-wizard-open:hover { background: #912018; }
+    .home-options .home-wizard-invitation .btn-close { display: block; flex-shrink: 0; width: 44px; height: 44px; min-height: 44px; padding: 0; background: var(--bs-btn-close-bg) center / 0.75rem no-repeat; }
+    @@keyframes home-wizard-pulse { 50% { box-shadow: 0 0 0 3px #b4231840; border-color: #d92d20; } }
+    @@media (prefers-reduced-motion: reduce) { .home-options .home-wizard-open { animation: none; } }
+    .home-options h2 { font-size: 1.125rem; font-weight: 600; margin: 0 0 0.75rem; color: #1d1d1f; }
+    .home-navigation ul { list-style: none; padding: 0; margin: 0; }
+    .home-options li { display: flex; min-width: 0; }
+    .home-options .home-area { width: 100%; }
+    .home-navigation :focus-visible { outline: 3px solid #007aff; outline-offset: 2px; }
+    @@media (max-width: 767.98px) {
+        .home-areas { grid-template-columns: minmax(0, 1fr); }
+        .home-area { padding: 1.25rem; }
+    }
+</style>
+
+@if (ShowOnboarding)
+{
+    <aside id="home-wizard" class="onboarding-steps home-onboarding" aria-label="Getting started steps">
+        <h2>Getting started</h2>
+        <ol>
+            @foreach (var step in OnboardingSteps)
+            {
+                <li class="@(Preferences.IsOnboardingStep(step.Id) ? "is-active" : string.Empty)">
+                    @if (Preferences.IsOnboardingStep(step.Id))
+                    {
+                        <span class="onboarding-step-pointer" aria-hidden="true">&#128073;</span>
+                    }
+                    <span>@step.Text</span>
+                </li>
+            }
+        </ol>
+        <button class="btn btn-sm btn-outline-secondary mt-2" type="button" @onclick="CompleteOnboardingAsync">I'm done</button>
+    </aside>
+}
+</div>
+
+@code {
+    private string? _selectedArea => Navigation.ToBaseRelativePath(new Uri(Navigation.Uri).GetLeftPart(UriPartial.Path)).TrimEnd('/').ToLowerInvariant() switch
+    {
+        "admin" => "Deploy / Configure",
+        "test" => "Test",
+        "explore" => "Explore",
+        _ => null
+    };
+    private bool _preferencesReady;
+    private bool _onboardingExpanded;
+    private bool _invitationExpired;
+    private bool _disposed;
+    private CancellationTokenSource? _invitationTimer;
+
+    private static readonly (string Id, string Text)[] OnboardingSteps =
+    {
+        ("home", "Open Investigator"),
+        ("server", "Confirm the server URL and authorization"),
+        ("model", "Click on the Model tab"),
+        ("model-select", "Pick the GPT-4o model"),
+        ("path", "Make sure that the path is correct"),
+        ("prompt", "Type in the prompt"),
+        ("parameters", "Expand API parameters"),
+        ("include-usage", "Click on include_usage"),
+        ("send", "Click on Send"),
+        ("raw-exchange", "Explore the raw exchange"),
+        ("eventhub", "Open EventHub Monitor"),
+        ("insights", "Open Insights")
+    };
+
+    private bool ShowInvestigatorGuide => _onboardingExpanded && Preferences.IsOnboardingStep("home");
+
+    private bool ShowOnboarding => _selectedArea == "Explore" && _onboardingExpanded && !Preferences.IsOnboardingStep("complete");
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (!_disposed)
+            {
+                StateHasChanged();
+            }
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.LocationChanged += OnLocationChanged;
+            await Preferences.LoadAsync();
+            if (_disposed) return;
+            _preferencesReady = true;
+            StateHasChanged();
+        }
+        if (!_disposed && _preferencesReady && _selectedArea == "Explore" && _invitationTimer is null
+            && !_onboardingExpanded && !Preferences.IsOnboardingStep("complete"))
+        {
+            _invitationTimer = new CancellationTokenSource();
+            _ = ExpireInvitationAsync(_invitationTimer.Token);
+        }
+    }
+
+    private async Task ExpireInvitationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+            await InvokeAsync(() =>
+            {
+                if (_disposed || cancellationToken.IsCancellationRequested) return;
+                _invitationExpired = true;
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task StartInvestigationAsync()
+    {
+        if (_onboardingExpanded && !Preferences.IsOnboardingStep("complete"))
+        {
+            await Preferences.SetOnboardingStepAsync("server");
+        }
+        Navigation.NavigateTo("investigator");
+    }
+
+    private async Task CompleteOnboardingAsync()
+    {
+        _invitationTimer?.Cancel();
+        _invitationExpired = true;
+        _onboardingExpanded = false;
+        await Preferences.SetOnboardingStepAsync("complete");
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+        _invitationTimer?.Cancel();
+        _invitationTimer?.Dispose();
+    }
+}

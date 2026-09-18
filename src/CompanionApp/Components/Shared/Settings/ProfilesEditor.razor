@@ -1,0 +1,29 @@
+@namespace CompanionApp.Components.Shared
+
+@foreach (var group in Settings.GroupBy(setting => GroupName(setting.Name)).OrderBy(group => group.Key switch
+{
+    "User profiles" => 0,
+    "Authentication" => 1,
+    "Suspended users" => 2,
+    _ => 3,
+}))
+{
+    <section class="mb-3">
+        <h3 class="h6 border-bottom pb-2">@group.Key</h3>
+        <ConfigurationExplanation Section="Profiles" Topic="@group.Key" />
+        <ConfigurationFields Settings="group.ToList()" OnChanged="OnChanged" />
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private static string GroupName(string name) => name.Split(':')[0].ToLowerInvariant() switch
+    {
+        "user" => "User profiles",
+        "auth" => "Authentication",
+        "suspendeduser" => "Suspended users",
+        _ => "Refresh and retention",
+    };
+}

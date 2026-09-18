@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>CompanionApp</AssemblyName>
+    <RootNamespace>CompanionApp</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Core" Version="1.62.0" />
+    <PackageReference Include="Azure.Data.AppConfiguration" Version="1.11.0" />
+    <PackageReference Include="Azure.Messaging.EventHubs" Version="5.12.2" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.29.2" />
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.47.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+    <EmbeddedResource Include="..\..\deployment\deploy.parameters.example.sh" LogicalName="DeploymentParameterTemplate" />
+    <EmbeddedResource Include="..\HealthProbe\Constants.cs" LogicalName="HealthProbeVersionSource" />
+    <EmbeddedResource Include="Assets\Deployment\README.template.md" LogicalName="DeploymentReadmeTemplate" />
+    <EmbeddedResource Include="Assets\Deployment\deploy.template.sh" LogicalName="DeploymentScriptTemplate" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\types.bicep" LogicalName="DeploymentBicepAsset/types.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\bootstrap.bicep" LogicalName="DeploymentBicepAsset/bootstrap.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\main.bicep" LogicalName="DeploymentBicepAsset/main.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\registry.bicep" LogicalName="DeploymentBicepAsset/modules/registry.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\network.bicep" LogicalName="DeploymentBicepAsset/modules/network.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\foundation.bicep" LogicalName="DeploymentBicepAsset/modules/foundation.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\configuration.bicep" LogicalName="DeploymentBicepAsset/modules/configuration.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\configuration-access.bicep" LogicalName="DeploymentBicepAsset/modules/configuration-access.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\blob-storage.bicep" LogicalName="DeploymentBicepAsset/modules/blob-storage.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\blob-access.bicep" LogicalName="DeploymentBicepAsset/modules/blob-access.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\request-api.bicep" LogicalName="DeploymentBicepAsset/modules/request-api.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\service-bus-access.bicep" LogicalName="DeploymentBicepAsset/modules/service-bus-access.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\cosmos-access.bicep" LogicalName="DeploymentBicepAsset/modules/cosmos-access.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\container-app.bicep" LogicalName="DeploymentBicepAsset/modules/container-app.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\registry-access.bicep" LogicalName="DeploymentBicepAsset/modules/registry-access.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\private-dns.bicep" LogicalName="DeploymentBicepAsset/modules/private-dns.bicep" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="chat-models.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Update="chat-models.Development.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+    <Content Update="vision-models.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Update="vision-models.Development.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

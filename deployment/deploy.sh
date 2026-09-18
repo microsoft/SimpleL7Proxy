@@ -1,152 +1,184 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Interactive deployment menu for SimpleL7Proxy.
-# Mirrors the steps in deployment/README.md.
+set -euo pipefail
 
-set -uo pipefail
+readonly usage='Usage: bash deploy.sh SUBSCRIPTION_ID [validate|what-if|create] [--unique-id ID]'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Load deployment parameters if available
-if [[ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]]; then
-    # shellcheck source=deploy.parameters.sh
-    source "${SCRIPT_DIR}/deploy.parameters.sh"
+if (( $# == 1 )) && [[ "$1" == '-h' || "$1" == '--help' ]]; then
+	printf '%s\n' \
+		"$usage" \
+		'' \
+		'Operations:' \
+		'  validate  Validate the deployment without creating resources (default).' \
+		'  what-if   Preview the resource changes without deploying them.' \
+		'  create    Deploy the selected infrastructure; resources can incur charges.' \
+		'' \
+		'Options:' \
+		'  --unique-id ID  Use a five-character lowercase alphanumeric deployment ID.' \
+		'' \
+		'Run from the extracted ZIP with Azure CLI and Bicep support installed.' \
+		'Sign in to Azure before running a deployment operation.'
+	exit 0
 fi
 
-# Load derived values (computed from parameters)
-if [[ -f "${SCRIPT_DIR}/deploy.derived.sh" ]]; then
-    # shellcheck source=deploy.derived.sh
-    source "${SCRIPT_DIR}/deploy.derived.sh"
+if (( $# < 1 )); then
+	printf '%s\n' 'Error: expected a subscription ID.' "$usage" >&2
+	exit 1
 fi
 
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+subscription="$1"
+shift
 
-run_step() {
-    local title="$1"
-    shift
-    echo ""
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE} ${title}${NC}"
-    echo -e "${BLUE}========================================${NC}"
-    if "$@"; then
-        echo -e "${GREEN}✓ ${title} complete${NC}"
-    else
-        local rc=$?
-        echo -e "${RED}✗ ${title} failed (exit ${rc})${NC}"
-    fi
-    echo ""
-    local reply
-    read -r -p "Press Enter to return to the menu, or 'q' to quit: " reply
-    case "${reply}" in
-        q|Q|quit|exit) echo "Bye."; exit 0 ;;
-    esac
-}
+if [[ -z "$subscription" || "$subscription" == -* ]]; then
+	printf '%s\n' 'Error: provide a subscription ID as the first argument.' "$usage" >&2
+	exit 1
+fi
 
-step1_prereq()        { ( cd "${SCRIPT_DIR}/Prereq"           && ./validate.sh ); }
-step2_vnet()          { ( cd "${SCRIPT_DIR}/VNet"             && ./deploy.sh   ); }
-step3_acr()           { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./validate-acr.sh ); }
-step4_image()         { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./deploy.sh   ); }
-step5_aca()           { ( cd "${SCRIPT_DIR}/proxy" && ./deploy.sh ); }
-step6_dns()           { ( cd "${SCRIPT_DIR}/DNS"              && ./deploy.sh   ); }
-step7_appconfig()     { ( cd "${SCRIPT_DIR}/AppConfiguration" && ./deploy.sh   ); }
-step8_blobstorage()   { ( cd "${SCRIPT_DIR}/BlobStorage"      && ./deploy.sh   ); }
-step9_requestapi_create() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./create.sh   ); }
-step10_requestapi_deploy() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./deploy.sh   ); }
+operation='validate'
+operation_set=false
+requested_unique_id=''
 
-# ---------------------------------------------------------------------------
-# Step registry — one source of truth for every step.
-# Format: "NUM|MENU_LABEL|TITLE|FN_NAME|REQUIRED_VAR"
-#   MENU_LABEL  : displayed in the menu (padded for alignment)
-#   TITLE       : used in the run_step header
-#   FN_NAME     : bash function to call (must be defined above)
-#   REQUIRED_VAR: env var that must equal "yes" to enable; empty = always on
-#
-# To add a step: append a line here. Nothing else needs to change.
-# To add a new flag condition: set REQUIRED_VAR to the new variable name.
-# ---------------------------------------------------------------------------
-STEPS=(
-    # NUM | MENU_LABEL                                              | TITLE                         | FN_NAME                  | REQUIRED_VAR
-    "1 | Prerequisites              (Prereq/validate.sh)           | Prerequisites                 | step1_prereq             | "
-    "2 | Virtual Network            (VNet/deploy.sh)               | Virtual Network               | step2_vnet               | PRIVATE_NETWORK_DEPLOYMENT"
-    "3 | Validate/Create ACR        (ContainerImage/validate-acr.sh)| Validate/Create ACR          | step3_acr                | "
-    "4 | Build Container Image      (ContainerImage/deploy.sh)     | Build Container Image         | step4_image              | "
-    "5 | Azure Container Apps       (proxy/deploy.sh)              | Azure Container Apps          | step5_aca                | "
-    "6 | Private DNS                (DNS/deploy.sh)                | Private DNS                   | step6_dns                | PRIVATE_NETWORK_DEPLOYMENT"
-    "7 | App Configuration          (AppConfiguration/deploy.sh)   | App Configuration             | step7_appconfig          | "
-    "8 | Blob Storage  (optional)   (BlobStorage/deploy.sh)        | Blob Storage                  | step8_blobstorage        | ASYNC_DEPLOYMENT"
-    "9 | Create RequestAPI Function (RequestAPI/create.sh)         | Create RequestAPI Function App| step9_requestapi_create  | ASYNC_DEPLOYMENT"
-    "10| Deploy/Update RequestAPI   (RequestAPI/deploy.sh)         | Deploy/Update RequestAPI      | step10_requestapi_deploy | ASYNC_DEPLOYMENT"
-)
-
-# Returns 0 (enabled) if REQUIRED_VAR is empty or equals "yes"
-step_enabled() {
-    local req_var="${1// /}"
-    [[ -z "${req_var}" ]] && return 0
-    [[ "${!req_var:-no}" == "yes" ]] && return 0
-    return 1
-}
-
-# Parse a STEPS entry into named variables: _num _label _title _fn _req
-parse_step() {
-    local raw="$1"
-    _num="${raw%%|*}";  raw="${raw#*|}"
-    _label="${raw%%|*}"; raw="${raw#*|}"
-    _title="${raw%%|*}"; raw="${raw#*|}"
-    _fn="${raw%%|*}";   raw="${raw#*|}"
-    _req="${raw}"
-    # trim whitespace
-    _num="${_num// /}"; _fn="${_fn// /}"; _req="${_req// /}"
-    _title="${_title#"${_title%%[! ]*}"}"; _title="${_title%"${_title##*[! ]}"}"
-}
-
-print_menu() {
-    clear 2>/dev/null || true
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN} SimpleL7Proxy - Deployment Menu${NC}"
-    echo -e "${GREEN}========================================${NC}"
-
-    local entry _num _label _title _fn _req pad
-    for entry in "${STEPS[@]}"; do
-        parse_step "${entry}"
-        pad=""; [[ ${#_num} -eq 1 ]] && pad=" "
-        if step_enabled "${_req}"; then
-            echo "  ${pad}${_num}) ${_label}"
-        else
-            echo -e "  ${YELLOW}${pad}${_num}) ${_label} [disabled - ${_req}=no]${NC}"
-        fi
-    done
-
-    echo "  q) Quit"
-    echo ""
-}
-
-run_choice() {
-    local choice="$1"
-    local entry _num _label _title _fn _req
-    for entry in "${STEPS[@]}"; do
-        parse_step "${entry}"
-        if [[ "${_num}" == "${choice}" ]]; then
-            if step_enabled "${_req}"; then
-                run_step "Step ${_num}: ${_title}" "${_fn}"
-            else
-                echo -e "${YELLOW}Step ${_num} (${_title}) is disabled because ${_req} is not set to 'yes'.${NC}"
-                sleep 2
-            fi
-            return
-        fi
-    done
-    echo -e "${YELLOW}Invalid option: ${choice}${NC}"; sleep 1
-}
-
-while true; do
-    print_menu
-    read -r -p "Select an option: " choice
-    case "${choice}" in
-        q|Q) echo "Bye."; exit 0 ;;
-        *)   run_choice "${choice}" ;;
-    esac
+while (( $# > 0 )); do
+	case "$1" in
+		validate|what-if|create)
+			if [[ "$operation_set" == true ]]; then
+				printf '%s\n' 'Error: specify only one deployment operation.' "$usage" >&2
+				exit 1
+			fi
+			operation="$1"
+			operation_set=true
+			shift
+			;;
+		--unique-id)
+			if (( $# < 2 )); then
+				printf '%s\n' 'Error: --unique-id requires a value.' "$usage" >&2
+				exit 1
+			fi
+			if [[ -n "$requested_unique_id" ]]; then
+				printf '%s\n' 'Error: specify --unique-id only once.' "$usage" >&2
+				exit 1
+			fi
+			requested_unique_id="$2"
+			shift 2
+			;;
+		*)
+			printf 'Error: unsupported argument "%s".\n%s\n' "$1" "$usage" >&2
+			exit 1
+			;;
+	esac
 done
+
+readonly subscription operation requested_unique_id
+
+if [[ -n "$requested_unique_id" && ! "$requested_unique_id" =~ ^[a-z0-9]{5}$ ]]; then
+	printf '%s\n' 'Error: --unique-id must be exactly five lowercase letters or digits.' "$usage" >&2
+	exit 1
+fi
+
+if ! command -v az >/dev/null 2>&1; then
+	printf '%s\n' 'Error: Azure CLI with Bicep support is required. Install it and sign in before continuing.' >&2
+	exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+	printf '%s\n' 'Error: jq is required to resolve and read parameters.json.' >&2
+	exit 1
+fi
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+
+if [[ ! -f "$script_dir/main.bicep" || ! -f "$script_dir/bootstrap.bicep" || ! -f "$script_dir/parameters.json" ]]; then
+	printf '%s\n' 'Error: main.bicep, bootstrap.bicep, or parameters.json is missing.' >&2
+	printf '%s\n' 'Extract the complete ZIP and keep the Bicep templates, modules, and parameters file beside deploy.sh.' >&2
+	exit 1
+fi
+
+readonly parameters_file="$script_dir/parameters.json"
+readonly unique_placeholder='<UNIQ>'
+
+if grep -qF "$unique_placeholder" "$parameters_file"; then
+	unique_suffix="$requested_unique_id"
+	if [[ -z "$unique_suffix" ]]; then
+		printf -v unique_suffix '%05x' "$(((RANDOM << 5) | (RANDOM & 31)))"
+	fi
+	readonly unique_suffix
+
+	temporary_parameters="$(mktemp "${parameters_file}.XXXXXX")"
+	readonly temporary_parameters
+	trap 'rm -f "$temporary_parameters"' EXIT
+	cp -p "$parameters_file" "$temporary_parameters"
+	if ! jq --arg placeholder "$unique_placeholder" --arg suffix "$unique_suffix" \
+		'walk(if type == "string" then gsub($placeholder; $suffix) else . end)' \
+		"$parameters_file" > "$temporary_parameters"; then
+		printf '%s\n' 'Error: unable to resolve <UNIQ> in parameters.json.' >&2
+		exit 1
+	fi
+	mv "$temporary_parameters" "$parameters_file"
+	trap - EXIT
+	if [[ -n "$requested_unique_id" ]]; then
+		printf 'Using requested deployment suffix: %s\n' "$unique_suffix"
+	else
+		printf 'Generated deployment suffix: %s\n' "$unique_suffix"
+	fi
+elif [[ -n "$requested_unique_id" ]]; then
+	if ! jq -e --arg suffix "$requested_unique_id" '
+		.parameters.settings.value as $settings
+		| [$settings.CONTAINER_APP_RESOURCE_GROUP, $settings.ACR_NAME, $settings.CONTAINER_APP_NAME]
+		| all(.[]; type == "string" and endswith($suffix))
+	' "$parameters_file" >/dev/null; then
+		printf 'Error: parameters.json is already resolved with a different deployment ID; cannot apply --unique-id "%s".\n' "$requested_unique_id" >&2
+		exit 1
+	fi
+	printf 'Reusing requested deployment suffix: %s\n' "$requested_unique_id"
+fi
+
+if grep -qF "$unique_placeholder" "$parameters_file"; then
+	printf '%s\n' 'Error: parameters.json still contains an unresolved <UNIQ> placeholder.' >&2
+	exit 1
+fi
+
+deployment_values=''
+if ! deployment_values="$(jq -er '
+	.parameters.settings.value as $settings
+	| [$settings.LOCATION, $settings.CONTAINER_APP_RESOURCE_GROUP, $settings.ACR_NAME, $settings.CONTAINER_APP_NAME]
+	| if all(.[]; type == "string" and length > 0) then @tsv else error("missing deployment value") end
+' "$parameters_file")"; then
+	printf '%s\n' 'Error: parameters.json is missing a required deployment value.' >&2
+	exit 1
+fi
+readonly deployment_values
+
+IFS=$'\t' read -r location acr_resource_group acr_name container_app_name <<< "$deployment_values"
+readonly location acr_resource_group acr_name container_app_name
+deployment_name="${container_app_name}-bicep"
+bootstrap_deployment_name="${deployment_name}-bootstrap"
+readonly deployment_name bootstrap_deployment_name
+
+printf 'Deployment name: %s\n' "$deployment_name"
+
+if [[ "$operation" == 'create' ]]; then
+	az deployment sub create \
+		--subscription "$subscription" \
+		--name "$bootstrap_deployment_name" \
+		--location "$location" \
+		--template-file "$script_dir/bootstrap.bicep" \
+		--parameters @"$parameters_file"
+
+	az acr import \
+		--subscription "$subscription" \
+		--resource-group "$acr_resource_group" \
+		--name "$acr_name" \
+		--source 'publicnvmacr.azurecr.io/simplel7proxy@sha256:2ebaff3e90fc9162421f08f8095a030627c4aea7046b3da59a8ea7720e4c530f' \
+		--image 'simple-l7-proxy:v2.3.0' \
+		--force
+
+	az acr import --subscription "$subscription" --resource-group "$acr_resource_group" --name "$acr_name" --source 'publicnvmacr.azurecr.io/healthprobe@sha256:e28a0bd8555d97ec800f80cb37201785e4ceb9c783fbedf679de5145e3c689d1' --image 'healthprobe:v2.0.1' --force
+fi
+
+az deployment sub "$operation" \
+	--subscription "$subscription" \
+	--name "$deployment_name" \
+	--location "$location" \
+	--template-file "$script_dir/main.bicep" \
+	--parameters @"$parameters_file"

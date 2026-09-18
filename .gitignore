@@ -7,19 +7,15 @@ launch.json
 deploy.parameters.sh
 appsettings.Development.json
 
-<<<<<<< Updated upstream
-test/QueueBenchmarks/results/
-test/RegressionTests/results/
-src/ChatTester/data/
-*.local.json
-.keys/
-test/chat_tester/artifacts
-=======
-src/ChatTester/data/
-test/RegressionTests/results/
-test/QueueBenchmarks/results/
+src/CompanionApp/data/
+src/CompanionApp/artifacts/
 
->>>>>>> Stashed changes
+test/chat_tester/artifacts
+src/ChatTester/data/
+test/RegressionTests/results/
+test/QueueBenchmarks/results/
+.keys/
+*.local.json
 *.log
 *log.json
 

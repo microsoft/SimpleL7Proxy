@@ -1,0 +1,117 @@
+@namespace CompanionApp.Components.Shared
+
+<div class="config-newhost-grid">
+    @foreach (var setting in Settings)
+    {
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
+            <div class="config-setting-heading">
+                <label class="form-label">@FieldLabel(setting.Name)</label>
+                <ConfigurationHelp Section="LoadBalancing" Topic="@setting.Name" />
+            </div>
+            <ConfigurationExplanation Section="LoadBalancing" Topic="@setting.Name" />
+            @if (ChoicesFor(setting.Name) is { } choices)
+            {
+                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValue(setting, args)">
+                    @if (!string.IsNullOrEmpty(setting.DraftValue) && !choices.Any(choice => string.Equals(choice.Value, setting.DraftValue, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        <option value="@setting.DraftValue">@setting.DraftValue</option>
+                    }
+                    @foreach (var choice in choices)
+                    {
+                        <option value="@choice.Value">@choice.Label</option>
+                    }
+                </select>
+            }
+            else if (IsBoolean(setting.LoadedValue))
+            {
+                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValue(setting, args)">
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                </select>
+            }
+            else
+            {
+                <input class="form-control form-control-sm" type="@InputType(setting.LoadedValue)"
+                       value="@setting.DraftValue" @oninput="args => SetValue(setting, args)" />
+            }
+            @if (setting.IsChanged)
+            {
+                <div class="d-flex align-items-center justify-content-between gap-2 mt-1">
+                    <div class="small text-muted text-break">Current: @DisplayLoadedValue(setting.LoadedValue)</div>
+                    <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button"
+                            title="Discard this edit and restore the current loaded value"
+                            aria-label="@($"Revert {setting.Name} to its loaded value")"
+                            @onclick="() => SetValue(setting, new ChangeEventArgs { Value = setting.LoadedValue })">
+                        <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    // Allowable values match the proxy's stored config tokens; labels are display-only.
+    private static readonly (string Value, string Label)[] ModeChoices =
+    {
+        ("Latency", "latency"),
+        ("TimeToFirstByte", "time to first byte"),
+        ("RoundRobin", "round robin"),
+        ("PriorityGroup", "priority group"),
+        ("Random", "random"),
+    };
+
+    private static readonly (string Value, string Label)[] IterationModeChoices =
+    {
+        ("SinglePass", "single pass"),
+        ("MultiPass", "multiple pass"),
+    };
+
+    private static (string Value, string Label)[]? ChoicesFor(string name) => name.ToLowerInvariant() switch
+    {
+        "mode" => ModeChoices,
+        "iterationmode" => IterationModeChoices,
+        _ => null,
+    };
+
+    // Compact one-line summary of the load-balancing values, shown on the section box and modal header.
+    public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        string.Join(" · ", settings.Select(setting => $"{ShortLabel(setting.Name)} {setting.DraftValue}"));
+
+    private static string ShortLabel(string name) => name.ToLowerInvariant() switch
+    {
+        "mode" => "mode",
+        "iterationmode" => "iteration",
+        "multipass:maxattempts" => "attempts",
+        _ => name.ToLowerInvariant(),
+    };
+
+    private static void SetValue(AppConfigurationScaffoldSetting setting, ChangeEventArgs args) =>
+        setting.DraftValue = args.Value?.ToString() ?? string.Empty;
+
+    private static bool IsBoolean(string value) => bool.TryParse(value, out _);
+
+    private static string InputType(string value) => decimal.TryParse(value, out _) ? "number" : "text";
+
+    private static string DisplayLoadedValue(string value) => string.IsNullOrEmpty(value) ? "(empty)" : value;
+
+    // Splits a PascalCase key into lowercased words (IterationMode -> "iteration mode").
+    private static string FieldLabel(string name)
+    {
+        var builder = new System.Text.StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var character = name[i];
+            if (i > 0 && char.IsUpper(character) && !char.IsUpper(name[i - 1]))
+            {
+                builder.Append(' ');
+            }
+
+            builder.Append(char.ToLowerInvariant(character));
+        }
+
+        return builder.ToString();
+    }
+}

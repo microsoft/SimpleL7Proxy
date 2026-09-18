@@ -231,6 +231,17 @@ Request behavior:
 - Missing `S7P-KEY` header -> `403 Forbidden`.
 - `S7P-KEY` present but value not equal to `ValidateAuthKey1` or `ValidateAuthKey2` -> `403 Forbidden`.
 
+**The two key slots allow callers to migrate to a replacement key without rejecting callers still using the old key.** Either configured key is accepted; callers do not send both. This validates access to the proxy, not authentication from the proxy to a backend.
+
+```text
+Overlap: keep the old key in Key1 and configure the replacement in Key2
+Migrate: move callers to the replacement key after replicas load it
+Retire: clear the old key after callers have migrated
+```
+
+> [!TIP]
+> **A migrated caller gets 403?** Check the header name in `ValidateAuthConfig` and confirm the replica has loaded the replacement key. Keep the overlap until every receiving replica and caller has changed; never log the key while checking.
+
 Example failure response:
 
 ```http

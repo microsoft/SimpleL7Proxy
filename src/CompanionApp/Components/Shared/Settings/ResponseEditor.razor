@@ -1,0 +1,8 @@
+@namespace CompanionApp.Components.Shared
+
+<ConfigurationFields Settings="Settings" OnChanged="OnChanged" />
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+}
