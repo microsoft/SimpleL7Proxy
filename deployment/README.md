@@ -1,109 +1,214 @@
 # Deploy SimpleL7Proxy
 
-Deploys the proxy stack through Bicep templates.
+Deploy the SimpleL7Proxy resources in this bundle to one Azure resource group.
 
-## Prerequisites
+## Before you begin
 
-- Azure CLI with Bicep support, Bash, `jq`, and an Azure sign-in for the target subscription.
-- Subscription Contributor plus role-assignment authority, or subscription Owner.
-- Permission to create the selected Azure Container Registry and import images into it.
-- For async mode, the selected Service Bus and Cosmos DB resources must already exist. Publish RequestAPI code separately after infrastructure deployment.
+Make sure you have:
 
-## Deploy
+- Azure CLI with Bicep support
+- Bash and `jq`
+- An Azure sign-in for the target subscription
+- Subscription Contributor and permission to assign roles, or subscription Owner
+- Permission to create an Azure Container Registry and import images into it
 
-Back up the parameters.json file and edit any relevant parameters to change the default behavior. This version deploys every resource it creates into the `rg-myapp-prod-<UNIQ>` resource group. The current configuration creates these resources:
-`Application Insights`, `Azure App Configuration`, `Azure Container App`, 
-`Azure Container Registry`, `Azure Container Apps Environment`,
-`Log Analytics Workspace`, `Resource group`
+For async mode, create the selected Service Bus and Cosmos DB resources before you deploy. Publish the RequestAPI code separately after the infrastructure deployment.
 
-<img src="azure-deployed.png" alt="Resources deployed to the Azure resource group" width="600">
+## Review the deployment
 
-Use its included deploy.sh from the extracted directory; no repository checkout is required. Replace SUBSCRIPTION_ID with the target subscription ID:
+This bundle places every resource it creates in `rg-myapp-prod-<UNIQ>`.
 
-```bash
-bash deploy.sh SUBSCRIPTION_ID validate
-bash deploy.sh SUBSCRIPTION_ID what-if
-bash deploy.sh SUBSCRIPTION_ID create
-```
+<table>
+    <thead>
+        <tr>
+            <th align="left">Resources created</th>
+            <th align="left">Azure resource group</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td valign="top">
+                <ul>
+                    <li>Application Insights</li>
+                    <li>Azure App Configuration</li>
+                    <li>Azure Container App</li>
+                    <li>Azure Container Registry</li>
+                    <li>Azure Container Apps environment</li>
+                    <li>Log Analytics workspace</li>
+                    <li>Resource group</li>
+                </ul>
+            </td>
+            <td valign="top">
+                <img src="azure-deployed.png" alt="Resources deployed to the Azure resource group" width="600">
+            </td>
+        </tr>
+    </tbody>
+</table>
 
-To select the deployment ID instead of generating one, add `--unique-id` to the first command. The ID must contain exactly five lowercase letters or digits because it is included in every generated resource name:
+| Setting | Default |
+| --- | --- |
+| Resource group | `rg-myapp-prod-<UNIQ>` |
+| Location | `eastus2` |
+| Deployment ID | Random five-character lowercase hexadecimal value |
+| Operation | `validate` |
+
+## Deploy the proxy
+
+**Run every command from the same extracted directory.** You don't need a repository checkout.
+
+1. Back up `parameters.json`, then update any settings you want to change.
+2. Replace `SUBSCRIPTION_ID` with the target subscription ID and validate the deployment.
+
+     ```bash
+     bash deploy.sh SUBSCRIPTION_ID validate
+     ```
+
+3. Preview the changes.
+
+     ```bash
+     bash deploy.sh SUBSCRIPTION_ID what-if
+     ```
+
+4. Review the preview, then create the resources.
+
+     ```bash
+     bash deploy.sh SUBSCRIPTION_ID create
+     ```
+
+> [!NOTE]
+> If you omit the operation, `deploy.sh` uses `validate`.
+
+### Choose a deployment ID
+
+To choose the ID instead of generating one, add `--unique-id` to the first command:
 
 ```bash
 bash deploy.sh SUBSCRIPTION_ID validate --unique-id xq9vs
 ```
 
-On the first run, deploy.sh uses the specified ID or generates one random five-character lowercase hexadecimal suffix, then replaces every `<UNIQ>` placeholder in parameters.json before contacting Azure. The script prints the resolved deployment name. Run validate, what-if, and create from the same extracted directory so subsequent runs reuse the resolved names. You may repeat `--unique-id` with the same ID on later operations; a different ID is rejected after parameters.json is resolved.
+The ID must contain exactly five lowercase letters or digits. It becomes part of every generated resource name.
 
-Validation and what-if contact Azure without importing images. Create provisions the resource group and registry, imports the pinned proxy and optional HealthProbe releases, and deploys the remaining infrastructure. The application stage first creates the Container App with the pinned public images to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copies in ACR. The script defaults to validate when its second argument is omitted.
+On its first run, `deploy.sh` replaces each `<UNIQ>` placeholder in `parameters.json` with the specified ID or a generated value. The change is saved in place before the script contacts Azure.
 
-The deployment creates the App Configuration store and grants the proxy managed identity App Configuration Data Reader. It does not write configuration settings. After the deployment succeeds, follow the Companion App's [Update Azure App Configuration](../src/CompanionApp/configuration.md#configuration-prerequisites) guide. Ensure the identity running CompanionApp has App Configuration Data Owner on the store, then open **Admin > Proxy Configuration**, connect to the created store, and create or duplicate and publish a configuration for the selected label.
+Use the same directory for `validate`, `what-if`, and `create` so each operation uses the same names. You can repeat `--unique-id` with the same ID. After `parameters.json` is resolved, the script rejects a different ID.
 
-## Check after leaving the terminal
+### What each operation does
 
-**Check the deployment's status before running create again.** Once Azure accepts the deployment, it runs server-side even if Cloud Shell or your terminal disconnects. Reopen Cloud Shell or another Azure CLI terminal signed into the same tenant with access to the original subscription.
+| Operation | Result |
+| --- | --- |
+| `validate` | Validates the application deployment. It doesn't import images. |
+| `what-if` | Previews the application changes. It doesn't import images. |
+| `create` | Creates the resource group and registry, imports the pinned images, and deploys the remaining infrastructure. |
 
-Shell variables must be set again in a new session. Replace SUBSCRIPTION_ID with the subscription used for create and `<UNIQ>` with the generated suffix stored in parameters.json. These read-only commands work from any directory without the ZIP, Bicep, or repository checkout:
+During `create`, the script first creates the Container App with the pinned public images. This establishes its system-assigned identity. The script grants that identity its runtime roles, then updates the app to use the images imported into Azure Container Registry.
+
+## Manage App Configuration
+
+Use CompanionApp to manage the proxy settings stored in Azure App Configuration. In **Config > Proxy Configuration**, you can create or duplicate labeled configurations, edit `Warm:` and `Cold:` settings, review draft changes, and publish them to the store. Changes remain drafts until you publish them.
+
+**The deployment creates the store, but it doesn't publish proxy settings.** It grants the proxy managed identity App Configuration Data Reader so the proxy can load published settings. CompanionApp uses a separate identity with App Configuration Data Owner to manage them.
+
+After the deployment succeeds:
+
+1. Follow [Set up CompanionApp](../src/CompanionApp/readme.md#set-up-companionapp) to configure, sign in, and start the app.
+2. Grant the identity running CompanionApp the App Configuration Data Owner role on the new store.
+3. Follow [Update Azure App Configuration](../src/CompanionApp/configuration.md#configuration-prerequisites).
+4. In CompanionApp, open **Config > Proxy Configuration** (`/admin/configuration`).
+5. Connect to the new store, then create or duplicate a configuration for the selected label.
+6. Publish the configuration.
+
+## Verify the deployment
+
+- [ ] The deployment state is `Succeeded`.
+- [ ] The `proxyUrl` output is available. For a private deployment, verify it from a network that can reach the proxy.
+- [ ] The active Container App revision uses the expected proxy and optional HealthProbe images.
+- [ ] The selected App Configuration label contains the expected proxy settings.
+- [ ] Readiness returns HTTP 200 after you add a backend in Proxy Configuration.
+- [ ] A request reaches the configured backend.
+
+## Check a deployment after disconnecting
+
+**Check the existing deployment before you run `create` again.** Azure continues the deployment after Cloud Shell or your terminal disconnects.
+
+Open a new terminal, sign in to the same tenant, and select the original subscription. Set the shell variables again. Replace `<UNIQ>` with the ID saved in `parameters.json`:
 
 ```bash
 subscription='SUBSCRIPTION_ID'
 deployment='ca-myapp-proxy-<UNIQ>-bicep'
 az deployment sub show --subscription "$subscription" --name "$deployment" \
-    --query '{State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
+        --query '{State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
 ```
 
-| State | What to do |
+These read-only commands work from any directory. You don't need the bundle, Bicep, or a repository checkout.
+
+| State | Next step |
 | --- | --- |
-| Accepted, Running, or another nonterminal state | Check again later. Do not submit another create while this deployment is active. |
-| Succeeded | Retrieve proxyUrl below, then verify readiness and a backend request. |
-| Failed or Canceled | Inspect the error below and resolve the cause before retrying. Resources already created remain; a failed deployment is not an automatic rollback. |
+| `Accepted`, `Running`, or another nonterminal state | Wait, then check again. Don't submit another `create` operation. |
+| `Succeeded` | Retrieve `proxyUrl`, then verify readiness and a backend request. |
+| `Failed` or `Canceled` | Inspect the error and resolve it before you retry. Azure doesn't automatically remove resources from a failed deployment. |
 
-To inspect a failure, including nested deployment errors:
+### Inspect a failure
 
-```bash
-az deployment sub show --subscription "$subscription" --name "$deployment" \
-    --query properties.error --output json
-```
-
-To retrieve the proxy URL after Succeeded:
+Include nested deployment errors in the output:
 
 ```bash
 az deployment sub show --subscription "$subscription" --name "$deployment" \
-    --query properties.outputs.proxyUrl.value --output tsv
+        --query properties.error --output json
 ```
 
-If the name is unavailable or Azure reports DeploymentNotFound, confirm the tenant and subscription, then identify the original deployment by name and timestamp:
+### Retrieve the proxy URL
+
+After the deployment succeeds, run:
+
+```bash
+az deployment sub show --subscription "$subscription" --name "$deployment" \
+        --query properties.outputs.proxyUrl.value --output tsv
+```
+
+### Find the deployment
+
+If Azure returns `DeploymentNotFound`, confirm the tenant and subscription. Then list deployments by name and timestamp:
 
 ```bash
 az deployment sub list --subscription "$subscription" \
-    --query '[].{Name:name,State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
+        --query '[].{Name:name,State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
 ```
 
-A missing deployment record does not establish that no resources were created. In the Azure portal, open **Subscriptions > your subscription > Deployments**, select the original deployment, and inspect its operation details. Follow failed nested deployments into their resource groups when more detail is needed.
+A missing deployment record doesn't prove that no resources were created. In the Azure portal, open **Subscriptions > your subscription > Deployments** and inspect the original deployment. Open failed nested deployments in their resource groups for more detail.
 
-**Retry only after a terminal failure and after resolving its cause.** Return to the original extracted ZIP directory, run `bash deploy.sh "$subscription" what-if`, review the changes, then run `bash deploy.sh "$subscription" create`. Keep the same subscription, resource names, and bundle. Do not regenerate a setup or delete partially created resources just to check status or reconnect. The retry reapplies the template; it does not resume the old shell process.
+### Retry a failed deployment
 
-## Bundle Contents
+> [!WARNING]
+> Retry only after the deployment reaches a terminal failure and you resolve its cause.
 
-- bootstrap.bicep creates the selected resource groups and Azure Container Registry before image import.
-- main.bicep creates or updates the selected infrastructure, enables the proxy Container App's system-assigned identity, grants it AcrPull and App Configuration Data Reader, and deploys from the imported ACR image tags.
-- modules/*.bicep are the static resource templates consumed by the two entry points.
-- parameters.json contains the settings selected in Deployment Setup. On first use, deploy.sh replaces its `<UNIQ>` placeholders in place; both Bicep entry points then consume the resolved file.
-- deploy.sh resolves the deployment suffix from `--unique-id` or generates one, then imports the proxy and optional HealthProbe from publicnvmacr by pinned digest into the selected ACR. It does not build local source code.
-- Regenerate the bundle to change resource names, image repository names, topology, or other setup values consistently.
+Return to the original extracted directory. Use the same subscription, resource names, and bundle:
 
-## Verify
+```bash
+bash deploy.sh "$subscription" what-if
+bash deploy.sh "$subscription" create
+```
 
-- Confirm the deployment succeeds and inspect its proxyUrl output. Private-network deployments require access to that network.
-- Confirm the container revision runs the expected proxy and optional HealthProbe images.
-- In the Companion App, confirm the selected App Configuration label contains the expected proxy settings.
-- After adding a backend in Proxy Configuration, confirm readiness returns HTTP 200 and a request reaches that backend.
+Review the preview before you create. Don't regenerate the setup or delete partially created resources to check status or reconnect. A retry reapplies the template; it doesn't resume the original shell process.
 
-## Troubleshoot
+## Bundle contents
 
-- Image import failure: confirm the deploying identity can import into the selected ACR and can reach the pinned public source image.
-- Image pull failure: confirm the imported tag exists and the proxy managed identity has AcrPull on the selected ACR.
-- Role-assignment failure: check the deploying identity's role-assignment authority and applicable conditions.
-- App Configuration 403 in the Companion App: grant its signed-in identity App Configuration Data Owner on the store and allow time for the assignment to take effect.
-- Missing async resource: check the existing Service Bus and Cosmos resource groups, names, and data resources.
+- `bootstrap.bicep` creates the selected resource groups and Azure Container Registry before image import.
+- `main.bicep` creates or updates the infrastructure, enables the Container App's system-assigned identity, grants AcrPull and App Configuration Data Reader, and deploys the imported image tags.
+- `modules/*.bicep` contains the resource templates used by both entry points.
+- `parameters.json` contains the selected deployment settings. On first use, `deploy.sh` replaces its `<UNIQ>` placeholders in place. Both Bicep entry points use the resolved file.
+- `deploy.sh` resolves the ID, imports the pinned proxy and optional HealthProbe releases from `publicnvmacr`, and runs the selected operation. It doesn't build local source code.
 
-Generation does not verify Azure permissions, quota, resource-name availability, or backend connectivity.
+Regenerate the bundle to change resource names, image repository names, topology, or other setup values consistently.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Image import fails | Confirm the deploying identity can import into the selected registry and reach the pinned public source image. |
+| The Container App can't pull an image | Confirm the imported tag exists and the proxy managed identity has AcrPull on the registry. |
+| A role assignment fails | Confirm the deploying identity can assign roles and meets any applicable conditions. |
+| CompanionApp returns App Configuration `403` | Grant its signed-in identity App Configuration Data Owner on the store, then allow time for the assignment to take effect. |
+| An async resource is missing | Confirm the existing Service Bus and Cosmos DB resource groups, names, and data resources. |
+
+> [!NOTE]
+> Bundle generation doesn't verify Azure permissions, quota, resource-name availability, or backend connectivity.
