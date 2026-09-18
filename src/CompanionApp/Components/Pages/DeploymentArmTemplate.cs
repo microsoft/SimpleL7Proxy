@@ -12,11 +12,15 @@ public sealed class DeploymentArmTemplate {
     private readonly Dictionary<string, string> _deploymentIds = new(StringComparer.Ordinal);
     private readonly string _location;
     private readonly string _stage;
+    private readonly string _proxyImage;
+    private readonly string _healthImage;
 
-    private DeploymentArmTemplate(IReadOnlyDictionary<string, string> values, string stage) {
+    private DeploymentArmTemplate(IReadOnlyDictionary<string, string> values, string stage, string proxyImage = "", string healthImage = "") {
         _values = values;
         _location = Value("LOCATION");
         _stage = stage;
+        _proxyImage = proxyImage;
+        _healthImage = healthImage;
     }
 
     /// <summary>Creates a portal-loadable template without contacting Azure.</summary>
@@ -24,6 +28,16 @@ public sealed class DeploymentArmTemplate {
         if (stage is not ("all" or "bootstrap" or "application")) throw new ArgumentException("Unknown deployment stage.", nameof(stage));
         var builder = new DeploymentArmTemplate(values, stage);
         return builder.Build(proxyVersion, healthVersion, defaults).ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>Creates infrastructure for public images without creating a registry or assigning registry access.</summary>
+    public static string GeneratePublicImages(IReadOnlyDictionary<string, string> values, string proxyImage, string healthImage, IReadOnlyDictionary<string, string> defaults) {
+        ArgumentException.ThrowIfNullOrWhiteSpace(proxyImage);
+        if (values["HEALTHPROBE_TYPE"] == "sidecar" && string.IsNullOrWhiteSpace(healthImage)) {
+            throw new InvalidOperationException("Provide a public HealthProbe image for the selected sidecar, or select internal health probes.");
+        }
+        var builder = new DeploymentArmTemplate(values, "all", proxyImage, healthImage);
+        return builder.Build("", "", defaults).ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
     private JsonObject Build(string proxyVersion, string healthVersion, IReadOnlyDictionary<string, string> defaults) {
@@ -41,7 +55,7 @@ public sealed class DeploymentArmTemplate {
             });
         }
 
-        if (_stage != "application") {
+        if (_stage != "application" && _proxyImage.Length == 0) {
             var registry = Resource("Microsoft.ContainerRegistry/registries", "2023-07-01", Value("ACR_NAME"), new JsonObject {
                 ["adminUserEnabled"] = false, ["publicNetworkAccess"] = "Enabled"
             }, _location);
@@ -52,8 +66,16 @@ public sealed class DeploymentArmTemplate {
             if (Enabled("PRIVATE_NETWORK_DEPLOYMENT")) AddNetwork();
             AddFoundation();
             if (Enabled("ASYNC_DEPLOYMENT")) AddAsync();
-            AddConfigurationValues(defaults);
-            AddContainerApp(proxyVersion, healthVersion);
+            if (_proxyImage.Length == 0) {
+                AddContainerApp(proxyVersion, healthVersion, false, "container-app-bootstrap", "foundation", "configuration");
+                AddProxyAccess("container-app-bootstrap");
+                var accessDependencies = new List<string> { "registry-access", "configuration-access" };
+                if (Enabled("ASYNC_DEPLOYMENT")) accessDependencies.AddRange(["blob-access", "service-bus-access"]);
+                AddContainerApp(proxyVersion, healthVersion, true, "container-app", [.. accessDependencies]);
+            } else {
+                AddContainerApp(proxyVersion, healthVersion, false, "container-app", "foundation", "configuration");
+                AddProxyAccess("container-app");
+            }
             if (Enabled("PRIVATE_NETWORK_DEPLOYMENT")) AddDns();
         }
         foreach (var deployment in _deployments) resourceGroups.Add(deployment!.DeepClone());
@@ -66,22 +88,19 @@ public sealed class DeploymentArmTemplate {
                 ? "SimpleL7Proxy application resources. Deploy through Azure portal Custom deployment after bootstrap and image publishing, in the same subscription. Existing resource groups and ACR are not recreated."
                 : "SimpleL7Proxy subscription-scoped infrastructure deployment. Resource groups are created at the root with direct dependencies from embedded service templates. Deploy through Azure portal Custom deployment.",
             ["prerequisites"] = _stage == "bootstrap" ? "Deploy first with resource-group and registry creation permissions. Then publish images before deploying the application template."
-                : "Resource groups and ACR must exist for the application stage. Publish the selected container images before application deployment. RequestAPI application code is published separately. Existing Service Bus and Cosmos DB dependencies are not created. The deployer needs role-assignment permissions and App Configuration Data Owner on the target group or subscription.",
+                : "Resource groups and ACR must exist for the application stage. Publish the selected container images before application deployment. RequestAPI application code is published separately. Existing Service Bus and Cosmos DB dependencies are not created. The deployer needs role-assignment permissions. Populate App Configuration through the Companion App after deployment.",
             ["imageBuild"] = new JsonObject { ["method"] = Value("BUILD_METHOD"), ["dockerfile"] = Literal(Value("DOCKERFILE_PATH")), ["execution"] = "External prerequisite; ARM does not build local source code." }
         };
+        if (_proxyImage.Length > 0) {
+            template["metadata"]!["prerequisites"] = "Selected images must allow anonymous pulls and remain reachable from Container Apps. No registry is created and no images are built or imported. RequestAPI application code is published separately. Existing Service Bus and Cosmos DB dependencies are not created. The deployer needs role-assignment permissions. Populate App Configuration through the Companion App after deployment.";
+            template["metadata"]!["imageBuild"] = new JsonObject { ["method"] = "public", ["execution"] = "Container Apps pulls the selected public images directly." };
+        }
         return template;
     }
 
     private void AddFoundation() {
         var appGroup = Value("CONTAINER_APP_RESOURCE_GROUP");
-        var identityName = Value("CONTAINER_APP_NAME") + "-identity";
-        var identityId = Id(appGroup, "Microsoft.ManagedIdentity/userAssignedIdentities", identityName);
-        var registryId = Id(appGroup, "Microsoft.ContainerRegistry/registries", Value("ACR_NAME"));
-        JsonArray resources = [
-            Resource("Microsoft.ManagedIdentity/userAssignedIdentities", "2023-01-31", identityName, new JsonObject(), _location)
-        ];
-        resources.Add(Role(registryId, identityId, "7f951dda-4ed3-4680-a7ca-43fe172d538d", true));
-        resources[1]!["dependsOn"] = Strings($"[{identityId}]");
+        JsonArray resources = [];
         var environment = Resource("Microsoft.App/managedEnvironments", "2024-03-01", Value("ENVIRONMENT_NAME"), new JsonObject {
             ["workloadProfiles"] = new JsonArray(new JsonObject { ["name"] = "Consumption", ["workloadProfileType"] = "Consumption" })
         }, _location);
@@ -112,20 +131,17 @@ public sealed class DeploymentArmTemplate {
             };
         }
         resources.Add(environment);
-        AddDeployment("foundation", appGroup, resources, [..(_stage == "all" ? new[] { "registry" } : []), ..(Enabled("PRIVATE_NETWORK_DEPLOYMENT") ? new[] { "network" } : [])]);
+        AddDeployment("foundation", appGroup, resources, [..(_stage == "all" && _proxyImage.Length == 0 ? new[] { "registry" } : []), ..(Enabled("PRIVATE_NETWORK_DEPLOYMENT") ? new[] { "network" } : [])]);
         var config = Resource("Microsoft.AppConfiguration/configurationStores", "2024-05-01", Value("APPCONFIG_NAME"), new JsonObject {
             ["disableLocalAuth"] = true, ["publicNetworkAccess"] = "Enabled",
             ["dataPlaneProxy"] = new JsonObject { ["authenticationMode"] = "Pass-through" }
         }, _location);
         config["sku"] = new JsonObject { ["name"] = Value("APPCONFIG_SKU") };
-        var configId = Id(Value("APPCONFIG_RESOURCE_GROUP"), "Microsoft.AppConfiguration/configurationStores", Value("APPCONFIG_NAME"));
-        AddDeployment("configuration", Value("APPCONFIG_RESOURCE_GROUP"), new JsonArray(config,
-            Role(configId, identityId, "516239f1-63e1-4d78-a4de-a74fb236a071", false)), "foundation");
+        AddDeployment("configuration", Value("APPCONFIG_RESOURCE_GROUP"), new JsonArray(config), "foundation");
     }
 
-    private void AddContainerApp(string proxyVersion, string healthVersion) {
+    private void AddContainerApp(string proxyVersion, string healthVersion, bool usePrivateRegistry, string deploymentName, params string[] dependencies) {
         var appGroup = Value("CONTAINER_APP_RESOURCE_GROUP");
-        var identityId = Id(appGroup, "Microsoft.ManagedIdentity/userAssignedIdentities", Value("CONTAINER_APP_NAME") + "-identity");
         var configId = Id(Value("APPCONFIG_RESOURCE_GROUP"), "Microsoft.AppConfiguration/configurationStores", Value("APPCONFIG_NAME"));
         var registryId = Id(appGroup, "Microsoft.ContainerRegistry/registries", Value("ACR_NAME"));
         var registry = $"reference({registryId}, '2023-07-01').loginServer";
@@ -133,10 +149,7 @@ public sealed class DeploymentArmTemplate {
         var healthTag = string.IsNullOrWhiteSpace(Value("HEALTHPROBE_VERSION_OVERRIDE")) ? healthVersion : Value("HEALTHPROBE_VERSION_OVERRIDE");
         if (!proxyTag.StartsWith('v')) proxyTag = "v" + proxyTag;
         if (!healthTag.StartsWith('v')) healthTag = "v" + healthTag;
-        JsonArray env = [
-            Setting("Host1", Literal(Value("HOST1"))), Setting("HealthProbeSidecar", SidecarSetting()),
-            Setting("Port", Value("WEB_PORT")), Setting("AZURE_CLIENT_ID", $"[reference({identityId}, '2023-01-31').clientId]")
-        ];
+        JsonArray env = [Setting("HealthProbeSidecar", SidecarSetting())];
         foreach (var setting in RuntimeConnections()) env.Add(Setting(setting.Key, setting.Value));
         if (Enabled("UPDATE_CONTAINER_APP_ENV")) {
             env.Add(Setting("AZURE_APPCONFIG_ENDPOINT", $"[reference({configId}, '2024-05-01').endpoint]"));
@@ -144,12 +157,16 @@ public sealed class DeploymentArmTemplate {
             env.Add(Setting("AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS", Value("AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS")));
         }
         JsonArray containers = [new JsonObject {
-            ["name"] = "proxy", ["image"] = $"[concat({registry}, '/', {Quote(Value("PROXY_IMAGE_NAME"))}, ':', {Quote(proxyTag)})]",
+            ["name"] = "proxy", ["image"] = _proxyImage.Length > 0 ? Literal(_proxyImage)
+                : usePrivateRegistry ? $"[concat({registry}, '/', {Quote(Value("PROXY_IMAGE_NAME"))}, ':', {Quote(proxyTag)})]"
+                : DeploymentBicepBundle.ProxyImage,
             ["env"] = env, ["resources"] = new JsonObject { ["cpu"] = Number("WEB_CPU"), ["memory"] = Value("WEB_MEMORY") + "Gi" }
         }];
         if (Value("HEALTHPROBE_TYPE") == "sidecar") {
             containers.Add(new JsonObject {
-                ["name"] = "health", ["image"] = $"[concat({registry}, '/', {Quote(Value("HEALTH_IMAGE_NAME"))}, ':', {Quote(healthTag)})]",
+                ["name"] = "health", ["image"] = _proxyImage.Length > 0 ? Literal(_healthImage)
+                    : usePrivateRegistry ? $"[concat({registry}, '/', {Quote(Value("HEALTH_IMAGE_NAME"))}, ':', {Quote(healthTag)})]"
+                    : DeploymentBicepBundle.HealthProbeImage,
                 ["env"] = new JsonArray(Setting("HEALTHPROBE_PORT", Value("HEALTH_PORT"))),
                 ["resources"] = new JsonObject { ["cpu"] = Number("HEALTH_CPU"), ["memory"] = Value("HEALTH_MEMORY") + "Gi" },
                 ["probes"] = new JsonArray(Probe("Liveness", "/liveness"), Probe("Readiness", "/readiness"), Probe("Startup", "/startup"))
@@ -160,7 +177,6 @@ public sealed class DeploymentArmTemplate {
             ["workloadProfileName"] = "Consumption",
             ["configuration"] = new JsonObject {
                 ["activeRevisionsMode"] = Value("REVISION_MODE"),
-                ["registries"] = new JsonArray(new JsonObject { ["server"] = $"[{registry}]", ["identity"] = $"[{identityId}]" }),
                 ["ingress"] = new JsonObject {
                     ["external"] = Value("INGRESS_TYPE") == "external", ["targetPort"] = Integer("WEB_PORT"),
                     ["transport"] = "auto", ["allowInsecure"] = !Enabled("ENABLE_HTTPS"),
@@ -177,10 +193,45 @@ public sealed class DeploymentArmTemplate {
                 }
             }
         }, _location);
-        app["identity"] = new JsonObject {
-            ["type"] = "UserAssigned", ["userAssignedIdentities"] = new JsonObject { [$"[{identityId}]"] = new JsonObject() }
+        app["identity"] = new JsonObject { ["type"] = "SystemAssigned" };
+        if (usePrivateRegistry) app["properties"]!["configuration"]!["registries"] = new JsonArray(new JsonObject { ["server"] = $"[{registry}]", ["identity"] = "system" });
+        AddDeployment(deploymentName, appGroup, new JsonArray(app), dependencies);
+    }
+
+    private void AddProxyAccess(string appDeploymentName) {
+        var appGroup = Value("CONTAINER_APP_RESOURCE_GROUP");
+        var appId = Id(appGroup, "Microsoft.App/containerApps", Value("CONTAINER_APP_NAME"));
+        if (_proxyImage.Length == 0) {
+            var registryId = Id(appGroup, "Microsoft.ContainerRegistry/registries", Value("ACR_NAME"));
+            AddDeployment("registry-access", appGroup,
+                new JsonArray(SystemRole(registryId, appId, "7f951dda-4ed3-4680-a7ca-43fe172d538d")), appDeploymentName);
+        }
+        var configId = Id(Value("APPCONFIG_RESOURCE_GROUP"), "Microsoft.AppConfiguration/configurationStores", Value("APPCONFIG_NAME"));
+        AddDeployment("configuration-access", Value("APPCONFIG_RESOURCE_GROUP"),
+            new JsonArray(SystemRole(configId, appId, "516239f1-63e1-4d78-a4de-a74fb236a071")), appDeploymentName);
+        if (!Enabled("ASYNC_DEPLOYMENT")) return;
+
+        var blobId = Id(Value("STORAGE_RESOURCE_GROUP"), "Microsoft.Storage/storageAccounts", Value("STORAGE_ACCOUNT_NAME"));
+        var blobRole = Value("CA_BLOB_ROLE") switch {
+            "Storage Blob Data Contributor" => "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+            "Storage Blob Data Owner" => "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
+            "Storage Blob Data Reader" => "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1",
+            var role when Guid.TryParse(role, out _) => role,
+            _ => throw new InvalidOperationException("For ARM export, enter a built-in Storage Blob Data role name or a role definition GUID in CA_BLOB_ROLE.")
         };
-        AddDeployment("container-app", appGroup, new JsonArray(app), "foundation", "configuration-values");
+        AddDeployment("blob-access", Value("STORAGE_RESOURCE_GROUP"),
+            new JsonArray(SystemRole(blobId, appId, blobRole)), "blob-storage", appDeploymentName);
+
+        var requestIdentityId = Id(Value("REQUESTAPI_RESOURCE_GROUP"), "Microsoft.ManagedIdentity/userAssignedIdentities", Value("REQUESTAPI_FUNCTION_APP") + "-identity");
+        var serviceBusId = $"resourceId(parameters('serviceBusResourceGroup'), 'Microsoft.ServiceBus/namespaces', {Quote(Value("REQUESTAPI_SERVICEBUS_NAMESPACE"))})";
+        var busRoles = new JsonArray();
+        foreach (var role in new[] { "4f6d3b9b-027b-4f4c-9142-0e9d2f14d0af", "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39" }) {
+            var assignment = Role(serviceBusId, requestIdentityId, role, false);
+            assignment.Remove("dependsOn");
+            busRoles.Add(assignment);
+        }
+        busRoles.Add(SystemRole(serviceBusId, appId, "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39"));
+        AddDeployment("service-bus-access", "[parameters('serviceBusResourceGroup')]", busRoles, "request-api", appDeploymentName);
     }
 
     private string SidecarSetting() => $"Enabled={(Value("HEALTHPROBE_TYPE") == "sidecar" ? "true" : "false")};url=http://localhost:{Value("HEALTH_PORT")}";
@@ -200,35 +251,6 @@ public sealed class DeploymentArmTemplate {
             settings["RequestAPIBaseUri"] = $"[concat('https://', reference({functionId}, '2024-04-01').defaultHostName, '/api/')]";
         }
         return settings;
-    }
-
-    private void AddConfigurationValues(IReadOnlyDictionary<string, string> defaults) {
-        var values = defaults.ToDictionary(entry => entry.Key, entry => Literal(entry.Value), StringComparer.Ordinal);
-        values["Warm:Host1"] = Literal(Value("HOST1"));
-        values["Warm:HealthProbe:Sidecar"] = SidecarSetting();
-        values["Cold:Server:Port"] = Value("WEB_PORT");
-        values["Warm:Sentinel"] = "1";
-        values["RefreshSeconds"] = Value("AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS");
-        foreach (var setting in RuntimeConnections()) {
-            var key = setting.Key switch {
-                "APPINSIGHTS_CONNECTIONSTRING" => "Cold:Logging:AppInsightsConnectionString",
-                "AsyncModeEnabled" => "Cold:Async:Enabled",
-                "AsyncBlobStorageConfig" => "Cold:Async:Storage:BlobConfig",
-                "AsyncSBConfig" => "Cold:Async:ServiceBus:Config",
-                "RequestAPIBaseUri" => "Cold:Async:RequestAPIBaseUri",
-                _ => throw new InvalidOperationException("Unmapped runtime configuration setting.")
-            };
-            values[key] = setting.Value;
-        }
-        var resources = new JsonArray();
-        foreach (var entry in values.OrderBy(entry => entry.Key, StringComparer.Ordinal)) {
-            var key = Uri.EscapeDataString(entry.Key).Replace("~", "~7E", StringComparison.Ordinal).Replace('%', '~');
-            var label = Uri.EscapeDataString(Value("APPCONFIG_LABEL")).Replace("~", "~7E", StringComparison.Ordinal).Replace('%', '~');
-            resources.Add(Resource("Microsoft.AppConfiguration/configurationStores/keyValues", "2024-05-01", Value("APPCONFIG_NAME") + "/" + key + "$" + label,
-                new JsonObject { ["value"] = entry.Value, ["contentType"] = "text/plain" }));
-        }
-        AddDeployment("configuration-values", Value("APPCONFIG_RESOURCE_GROUP"), resources,
-            Enabled("ASYNC_DEPLOYMENT") ? ["configuration", "blob-storage", "request-api", "service-bus-access", "cosmos-access"] : ["configuration"]);
     }
 
     private JsonObject Probe(string type, string path) => new() {
@@ -261,19 +283,10 @@ public sealed class DeploymentArmTemplate {
         if (Enabled("PRIVATE_NETWORK_DEPLOYMENT") && Value("REQUESTAPI_LOCATION") != _location) {
             throw new InvalidOperationException("RequestAPI must use the common location when integrated with the selected virtual network.");
         }
-        var appGroup = Value("CONTAINER_APP_RESOURCE_GROUP");
-        var proxyIdentityId = Id(appGroup, "Microsoft.ManagedIdentity/userAssignedIdentities", Value("CONTAINER_APP_NAME") + "-identity");
         var blobGroup = Value("STORAGE_RESOURCE_GROUP");
         var blobName = Value("STORAGE_ACCOUNT_NAME");
         var blobId = Id(blobGroup, "Microsoft.Storage/storageAccounts", blobName);
-        var blobRole = Value("CA_BLOB_ROLE") switch {
-            "Storage Blob Data Contributor" => "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-            "Storage Blob Data Owner" => "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
-            "Storage Blob Data Reader" => "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1",
-            var role when Guid.TryParse(role, out _) => role,
-            _ => throw new InvalidOperationException("For ARM export, enter a built-in Storage Blob Data role name or a role definition GUID in CA_BLOB_ROLE.")
-        };
-        JsonArray blobs = [Storage(blobName, Value("STORAGE_SKU"), _location), Role(blobId, proxyIdentityId, blobRole, false)];
+        JsonArray blobs = [Storage(blobName, Value("STORAGE_SKU"), _location)];
         if (Enabled("CREATE_CONTAINERS")) {
             foreach (var container in Value("BLOB_CONTAINERS").Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal)) {
                 blobs.Add(BlobContainer(blobGroup, blobName, container));
@@ -343,16 +356,6 @@ public sealed class DeploymentArmTemplate {
         functionResources.Add(function);
         AddDeployment("request-api", group, functionResources, "foundation");
 
-        var busRoles = new JsonArray();
-        foreach (var role in new[] { "4f6d3b9b-027b-4f4c-9142-0e9d2f14d0af", "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39" }) {
-            var assignment = Role(serviceBusId, identityId, role, false);
-            assignment.Remove("dependsOn");
-            busRoles.Add(assignment);
-        }
-        var proxySender = Role(serviceBusId, proxyIdentityId, "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39", false);
-        proxySender.Remove("dependsOn");
-        busRoles.Add(proxySender);
-        AddDeployment("service-bus-access", "[parameters('serviceBusResourceGroup')]", busRoles, "request-api");
         var cosmosRole = Resource("Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments", "2024-05-15", "cosmos-access", new JsonObject {
             ["roleDefinitionId"] = $"[concat({cosmosId}, '/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002')]",
             ["principalId"] = $"[reference({identityId}, '2023-01-31').principalId]", ["scope"] = $"[{cosmosId}]"
@@ -481,6 +484,15 @@ public sealed class DeploymentArmTemplate {
             }
         };
     }
+
+    private static JsonObject SystemRole(string scopeId, string appId, string roleId) => new() {
+        ["type"] = "Microsoft.Authorization/roleAssignments", ["apiVersion"] = "2022-04-01",
+        ["name"] = $"[guid({scopeId}, {appId}, {Quote(roleId)})]", ["scope"] = $"[{scopeId}]",
+        ["properties"] = new JsonObject {
+            ["roleDefinitionId"] = $"[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', {Quote(roleId)})]",
+            ["principalId"] = $"[reference({appId}, '2024-03-01', 'Full').identity.principalId]", ["principalType"] = "ServicePrincipal"
+        }
+    };
 
     private static JsonObject Template(JsonArray resources) => new() {
         ["$schema"] = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",

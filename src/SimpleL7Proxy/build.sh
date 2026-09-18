@@ -37,17 +37,21 @@ echo "Building SimpleL7Proxy"
 echo "========================================"
 echo "ACR: $ACR"
 echo "Version: $ver"
-echo "Image: $ACR.azurecr.io/myproxy:$ver"
+echo "Image: $ACR.azurecr.io/simplel7proxy:$ver"
 echo "========================================"
 
 # Login to ACR (uses existing Azure CLI credentials)
 echo "Logging into ACR..."
-az acr login --name $ACR
+if [[ -n "${ACRGROUP:-}" ]]; then
+    az acr login --name "$ACR" --resource-group "$ACRGROUP"
+else
+    az acr login --name "$ACR"
+fi
 
 # Build from parent directory (src) to include Shared project
 cd ..
-docker build -t $ACR.azurecr.io/myproxy:$ver -f SimpleL7Proxy/Dockerfile .
-docker push $ACR.azurecr.io/myproxy:$ver
+docker build -t $ACR.azurecr.io/simplel7proxy:$ver -f SimpleL7Proxy/Dockerfile .
+docker push $ACR.azurecr.io/simplel7proxy:$ver
 
 echo "========================================"
 echo "Done! Update PROXY_VERSION in deploy.parameters.sh:"

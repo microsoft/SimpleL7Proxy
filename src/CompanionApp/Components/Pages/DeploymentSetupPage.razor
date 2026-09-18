@@ -26,13 +26,15 @@
     else
     {
         <div @ref="_tabList" class="deployment-tabs" role="tablist" aria-label="Deployment setup steps">
-            @foreach (var group in Groups.Where(IsGroupVisible).Append((Id: "review", Title: "Review and download")))
+            @foreach (var group in Groups.Where(IsGroupVisible)
+                .Append((Id: "review", Title: "Review"))
+                .Append((Id: "deploy", Title: "Deployment")))
             {
                 <button @key="group.Id" id="@($"tab-{group.Id}")" type="button" role="tab" class="deployment-tab"
                         aria-selected="@(_selectedGroup == group.Id ? "true" : "false")" aria-controls="@($"panel-{group.Id}")"
                         tabindex="@(_selectedGroup == group.Id ? 0 : -1)" disabled="@(!RendererInfo.IsInteractive || _downloading)"
                         @onclick="() => SelectTab(group.Id)">
-                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "app" => "Container Apps", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", _ => "Review" })
+                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "app" => "Container Apps", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
                     @if (_completedGroups.Contains(group.Id))
                     {
                         <span class="deployment-complete">Complete</span>
@@ -40,7 +42,7 @@
                 </button>
             }
         </div>
-        @if (_selectedGroup != "review")
+        @if (_selectedGroup is not ("review" or "deploy"))
         {
         <form @onsubmit="Next" @onsubmit:preventDefault novalidate>
             <fieldset disabled="@(!RendererInfo.IsInteractive)">
@@ -48,6 +50,14 @@
                 {
                     <section id="@($"panel-{group.Id}")" class="deployment-section" role="tabpanel" aria-labelledby="@($"tab-{group.Id}")">
                         <h2 @ref="_panelHeading" tabindex="-1" id="@($"heading-{group.Id}")" class="@(group.Id == "app" ? "visually-hidden" : null)">@(group.Id == "app" ? "Container Apps" : group.Title)</h2>
+                        @if (group.Id == "images")
+                        {
+                            <p class="text-muted">A cached copy of the SimpleL7Proxy container image will be preloaded into this registry.</p>
+                        }
+                        @if (group.Id == "config")
+                        {
+                            <p class="text-muted">Deploying App Configuration sets <code>AZURE_APPCONFIG_ENDPOINT</code> from the store name and writes the label and refresh interval to the Container App as environment variables. Without this deployment, the existing environment variables remain unchanged.</p>
+                        }
                         @if (group.Id == "private")
                         {
                             <div class="alert alert-warning">The private-network flag enables VNet and DNS steps only. Step 5 does not attach a newly created Container Apps environment to that VNet. Private deployments need an appropriately preconfigured environment.</div>
@@ -69,7 +79,8 @@
                         var healthSection = section == "health";
                         var sectionFields = _fields.Where(field => field.Group == group.Id && field.Key != "HEALTHPROBE_TYPE"
                             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP")
-                            && field.Key is not ("ACA_ENVIRONMENT_NAME" or "MEMORY" or "WEB_MEMORY" or "HEALTH_MEMORY")
+                            && field.Key is not ("ACA_ENVIRONMENT_NAME" or "MEMORY" or "WEB_MEMORY" or "HEALTH_MEMORY" or "BUILD_METHOD" or "DOCKERFILE_PATH"
+                                or "UPDATE_CONTAINER_APP_ENV")
                             && (section == "general" || (healthSection ? IsHealthField(field.Key)
                                 : ContainerSections[section].Contains(field.Key))))
                             .OrderBy(field => ContainerSections.TryGetValue(section, out var keys) ? Array.IndexOf(keys, field.Key) : 0).ToArray();
@@ -97,16 +108,9 @@
                             @foreach (var field in sectionFields)
                             {
                                 var error = _errors.GetValueOrDefault(field.Key);
-                                <div class="deployment-field @(field.Key is "HOST1" or "ENVIRONMENT_NAME" or "CONTAINER_APP_NAME" ? "deployment-field-full" : field.Key.EndsWith("_NAME") ? "deployment-field-wide" : "")" @key="field.Key">
+                                <div class="deployment-field @(field.Key is "ENVIRONMENT_NAME" or "CONTAINER_APP_NAME" ? "deployment-field-full" : field.Key.EndsWith("_NAME") ? "deployment-field-wide" : "")" @key="field.Key">
                                     <label for="@field.Key" title="@field.Key">@(_sameResourceGroup && field.Key == "CONTAINER_APP_RESOURCE_GROUP" ? "Resource Group" : field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU" ? "CPU / memory" : field.Label)</label>
-                                    @if (field.Key == "HOST1")
-                                    {
-                                        <HostSectionEditor Hosts="@(Array.Empty<AppConfigurationScaffoldSetting>())"
-                                                           Settings="@(Array.Empty<AppConfigurationScaffoldSetting>())"
-                                                           SingleHost="@(new AppConfigurationScaffoldSetting("Warm:Host1", "Warm", "Hosts", "Host1", "", field.Value) { DraftName = "Host1", DraftValue = field.Value })"
-                                                           OnHostSaved="@(value => SetValue(field, value))" />
-                                    }
-                                    else if (field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU")
+                                    @if (field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU")
                                     {
                                         <select id="@field.Key" class="form-select" value="@field.Value" @onchange="@(args => SetSize(field, args.Value?.ToString() ?? ""))" aria-describedby="@($"hint-{field.Key}")">
                                             @foreach (var size in Enumerable.Range(1, 8).Select(index => index * 0.25m))
@@ -160,17 +164,17 @@
                 }
                 <div class="deployment-actions">
                     <button type="button" class="btn btn-outline-secondary" disabled="@(_selectedGroup == "mode")" @onclick="Previous">Back</button>
-                    <span class="deployment-progress">Step @(Array.FindIndex(Groups.Where(IsGroupVisible).ToArray(), group => group.Id == _selectedGroup) + 1) of @(Groups.Count(IsGroupVisible) + 1)</span>
+                    <span class="deployment-progress">Step @(Array.FindIndex(Groups.Where(IsGroupVisible).ToArray(), group => group.Id == _selectedGroup) + 1) of @(Groups.Count(IsGroupVisible) + 2)</span>
                     <button type="submit" class="btn btn-primary">@(_selectedGroup == Groups.Last(IsGroupVisible).Id ? "Review parameters" : "Next")</button>
                 </div>
             </fieldset>
         </form>
         }
 
-        @if (_selectedGroup == "review" && _reviewed)
+        @if (_selectedGroup is "review" or "deploy" && _reviewed)
         {
-            <section id="panel-review" class="deployment-review" role="tabpanel" aria-labelledby="tab-review">
-                <h2 @ref="_panelHeading" tabindex="-1">Review your deployment</h2>
+            <section id="@($"panel-{_selectedGroup}")" class="deployment-review" role="tabpanel" aria-labelledby="@($"tab-{_selectedGroup}")">
+                <h2 @ref="_panelHeading" tabindex="-1">@(_selectedGroup == "review" ? "Review your deployment" : "Choose your deployment method")</h2>
                 @if (_errors.Count > 0)
                 {
                     <div class="alert alert-danger" role="alert">
@@ -190,6 +194,8 @@
                     if (Value("ASYNC_DEPLOYMENT") == "yes") reviewGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
                     var reviewGroups = reviewGroupKeys.Select(key => _sameResourceGroup ? Value("CONTAINER_APP_RESOURCE_GROUP") : Value(key)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                     <div class="review-layout">
+                    @if (_selectedGroup == "review")
+                    {
                     <div class="review-plan">
                     <header class="review-overview">
                         <div>
@@ -226,10 +232,10 @@
                                 <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="48" height="48" alt="" />
                                 <h4>Container Apps</h4>
                                 <p>@Value("CONTAINER_APP_NAME")</p>
-                                <small>@Value("PROXY_IMAGE_NAME")</small>
+                                <small>@(_bicepWorkflow ? Value("PROXY_IMAGE_NAME") + ":v2.3.0" : Value("PROXY_IMAGE_NAME"))</small>
                                 @if (Value("HEALTHPROBE_TYPE") == "sidecar")
                                 {
-                                    <small>+ @Value("HEALTH_IMAGE_NAME")</small>
+                                    <small>+ @(_bicepWorkflow ? Value("HEALTH_IMAGE_NAME") + ":v2.0.1" : Value("HEALTH_IMAGE_NAME"))</small>
                                 }
                             </div>
                             @if (Value("UPDATE_CONTAINER_APP_ENV") == "true")
@@ -256,7 +262,7 @@
                             {
                                 <li data-service="identity">
                                     <img src="images/azure/10227-icon-service-Managed-Identities.svg" width="28" height="28" alt="" />
-                                    <div><h4>Managed identity</h4><p>@(Value("CONTAINER_APP_NAME") + "-identity")</p></div>
+                                    <div><h4>Managed identity</h4><p>System assigned</p></div>
                                 </li>
                             }
                             @if (Value("ENABLE_APP_INSIGHTS") == "true")
@@ -332,11 +338,11 @@
                         <details class="review-details">
                             <summary>Runtime details</summary>
                             <dl class="review-resource-details">
-                                <dt>Image build</dt><dd>@(Value("BUILD_METHOD") == "local" ? "Local Docker" : "ACR remote build")</dd>
-                                <dt>Proxy image</dt><dd>@Value("PROXY_IMAGE_NAME")</dd>
+                                <dt>Image build</dt><dd>@(_bicepWorkflow ? "Pinned release import" : Value("BUILD_METHOD") == "local" ? "Local Docker" : "ACR remote build")</dd>
+                                <dt>Proxy image</dt><dd>@(_bicepWorkflow ? Value("ACR_NAME") + "/" + Value("PROXY_IMAGE_NAME") + ":v2.3.0" : Value("PROXY_IMAGE_NAME"))</dd>
                                 @if (Value("HEALTHPROBE_TYPE") == "sidecar")
                                 {
-                                    <dt>HealthProbe image</dt><dd>@Value("HEALTH_IMAGE_NAME")</dd>
+                                    <dt>HealthProbe image</dt><dd>@(_bicepWorkflow ? Value("ACR_NAME") + "/" + Value("HEALTH_IMAGE_NAME") + ":v2.0.1" : Value("HEALTH_IMAGE_NAME"))</dd>
                                     <dt>Sidecar compute</dt><dd>@Value("HEALTH_CPU") vCPU / @Value("HEALTH_MEMORY") GiB</dd>
                                     <dt>Sidecar port</dt><dd>@Value("HEALTH_PORT")</dd>
                                 }
@@ -346,23 +352,53 @@
                         </details>
                     </figure>
                     <p class="review-validation">Not validated in Azure</p>
+                    <p class="review-attribution"><a href="https://learn.microsoft.com/en-us/azure/architecture/icons/" target="_blank" rel="noopener noreferrer">Azure architecture icons</a><span aria-hidden="true"> / </span><a href="images/azure/Microsoft_Terms_of_Use.pdf" target="_blank" rel="noopener noreferrer">Microsoft terms</a></p>
                     </div>
+                    }
+                    @if (_selectedGroup == "deploy")
+                    {
                     <div class="review-deployment">
                     <fieldset class="review-method" disabled="@_downloading">
-                        <legend id="deployment-method-heading">Choose your deployment method</legend>
+                        <legend id="deployment-method-heading">Deployment method</legend>
                         <div class="review-method-options">
                             <label class="review-method-option" for="deployment-portal">
-                                <input id="deployment-portal" type="radio" name="deployment-method" checked="@_templateWorkflow" @onchange="() => _templateWorkflow = true" aria-controls="deployment-workflow" />
+                                <input id="deployment-portal" type="radio" name="deployment-method" checked="@(_templateWorkflow && !_bicepWorkflow)" @onchange="() => { _bicepWorkflow = false; _templateWorkflow = true; }" aria-controls="deployment-workflow" />
                                 <span>Interactive via Portal</span>
                             </label>
                             <label class="review-method-option" for="deployment-standalone">
-                                <input id="deployment-standalone" type="radio" name="deployment-method" checked="@(!_templateWorkflow)" @onchange="() => _templateWorkflow = false" aria-controls="deployment-workflow" />
+                                <input id="deployment-standalone" type="radio" name="deployment-method" checked="@(!_templateWorkflow && !_bicepWorkflow)" @onchange="() => { _bicepWorkflow = false; _templateWorkflow = false; }" aria-controls="deployment-workflow" />
                                 <span>Standalone</span>
+                            </label>
+                            <label class="review-method-option" for="deployment-bicep">
+                                <input id="deployment-bicep" type="radio" name="deployment-method" checked="@_bicepWorkflow" @onchange="() => _bicepWorkflow = true" aria-controls="deployment-workflow" />
+                                <span>Bicep</span>
                             </label>
                         </div>
                     </fieldset>
                     <div id="deployment-workflow" role="region" aria-labelledby="deployment-method-heading">
-                    @if (_templateWorkflow)
+                    @if (_bicepWorkflow)
+                    {
+                        <section class="review-workflow" aria-labelledby="bicep-heading">
+                            <div class="review-workflow-heading"><h3 id="bicep-heading">ACR-backed release deployment</h3></div>
+                            <dl class="review-resource-details">
+                                <dt>Entry points</dt><dd>bootstrap.bicep + main.bicep</dd>
+                                <dt>Modules</dt><dd>Static Bicep templates</dd>
+                                <dt>Parameters</dt><dd>parameters.json</dd>
+                                <dt>Proxy release</dt><dd>v2.3.0 / digest-pinned</dd>
+                                @if (Value("HEALTHPROBE_TYPE") == "sidecar")
+                                {
+                                    <dt>HealthProbe release</dt><dd>v2.0.1 / digest-pinned</dd>
+                                }
+                                <dt>Image source</dt><dd>Pinned public release imported to @Value("ACR_NAME")</dd>
+                                <dt>Registry access</dt><dd>System assigned / AcrPull</dd>
+                            </dl>
+                            <div class="review-standalone-download">
+                                <div class="review-step-heading"><h4>Bicep deployment bundle</h4><p><code>simplel7proxy-bicep.zip</code></p></div>
+                                <button type="button" class="btn btn-primary review-download" aria-label="Download simplel7proxy-bicep.zip" disabled="@_downloading" @onclick='() => DownloadArmAsync("bicep")'>Download ZIP</button>
+                            </div>
+                        </section>
+                    }
+                    else if (_templateWorkflow)
                     {
                         <section class="review-workflow" aria-labelledby="arm-heading">
                             <div class="review-workflow-heading">
@@ -402,7 +438,7 @@
                                     <details class="review-step-instructions">
                                         <summary>Instructions</summary>
                                         <p>Start another portal Custom deployment and load <code>03-application.json</code>. Use the same subscription as steps 1 and 2.</p>
-                                        <p>The template reuses the groups and registry, creates the remaining selected resources, and deploys Container Apps after its infrastructure and configuration dependencies.</p>
+                                        <p>The template reuses the groups and registry, creates the Container App with public images to establish its system-assigned identity, grants that identity its runtime roles, and then updates the app to the images in ACR.</p>
                                         @if (Value("ASYNC_DEPLOYMENT") == "yes")
                                         {
                                             <p>Service Bus namespaces and queues, and Cosmos DB accounts, databases, and containers must already exist. Their resource groups can be changed in this template's portal parameters.</p>
@@ -414,7 +450,7 @@
                             <details class="review-details review-prerequisites">
                                 <summary>Permissions and prerequisites</summary>
                                 <p>Keep the same form values for all three downloads. The deployer needs permission to create resource groups and assign roles, plus <strong>App Configuration Data Owner</strong> on the target resource group or subscription before step 3.</p>
-                                <p>Subscription, permissions, name availability, quota, and existing resources have not been checked in Azure. Keep the application file private if Host1 contains credentials.</p>
+                                <p>Subscription, permissions, name availability, quota, and existing resources have not been checked in Azure.</p>
                             </details>
                         </section>
                     }
@@ -456,16 +492,21 @@ bash deploy.sh</code></pre>
                         </section>
                     }
                     </div>
-                    <p class="review-attribution"><a href="https://learn.microsoft.com/en-us/azure/architecture/icons/" target="_blank" rel="noopener noreferrer">Azure architecture icons</a><span aria-hidden="true"> / </span><a href="images/azure/Microsoft_Terms_of_Use.pdf" target="_blank" rel="noopener noreferrer">Microsoft terms</a></p>
                     </div>
+                    }
                     </div>
                 }
-                @if (_downloadError is not null)
+                @if (_selectedGroup == "deploy" && _downloadError is not null)
                 {
                     <div class="alert alert-danger" role="alert">@_downloadError</div>
                 }
                 <div class="deployment-actions">
                     <button type="button" class="btn btn-outline-secondary" disabled="@_downloading" @onclick="Previous">Back</button>
+                    <span class="deployment-progress">Step @(Groups.Count(IsGroupVisible) + (_selectedGroup == "review" ? 1 : 2)) of @(Groups.Count(IsGroupVisible) + 2)</span>
+                    @if (_selectedGroup == "review" && _errors.Count == 0)
+                    {
+                        <button type="button" class="btn btn-primary" disabled="@_downloading" @onclick='() => SelectTab("deploy", true)'>Next</button>
+                    }
                 </div>
             </section>
         }
@@ -478,6 +519,7 @@ bash deploy.sh</code></pre>
     private bool _reviewed;
     private bool _showPreview;
     private bool _templateWorkflow = true;
+    private bool _bicepWorkflow;
     private bool _downloading;
     private string? _loadError;
     private string? _downloadError;
@@ -520,7 +562,7 @@ bash deploy.sh</code></pre>
     private static readonly Dictionary<string, string[]> ContainerSections = new(StringComparer.Ordinal) {
         ["environment"] = ["ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "ENABLE_MANAGED_IDENTITY", "INGRESS_TYPE", "ENABLE_HTTPS",
             "REVISION_MODE", "TERMINATION_GRACE_PERIOD_SECONDS", "ENABLE_APP_INSIGHTS", "LOG_ANALYTICS_WORKSPACE_NAME", "MIN_REPLICAS", "MAX_REPLICAS"],
-        ["app"] = ["PROXY_IMAGE_NAME", "PROXY_VERSION_OVERRIDE", "WEB_CPU", "WEB_PORT", "HOST1"],
+        ["app"] = ["PROXY_IMAGE_NAME", "PROXY_VERSION_OVERRIDE", "WEB_CPU", "WEB_PORT"],
         ["health"] = ["HEALTH_IMAGE_NAME", "HEALTHPROBE_VERSION_OVERRIDE", "HEALTH_CPU", "HEALTH_PORT"]
     };
 
@@ -552,6 +594,7 @@ bash deploy.sh</code></pre>
             var value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
             if (value == "yes|no") value = "no";
             if (key == "REQUESTAPI_LOCATION") value = "";
+            if (key == "UPDATE_CONTAINER_APP_ENV") value = "true";
             if (key is "ACR_NAME" or "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT")
                 value += nameSuffix;
             else if (key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || key is "CONTAINER_APP_NAME" or "ACA_ENVIRONMENT_NAME"
@@ -559,7 +602,8 @@ bash deploy.sh</code></pre>
                 or "REQUESTAPI_FUNCTION_APP" or "REQUESTAPI_APPINSIGHTS_NAME" or "ACA_RECORD_NAME")
                 value += "-" + nameSuffix;
             var hint = key switch {
-                "HOST1" => "",
+                "APPCONFIG_NAME" => "Sets AZURE_APPCONFIG_ENDPOINT to this store's endpoint.",
+                "APPCONFIG_LABEL" => "Sets AZURE_APPCONFIG_LABEL on the Container App.",
                 "PROXY_VERSION_OVERRIDE" => "Leave blank: the current image builder ignores this override.",
                 "HEALTHPROBE_VERSION_OVERRIDE" => "Optional. Blank uses the version in HealthProbe/Constants.cs.",
                 "REQUESTAPI_LOCATION" => "Optional. Blank uses the common location at export time.",
@@ -569,12 +613,17 @@ bash deploy.sh</code></pre>
                 "WEB_MEMORY" or "HEALTH_MEMORY" => "Memory in GiB, without the Gi suffix.",
                 "MIN_REPLICAS" => "0-999 replicas.",
                 "MAX_REPLICAS" => "1-999 replicas; at least the minimum.",
-                "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS" => "Refresh interval in seconds.",
+                "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS" => "Sets AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS on the Container App.",
                 "TERMINATION_GRACE_PERIOD_SECONDS" => "Shutdown grace period in seconds.",
                 _ => match.Groups[4].Value
             };
             _fields.Add(new ParameterField(key, Legacy.Contains(key) || IsHealthField(key) || key is "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" ? "app" : group,
-                CultureInfo.InvariantCulture.TextInfo.ToTitleCase(key.Replace('_', ' ').ToLowerInvariant()), value, hint));
+                key switch {
+                    "APPCONFIG_NAME" => "App Configuration name",
+                    "APPCONFIG_LABEL" => "Configuration label",
+                    "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS" => "Refresh interval (seconds)",
+                    _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(key.Replace('_', ' ').ToLowerInvariant())
+                }, value, hint));
         }
         _fields.Add(new ParameterField("HEALTHPROBE_TYPE", "app", "Enable sidecar", "sidecar", ""));
     }
@@ -607,7 +656,7 @@ bash deploy.sh</code></pre>
         _showPreview = false;
         _downloadError = null;
         _focusPanel = focusPanel;
-        if (groupId == "review") Review();
+        if (groupId is "review" or "deploy") Review();
         else
         {
             _reviewed = false;
@@ -621,13 +670,13 @@ bash deploy.sh</code></pre>
         Review(_selectedGroup);
         if (_errors.Count > 0) return;
         _completedGroups.Add(_selectedGroup);
-        var groups = Groups.Where(IsGroupVisible).Select(group => group.Id).Append("review").ToArray();
+        var groups = Groups.Where(IsGroupVisible).Select(group => group.Id).Append("review").Append("deploy").ToArray();
         SelectTab(groups[Array.IndexOf(groups, _selectedGroup) + 1], true);
     }
 
     private void Previous()
     {
-        var groups = Groups.Where(IsGroupVisible).Select(group => group.Id).Append("review").ToArray();
+        var groups = Groups.Where(IsGroupVisible).Select(group => group.Id).Append("review").Append("deploy").ToArray();
         var index = Array.IndexOf(groups, _selectedGroup);
         if (index > 0) SelectTab(groups[index - 1], true);
     }
@@ -669,7 +718,7 @@ bash deploy.sh</code></pre>
         _errors.Clear();
         foreach (var field in _fields.Where(field => IsGroupVisible((field.Group, "")) && (groupId is null || field.Group == groupId)
             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP")
-            && field.Key is not ("ACA_ENVIRONMENT_NAME" or "INGRESS_VISIBILITY" or "INGRESS_PORT" or "CPU" or "MEMORY")
+            && field.Key is not ("ACA_ENVIRONMENT_NAME" or "INGRESS_VISIBILITY" or "INGRESS_PORT" or "CPU" or "MEMORY" or "HOST1")
             && (!IsHealthField(field.Key) || Value("HEALTHPROBE_TYPE") == "sidecar")))
         {
             var value = field.Value;
@@ -700,15 +749,6 @@ bash deploy.sh</code></pre>
             if (field.Key == "APIM_PRIVATE_IP" && (!IPAddress.TryParse(value, out var address) || address.AddressFamily != AddressFamily.InterNetwork))
                 _errors[field.Key] = "Enter an IPv4 address or leave blank.";
             if (field.Key == "PROXY_VERSION_OVERRIDE") _errors[field.Key] = "The existing image builder does not honor this override. Leave it blank to keep build and deployment tags aligned.";
-            if (field.Key == "HOST1")
-            {
-                var host = value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Select(part => part.Trim())
-                    .FirstOrDefault(part => part.StartsWith("host=", StringComparison.OrdinalIgnoreCase))?[5..].Trim();
-                if (host is not null && host.IndexOf('[') is > 0 and var bracket) host = host[..bracket];
-                if (!string.IsNullOrWhiteSpace(host) && !host.Contains("://", StringComparison.Ordinal)) host = "https://" + host;
-                if (!Uri.TryCreate(host, UriKind.Absolute, out var backend) || backend.Scheme is not ("https" or "http") || backend.Host == "your-api.azure-api.net")
-                    _errors[field.Key] = "Set host= to your backend's HTTP or HTTPS URL, not the sample address.";
-            }
         }
         if ((groupId is null or "app") && int.TryParse(Value("MIN_REPLICAS"), out var min) && int.TryParse(Value("MAX_REPLICAS"), out var max) && min > max)
             _errors["MAX_REPLICAS"] = "Maximum replicas cannot be less than minimum replicas.";
@@ -738,7 +778,7 @@ bash deploy.sh</code></pre>
     private string GenerateScript()
     {
         var output = new StringBuilder("#!/bin/bash\n\n# Deployment parameters for deployment/deploy.sh.\n# Keep this file out of source control.\n");
-        foreach (var field in _fields)
+        foreach (var field in _fields.Where(field => field.Key != "HOST1"))
         {
             var value = _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) ? Value("CONTAINER_APP_RESOURCE_GROUP")
                 : field.Key == "ACA_ENVIRONMENT_NAME" ? Value("ENVIRONMENT_NAME")
@@ -785,6 +825,15 @@ bash deploy.sh</code></pre>
                 _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) ? Value("CONTAINER_APP_RESOURCE_GROUP")
                 : field.Key == "REQUESTAPI_LOCATION" && string.IsNullOrWhiteSpace(field.Value) ? Value("LOCATION") : field.Value,
                 StringComparer.Ordinal);
+            if (stage == "bicep")
+            {
+                var files = DeploymentBicepBundle.Generate(values);
+                using var archive = new MemoryStream(DeploymentBicepBundle.CreateArchive(files));
+                using var downloadStream = new DotNetStreamReference(archive);
+                await using var bundleModule = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/DeploymentSetupPage.razor.js");
+                await bundleModule.InvokeVoidAsync("downloadBundle", downloadStream);
+                return;
+            }
             using var stream = typeof(DeploymentSetupPage).Assembly.GetManifestResourceStream("HealthProbeVersionSource")
                 ?? throw new InvalidOperationException("The health image version is missing from this build.");
             using var reader = new StreamReader(stream);
@@ -808,7 +857,7 @@ bash deploy.sh</code></pre>
         }
         catch (JSException)
         {
-            _downloadError = "The browser could not start the ARM download. Your values remain available; retry the download.";
+            _downloadError = $"The browser could not start the {(stage == "bicep" ? "Bicep" : "ARM")} download. Your values remain available; retry the download.";
         }
         finally
         {

@@ -46,10 +46,6 @@ MIN_REPLICAS="${MIN_REPLICAS:-1}"
 MAX_REPLICAS="${MAX_REPLICAS:-5}"
 INGRESS_VISIBILITY="${INGRESS_VISIBILITY:-Internal}"
 INGRESS_PORT="${INGRESS_PORT:-8000}"
-# HOST1 is the proxy's primary backend host descriptor.
-# Format: host=<url>;mode=<apim|...>;path=<route>;probe=<healthcheck>
-# Accept legacy BACKEND_HOST as a fallback.
-HOST1="${HOST1:-${BACKEND_HOST:-}}"
 ENABLE_MANAGED_IDENTITY="${ENABLE_MANAGED_IDENTITY:-true}"
 ENABLE_APP_INSIGHTS="${ENABLE_APP_INSIGHTS:-false}"
 LOG_ANALYTICS_WORKSPACE_NAME="${LOG_ANALYTICS_WORKSPACE_NAME:-}"
@@ -157,13 +153,7 @@ if az containerapp show \
         >/dev/null
 else
     echo -e "${YELLOW}Creating Container App...${NC}"
-    
-    # Build environment variables
-    ENV_VARS=""
-    if [ -n "${HOST1}" ]; then
-        ENV_VARS="${ENV_VARS} Host1=${HOST1}"
-    fi
-    
+
     az containerapp create \
         --resource-group "${RESOURCE_GROUP}" \
         --name "${CONTAINER_APP_NAME}" \
@@ -175,7 +165,6 @@ else
         --max-replicas "${MAX_REPLICAS}" \
         --ingress "${INGRESS_VISIBILITY}" \
         --target-port "${INGRESS_PORT}" \
-        --environment-variables ${ENV_VARS} \
         >/dev/null
 fi
 

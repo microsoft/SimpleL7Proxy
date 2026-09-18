@@ -1,101 +1,201 @@
-# Deploy SimpleL7Proxy
+# Deploy CompanionApp to Azure App Service
 
-## Deployment prerequisites
+The app is ready to deploy to an app service using the provided asset zip file using the Azure Portal.  If you modify the source code you will need to rebuild the zip image.
 
-### Before you begin
-
-Make sure you have:
-
-- **.NET 10 SDK** and a local checkout of the **SimpleL7Proxy repository** to run CompanionApp. Follow the [shared setup](readme.md#set-up-companionapp).
-- **Azure portal access** to the target tenant and subscription.
-- **Azure CLI and Bash** to publish images or use the standalone workflow. Follow the [Azure sign-in steps](readme.md#sign-in-for-azure-workflows).
-- **Docker**, installed and running, if you build images locally. Remote builds use Azure Container Registry (ACR).
-- **A backend endpoint** for Host1, with any required credentials. The deployed proxy must be able to reach it.
-
-### Check your Azure permissions
-
-For the generated portal deployment, the deploying account needs the following roles. Check the account used in the portal and Azure CLI.
-
-| Role | Where to assign it | What it allows |
-| --- | --- | --- |
-| [Contributor](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/privileged#contributor) | Target subscription. | Create resource groups, deploy ARM templates, and provision infrastructure. |
-| [Role Based Access Control Administrator](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/privileged#role-based-access-control-administrator) | Each affected resource or resource group. Subscription scope also covers new groups. | Assign access to the deployed managed identities. |
-| [App Configuration Data Owner](https://learn.microsoft.com/en-us/azure/azure-app-configuration/concept-enable-rbac#data-plane-access) | App Configuration resource group after bootstrap, or the target subscription. | Write configuration values during the application stage. |
-
-Resource-group-only access does not cover the subscription-scoped bootstrap. Contributor alone cannot assign roles. Grant App Configuration Data Owner before starting the application stage.
-
-If you already have one of these combinations, it covers infrastructure deployment and role assignment:
-
-- [Owner](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/privileged#owner) at the target subscription.
-- Contributor plus [User Access Administrator](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator) at the applicable scopes.
+If you prefer the command line or repeatable deployments, skip to [Deploy with Azure CLI](#deploy-with-azure-cli).
 
 > [!IMPORTANT]
-> **App Configuration Data Owner is still required with either combination.** The generated store uses pass-through authentication with access keys disabled.
+> You should configure access restrictions on the appservice to prevent unauthorized access after the deployment.
 
-These roles are for the deployer. The portal template assigns the proxy and RequestAPI managed identities their own resource-scoped runtime roles.
 
-> [!NOTE]
-> Check **Subscriptions > your subscription > Access control (IAM) > View my access** for the deploying account and activate any eligible roles in Privileged Identity Management (PIM) before starting. Role-assignment conditions must permit the roles and managed identities used by the selected deployment options. For async deployments, access must also cover the existing Service Bus and Cosmos DB resource groups.
+## Deploy with the Azure portal
 
-## Prepare the deployment
+[CLI Deployment Instructions](#deploy-with-the-cli)
 
-**Deployment Setup prepares files for the proxy stack. It does not deploy Azure resources or host CompanionApp itself.** Use this workflow when creating a deployment, not when editing an existing store's settings.
+### Before you begin
+- An Azure account with permission to create App Service resources and role assignments.
+- The included [CompanionApp package](artifacts/companion-app-appservice.zip).
+- A globally unique name for the web app.
 
-Deployment values are entered in **Config > Deployment Setup** (`/admin/deployment`). You do not need to set CompanionApp's local `AppConfigurationEndpoint` to prepare these files; that setting is used by the separate [configuration editor](configuration.md#configuration-prerequisites).
 
-Work through the tabs:
+### 1. Create the App Service
 
-1. **Mode:** select private networking and asynchronous processing only when needed.
-2. **Resources:** set the Azure region and resource groups. Check every generated resource name; the shared five-character suffix reduces collisions but does not check Azure name availability.
-3. **Images:** confirm the registry and build method. Remote builds use ACR; local builds use Docker.
-4. **Container Apps:** set the application, environment, image, sizing, and health-probe choices. Replace **Host1** with a backend URL and authentication settings reachable from the deployed proxy, not the sample address.
-5. **App Configuration:** set the store name and label for the new proxy. These deployment values are separate from the local endpoint and label used by **Proxy Configuration**.
-6. Complete the **Networking** and **Async services** tabs when enabled. Open **Review**, resolve every validation error, and inspect the resource summary before choosing a deployment method.
+1. Open the Azure portal and create a website: [https://ms.portal.azure.com/#create/Microsoft.WebSite](https://ms.portal.azure.com/#create/Microsoft.WebSite)
+2. On the **Basics** tab, configure:
 
-Keep the same form values for all downloads. Navigating away or reloading can discard the form and generate different default names. Downloads go to the browser; they are not written into the server's checkout automatically.
+<table border="0">
+<tr>
+<td style="vertical-align: top;">
 
-## Interactive via Portal
+| Setting | Value |
+| --- | --- |
+| Subscription | Your Azure subscription |
+| Resource group | Create or select one |
+| Name | Globally unique web app name |
+| Publish | Code |
+| Runtime stack | .NET 10 |
+| Operating system | Linux |
+| Region | Target Azure region |
+| Linux plan | Create or select |
+| Pricing plan | Basic B1 or another suitable SKU |
 
-1. Download **01-bootstrap.json**. Open the [Azure portal Custom deployment](https://portal.azure.com/#create/Microsoft.Template), select **Build your own template in the editor > Load file**, and deploy it to the intended subscription and location. Wait for the resource groups and ACR to finish creating.
-2. Download **02-publish-images.sh**. From the repository root, run it with the same subscription ID. Replace the script path and ID in this command:
+</td>
+<td style="vertical-align: top;">
+
+![Azure App Service Basics tab configuration](image-3.png)
+
+</td>
+</tr>
+</table>
+
+1. Select **Review + create**, then select **Create**.
+2. Confirm that the deployment finishes, select **Go to resource**.
+
+### 2. Upload CompanionApp Zip Package
+
+<table border="0">
+<tr>
+<td style="vertical-align: top;">
+
+1. In the App Service, select **Deployment** > **Deployment Center**.
+2. Under **Manual Deployment (Push)**, select the **Publish files (new)** source.
+3. Select **Browse**, then select [artifacts/companion-app-appservice.zip](artifacts/companion-app-appservice.zip) from your local drive.
+4. Select **Save**.
+
+</td>
+<td style="vertical-align: top;">
+
+![Deployment Center Publish files interface](zip-upload.png)
+
+</td>
+</tr>
+</table>
+
+5. Wait for the upload and deployment to complete. Monitor progress in the **Logs** tab.
+
+### 3. Turn on managed identity
+
+<table border="0">
+<tr>
+<td style="vertical-align: top;">
+
+1. In the App Service, select **Settings** > **Identity**.
+2. On the **System assigned** tab, set **Status** to **On**.
+3. Select **Save**.
+4. Record the **Object (principal) ID** for optional Cosmos DB access.
+
+</td>
+<td style="vertical-align: top;">
+
+![Managed Identity System assigned configuration](managed-identity.png)
+
+</td>
+</tr>
+</table>
+
+### 4. Assign roles
+
+If the proxy has not been deployed yet, you will need to complete that first and then return here.
+
+CompanionApp requires **App Configuration Data Owner** on every App Configuration store it manages.
+
+1. Open the App Configuration resource.
+2. Select **Access control (IAM)**.
+3. Select **Add** > **Add role assignment**.
+4. On the **Role** tab, select **App Configuration Data Owner**, then select **Next**.
+5. On the **Members** tab, select **Managed identity**, then select **Select members**.
+6. Select **App Service**, select the CompanionApp web app, then select **Select**.
+7. Select **Review + assign**.
+
+Repeat for every managed App Configuration store.
+
+<details>
+<summary><strong>Optional roles</strong> (expand to assign additional permissions)</summary>
+
+Assign only the permissions required by enabled features.
+
+| Feature | Role | Scope |
+| --- | --- | --- |
+| Event Hub monitoring | Azure Event Hubs Data Receiver | Event Hubs namespace or event hub |
+| Blob Storage history or conversations | Storage Blob Data Contributor | Storage account |
+| Cosmos DB history or conversations | Cosmos DB Built-in Data Contributor | Cosmos DB account, database, or container |
+
+For Event Hubs and Blob Storage, open the target resource and repeat the **Access control (IAM)** role-assignment process above.
+
+Cosmos DB for NoSQL data-plane roles aren't assigned through **Access control (IAM)**. In Azure Cloud Shell, assign the built-in role to the object ID from step 3:
 
 ```bash
-bash /path/to/02-publish-images.sh YOUR_SUBSCRIPTION_ID
-```
+cosmos_role_id=$(az cosmosdb sql role definition list \
+        --account-name '<cosmos-account-name>' \
+        --resource-group '<cosmos-resource-group>' \
+        --query "[?roleName=='Cosmos DB Built-in Data Contributor'].id | [0]" \
+        --output tsv)
 
-3. Continue only after the script reports **Image tags verified**. Download **03-application.json** and submit it as a new portal Custom deployment in the same subscription. It reuses the groups and registry and deploys the remaining selected resources.
+az cosmosdb sql role assignment create \
+        --account-name '<cosmos-account-name>' \
+        --resource-group '<cosmos-resource-group>' \
+        --role-definition-id "$cosmos_role_id" \
+        --principal-id '<object-principal-id>' \
+        --scope '/'
+```
 
 > [!NOTE]
-> The form does not check your Azure permissions, quota, resource-name availability, or existing dependencies. Resolve any Azure deployment validation errors before continuing to the next stage. Keep downloaded templates private if Host1 contains credentials.
+> Role assignments can take several minutes to become effective.
 
-## Standalone
+</details>
 
-1. Select **Standalone**, then **Download parameters**. **Preview file** shows the shell parameters before download.
-2. Place the downloaded `deploy.parameters.sh` in the repository's `deployment` directory. Preserve any existing parameter file before replacing it.
-3. Confirm your Azure CLI tenant and subscription. From the repository root, open the deployment menu and run its prerequisites check first:
+### 5. Configure CompanionApp settings
 
-```bash
-cd deployment
-bash deploy.sh
+1. In the App Service, select **Settings** > **Environment variables**.
+2. On the **App settings** tab, select **Advanced edit**.
+3. Add the following objects to the JSON array and replace the example values:
+
+```json
+[
+    {
+        "name": "CompanionApp__AppConfigurationEndpoint",
+        "value": "https://<store-name>.azconfig.io",
+        "slotSetting": false
+    },
+    {
+        "name": "CompanionApp__AppConfigurationLabel",
+        "value": "prod",
+        "slotSetting": false
+    },
+    {
+        "name": "CompanionApp__ServerBaseUrl",
+        "value": "https://<proxy-host>",
+        "slotSetting": false
+    }
+]
 ```
 
-Follow [Running through the deployment](../../deployment/README.md#running-through-the-deployment) for the menu order, prerequisites, parameter definitions, and side effects. The standalone Container Apps step needs a preconfigured VNet-attached environment when private networking is enabled.
+4. Select **OK**, then select **Apply** on the **Environment variables** page.
 
-> [!WARNING]
-> Async deployments depend on existing Service Bus namespaces/queues and Cosmos DB accounts/databases/containers. The portal application template creates RequestAPI infrastructure only; publish its code separately before using async requests. See the [deployment guide](../../deployment/README.md).
+App Service restarts the web app after you apply the settings.
 
-## Verify the deployment
+### Verify the deployment
 
-- [ ] Azure reports successful deployments, and the proxy's container revision is running with the intended images.
-- [ ] The proxy readiness endpoint returns `200 OK`; a test request reaches the configured backend. Follow [Verify SimpleL7Proxy](../../docs/getting-started/verify.md) for the exact health and request checks.
+1. Open the App Service **Overview** page.
+2. Launch the site's default hostname.
+3. Confirm the Home page loads.
+4. Open **Proxy Configuration**.
+5. Verify the configured App Configuration store and label load successfully.
 
-After deployment, use [Update Azure App Configuration](configuration.md#configuration-prerequisites) to connect to the new store and label, or [Test HTTP and LLM endpoints](testing.md#request-testing-prerequisites) to connect to the proxy and inspect traffic.
+## Deploy with the CLI
 
-## Troubleshoot deployment
+For automation and repeatable deployments, see [Deploying CompanionApp with Azure CLI](deployment-cli.md).
+
+## Troubleshoot
 
 | Symptom | Check |
 | --- | --- |
-| Review shows a Host1 validation error | Replace the sample backend with a valid HTTP or HTTPS host descriptor in **Container Apps**, then return to Review. |
-| Azure reports a name collision or missing image | Change the conflicting resource name before regenerating the deployment files; publish and verify the matching image tags before the application stage. |
-
-For hosting CompanionApp itself on an existing Azure App Service, the separate scripts are [make-zip.sh](make-zip.sh), [upload_zip.sh](upload_zip.sh), and [update_settings.sh](update_settings.sh). Deployment Setup does not run them. Review their help and protect the app's admin access before publishing it.
+| The site doesn't start | Confirm the runtime stack is .NET 10, then open **Monitoring** > **Log stream**. |
+| ZIP deployment fails | Confirm the App Service exists and the ZIP contains the published files at its root. |
+| Proxy Configuration returns `403` | Confirm the App Service identity has **App Configuration Data Owner** on the configured store. |
+| Event Hub access fails | Confirm the identity has **Azure Event Hubs Data Receiver** on the namespace or event hub. |
+| Blob Storage access fails | Confirm the identity has **Storage Blob Data Contributor** on the storage account. |
+| Cosmos DB access fails | Confirm the native Cosmos DB data-plane role assignment uses the App Service identity's object ID. |
+| Settings don't change | Confirm the App Service app settings use the `CompanionApp__` prefix. |
+| A `false` setting is missing | Add it manually through the portal or Azure CLI. |
+| A new role assignment isn't effective | Wait several minutes for Azure RBAC propagation, then retry. |

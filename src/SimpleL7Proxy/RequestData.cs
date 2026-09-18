@@ -22,6 +22,8 @@ using SimpleL7Proxy.User;
 // This class represents the request received from the upstream client.
 public class RequestData : IDisposable, IAsyncDisposable  
 {
+    public int WordCount { get; set; }
+
     // Static variable to hold the ISBTopicService instance
     public static ISBTopicService? SBTopicService { get; private set; }
     public static ISBQueueService? SBQueueService { get; private set; }

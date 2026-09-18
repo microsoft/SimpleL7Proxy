@@ -49,7 +49,11 @@ echo -e "${YELLOW}Building image: ${FULL_IMAGE_NAME}${NC}"
 
 # Login to ACR (uses existing Azure CLI credentials)
 echo -e "${YELLOW}Logging into ACR...${NC}"
-az acr login --name $ACR
+if [[ -n "${ACRGROUP:-}" ]]; then
+    az acr login --name "$ACR" --resource-group "$ACRGROUP"
+else
+    az acr login --name "$ACR"
+fi
 
 # Build from parent directory (src) to include Shared project
 cd ..

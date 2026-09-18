@@ -25,7 +25,8 @@ export function initializeTabs(tabList) {
 }
 
 export function downloadArm(content, filename = 'azuredeploy.json') {
-    const type = filename.endsWith('.sh') ? 'text/x-shellscript;charset=utf-8' : 'application/json;charset=utf-8';
+    const type = filename.endsWith('.zip') ? 'application/zip'
+        : filename.endsWith('.sh') ? 'text/x-shellscript;charset=utf-8' : 'application/json;charset=utf-8';
     const url = URL.createObjectURL(new Blob([content], { type }));
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -34,4 +35,8 @@ export function downloadArm(content, filename = 'azuredeploy.json') {
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function downloadBundle(stream) {
+    downloadArm(await stream.arrayBuffer(), 'simplel7proxy-bicep.zip');
 }

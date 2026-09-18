@@ -1,24 +1,17 @@
 # Deploy SimpleL7Proxy
 
-Deploys the proxy stack through Bicep templates.
+Deploy the selected proxy stack through static subscription-scoped Bicep templates and one generated parameters file.
 
 ## Prerequisites
 
-- Azure CLI with Bicep support, Bash, `jq`, and an Azure sign-in for the target subscription.
+- Azure CLI with Bicep support, Bash, and an Azure sign-in for the target subscription.
 - Subscription Contributor plus role-assignment authority, or subscription Owner.
 - Permission to create the selected Azure Container Registry and import images into it.
 - For async mode, the selected Service Bus and Cosmos DB resources must already exist. Publish RequestAPI code separately after infrastructure deployment.
 
 ## Deploy
 
-Back up the parameters.json file and edit any relevant parameters to change the default behavior. This version deploys every resource it creates into the `rg-myapp-prod-<UNIQ>` resource group. The current configuration creates these resources:
-`Application Insights`, `Azure App Configuration`, `Azure Container App`, 
-`Azure Container Registry`, `Azure Container Apps Environment`,
-`Log Analytics Workspace`, `Resource group`
-
-<img src="azure-deployed.png" alt="Resources deployed to the Azure resource group" width="600">
-
-Use its included deploy.sh from the extracted directory; no repository checkout is required. Replace SUBSCRIPTION_ID with the target subscription ID:
+Extract the complete ZIP downloaded from Deployment Setup. Use its included deploy.sh from the extracted directory; no repository checkout is required. Replace SUBSCRIPTION_ID with the target subscription ID:
 
 ```bash
 bash deploy.sh SUBSCRIPTION_ID validate
@@ -26,27 +19,19 @@ bash deploy.sh SUBSCRIPTION_ID what-if
 bash deploy.sh SUBSCRIPTION_ID create
 ```
 
-To select the deployment ID instead of generating one, add `--unique-id` to the first command. The ID must contain exactly five lowercase letters or digits because it is included in every generated resource name:
+Validation and what-if contact Azure without importing images. Create provisions the resource groups and registry, imports the pinned proxy and optional HealthProbe releases, and deploys the remaining infrastructure. The application stage first creates the Container App with the pinned public images to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copies in ACR. The script defaults to validate when its second argument is omitted.
 
-```bash
-bash deploy.sh SUBSCRIPTION_ID validate --unique-id xq9vs
-```
-
-On the first run, deploy.sh uses the specified ID or generates one random five-character lowercase hexadecimal suffix, then replaces every `<UNIQ>` placeholder in parameters.json before contacting Azure. The script prints the resolved deployment name. Run validate, what-if, and create from the same extracted directory so subsequent runs reuse the resolved names. You may repeat `--unique-id` with the same ID on later operations; a different ID is rejected after parameters.json is resolved.
-
-Validation and what-if contact Azure without importing images. Create provisions the resource group and registry, imports the pinned proxy and optional HealthProbe releases, and deploys the remaining infrastructure. The application stage first creates the Container App with the pinned public images to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copies in ACR. The script defaults to validate when its second argument is omitted.
-
-The deployment creates the App Configuration store and grants the proxy managed identity App Configuration Data Reader. It does not write configuration settings. After the deployment succeeds, follow the Companion App's [Update Azure App Configuration](../src/CompanionApp/configuration.md#configuration-prerequisites) guide. Ensure the identity running CompanionApp has App Configuration Data Owner on the store, then open **Admin > Proxy Configuration**, connect to the created store, and create or duplicate and publish a configuration for the selected label.
+The deployment creates the App Configuration store and grants the proxy managed identity App Configuration Data Reader. It does not write configuration settings. After the deployment succeeds, open **Proxy Configuration** in the Companion App, connect to the created store, and create or duplicate a configuration for the selected label.
 
 ## Check after leaving the terminal
 
 **Check the deployment's status before running create again.** Once Azure accepts the deployment, it runs server-side even if Cloud Shell or your terminal disconnects. Reopen Cloud Shell or another Azure CLI terminal signed into the same tenant with access to the original subscription.
 
-Shell variables must be set again in a new session. Replace SUBSCRIPTION_ID with the subscription used for create and `<UNIQ>` with the generated suffix stored in parameters.json. These read-only commands work from any directory without the ZIP, Bicep, or repository checkout:
+Shell variables must be set again in a new session. Replace SUBSCRIPTION_ID with the subscription used for create; the deployment name below is already set for this download. These read-only commands work from any directory without the ZIP, Bicep, or repository checkout:
 
 ```bash
 subscription='SUBSCRIPTION_ID'
-deployment='ca-myapp-proxy-<UNIQ>-bicep'
+deployment={{DEPLOYMENT_NAME}}
 az deployment sub show --subscription "$subscription" --name "$deployment" \
     --query '{State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
 ```
@@ -87,8 +72,8 @@ A missing deployment record does not establish that no resources were created. I
 - bootstrap.bicep creates the selected resource groups and Azure Container Registry before image import.
 - main.bicep creates or updates the selected infrastructure, enables the proxy Container App's system-assigned identity, grants it AcrPull and App Configuration Data Reader, and deploys from the imported ACR image tags.
 - modules/*.bicep are the static resource templates consumed by the two entry points.
-- parameters.json contains the settings selected in Deployment Setup. On first use, deploy.sh replaces its `<UNIQ>` placeholders in place; both Bicep entry points then consume the resolved file.
-- deploy.sh resolves the deployment suffix from `--unique-id` or generates one, then imports the proxy and optional HealthProbe from publicnvmacr by pinned digest into the selected ACR. It does not build local source code.
+- parameters.json contains the settings selected in Deployment Setup and is consumed by both Bicep entry points.
+- deploy.sh imports the proxy and optional HealthProbe from publicnvmacr by pinned digest into the selected ACR. It does not build local source code.
 - Regenerate the bundle to change resource names, image repository names, topology, or other setup values consistently.
 
 ## Verify

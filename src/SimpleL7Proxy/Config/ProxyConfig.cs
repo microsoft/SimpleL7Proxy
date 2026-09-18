@@ -196,7 +196,7 @@ public class ProxyConfig
     [ConfigOption("Logging:EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
     public int EventHubStartupSeconds { get; set; } = 10;
     [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
-    public string EventLoggers { get; set; } = "file";
+    public string EventLoggers { get; set; } = "none";
     [ConfigOption("Logging:LogDateTime", ConfigName = "LOGDATETIME", Mode = ConfigMode.Cold)]
     public bool LogDateTime { get; set; } = false;
     [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]

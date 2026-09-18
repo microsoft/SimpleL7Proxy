@@ -1,14 +1,17 @@
 ﻿@page "/"
+@page "/admin"
+@page "/test"
+@page "/explore"
 @namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
 @inject CompanionApp.Components.Shared.UserPreferencesService Preferences
 @inject NavigationManager Navigation
 @implements IDisposable
 
-<PageTitle>Home</PageTitle>
+<PageTitle>@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea ?? "Home")</PageTitle>
 
 <SectionContent SectionName="page-heading">
-    <h1 class="h4 mb-0">Home</h1>
+    <h1 class="h4 mb-0">@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea ?? "Home")</h1>
 </SectionContent>
 
 <div class="home-layout @(ShowOnboarding ? "home-layout-guided" : string.Empty)">
@@ -17,47 +20,50 @@
     {
     <div class="home-areas" role="group" aria-label="Workspace areas">
         @foreach (var area in new[] {
-            (Name: "Explore", Description: "Send requests and chat with models, inspect proxy traffic, and review insights and conversation history. Personalize your workspace with user preferences."),
-            (Name: "Test", Description: "Run tests against your proxy and review the results to investigate request behavior and failures."),
-            (Name: "Configure", Description: "Manage proxy configurations in App Configuration and prepare parameters for deployment. Review changes before saving or downloading them.")
+            (Name: "Deploy / Configure", Path: "admin", Description: "Manage proxy configurations in App Configuration and prepare parameters for deployment. Review changes before saving or downloading them."),
+            (Name: "Test", Path: "test", Description: "Run tests against your proxy and review the results to investigate request behavior and failures."),
+            (Name: "Explore", Path: "explore", Description: "Send requests and chat with models, inspect proxy traffic, and review insights and conversation history. Personalize your workspace with user preferences.")
         })
         {
-                <button type="button" class="home-area"
-                    disabled="@(!RendererInfo.IsInteractive)"
-                    @onclick="() => _selectedArea = area.Name">
+            <a class="home-area" href="@area.Path">
                 <span class="home-area-title">@area.Name</span>
                 <span class="home-area-description">@area.Description</span>
-            </button>
+            </a>
         }
     </div>
     }
     else
     {
-            <button type="button" class="home-back" @onclick="() => _selectedArea = null"><span aria-hidden="true">&#8592;</span> Back to Home</button>
-            <section class="home-options" aria-labelledby="home-options-heading">
-                <div class="home-options-heading">
-                    <h2 id="home-options-heading">@_selectedArea</h2>
-                </div>
-                <ul>
+            <a class="home-back" href=""><span aria-hidden="true">&#8592;</span> Back to Home</a>
+            <section class="home-options" aria-label="@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea)">
+                @if (_selectedArea != "Deploy / Configure")
+                {
+                    <div class="home-options-heading">
+                        <h2 id="home-options-heading">@_selectedArea</h2>
+                    </div>
+                }
+                <ul class="home-areas">
                     @if (_selectedArea == "Explore")
                     {
                         <li class="onboarding-target @(ShowInvestigatorGuide ? "is-active" : string.Empty)">
-                            <button type="button" @onclick="StartInvestigationAsync"><span class="home-option-title">Investigator</span><span class="home-option-description">Send model requests and inspect the request and response details.</span></button>
+                            <button type="button" class="home-area" @onclick="StartInvestigationAsync"><span class="home-option-title">Investigator</span><span class="home-option-description">Send model requests and inspect the request and response details.</span></button>
                         </li>
-                        <li><a href="chat"><span class="home-option-title">Chat</span><span class="home-option-description">Chat with models through the configured server.</span></a></li>
-                        <li><a href="eventhub"><span class="home-option-title">EventHub Monitor</span><span class="home-option-description">Monitor proxy requests, backend activity, and runtime events.</span></a></li>
-                        <li><a href="insights"><span class="home-option-title">Insights</span><span class="home-option-description">Analyze the Event Hub feed for proxy behavior and failures.</span></a></li>
-                        <li><a href="history"><span class="home-option-title">History</span><span class="home-option-description">Review previous chat conversations.</span></a></li>
-                        <li><a href="user-preferences"><span class="home-option-title">User Preferences</span><span class="home-option-description">Adjust your personal workspace preferences.</span></a></li>
+                        <li><a class="home-area" href="chat"><span class="home-option-title">Chat</span><span class="home-option-description">Chat with models through the configured server.</span></a></li>
+                        <li><a class="home-area" href="eventhub"><span class="home-option-title">EventHub Monitor</span><span class="home-option-description">Monitor proxy requests, backend activity, and runtime events.</span></a></li>
+                        <li><a class="home-area" href="insights"><span class="home-option-title">Insights</span><span class="home-option-description">Analyze the Event Hub feed for proxy behavior and failures.</span></a></li>
+                        <li><a class="home-area" href="history"><span class="home-option-title">History</span><span class="home-option-description">Review previous chat conversations.</span></a></li>
+                        <li><a class="home-area" href="user-preferences"><span class="home-option-title">User Preferences</span><span class="home-option-description">Adjust your personal workspace preferences.</span></a></li>
                     }
                     else if (_selectedArea == "Test")
                     {
-                        <li><a href="tests"><span class="home-option-title">Tests</span><span class="home-option-description">Run proxy tests and inspect their results.</span></a></li>
+                        <li><a class="home-area" href="url-tester"><span class="home-option-title">URL test</span><span class="home-option-description">Send URL requests and inspect responses.</span></a></li>
+                        <li><a class="home-area" href="stress-test"><span class="home-option-title">Stress test</span><span class="home-option-description">Run stress tests against the configured server.</span></a></li>
+                        <li><a class="home-area" href="abort-test"><span class="home-option-title">Abort test</span><span class="home-option-description">Test rapid client disconnects.</span></a></li>
                     }
-                    else if (_selectedArea == "Configure")
+                    else if (_selectedArea == "Deploy / Configure")
                     {
-                        <li><a href="admin/configuration"><span class="home-option-title">Proxy Configuration</span><span class="home-option-description">Create, update, or duplicate a labeled proxy configuration.</span></a></li>
-                        <li><a href="admin/deployment"><span class="home-option-title">Deployment Setup</span><span class="home-option-description">Prepare and download parameters for the existing deployment scripts.</span></a></li>
+                        <li><a class="home-area" href="admin/deployment"><span class="home-option-title">Deployment Setup</span><span class="home-option-description">Prepare and download parameters for the existing deployment scripts.</span></a></li>
+                        <li><a class="home-area" href="admin/configuration"><span class="home-option-title">Proxy Configuration</span><span class="home-option-description">Create, update, or duplicate a labeled proxy configuration.</span></a></li>
                     }
                 </ul>
                 @if (_selectedArea == "Explore" && _preferencesReady && !_onboardingExpanded && !_invitationExpired && !Preferences.IsOnboardingStep("complete"))
@@ -86,15 +92,14 @@
     @@media (min-width: 800px) {
         .home-layout-guided { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 2rem; align-items: start; }
         .home-layout-guided .home-onboarding { order: 0; }
-        .home-layout-guided .home-options a, .home-layout-guided .home-options button { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
+        .home-layout-guided .home-areas { grid-template-columns: minmax(0, 1fr); }
     }
     .home-areas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-    .home-area { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; padding: 1.5rem; border: 1px solid #d2d2d7; border-radius: 8px; background: #fafafa; text-align: left; color: #1d1d1f; font: inherit; }
-    .home-area:not(:disabled):hover { background: #f2f6fa; border-color: #8cabc8; }
-    .home-area:disabled { cursor: progress; opacity: 0.6; }
-    .home-area-title { font-size: 1.25rem; font-weight: 600; }
-    .home-area-description { color: #515154; font-size: 0.9375rem; line-height: 1.6; overflow-wrap: anywhere; }
-    .home-back { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; margin-bottom: 1rem; padding: 0.5rem; border: 0; border-radius: 4px; background: transparent; color: #0066cc; font: inherit; }
+    .home-area { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; padding: 1.5rem; border: 1px solid #d2d2d7; border-radius: 8px; background: #fafafa; text-align: left; color: #1d1d1f; font: inherit; text-decoration: none; overflow-wrap: anywhere; }
+    .home-area:hover { background: #f2f6fa; border-color: #8cabc8; }
+    .home-area-title, .home-option-title { font-size: 1.25rem; font-weight: 600; }
+    .home-area-description, .home-option-description { color: #515154; font-size: 0.9375rem; line-height: 1.6; overflow-wrap: anywhere; }
+    .home-back { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; margin-bottom: 1rem; padding: 0.5rem; border: 0; border-radius: 4px; background: transparent; color: #0066cc; font: inherit; text-decoration: none; }
     .home-back:hover { background: #f5f5f7; }
     .home-options { margin-top: 0; }
     .home-options-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
@@ -108,16 +113,12 @@
     @@media (prefers-reduced-motion: reduce) { .home-options .home-wizard-open { animation: none; } }
     .home-options h2 { font-size: 1.125rem; font-weight: 600; margin: 0 0 0.75rem; color: #1d1d1f; }
     .home-navigation ul { list-style: none; padding: 0; margin: 0; }
-    .home-options li { display: block; border-top: 1px solid #e5e5ea; }
-    .home-options a, .home-options button { display: grid; grid-template-columns: 12rem minmax(0, 1fr); gap: 1rem; align-items: baseline; width: 100%; min-height: 48px; padding: 0.875rem 0.5rem; border: 0; border-radius: 4px; background: transparent; color: #0066cc; text-align: left; font: inherit; text-decoration: none; overflow-wrap: anywhere; }
-    .home-option-title { font-weight: 500; }
-    .home-option-description { color: #515154; font-size: 0.9375rem; }
-    .home-options a:hover, .home-options button:hover { background: #f5f5f7; }
+    .home-options li { display: flex; min-width: 0; }
+    .home-options .home-area { width: 100%; }
     .home-navigation :focus-visible { outline: 3px solid #007aff; outline-offset: 2px; }
     @@media (max-width: 767.98px) {
         .home-areas { grid-template-columns: minmax(0, 1fr); }
         .home-area { padding: 1.25rem; }
-        .home-options a, .home-options button { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
     }
 </style>
 
@@ -143,7 +144,13 @@
 </div>
 
 @code {
-    private string? _selectedArea;
+    private string? _selectedArea => Navigation.ToBaseRelativePath(new Uri(Navigation.Uri).GetLeftPart(UriPartial.Path)).TrimEnd('/').ToLowerInvariant() switch
+    {
+        "admin" => "Deploy / Configure",
+        "test" => "Test",
+        "explore" => "Explore",
+        _ => null
+    };
     private bool _preferencesReady;
     private bool _onboardingExpanded;
     private bool _invitationExpired;
@@ -170,10 +177,22 @@
 
     private bool ShowOnboarding => _selectedArea == "Explore" && _onboardingExpanded && !Preferences.IsOnboardingStep("complete");
 
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (!_disposed)
+            {
+                StateHasChanged();
+            }
+        });
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            Navigation.LocationChanged += OnLocationChanged;
             await Preferences.LoadAsync();
             if (_disposed) return;
             _preferencesReady = true;
@@ -224,6 +243,7 @@
     public void Dispose()
     {
         _disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
         _invitationTimer?.Cancel();
         _invitationTimer?.Dispose();
     }
