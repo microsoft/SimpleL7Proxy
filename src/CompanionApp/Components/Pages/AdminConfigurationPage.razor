@@ -207,6 +207,10 @@
                     {
                         <span class="config-box-meta">@(group.FirstOrDefault() is { } probe && HealthProbeEditor.IsEnabled(probe) ? "Enabled" : "Disabled")</span>
                     }
+                    else if (IsTokenomicsSectionName(group.Key))
+                    {
+                        <span class="config-box-meta">@(TokenomicsEditor.IsEnabled(group) ? "Enabled" : "Disabled")</span>
+                    }
                     else if (IsCircuitBreakerSectionName(group.Key))
                     {
                         <span class="config-box-meta">@CircuitBreakerEditor.Summary(group)</span>
@@ -286,7 +290,7 @@
                             {
                                 <span class="small text-muted">@LoadBalancingEditor.Summary(SelectedSettings)</span>
                             }
-                            else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
+                            else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase) && !IsTokenomicsSection)
                             {
                                 <span class="small text-muted">@SelectedSettings.Count settings</span>
                             }
@@ -359,6 +363,10 @@
                             {
                                 <HealthProbeEditor Setting="probe" />
                             }
+                        }
+                        else if (IsTokenomicsSection)
+                        {
+                            <TokenomicsEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (IsCircuitBreakerSection)
                         {
@@ -1303,6 +1311,11 @@
         string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);
 
     private bool IsHealthProbeSection => IsHealthProbeSectionName(SelectedSection ?? string.Empty);
+
+    private static bool IsTokenomicsSectionName(string section) =>
+        string.Equals(section, "Tokenomics", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsTokenomicsSection => IsTokenomicsSectionName(SelectedSection ?? string.Empty);
 
     private static bool IsCircuitBreakerSectionName(string section) =>
         string.Equals(section, "CircuitBreaker", StringComparison.OrdinalIgnoreCase);

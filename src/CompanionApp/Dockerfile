@@ -12,7 +12,7 @@ COPY src/Shared/ src/Shared/
 COPY src/Shared-parser/ src/Shared-parser/
 COPY src/SimpleL7Proxy/ src/SimpleL7Proxy/
 COPY src/HealthProbe/Constants.cs src/HealthProbe/
-COPY deployment/deploy.parameters.example.sh deployment/
+COPY deployment/interactive/deploy.parameters.example.sh deployment/
 COPY src/CompanionApp/ src/CompanionApp/
 
 RUN dotnet publish src/CompanionApp/CompanionApp.csproj \

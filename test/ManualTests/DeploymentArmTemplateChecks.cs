@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using CompanionApp.Components.Pages;
 
 var root = Directory.GetCurrentDirectory();
-var baseline = File.ReadLines(Path.Combine(root, "deployment/deploy.parameters.example.sh"))
+var baseline = File.ReadLines(Path.Combine(root, "deployment/interactive/deploy.parameters.example.sh"))
     .Where(line => line.StartsWith("export ", StringComparison.Ordinal))
     .Select(line => Regex.Match(line, "^export ([A-Z][A-Z0-9_]*)=(?:\"([^\"]*)\"|([^ #]+))"))
     .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value);

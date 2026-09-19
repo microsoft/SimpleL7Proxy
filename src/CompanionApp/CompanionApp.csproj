@@ -22,7 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SimpleL7Proxy\SimpleL7Proxy.csproj" />
-    <EmbeddedResource Include="..\..\deployment\deploy.parameters.example.sh" LogicalName="DeploymentParameterTemplate" />
+    <EmbeddedResource Include="..\..\deployment\interactive\deploy.parameters.example.sh" LogicalName="DeploymentParameterTemplate" />
     <EmbeddedResource Include="..\HealthProbe\Constants.cs" LogicalName="HealthProbeVersionSource" />
     <EmbeddedResource Include="Assets\Deployment\README.template.md" LogicalName="DeploymentReadmeTemplate" />
     <EmbeddedResource Include="Assets\Deployment\deploy.template.sh" LogicalName="DeploymentScriptTemplate" />

@@ -1,0 +1,676 @@
+@namespace CompanionApp.Components.Shared
+@using System.Globalization
+@using System.Reflection
+@using SimpleL7Proxy.Tokenomics
+
+@if (EnableSetting is { } enableSetting)
+{
+    <div class="tokenomics-global-toolbar">
+        <label class="tokenomics-enabled-toggle" for="tokenomics-enabled">
+            <input id="tokenomics-enabled" class="form-check-input" type="checkbox" checked="@Enabled" @onchange="SetEnabledAsync" />
+            <span>Enabled</span>
+        </label>
+        <div class="tokenomics-global-actions">
+            @if (enableSetting.IsChanged)
+            {
+                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="RevertEnabledAsync">
+                    <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert enabled
+                </button>
+            }
+            @if (_parseError is null && OptionsSetting is { IsChanged: true })
+            {
+                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="RevertOptionsAsync">
+                    <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert options
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@if (OptionsSetting is { } optionsSetting)
+{
+    @if (_parseError is not null)
+    {
+        <section class="tokenomics-editor-section" aria-labelledby="tokenomics-options-heading">
+            <div class="tokenomics-section-heading">
+                <h3 id="tokenomics-options-heading" class="h6 mb-0">Options</h3>
+                @if (optionsSetting.IsChanged || RawOptionsChanged)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="RevertOptionsAsync">
+                        <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
+                    </button>
+                }
+            </div>
+            <div class="alert alert-danger py-2" role="alert">@_parseError</div>
+            <label class="form-label" for="tokenomics-raw-options">Raw Tokenomics options</label>
+            <textarea id="tokenomics-raw-options" class="form-control form-control-sm font-monospace" rows="6"
+                      value="@_rawOptions" @oninput="SetRawOptionsAsync"></textarea>
+        </section>
+    }
+    else
+    {
+        <div class="tokenomics-tabs" role="tablist" aria-label="Tokenomics settings">
+            @foreach (var tab in VisibleTabs)
+            {
+                <button id="@($"tokenomics-tab-{tab.Id}")" class="tokenomics-tab" type="button" role="tab"
+                        aria-selected="@(_selectedTab == tab.Id ? "true" : "false")"
+                        aria-controls="@($"tokenomics-panel-{tab.Id}")"
+                        @onclick="() => _selectedTab = tab.Id">
+                    @tab.Label
+                </button>
+            }
+        </div>
+
+        @if (_selectedTab is "limits" or "budgets" or "capacity" or "priority")
+        {
+            <section id="@($"tokenomics-panel-{_selectedTab}")" class="tokenomics-tab-panel" role="tabpanel"
+                     aria-labelledby="@($"tokenomics-tab-{_selectedTab}")">
+                <div class="config-newhost-grid">
+                    @foreach (var property in SelectedNumericProperties)
+                    {
+                        var errorId = $"tokenomics-{property.Name}-error";
+                        <div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)" @key="property.Name">
+                            <div class="config-setting-heading">
+                                <label class="form-label" for="@($"tokenomics-{property.Name}")">@FieldLabel(property.Name)</label>
+                                <ConfigurationHelp Section="Tokenomics" Topic="@property.Name" />
+                            </div>
+                            <ConfigurationExplanation Section="Tokenomics" Topic="@property.Name" />
+                            <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm" type="number"
+                                   step="@InputStep(property.PropertyType)" value="@FormatValue(property.GetValue(_options))"
+                                   aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
+                                   aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
+                                   @onchange="args => SetOptionAsync(property, args)" />
+                            @if (_fieldErrors.TryGetValue(property.Name, out var error))
+                            {
+                                <span id="@errorId" class="small text-danger" role="alert">@error</span>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="tokenomics-inline-actions" aria-label="Policy actions">
+                    @foreach (var actionProperty in SelectedActionProperties)
+                    {
+                        <div class="tokenomics-inline-action @(IsOptionChanged(actionProperty) ? "config-field-changed" : string.Empty)" @key="actionProperty.Name">
+                            <div class="tokenomics-inline-action-name">
+                                <label for="@($"tokenomics-{actionProperty.Name}")">@ActionLabel(actionProperty.Name)</label>
+                                <ConfigurationHelp Section="Tokenomics" Topic="@actionProperty.Name" />
+                            </div>
+                            <select id="@($"tokenomics-{actionProperty.Name}")" class="form-select form-select-sm"
+                                    value="@FormatValue(actionProperty.GetValue(_options))" @onchange="args => SetOptionAsync(actionProperty, args)">
+                                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                                {
+                                    <option value="@action">@FieldLabel(action.ToString())</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+        else if (_selectedTab == "costs")
+        {
+            <section id="tokenomics-panel-costs" class="tokenomics-tab-panel" role="tabpanel" aria-labelledby="tokenomics-tab-costs">
+                <div class="tokenomics-inline-actions tokenomics-cost-actions" aria-label="Model routing actions">
+                    @foreach (var actionProperty in SelectedActionProperties)
+                    {
+                        <div class="tokenomics-inline-action @(IsOptionChanged(actionProperty) ? "config-field-changed" : string.Empty)" @key="actionProperty.Name">
+                            <div class="tokenomics-inline-action-name">
+                                <label for="@($"tokenomics-{actionProperty.Name}")">@ActionLabel(actionProperty.Name)</label>
+                                <ConfigurationHelp Section="Tokenomics" Topic="@actionProperty.Name" />
+                            </div>
+                            <select id="@($"tokenomics-{actionProperty.Name}")" class="form-select form-select-sm"
+                                    value="@FormatValue(actionProperty.GetValue(_options))" @onchange="args => SetOptionAsync(actionProperty, args)">
+                                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                                {
+                                    <option value="@action">@FieldLabel(action.ToString())</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                </div>
+                <div class="tokenomics-model-toolbar">
+                    <div class="tokenomics-model-search">
+                        <span class="bi bi-search" aria-hidden="true"></span>
+                        <label class="visually-hidden" for="tokenomics-model-search">Search models</label>
+                        <input id="tokenomics-model-search" class="form-control form-control-sm" type="search"
+                               placeholder="Search models" value="@_modelSearch" @oninput="SetModelSearch" />
+                    </div>
+                    <span class="small text-muted text-nowrap" role="status">@ModelResultSummary</span>
+                    <label class="tokenomics-page-size">
+                        <span>Rows</span>
+                        <select class="form-select form-select-sm" value="@_modelPageSize" @onchange="SetModelPageSize">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </label>
+                    <ConfigurationHelp Section="Tokenomics" Topic="ModelCostPerToken" />
+                    <button class="btn btn-sm btn-primary text-nowrap" type="button" @onclick="AddModelCost">
+                        <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add model
+                    </button>
+                </div>
+                @if (_modelCosts.Count == 0)
+                {
+                    <p class="small text-muted mb-0">No model costs configured.</p>
+                }
+                else if (FilteredModelCostCount == 0)
+                {
+                    <div class="tokenomics-model-empty">
+                        <p class="small text-muted mb-0">No models match "@_modelSearch".</p>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="ClearModelSearch">Clear search</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive tokenomics-model-table-wrap">
+                        <table class="table table-sm align-middle tokenomics-model-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Model</th>
+                                    <th scope="col">USD per token</th>
+                                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in VisibleModelCosts)
+                                {
+                                    <tr class="@(IsModelCostChanged(row) ? "config-row-changed" : string.Empty)" @key="row.Id">
+                                        <td>
+                                            <label class="visually-hidden" for="@($"tokenomics-model-{row.Id}")">Model</label>
+                                            <input id="@($"tokenomics-model-{row.Id}")" class="form-control form-control-sm" value="@row.Model"
+                                                   aria-invalid="@(row.ModelError is null ? "false" : "true")"
+                                                   @onchange="args => SetModelCostAsync(row, args.Value?.ToString(), null)" />
+                                            @if (row.ModelError is not null)
+                                            {
+                                                <span class="small text-danger" role="alert">@row.ModelError</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <label class="visually-hidden" for="@($"tokenomics-cost-{row.Id}")">USD per token for @row.Model</label>
+                                            <input id="@($"tokenomics-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                                   value="@row.Cost" aria-invalid="@(row.CostError is null ? "false" : "true")"
+                                                   @onchange="args => SetModelCostAsync(row, null, args.Value?.ToString())" />
+                                            @if (row.CostError is not null)
+                                            {
+                                                <span class="small text-danger" role="alert">@row.CostError</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <button class="btn btn-sm btn-outline-danger tokenomics-remove-model" type="button" title="Remove model cost"
+                                                    aria-label="@($"Remove model cost for {row.Model}")" @onclick="() => RemoveModelCostAsync(row)">
+                                                <span class="bi bi-trash" aria-hidden="true"></span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <nav class="tokenomics-model-pagination" aria-label="Model costs pages">
+                        <span class="small text-muted">Page @_modelPage of @ModelPageCount</span>
+                        <div class="btn-group" role="group" aria-label="Pagination controls">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" title="First page" aria-label="First page"
+                                    disabled="@(_modelPage == 1)" @onclick="() => SetModelPage(1)">
+                                <span class="bi bi-chevron-bar-left" aria-hidden="true"></span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" title="Previous page" aria-label="Previous page"
+                                    disabled="@(_modelPage == 1)" @onclick="() => SetModelPage(_modelPage - 1)">
+                                <span class="bi bi-chevron-left" aria-hidden="true"></span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" title="Next page" aria-label="Next page"
+                                    disabled="@(_modelPage == ModelPageCount)" @onclick="() => SetModelPage(_modelPage + 1)">
+                                <span class="bi bi-chevron-right" aria-hidden="true"></span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" title="Last page" aria-label="Last page"
+                                    disabled="@(_modelPage == ModelPageCount)" @onclick="() => SetModelPage(ModelPageCount)">
+                                <span class="bi bi-chevron-bar-right" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </nav>
+                }
+            </section>
+        }
+    }
+}
+
+<style>
+    .tokenomics-editor-section { padding: 0.75rem 0; }
+    .tokenomics-editor-section + .tokenomics-editor-section { border-top: 1px solid #e5e5ea; }
+    .tokenomics-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+    .tokenomics-global-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem 1rem; padding: 0.15rem 0 0.65rem; }
+    .tokenomics-enabled-toggle { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
+    .tokenomics-enabled-toggle .form-check-input { margin: 0; }
+    .tokenomics-global-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .tokenomics-tabs { display: grid; grid-template-columns: repeat(5, minmax(6rem, 1fr)); overflow-x: auto; border-bottom: 1px solid #d2d2d7; }
+    .tokenomics-tab { min-height: 44px; padding: 0.6rem 0.5rem; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #515154; font-weight: 500; text-align: center; white-space: nowrap; }
+    .tokenomics-tab[aria-selected="true"] { color: #0066cc; border-bottom-color: #0066cc; background: #f2f6fa; }
+    .tokenomics-tab:hover { background: #f5f5f7; }
+    .tokenomics-tab:focus-visible { outline: 2px solid #0066cc; outline-offset: -2px; }
+    .tokenomics-tab-panel { padding: 0.75rem 0; }
+    .tokenomics-inline-actions { display: grid; gap: 0.35rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #e5e5ea; }
+    .tokenomics-inline-action { display: grid; grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem); align-items: center; gap: 1rem; min-height: 44px; padding: 0.35rem 0.5rem; border-radius: 4px; background: #f5f6f8; }
+    .tokenomics-inline-action.config-field-changed { background: #fff8dc; }
+    .tokenomics-inline-action-name { display: flex; align-items: baseline; gap: 0.35rem; min-width: 0; }
+    .tokenomics-inline-action-name label { margin: 0; font-size: 0.875rem; font-weight: 500; overflow-wrap: anywhere; }
+    .tokenomics-cost-actions { margin-top: 0; margin-bottom: 0.75rem; padding-top: 0; padding-bottom: 0.75rem; border-top: 0; border-bottom: 1px solid #e5e5ea; }
+    .tokenomics-model-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem; margin-bottom: 0.75rem; }
+    .tokenomics-model-search { position: relative; flex: 1 1 18rem; min-width: 12rem; }
+    .tokenomics-model-search .bi { position: absolute; top: 50%; left: 0.65rem; z-index: 1; color: #6e6e73; transform: translateY(-50%); pointer-events: none; }
+    .tokenomics-model-search .form-control { padding-left: 2rem; }
+    .tokenomics-page-size { display: flex; align-items: center; gap: 0.4rem; margin: 0; color: #6e6e73; font-size: 0.8125rem; }
+    .tokenomics-page-size .form-select { width: auto; min-width: 4.5rem; }
+    .tokenomics-model-empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 0.75rem; min-height: 10rem; border: 1px dashed #d2d2d7; }
+    .tokenomics-model-table-wrap { max-height: 28rem; border: 1px solid #d2d2d7; }
+    .tokenomics-model-table { table-layout: fixed; }
+    .tokenomics-model-table th { position: sticky; top: 0; z-index: 1; padding: 0.5rem 0.65rem; background: #f5f5f7; color: #515154; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+    .tokenomics-model-table th:first-child { width: 60%; }
+    .tokenomics-model-table th:nth-child(2) { width: 32%; }
+    .tokenomics-model-table th:last-child { width: 3.5rem; }
+    .tokenomics-model-table td { padding: 0.4rem 0.65rem; }
+    .tokenomics-model-table .form-control { min-width: 0; }
+    .tokenomics-remove-model { width: 2.25rem; height: 2.25rem; padding: 0; }
+    .tokenomics-model-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 0.75rem; }
+    .tokenomics-model-pagination .btn { width: 2.5rem; min-height: 2.25rem; padding: 0; }
+    @@media (max-width: 600px) {
+        .tokenomics-inline-action { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
+        .tokenomics-model-search { flex-basis: 100%; }
+        .tokenomics-model-table { min-width: 36rem; }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private static readonly PropertyInfo[] OptionProperties = typeof(TokenomicsSettings)
+        .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Where(property => property.CanRead && property.CanWrite && property.Name != nameof(TokenomicsSettings.ModelCostPerToken))
+        .ToArray();
+
+    private static IEnumerable<PropertyInfo> NumericProperties =>
+        OptionProperties.Where(property => property.PropertyType != typeof(TokenActionEnum));
+
+    private static IEnumerable<PropertyInfo> ActionProperties =>
+        OptionProperties.Where(property => property.PropertyType == typeof(TokenActionEnum));
+
+    private static readonly (string Id, string Label)[] Tabs =
+    {
+        ("limits", "Limits"),
+        ("budgets", "Budgets"),
+        ("capacity", "Capacity"),
+        ("priority", "Priority"),
+        ("costs", "Costs"),
+    };
+
+    private static IEnumerable<(string Id, string Label)> VisibleTabs =>
+        Tabs.Where(tab => !string.Equals(tab.Id, "actions", StringComparison.Ordinal));
+
+    private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
+    private readonly List<ModelCostRow> _modelCosts = new();
+    private string _selectedTab = "limits";
+    private string _modelSearch = string.Empty;
+    private int _modelPage = 1;
+    private int _modelPageSize = 50;
+    private TokenomicsSettings _options = new();
+    private TokenomicsSettings _loadedOptions = new();
+    private AppConfigurationScaffoldSetting? _trackedOptionsSetting;
+    private string? _observedDraftValue;
+    private string _rawOptions = string.Empty;
+    private string? _parseError;
+    private bool _loadedOptionsValid;
+
+    private AppConfigurationScaffoldSetting? EnableSetting => Settings.FirstOrDefault(setting =>
+        string.Equals(setting.Name, "Enable", StringComparison.OrdinalIgnoreCase));
+
+    private AppConfigurationScaffoldSetting? OptionsSetting => Settings.FirstOrDefault(setting =>
+        string.Equals(setting.Name, "Options", StringComparison.OrdinalIgnoreCase));
+
+    private bool Enabled => bool.TryParse(EnableSetting?.DraftValue, out var enabled) && enabled;
+
+    private bool RawOptionsChanged => OptionsSetting is { } setting
+        && !string.Equals(_rawOptions, setting.DraftValue, StringComparison.Ordinal);
+
+    private IEnumerable<ModelCostRow> FilteredModelCosts => _modelCosts
+        .Where(ModelMatchesSearch)
+        .OrderBy(row => string.IsNullOrWhiteSpace(row.Model) ? 0 : 1)
+        .ThenBy(row => row.Model, StringComparer.OrdinalIgnoreCase);
+
+    private int FilteredModelCostCount => _modelCosts.Count(ModelMatchesSearch);
+
+    private int ModelPageCount => Math.Max(1, (int)Math.Ceiling(FilteredModelCostCount / (double)_modelPageSize));
+
+    private IEnumerable<ModelCostRow> VisibleModelCosts => FilteredModelCosts
+        .Skip((_modelPage - 1) * _modelPageSize)
+        .Take(_modelPageSize);
+
+    private string ModelResultSummary {
+        get {
+            var filteredCount = FilteredModelCostCount;
+            if (filteredCount == 0) {
+                return $"0 of {_modelCosts.Count} models";
+            }
+
+            var first = ((_modelPage - 1) * _modelPageSize) + 1;
+            var last = Math.Min(_modelPage * _modelPageSize, filteredCount);
+            var suffix = string.IsNullOrWhiteSpace(_modelSearch) ? "" : $" of {_modelCosts.Count}";
+            return $"{first}-{last} of {filteredCount}{suffix} models";
+        }
+    }
+
+    private bool ModelMatchesSearch(ModelCostRow row) =>
+        string.IsNullOrWhiteSpace(_modelSearch)
+        || row.Model.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private IEnumerable<PropertyInfo> SelectedNumericProperties => NumericProperties.Where(property => _selectedTab switch
+    {
+        "limits" => property.Name is nameof(TokenomicsSettings.MonthlyTokenLimit) or nameof(TokenomicsSettings.DailyTokenLimit),
+        "budgets" => property.Name is nameof(TokenomicsSettings.DailyBudgetUsd) or nameof(TokenomicsSettings.MonthlyBudgetUsd),
+        "capacity" => property.Name is nameof(TokenomicsSettings.CurrentCapacityUtilizationPercent)
+            or nameof(TokenomicsSettings.CapacityConstraintThresholdPercent)
+            or nameof(TokenomicsSettings.HighQueueDepthThreshold)
+            or nameof(TokenomicsSettings.LargeContextThreshold),
+        "priority" => property.Name is nameof(TokenomicsSettings.CriticalPriority) or nameof(TokenomicsSettings.HighPriority),
+        _ => false,
+    });
+
+    private IEnumerable<PropertyInfo> SelectedActionProperties =>
+        ActionProperties.Where(property => string.Equals(ActionTab(property.Name), _selectedTab, StringComparison.Ordinal));
+
+    private static string ActionTab(string name) => name switch {
+        nameof(TokenomicsSettings.AbuseDetectedAction)
+            or nameof(TokenomicsSettings.MonthlyQuotaExceededAction)
+            or nameof(TokenomicsSettings.DailyQuotaGovernanceAction)
+            or nameof(TokenomicsSettings.DailyQuotaExceededAction)
+            or nameof(TokenomicsSettings.DefaultAction) => "limits",
+        nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
+            or nameof(TokenomicsSettings.MonthlyBudgetExceededAction)
+            or nameof(TokenomicsSettings.DailyBudgetEntitledTenantAction)
+            or nameof(TokenomicsSettings.DailyBudgetExceededAction) => "budgets",
+        nameof(TokenomicsSettings.CapacityCriticalWorkloadAction)
+            or nameof(TokenomicsSettings.CapacityHighPriorityAction)
+            or nameof(TokenomicsSettings.CapacityConstrainedAction)
+            or nameof(TokenomicsSettings.QueueCriticalPriorityAction)
+            or nameof(TokenomicsSettings.QueueDepthHighAction)
+            or nameof(TokenomicsSettings.LargeContextCapacityAvailableAction)
+            or nameof(TokenomicsSettings.LargeContextRequestAction) => "capacity",
+        nameof(TokenomicsSettings.AdministratorOverrideAction)
+            or nameof(TokenomicsSettings.CriticalPriorityAction)
+            or nameof(TokenomicsSettings.HighPriorityEntitledTenantAction)
+            or nameof(TokenomicsSettings.TenantEntitlementAction)
+            or nameof(TokenomicsSettings.GovernanceWorkloadAction) => "priority",
+        nameof(TokenomicsSettings.PreferredModelReplacementAction)
+            or nameof(TokenomicsSettings.PreferredModelUnavailableAction) => "costs",
+        _ => throw new InvalidOperationException($"No Tokenomics tab is assigned to action '{name}'.")
+    };
+
+    public static bool IsEnabled(IEnumerable<AppConfigurationScaffoldSetting> settings) {
+        var enable = settings.FirstOrDefault(setting => string.Equals(setting.Name, "Enable", StringComparison.OrdinalIgnoreCase));
+        return bool.TryParse(enable?.DraftValue, out var enabled) && enabled;
+    }
+
+    protected override void OnParametersSet() {
+        if (!VisibleTabs.Any(tab => string.Equals(tab.Id, _selectedTab, StringComparison.Ordinal))) {
+            _selectedTab = "limits";
+        }
+
+        var setting = OptionsSetting;
+        if (!ReferenceEquals(setting, _trackedOptionsSetting)
+            || !string.Equals(setting?.DraftValue, _observedDraftValue, StringComparison.Ordinal)) {
+            LoadOptions(setting);
+        }
+    }
+
+    private void LoadOptions(AppConfigurationScaffoldSetting? setting) {
+        _trackedOptionsSetting = setting;
+        _observedDraftValue = setting?.DraftValue;
+        _rawOptions = setting?.DraftValue ?? string.Empty;
+        _modelPage = 1;
+        _fieldErrors.Clear();
+        _modelCosts.Clear();
+
+        if (setting is null) {
+            _options = new TokenomicsSettings();
+            _loadedOptions = new TokenomicsSettings();
+            _loadedOptionsValid = false;
+            _parseError = null;
+            return;
+        }
+
+        var parsedOptions = ParseOptions(setting.DraftValue);
+        var parsedLoadedOptions = ParseOptions(setting.LoadedValue);
+        _loadedOptionsValid = parsedLoadedOptions is not null;
+        _loadedOptions = parsedLoadedOptions ?? new TokenomicsSettings();
+
+        if (parsedOptions is null) {
+            _options = new TokenomicsSettings();
+            _parseError = "Tokenomics:Options must contain comma- or semicolon-separated key=value pairs.";
+            return;
+        }
+
+        _options = parsedOptions;
+        _parseError = null;
+        foreach (var modelCost in _options.ModelCostPerToken) {
+            _modelCosts.Add(new ModelCostRow(modelCost.Key, modelCost.Value.ToString(CultureInfo.InvariantCulture)));
+        }
+    }
+
+    private static TokenomicsSettings? ParseOptions(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? new TokenomicsSettings() : TokenomicsSettings.TryParse(value);
+
+    private async Task SetEnabledAsync(ChangeEventArgs args) {
+        if (EnableSetting is not { } setting) {
+            return;
+        }
+
+        setting.DraftValue = args.Value is bool enabled && enabled ? "true" : "false";
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RevertEnabledAsync() {
+        if (EnableSetting is not { } setting) {
+            return;
+        }
+
+        setting.DraftValue = setting.LoadedValue;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetRawOptionsAsync(ChangeEventArgs args) {
+        if (OptionsSetting is not { } setting) {
+            return;
+        }
+
+        _rawOptions = args.Value?.ToString() ?? string.Empty;
+        if (ParseOptions(_rawOptions) is null) {
+            _parseError = "Tokenomics:Options must contain comma- or semicolon-separated key=value pairs.";
+            await OnChanged.InvokeAsync();
+            return;
+        }
+
+        setting.DraftValue = _rawOptions;
+        LoadOptions(setting);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args) {
+        var value = args.Value?.ToString() ?? string.Empty;
+        if (!TryParseValue(property.PropertyType, value, out var parsedValue)) {
+            _fieldErrors[property.Name] = $"Enter a valid {FieldLabel(property.Name)} value.";
+            await OnChanged.InvokeAsync();
+            return;
+        }
+
+        _fieldErrors.Remove(property.Name);
+        property.SetValue(_options, parsedValue);
+        CommitOptions();
+        await OnChanged.InvokeAsync();
+    }
+
+    private static bool TryParseValue(Type type, string value, out object? parsedValue) {
+        parsedValue = null;
+        if (type == typeof(int) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) {
+            parsedValue = integer;
+        } else if (type == typeof(decimal) && decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue)) {
+            parsedValue = decimalValue;
+        } else if (type == typeof(double) && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue) && double.IsFinite(doubleValue)) {
+            parsedValue = doubleValue;
+        } else if (type == typeof(float) && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var floatValue) && float.IsFinite(floatValue)) {
+            parsedValue = floatValue;
+        } else if (type == typeof(bool) && bool.TryParse(value, out var boolValue)) {
+            parsedValue = boolValue;
+        } else if (type == typeof(TokenActionEnum)
+            && Enum.TryParse<TokenActionEnum>(value, true, out var action)
+            && Enum.IsDefined(action)) {
+            parsedValue = action;
+        }
+
+        return parsedValue is not null;
+    }
+
+    private void AddModelCost() {
+        _modelCosts.Insert(0, new ModelCostRow(string.Empty, string.Empty));
+        _modelSearch = string.Empty;
+        _modelPage = 1;
+    }
+
+    private void SetModelSearch(ChangeEventArgs args) {
+        _modelSearch = args.Value?.ToString() ?? string.Empty;
+        _modelPage = 1;
+    }
+
+    private void ClearModelSearch() {
+        _modelSearch = string.Empty;
+        _modelPage = 1;
+    }
+
+    private void SetModelPageSize(ChangeEventArgs args) {
+        if (int.TryParse(args.Value?.ToString(), out var pageSize) && pageSize is 25 or 50 or 100) {
+            _modelPageSize = pageSize;
+            _modelPage = 1;
+        }
+    }
+
+    private void SetModelPage(int page) {
+        _modelPage = Math.Clamp(page, 1, ModelPageCount);
+    }
+
+    private async Task SetModelCostAsync(ModelCostRow row, string? model, string? cost) {
+        if (model is not null) {
+            row.Model = model;
+        }
+        if (cost is not null) {
+            row.Cost = cost;
+        }
+
+        TryCommitModelCosts();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RemoveModelCostAsync(ModelCostRow row) {
+        _modelCosts.Remove(row);
+        _modelPage = Math.Min(_modelPage, ModelPageCount);
+        TryCommitModelCosts();
+        await OnChanged.InvokeAsync();
+    }
+
+    private bool TryCommitModelCosts() {
+        var costs = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var valid = true;
+        foreach (var row in _modelCosts) {
+            row.ModelError = null;
+            row.CostError = null;
+            var model = row.Model.Trim();
+            if (string.IsNullOrEmpty(model)) {
+                row.ModelError = "Enter a model name.";
+                valid = false;
+            } else if (costs.ContainsKey(model)) {
+                row.ModelError = "Model names must be unique.";
+                valid = false;
+            }
+
+            if (!decimal.TryParse(row.Cost, NumberStyles.Float, CultureInfo.InvariantCulture, out var cost) || cost < 0) {
+                row.CostError = "Enter a non-negative cost.";
+                valid = false;
+            }
+
+            if (row.ModelError is null && row.CostError is null) {
+                costs[model] = cost;
+            }
+        }
+
+        if (!valid) {
+            return false;
+        }
+
+        _options.ModelCostPerToken = costs;
+        CommitOptions();
+        return true;
+    }
+
+    private void CommitOptions() {
+        if (OptionsSetting is not { } setting) {
+            return;
+        }
+
+        var serialized = _options.ToString();
+        setting.DraftValue = _loadedOptionsValid
+            && string.Equals(serialized, _loadedOptions.ToString(), StringComparison.Ordinal)
+                ? setting.LoadedValue
+                : serialized;
+        _observedDraftValue = setting.DraftValue;
+    }
+
+    private async Task RevertOptionsAsync() {
+        if (OptionsSetting is not { } setting) {
+            return;
+        }
+
+        setting.DraftValue = setting.LoadedValue;
+        LoadOptions(setting);
+        await OnChanged.InvokeAsync();
+    }
+
+    private bool IsOptionChanged(PropertyInfo property) =>
+        !Equals(property.GetValue(_options), property.GetValue(_loadedOptions));
+
+    private bool IsModelCostChanged(ModelCostRow row) {
+        if (!_loadedOptions.ModelCostPerToken.TryGetValue(row.Model.Trim(), out var loadedCost)) {
+            return true;
+        }
+
+        return !decimal.TryParse(row.Cost, NumberStyles.Float, CultureInfo.InvariantCulture, out var cost) || cost != loadedCost;
+    }
+
+    private static string InputStep(Type type) => type == typeof(int) ? "1" : "any";
+
+    private static string FormatValue(object? value) => value switch {
+        null => string.Empty,
+        bool boolean => boolean.ToString().ToLowerInvariant(),
+        IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
+        _ => value.ToString() ?? string.Empty
+    };
+
+    private static string FieldLabel(string name) {
+        var builder = new System.Text.StringBuilder(name.Length + 8);
+        for (var index = 0; index < name.Length; index++) {
+            var character = name[index];
+            if (index > 0 && char.IsUpper(character) && !char.IsUpper(name[index - 1])) {
+                builder.Append(' ');
+            }
+            builder.Append(char.ToLowerInvariant(character));
+        }
+
+        return builder.ToString().Replace(" usd", " USD", StringComparison.Ordinal);
+    }
+
+    private static string ActionLabel(string name) => FieldLabel(name);
+
+    private sealed class ModelCostRow(string model, string cost) {
+        public Guid Id { get; } = Guid.NewGuid();
+        public string Model { get; set; } = model;
+        public string Cost { get; set; } = cost;
+        public string? ModelError { get; set; }
+        public string? CostError { get; set; }
+    }
+}

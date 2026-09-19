@@ -218,6 +218,11 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Priority { get; set; }
     public int Priority2 { get; set; }
     public short S7PHash { get; set; }
+    public int S7PInputTokens { get; set; }
+    public int S7POutputTokens { get; set; }
+    public bool ModelReplacementAllowed { get; set; }
+    /// <summary>Gets or sets whether abuse detection has marked this request for rejection.</summary>
+    public bool IsAbusive { get; set; }
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
     public ProxyEvent EventData;

@@ -91,6 +91,9 @@ public static class ConfigParser
         ("Workers", "Workers"),
         // ("StorageDbEnabled", "StorageDbEnabled"),
 
+        ("Tokenomics:Enable", "TokenomicsEnable"),
+        ("Tokenomics:Options", "TokenomicsOptions"),
+
         // ── Logging / Telemetry ──
         ("LOG_LEVEL", "LogLevel"),
         ("APPINSIGHTS_CONNECTIONSTRING", "AppInsightsConnectionString"),
