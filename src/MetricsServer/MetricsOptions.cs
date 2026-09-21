@@ -23,6 +23,12 @@ public sealed class MetricsOptions
     /// <summary>Maximum accepted request body size, in bytes.</summary>
     public int MaxRequestBodyBytes { get; init; } = Constants.DefaultMaxRequestBodyBytes;
 
+    /// <summary>Application Insights connection string. Telemetry is disabled when empty.</summary>
+    public string AppInsightsConnectionString { get; init; } = string.Empty;
+
+    /// <summary>How often server counters are published to Application Insights, in seconds.</summary>
+    public int TelemetryIntervalSeconds { get; init; } = Constants.DefaultTelemetryIntervalSeconds;
+
     /// <summary>Total retention window, in seconds.</summary>
     public int RetentionSeconds => BucketSeconds * BucketCount;
 
@@ -42,8 +48,25 @@ public sealed class MetricsOptions
                 Constants.MaxRequestBodyBytesEnvironmentVariable,
                 Constants.DefaultMaxRequestBodyBytes,
                 1024,
-                64 * 1024 * 1024)
+                64 * 1024 * 1024),
+            AppInsightsConnectionString = ReadConnectionString(),
+            TelemetryIntervalSeconds = ReadInt(
+                Constants.TelemetryIntervalEnvironmentVariable,
+                Constants.DefaultTelemetryIntervalSeconds,
+                5,
+                3600)
         };
+    }
+
+    private static string ReadConnectionString()
+    {
+        var value = Environment.GetEnvironmentVariable(Constants.AppInsightsConnectionStringEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            value = Environment.GetEnvironmentVariable(Constants.AppInsightsConnectionStringFallbackEnvironmentVariable);
+        }
+
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
     private static int ReadInt(string name, int defaultValue, int minValue, int maxValue)

@@ -23,6 +23,7 @@ public sealed class MetricsStore
 
     private long _recordsIngested;
     private long _recordsDropped;
+    private int _seriesCount;
 
     public MetricsStore(MetricsOptions options)
     {
@@ -32,13 +33,13 @@ public sealed class MetricsStore
     /// <summary>
     /// Merges a rollup record into the store.
     /// </summary>
-    /// <returns><c>true</c> when the record was merged; <c>false</c> when it was dropped.</returns>
-    public bool Ingest(RollupRecord record)
+    /// <returns>The outcome of the merge attempt.</returns>
+    public IngestResult Ingest(RollupRecord? record)
     {
         if (record is null)
         {
             Interlocked.Increment(ref _recordsDropped);
-            return false;
+            return IngestResult.Invalid;
         }
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -48,7 +49,7 @@ public sealed class MetricsStore
         if (timestamp > now + _options.BucketSeconds || timestamp < now - _options.RetentionSeconds)
         {
             Interlocked.Increment(ref _recordsDropped);
-            return false;
+            return IngestResult.OutOfWindow;
         }
 
         var user = Normalize(record.User);
@@ -57,19 +58,29 @@ public sealed class MetricsStore
 
         if (!_series.TryGetValue(key, out var series))
         {
-            if (_series.Count >= _options.MaxSeries)
+            if (Volatile.Read(ref _seriesCount) >= _options.MaxSeries)
             {
                 Interlocked.Increment(ref _recordsDropped);
-                return false;
+                return IngestResult.CapacityReached;
             }
 
-            series = _series.GetOrAdd(key, _ => new MetricSeries(user, model, _options.BucketCount));
-            IndexSeries(key, series);
+            var created = false;
+            series = _series.GetOrAdd(key, _ =>
+            {
+                created = true;
+                return new MetricSeries(user, model, _options.BucketCount);
+            });
+
+            if (created)
+            {
+                Interlocked.Increment(ref _seriesCount);
+                IndexSeries(key, series);
+            }
         }
 
         series.Add(record, timestamp / _options.BucketSeconds, timestamp);
         Interlocked.Increment(ref _recordsIngested);
-        return true;
+        return IngestResult.Accepted;
     }
 
     /// <summary>
@@ -174,7 +185,7 @@ public sealed class MetricsStore
     public NamesResponse ListUsers(string? model)
     {
         var names = string.IsNullOrWhiteSpace(model)
-            ? _byUser.Values.Select(entries => FirstName(entries, byUser: true))
+            ? _byUser.Keys.AsEnumerable()
             : Select(null, model).Select(series => series.User);
 
         return BuildNames(names);
@@ -186,7 +197,7 @@ public sealed class MetricsStore
     public NamesResponse ListModels(string? user)
     {
         var names = string.IsNullOrWhiteSpace(user)
-            ? _byModel.Values.Select(entries => FirstName(entries, byUser: false))
+            ? _byModel.Keys.AsEnumerable()
             : Select(user, null).Select(series => series.Model);
 
         return BuildNames(names);
@@ -198,7 +209,7 @@ public sealed class MetricsStore
     public StatsResponse Stats() => new()
     {
         UptimeSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _startedAt,
-        SeriesCount = _series.Count,
+        SeriesCount = Volatile.Read(ref _seriesCount),
         MaxSeries = _options.MaxSeries,
         UserCount = _byUser.Count,
         ModelCount = _byModel.Count,
@@ -232,6 +243,7 @@ public sealed class MetricsStore
             }
 
             removed++;
+            Interlocked.Decrement(ref _seriesCount);
             RemoveFromIndex(_byUser, pair.Value.User, pair.Key);
             RemoveFromIndex(_byModel, pair.Value.Model, pair.Key);
         }
@@ -246,7 +258,7 @@ public sealed class MetricsStore
 
         if (hasUser && hasModel)
         {
-            if (_series.TryGetValue(new MetricKey(user!.Trim(), model!.Trim()), out var series))
+            if (_series.TryGetValue(new MetricKey(Normalize(user), Normalize(model)), out var series))
             {
                 yield return series;
             }
@@ -256,7 +268,7 @@ public sealed class MetricsStore
 
         if (hasUser)
         {
-            if (_byUser.TryGetValue(user!.Trim(), out var byUser))
+            if (_byUser.TryGetValue(Normalize(user), out var byUser))
             {
                 foreach (var series in byUser.Values)
                 {
@@ -269,7 +281,7 @@ public sealed class MetricsStore
 
         if (hasModel)
         {
-            if (_byModel.TryGetValue(model!.Trim(), out var byModel))
+            if (_byModel.TryGetValue(Normalize(model), out var byModel))
             {
                 foreach (var series in byModel.Values)
                 {
@@ -309,16 +321,6 @@ public sealed class MetricsStore
             // IndexSeries re-creates it on demand.
             index.TryRemove(new KeyValuePair<string, ConcurrentDictionary<MetricKey, MetricSeries>>(name, entries));
         }
-    }
-
-    private static string FirstName(ConcurrentDictionary<MetricKey, MetricSeries> entries, bool byUser)
-    {
-        foreach (var series in entries.Values)
-        {
-            return byUser ? series.User : series.Model;
-        }
-
-        return string.Empty;
     }
 
     private static NamesResponse BuildNames(IEnumerable<string> names)
@@ -370,4 +372,22 @@ public sealed class MetricsStore
         var trimmed = value.Trim();
         return trimmed.Length > 256 ? trimmed[..256] : trimmed;
     }
+}
+
+/// <summary>
+/// Outcome of a rollup ingest attempt.
+/// </summary>
+public enum IngestResult
+{
+    /// <summary>The record was merged into the store.</summary>
+    Accepted,
+
+    /// <summary>The record could not be parsed into a usable rollup.</summary>
+    Invalid,
+
+    /// <summary>The record timestamp fell outside the retention window.</summary>
+    OutOfWindow,
+
+    /// <summary>The configured series limit was reached.</summary>
+    CapacityReached
 }

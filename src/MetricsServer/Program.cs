@@ -1,3 +1,4 @@
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,7 @@ public class Program
             {
                 services.AddSingleton(options);
                 services.AddSingleton<MetricsStore>();
+                ConfigureAppInsights(services, options);
                 services.AddHostedService<MetricsHttpServer>();
             })
             .ConfigureLogging(logging =>
@@ -30,5 +32,28 @@ public class Program
             .Build();
 
         await host.RunAsync();
+    }
+
+    /// <summary>
+    /// Registers Application Insights when a connection string is configured. Without one the
+    /// service runs with console logging only.
+    /// </summary>
+    private static void ConfigureAppInsights(IServiceCollection services, MetricsOptions options)
+    {
+        if (string.IsNullOrEmpty(options.AppInsightsConnectionString))
+        {
+            return;
+        }
+
+        services.AddApplicationInsightsTelemetryWorkerService(telemetry =>
+        {
+            telemetry.ConnectionString = options.AppInsightsConnectionString;
+            telemetry.EnableAdaptiveSampling = false;
+        });
+
+        services.Configure<TelemetryConfiguration>(config =>
+        {
+            config.TelemetryInitializers.Add(new MetricsTelemetryInitializer());
+        });
     }
 }

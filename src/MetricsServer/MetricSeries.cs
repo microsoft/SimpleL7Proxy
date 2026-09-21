@@ -37,7 +37,7 @@ public readonly struct MetricKey : IEquatable<MetricKey>
 /// </summary>
 internal sealed class MetricBucket
 {
-    internal long BucketId = -1;
+    internal readonly long BucketId;
     internal long Requests;
     internal long Successes;
     internal long Failures;
@@ -46,16 +46,9 @@ internal sealed class MetricBucket
     internal long PromptTokens;
     internal long CompletionTokens;
 
-    internal void Reset(long bucketId)
+    internal MetricBucket(long bucketId)
     {
-        Requests = 0;
-        Successes = 0;
-        Failures = 0;
-        LatencyMsTotal = 0;
-        LatencyMsMax = 0;
-        PromptTokens = 0;
-        CompletionTokens = 0;
-        Volatile.Write(ref BucketId, bucketId);
+        BucketId = bucketId;
     }
 }
 
@@ -66,6 +59,7 @@ internal sealed class MetricBucket
 internal sealed class MetricSeries
 {
     private readonly MetricBucket[] _buckets;
+    private readonly object _rollLock = new();
     private long _lastUpdate;
 
     internal MetricSeries(string user, string model, int bucketCount)
@@ -75,7 +69,7 @@ internal sealed class MetricSeries
         _buckets = new MetricBucket[bucketCount];
         for (var i = 0; i < bucketCount; i++)
         {
-            _buckets[i] = new MetricBucket();
+            _buckets[i] = new MetricBucket(long.MinValue);
         }
     }
 
@@ -91,19 +85,21 @@ internal sealed class MetricSeries
     internal void Add(RollupRecord record, long bucketId, long timestamp)
     {
         var index = (int)(((bucketId % _buckets.Length) + _buckets.Length) % _buckets.Length);
-        var bucket = _buckets[index];
+        var bucket = GetBucket(index, bucketId);
+        Apply(bucket, record);
+        UpdateMax(ref _lastUpdate, timestamp);
 
-        if (Volatile.Read(ref bucket.BucketId) != bucketId)
+        // A concurrent rollover can replace the slot between the lookup above and the updates.
+        // Re-apply once to the current bucket so counts are not left in a discarded bucket.
+        var current = Volatile.Read(ref _buckets[index]);
+        if (!ReferenceEquals(current, bucket) && current.BucketId == bucketId)
         {
-            lock (bucket)
-            {
-                if (Volatile.Read(ref bucket.BucketId) != bucketId)
-                {
-                    bucket.Reset(bucketId);
-                }
-            }
+            Apply(current, record);
         }
+    }
 
+    private static void Apply(MetricBucket bucket, RollupRecord record)
+    {
         var requests = record.Requests > 0
             ? record.Requests
             : record.Successes + record.Failures;
@@ -142,8 +138,28 @@ internal sealed class MetricSeries
         {
             UpdateMax(ref bucket.LatencyMsMax, record.LatencyMsMax);
         }
+    }
 
-        UpdateMax(ref _lastUpdate, timestamp);
+    private MetricBucket GetBucket(int index, long bucketId)
+    {
+        var bucket = Volatile.Read(ref _buckets[index]);
+        if (bucket.BucketId == bucketId)
+        {
+            return bucket;
+        }
+
+        lock (_rollLock)
+        {
+            bucket = Volatile.Read(ref _buckets[index]);
+            if (bucket.BucketId == bucketId)
+            {
+                return bucket;
+            }
+
+            var replacement = new MetricBucket(bucketId);
+            Volatile.Write(ref _buckets[index], replacement);
+            return replacement;
+        }
     }
 
     /// <summary>
@@ -153,8 +169,8 @@ internal sealed class MetricSeries
     {
         for (var i = 0; i < _buckets.Length; i++)
         {
-            var bucket = _buckets[i];
-            var bucketId = Volatile.Read(ref bucket.BucketId);
+            var bucket = Volatile.Read(ref _buckets[i]);
+            var bucketId = bucket.BucketId;
             if (bucketId < minBucketId || bucketId > maxBucketId)
             {
                 continue;
@@ -183,8 +199,8 @@ internal sealed class MetricSeries
     {
         for (var i = 0; i < _buckets.Length; i++)
         {
-            var bucket = _buckets[i];
-            var bucketId = Volatile.Read(ref bucket.BucketId);
+            var bucket = Volatile.Read(ref _buckets[i]);
+            var bucketId = bucket.BucketId;
             if (bucketId < minBucketId || bucketId > maxBucketId)
             {
                 continue;

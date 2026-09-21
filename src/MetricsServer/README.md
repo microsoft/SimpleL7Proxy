@@ -23,6 +23,8 @@ Durations are seconds unless the name ends in `Ms` (milliseconds). Timestamps ar
 | `METRICSSERVER_BUCKET_COUNT` | `60` | buckets | Buckets retained per user/model series. |
 | `METRICSSERVER_MAX_SERIES` | `100000` | series | Cap on distinct user/model pairs held in memory. |
 | `METRICSSERVER_MAX_BODY_BYTES` | `4194304` | bytes | Maximum accepted request body size. |
+| `APPINSIGHTS_CONNECTIONSTRING` | empty | string | Application Insights connection string. Telemetry is off when empty. `APPLICATIONINSIGHTS_CONNECTION_STRING` is accepted as a fallback. |
+| `METRICSSERVER_TELEMETRY_INTERVAL_SECONDS` | `60` | seconds | How often server counters are published to Application Insights. |
 
 Retention window = `METRICSSERVER_BUCKET_SECONDS` × `METRICSSERVER_BUCKET_COUNT` (default 1 hour). Values that are missing, unparsable, or out of range fall back to the default. All settings are read once at startup.
 
@@ -58,7 +60,12 @@ Record fields: `user`, `model`, `requests`, `successes`, `failures`, `latencyMsT
 - `requests` defaults to `successes + failures` when omitted or zero.
 - `timestamp` defaults to now. Records older than the retention window, or more than one bucket in the future, are rejected.
 
-The response is `202 Accepted` with `{"accepted":N,"rejected":M}`. When every record is rejected the status is `429 Too Many Requests`, which indicates the series limit was reached or the timestamps fell outside retention.
+The response body is `{"accepted":N,"rejected":M}`. Status codes:
+
+- `202 Accepted` — at least one record was merged.
+- `503 Service Unavailable` — nothing merged because the series limit was reached; retrying later can succeed.
+- `400 Bad Request` — nothing merged because every record was unusable or outside the retention window, or the body was empty or not valid JSON.
+- `413 Payload Too Large` — the body exceeded `METRICSSERVER_MAX_BODY_BYTES`.
 
 ## Querying status
 
@@ -86,6 +93,21 @@ curl 'http://localhost:9100/metrics/status?user=alice&model=gpt-4o&window=300'
 
 Each user/model pair owns a fixed ring of buckets, so memory per series is constant and total memory is bounded by `METRICSSERVER_MAX_SERIES`. Counters are updated with interlocked operations, so concurrent ingest calls do not block each other. A background loop removes series that have received nothing for a full retention window.
 
+## Application Insights
+
+**Telemetry is enabled only when a connection string is configured.** Set `APPINSIGHTS_CONNECTIONSTRING` (or `APPLICATIONINSIGHTS_CONNECTION_STRING`) to register the Application Insights SDK (`Microsoft.ApplicationInsights.WorkerService`, .NET 10). When it is set the service:
+
+- Sends all `ILogger` output to Application Insights in addition to the console.
+- Stamps every item with cloud role `metricsserver`, the machine name as role instance, and the version from `Constants.cs`.
+- Publishes `MetricsServer.SeriesCount`, `MetricsServer.UserCount`, `MetricsServer.ModelCount`, `MetricsServer.RecordsIngested`, and `MetricsServer.RecordsDropped` custom metrics on the telemetry interval.
+
+Adaptive sampling is disabled so counter values are not distorted.
+
+```bash
+export APPINSIGHTS_CONNECTIONSTRING="InstrumentationKey=...;IngestionEndpoint=https://...;"
+dotnet run --project src/MetricsServer
+```
+
 ## Running in a container
 
 ```bash
@@ -105,7 +127,8 @@ export ACR=myregistry
 
 | Symptom | Cause | Check |
 | --- | --- | --- |
-| `429` from `/metrics/rollup` | Series limit reached or stale timestamps | `GET /metrics/stats` for `seriesCount` vs `maxSeries` and `recordsDropped` |
+| `503` from `/metrics/rollup` | Series limit reached | `GET /metrics/stats` for `seriesCount` vs `maxSeries` and `recordsDropped` |
+| `400` from `/metrics/rollup` with `rejected > 0` | Timestamps outside retention, or null/unusable records | Compare record `timestamp` values against `retentionSeconds` in `/metrics/stats` |
 | `status` stays `unknown` | No requests matched the window | Widen `window`, or confirm the `user`/`model` spelling with `/metrics/users` and `/metrics/models` |
 | Counters reset unexpectedly | Process restarted | Data is in memory only; check container restarts |
 | `400 Invalid JSON payload` | Malformed body | Validate the JSON and `Content-Type: application/json` |

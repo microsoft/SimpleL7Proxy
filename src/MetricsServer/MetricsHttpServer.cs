@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO.Pipelines;
 using System.Text;
 using System.Text.Json;
+using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -30,17 +31,24 @@ public sealed class MetricsHttpServer : BackgroundService
     private static readonly PathString s_statsPath = new(Constants.Stats);
 
     private static readonly byte[] s_okBytes = Encoding.UTF8.GetBytes("OK\n");
+    private static readonly byte[] s_recordsProperty = Encoding.UTF8.GetBytes("\"records\"");
 
     private readonly ILogger<MetricsHttpServer> _logger;
     private readonly MetricsOptions _options;
     private readonly MetricsStore _store;
+    private readonly TelemetryClient? _telemetryClient;
     private WebApplication? _app;
 
-    public MetricsHttpServer(ILogger<MetricsHttpServer> logger, MetricsOptions options, MetricsStore store)
+    public MetricsHttpServer(
+        ILogger<MetricsHttpServer> logger,
+        MetricsOptions options,
+        MetricsStore store,
+        TelemetryClient? telemetryClient = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _telemetryClient = telemetryClient;
     }
 
     /// <summary>
@@ -88,23 +96,27 @@ public sealed class MetricsHttpServer : BackgroundService
         _app.Run(HandleRequestAsync);
 
         _logger.LogInformation(
-            "Metrics server {Version} starting on port {Port} (bucket {BucketSeconds}s x {BucketCount}, max series {MaxSeries})",
+            "Metrics server {Version} starting on port {Port} (bucket {BucketSeconds}s x {BucketCount}, max series {MaxSeries}, app insights {AppInsights})",
             Constants.VERSION,
             _options.Port,
             _options.BucketSeconds,
             _options.BucketCount,
-            _options.MaxSeries);
+            _options.MaxSeries,
+            _telemetryClient is null ? "disabled" : "enabled");
 
-        var serverTask = _app.RunAsync(cancellationToken);
-        var pruneTask = PruneLoopAsync(cancellationToken);
-
-        await serverTask.ConfigureAwait(false);
-        await pruneTask.ConfigureAwait(false);
+        await Task.WhenAll(
+            _app.RunAsync(cancellationToken),
+            MaintenanceLoopAsync(cancellationToken)).ConfigureAwait(false);
     }
 
-    private async Task PruneLoopAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Periodically removes idle series and publishes server counters to Application Insights.
+    /// </summary>
+    private async Task MaintenanceLoopAsync(CancellationToken cancellationToken)
     {
-        var interval = TimeSpan.FromSeconds(Math.Max(_options.BucketSeconds, 30));
+        var interval = TimeSpan.FromSeconds(Math.Min(
+            Math.Max(_options.BucketSeconds, 30),
+            _options.TelemetryIntervalSeconds));
         using var timer = new PeriodicTimer(interval);
 
         try
@@ -116,12 +128,29 @@ public sealed class MetricsHttpServer : BackgroundService
                 {
                     _logger.LogInformation("Pruned {Removed} idle series", removed);
                 }
+
+                PublishTelemetry();
             }
         }
         catch (OperationCanceledException)
         {
             // Expected during shutdown.
         }
+    }
+
+    private void PublishTelemetry()
+    {
+        if (_telemetryClient is null)
+        {
+            return;
+        }
+
+        var stats = _store.Stats();
+        _telemetryClient.GetMetric("MetricsServer.SeriesCount").TrackValue(stats.SeriesCount);
+        _telemetryClient.GetMetric("MetricsServer.UserCount").TrackValue(stats.UserCount);
+        _telemetryClient.GetMetric("MetricsServer.ModelCount").TrackValue(stats.ModelCount);
+        _telemetryClient.GetMetric("MetricsServer.RecordsIngested").TrackValue(stats.RecordsIngested);
+        _telemetryClient.GetMetric("MetricsServer.RecordsDropped").TrackValue(stats.RecordsDropped);
     }
 
     private Task HandleRequestAsync(HttpContext ctx)
@@ -245,6 +274,7 @@ public sealed class MetricsHttpServer : BackgroundService
 
         var accepted = 0;
         var rejected = 0;
+        var capacityReached = false;
 
         try
         {
@@ -255,25 +285,25 @@ public sealed class MetricsHttpServer : BackgroundService
                 {
                     foreach (var record in records)
                     {
-                        Count(record, ref accepted, ref rejected);
+                        Count(record, ref accepted, ref rejected, ref capacityReached);
                     }
                 }
             }
-            else
+            else if (HasRecordsProperty(body))
             {
                 var batch = JsonSerializer.Deserialize(body, MetricsJsonContext.Default.RollupBatch);
                 if (batch?.Records is { Count: > 0 } batchRecords)
                 {
                     foreach (var record in batchRecords)
                     {
-                        Count(record, ref accepted, ref rejected);
+                        Count(record, ref accepted, ref rejected, ref capacityReached);
                     }
                 }
-                else
-                {
-                    var record = JsonSerializer.Deserialize(body, MetricsJsonContext.Default.RollupRecord);
-                    Count(record, ref accepted, ref rejected);
-                }
+            }
+            else
+            {
+                var record = JsonSerializer.Deserialize(body, MetricsJsonContext.Default.RollupRecord);
+                Count(record, ref accepted, ref rejected, ref capacityReached);
             }
         }
         catch (JsonException)
@@ -284,20 +314,42 @@ public sealed class MetricsHttpServer : BackgroundService
         }
 
         var response = new IngestResponse { Accepted = accepted, Rejected = rejected };
-        ctx.Response.StatusCode = rejected > 0 && accepted == 0
-            ? StatusCodes.Status429TooManyRequests
-            : StatusCodes.Status202Accepted;
+
+        if (accepted > 0)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status202Accepted;
+        }
+        else if (capacityReached)
+        {
+            // The series limit is a server capacity condition, so retrying later can succeed.
+            ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        }
+        else if (rejected > 0)
+        {
+            // Stale timestamps and unusable records are client errors; retrying will not help.
+            ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+        }
+        else
+        {
+            ctx.Response.StatusCode = StatusCodes.Status202Accepted;
+        }
 
         await WriteJsonBodyAsync(ctx.Response, response, MetricsJsonContext.Default.IngestResponse)
             .ConfigureAwait(false);
     }
 
-    private void Count(RollupRecord? record, ref int accepted, ref int rejected)
+    private void Count(RollupRecord? record, ref int accepted, ref int rejected, ref bool capacityReached)
     {
-        if (record is not null && _store.Ingest(record))
+        var result = _store.Ingest(record);
+        if (result == IngestResult.Accepted)
         {
             accepted++;
             return;
+        }
+
+        if (result == IngestResult.CapacityReached)
+        {
+            capacityReached = true;
         }
 
         rejected++;
@@ -313,6 +365,9 @@ public sealed class MetricsHttpServer : BackgroundService
 
         return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var window) ? window : 0;
     }
+
+    private static bool HasRecordsProperty(ReadOnlySpan<byte> body) =>
+        body.IndexOf(s_recordsProperty) >= 0;
 
     private static bool IsJsonArray(ReadOnlySpan<byte> body)
     {
@@ -339,6 +394,9 @@ public sealed class MetricsHttpServer : BackgroundService
             if (buffer.Length > maxBytes)
             {
                 reader.AdvanceTo(buffer.Start, buffer.End);
+
+                // Stop reading the oversized body instead of leaving it pending on the pipe.
+                await reader.CompleteAsync().ConfigureAwait(false);
                 return null;
             }
 
