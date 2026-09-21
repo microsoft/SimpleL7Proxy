@@ -11,8 +11,7 @@ public class TokenMetricsCache : IHostedService, IDisposable
     private const int InputTokensIndex = 0;
     private const int OutputTokensIndex = 1;
 
-    private readonly ConcurrentQueue<(string UserId, string Model, int InputTokens, int OutputTokens, DateOnly Day)>[] _metrics =
-        [new(), new()];
+    private readonly ConcurrentQueue<PendingMetric>[] _metrics = [new(), new()];
     private readonly ConcurrentDictionary<(string UserId, string Model), long[]> _aggregateBalance = new();
     private readonly ConcurrentDictionary<(string UserId, DateOnly Day), long> _dailyTokenBalance = new();
     private readonly ConcurrentDictionary<(string UserId, DateOnly Month), long> _monthlyTokenBalance = new();
@@ -35,15 +34,55 @@ public class TokenMetricsCache : IHostedService, IDisposable
         _tokenomicsSettings = tokenomicsSettings ?? throw new ArgumentNullException(nameof(tokenomicsSettings));
     }
 
-    /// <summary>Adds input and output token counts for a user and model to the active queue.</summary>
-    public void AddMetric(string UserId, string Model, int InputTokens, int OutputTokens)
+    private readonly struct PendingMetric
+    {
+        public PendingMetric(
+            string userId,
+            string model,
+            int inputTokens,
+            int outputTokens,
+            DateOnly day,
+            int? statusCode,
+            double? latencyMs,
+            DateTime timestampUtc)
+        {
+            UserId = userId;
+            Model = model;
+            InputTokens = inputTokens;
+            OutputTokens = outputTokens;
+            Day = day;
+            StatusCode = statusCode;
+            LatencyMs = latencyMs;
+            TimestampUtc = timestampUtc;
+        }
+
+        public string UserId { get; }
+        public string Model { get; }
+        public int InputTokens { get; }
+        public int OutputTokens { get; }
+        public DateOnly Day { get; }
+        public int? StatusCode { get; }
+        public double? LatencyMs { get; }
+        public DateTime TimestampUtc { get; }
+    }
+
+    /// <summary>Records the minimal fact-set needed by the token rollup and optional request-outcome trend analysis.</summary>
+    public void AddMetric(string UserId, string Model, int InputTokens, int OutputTokens, int? statusCode = null, double? latencyMs = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
         ArgumentException.ThrowIfNullOrWhiteSpace(Model);
 
         var day = DateOnly.FromDateTime(DateTime.UtcNow);
         var queueIndex = Volatile.Read(ref _activeQueueIndex);
-        _metrics[queueIndex].Enqueue((UserId, Model, InputTokens, OutputTokens, day));
+        _metrics[queueIndex].Enqueue(new PendingMetric(
+            UserId,
+            Model,
+            InputTokens,
+            OutputTokens,
+            day,
+            statusCode,
+            latencyMs,
+            DateTime.UtcNow));
     }
 
     /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
@@ -109,6 +148,141 @@ public class TokenMetricsCache : IHostedService, IDisposable
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var monthlyKey = (userId, new DateOnly(today.Year, today.Month, 1));
         return _monthlyBudgetUsage.TryGetValue(monthlyKey, out var budgetUsage) ? budgetUsage : 0m;
+    }
+
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<RequestOutcomeSample>> _requestSamplesByUser = new();
+    private const int MaxRequestSamplesPerUser = 10000;
+
+    private readonly struct RequestOutcomeSample
+    {
+        public RequestOutcomeSample(DateTime timestampUtc, int statusCode, double latencyMs)
+        {
+            TimestampUtc = timestampUtc;
+            StatusCode = statusCode;
+            LatencyMs = latencyMs;
+        }
+
+        public DateTime TimestampUtc { get; }
+        public int StatusCode { get; }
+        public double LatencyMs { get; }
+    }
+
+    /// <summary>Records the final status code and total latency for a request for rate and trend analysis.</summary>
+    public void RecordRequestOutcome(string userId, string model, int statusCode, double latencyMs)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            userId = "unknown";
+        }
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            model = "unknown";
+        }
+
+        AddMetric(userId, model, 0, 0, statusCode, Math.Max(0d, latencyMs));
+    }
+
+    private ConcurrentQueue<RequestOutcomeSample> GetUserSampleQueue(string userId)
+    {
+        return _requestSamplesByUser.GetOrAdd(userId, static _ => new ConcurrentQueue<RequestOutcomeSample>());
+    }
+
+    private IEnumerable<RequestOutcomeSample> GetSamplesForWindow(TimeSpan window, string? userId = null)
+    {
+        if (window <= TimeSpan.Zero)
+        {
+            yield break;
+        }
+
+        var cutoff = DateTime.UtcNow - window;
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            foreach (var sampleQueue in _requestSamplesByUser.Values)
+            {
+                foreach (var sample in sampleQueue)
+                {
+                    if (sample.TimestampUtc >= cutoff)
+                    {
+                        yield return sample;
+                    }
+                }
+            }
+
+            yield break;
+        }
+
+        if (_requestSamplesByUser.TryGetValue(userId, out var queue))
+        {
+            foreach (var sample in queue)
+            {
+                if (sample.TimestampUtc >= cutoff)
+                {
+                    yield return sample;
+                }
+            }
+        }
+    }
+
+    /// <summary>Gets the average delay between 429 responses in the supplied window, measured in seconds.</summary>
+    public double Get429Rate(TimeSpan window, string? userId = null)
+    {
+        var samples = GetSamplesForWindow(window, userId)
+            .Where(s => s.StatusCode == 429)
+            .OrderBy(s => s.TimestampUtc)
+            .ToList();
+
+        if (samples.Count < 2)
+        {
+            return 0d;
+        }
+
+        var totalGapSeconds = 0d;
+        for (var i = 1; i < samples.Count; i++)
+        {
+            totalGapSeconds += (samples[i].TimestampUtc - samples[i - 1].TimestampUtc).TotalSeconds;
+        }
+
+        return totalGapSeconds / (samples.Count - 1);
+    }
+
+    /// <summary>Counts 429 responses observed in the supplied window.</summary>
+    public int Get429Count(TimeSpan window, string? userId = null)
+    {
+        return GetSamplesForWindow(window, userId)
+            .Count(sample => sample.StatusCode == 429);
+    }
+
+    /// <summary>Gets the average request latency for the supplied window in milliseconds.</summary>
+    public double GetAverageLatencyMs(TimeSpan window, string? userId = null)
+    {
+        var samples = GetSamplesForWindow(window, userId).ToList();
+        if (samples.Count == 0)
+        {
+            return 0d;
+        }
+
+        return samples.Average(sample => sample.LatencyMs);
+    }
+
+    /// <summary>Returns the percentage change between the current and baseline latency windows; positive means slower than baseline.</summary>
+    public double GetLatencyDeltaPercent(TimeSpan currentWindow, TimeSpan baselineWindow, string? userId = null)
+    {
+        if (baselineWindow <= TimeSpan.Zero)
+        {
+            return 0d;
+        }
+
+        var currentAverage = GetAverageLatencyMs(currentWindow, userId);
+        var baselineAverage = GetAverageLatencyMs(baselineWindow, userId);
+
+        if (baselineAverage <= 0d)
+        {
+            return currentAverage > 0d ? 100d : 0d;
+        }
+
+        return ((currentAverage - baselineAverage) / baselineAverage) * 100d;
     }
 
     private readonly ConcurrentDictionary<string, DateTimeOffset> _modelWakeStates = new();
@@ -187,6 +361,20 @@ public class TokenMetricsCache : IHostedService, IDisposable
                     static (_, cost) => cost,
                     static (_, usage, cost) => usage + cost,
                     metricCost);
+            }
+
+            if (metric.StatusCode.HasValue && metric.LatencyMs.HasValue)
+            {
+                var queue = GetUserSampleQueue(metric.UserId);
+                queue.Enqueue(new RequestOutcomeSample(
+                    metric.TimestampUtc,
+                    metric.StatusCode.Value,
+                    Math.Max(0d, metric.LatencyMs.Value)));
+
+                while (queue.Count > MaxRequestSamplesPerUser)
+                {
+                    queue.TryDequeue(out _);
+                }
             }
         }
 

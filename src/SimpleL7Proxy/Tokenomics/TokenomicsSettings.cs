@@ -8,14 +8,6 @@ namespace SimpleL7Proxy.Tokenomics;
 
 public class TokenomicsSettings
 {
-    private static readonly JsonSerializerOptions _serializerOptions = new() {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) }
-    };
-
     public int MonthlyTokenLimit { get; set; }=10000;
     public int DailyTokenLimit { get; set; }=1000;
 
@@ -47,13 +39,13 @@ public class TokenomicsSettings
     public TokenActionEnum DailyQuotaGovernanceAction { get; set; } = TokenActionEnum.IncreaseLimit;
 
     /// <summary>Gets or sets the daily-quota action for other workloads.</summary>
-    public TokenActionEnum DailyQuotaExceededAction { get; set; } = TokenActionEnum.WaitForReset;
+    public TokenActionEnum DailyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
 
     /// <summary>Gets or sets the monthly-budget action for premium or enterprise tenants.</summary>
     public TokenActionEnum MonthlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
 
     /// <summary>Gets or sets the monthly-budget action for other tenants.</summary>
-    public TokenActionEnum MonthlyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
+    public TokenActionEnum MonthlyBudgetExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
 
     /// <summary>Gets or sets the daily-budget action for premium or enterprise tenants.</summary>
     public TokenActionEnum DailyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
@@ -103,25 +95,35 @@ public class TokenomicsSettings
     /// <summary>Gets or sets the action when no policy matches.</summary>
     public TokenActionEnum DefaultAction { get; set; } = TokenActionEnum.None;
 
+
+    
+    private static readonly JsonSerializerOptions _serializerOptions = new() {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) }
+    };
+
+
     /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning null for invalid input.</summary>
     /// <remarks>Model prices use ModelCostPerToken.&lt;model&gt;=price, with URI-escaped model names.</remarks>
-    public static TokenomicsSettings? TryParse(string data) {
+    public  bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
-            return null;
+            return false;
         }
 
         var parts = data.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) {
-            return null;
+            return false;
         }
 
-        var settings = new TokenomicsSettings();
         var modelCostPrefix = nameof(ModelCostPerToken) + ".";
 
         foreach (var part in parts) {
             var splitIndex = part.IndexOf('=');
             if (splitIndex <= 0 || splitIndex >= part.Length - 1) {
-                return null;
+                return false;
             }
 
             var (key, value) = ConfigParser.KVStringPairs([part]).Single();
@@ -131,17 +133,17 @@ public class TokenomicsSettings
                 if (string.IsNullOrWhiteSpace(model) ||
                     !decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var modelCost) ||
                     modelCost < 0) {
-                    return null;
+                    return false;
                 }
 
-                settings.ModelCostPerToken[model] = modelCost;
+                ModelCostPerToken[model] = modelCost;
                 continue;
             }
 
             var property = typeof(TokenomicsSettings).GetProperty(key,
                 BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
             if (property?.SetMethod is null) {
-                return null;
+                return false;
             }
 
             object parsedValue;
@@ -166,13 +168,13 @@ public class TokenomicsSettings
                 value.Equals(action.ToString(), StringComparison.OrdinalIgnoreCase)) {
                 parsedValue = action;
             } else {
-                return null;
+                return false;
             }
 
-            property.SetValue(settings, parsedValue);
+            property.SetValue(this, parsedValue);
         }
 
-        return settings;
+        return true;
     }
 
     /// <summary>Returns semicolon-separated key=value settings with named actions and invariant-culture numbers.</summary>

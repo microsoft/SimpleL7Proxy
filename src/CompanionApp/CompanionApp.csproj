@@ -16,6 +16,7 @@
     <PackageReference Include="Azure.Messaging.EventHubs" Version="5.12.2" />
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.29.2" />
+    <PackageReference Include="Microsoft.AspNetCore.App.Internal.Assets" Version="10.0.12" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.47.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
@@ -39,6 +40,7 @@
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\request-api.bicep" LogicalName="DeploymentBicepAsset/modules/request-api.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\service-bus-access.bicep" LogicalName="DeploymentBicepAsset/modules/service-bus-access.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\cosmos-access.bicep" LogicalName="DeploymentBicepAsset/modules/cosmos-access.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\companion-app.bicep" LogicalName="DeploymentBicepAsset/modules/companion-app.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\container-app.bicep" LogicalName="DeploymentBicepAsset/modules/container-app.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\registry-access.bicep" LogicalName="DeploymentBicepAsset/modules/registry-access.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\private-dns.bicep" LogicalName="DeploymentBicepAsset/modules/private-dns.bicep" />

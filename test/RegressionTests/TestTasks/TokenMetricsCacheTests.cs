@@ -103,6 +103,32 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
         Assert.AreEqual(0m, cache.GetMonthlyBudgetUsage("alice"));
     }
 
+    /// <summary>Checks that 429 interval, 429 count, and latency trend are tracked in rolling windows.</summary>
+    [TestMethod]
+    [RegressionTestCase("token-rollup", "429 interval and latency trend tracking", "Request samples must accumulate 429 gaps and latency drift so operators can compare current latency against the norm and see whether throttling is increasing.")]
+    public void RecordRequestOutcome_Tracks429RateAndLatencyDrift() {
+        using var cache = CreateCache();
+        var now = DateTime.UtcNow;
+
+        var samples = new[] {
+            (now.AddSeconds(-5), "alice", "model-a", 200, 100d),
+            (now.AddSeconds(-4), "alice", "model-a", 429, 140d),
+            (now.AddSeconds(-3), "alice", "model-a", 200, 120d),
+            (now.AddSeconds(-2), "alice", "model-a", 429, 180d),
+            (now.AddSeconds(-1), "alice", "model-a", 200, 110d)
+        };
+
+        foreach (var sample in samples)
+        {
+            cache.RecordRequestOutcome(sample.Item2, sample.Item3, sample.Item4, sample.Item5);
+        }
+
+        Assert.AreEqual(2d, Math.Round(cache.Get429Rate(TimeSpan.FromSeconds(20), "alice"), 1));
+        Assert.AreEqual(2, cache.Get429Count(TimeSpan.FromSeconds(20), "alice"));
+        Assert.AreEqual(130d, Math.Round(cache.GetAverageLatencyMs(TimeSpan.FromSeconds(20), "alice"), 0));
+        Assert.AreEqual(30d, Math.Round(cache.GetLatencyDeltaPercent(TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(10), "alice"), 0));
+    }
+
     /// <summary>Checks that unpriced and free models still contribute to token quotas.</summary>
     [TestMethod]
     [RegressionTestCase("token-rollup", "Unpriced models consume quota without spend", "Usage from unpriced and zero-cost models must count towards both quotas while only priced usage contributes to spending.")]

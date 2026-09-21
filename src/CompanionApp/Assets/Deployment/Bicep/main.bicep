@@ -27,6 +27,16 @@ module configuration 'modules/configuration.bicep' = {
   }
 }
 
+module companionAppBootstrap 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANION_APP) {
+  scope: resourceGroup(settings.COMPANION_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    usePrivateRegistry: false
+    environmentId: foundation.outputs.environmentId
+    appConfigurationEndpoint: ''
+  }
+}
+
 module blobStorage 'modules/blob-storage.bicep' = if (settings.ASYNC_DEPLOYMENT) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
@@ -61,7 +71,7 @@ module containerAppBootstrap 'modules/container-app.bicep' = {
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
     appInsightsConnectionString: foundation.outputs.appInsightsConnectionString
-    appConfigurationEndpoint: configuration.outputs.endpoint
+    appConfigurationEndpoint: ''
     blobEndpoint: blobStorage.?outputs.blobEndpoint ?? ''
     requestApiHostName: requestApi.?outputs.functionHostName ?? ''
   }
@@ -73,6 +83,8 @@ module registryAccess 'modules/registry-access.bicep' = {
     settings: settings
     containerAppId: containerAppBootstrap.outputs.containerAppId
     containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
+    companionAppId: companionAppBootstrap.?outputs.appId ?? ''
+    companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
 }
 
@@ -80,9 +92,26 @@ module configurationAccess 'modules/configuration-access.bicep' = {
   scope: resourceGroup(settings.APPCONFIG_RESOURCE_GROUP)
   params: {
     settings: settings
+    configurationStoreId: configuration.outputs.configurationStoreId
     containerAppId: containerAppBootstrap.outputs.containerAppId
     containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
+    companionAppId: companionAppBootstrap.?outputs.appId ?? ''
+    companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
+}
+
+module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANION_APP) {
+  scope: resourceGroup(settings.COMPANION_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    usePrivateRegistry: true
+    environmentId: foundation.outputs.environmentId
+    appConfigurationEndpoint: configuration.outputs.endpoint
+  }
+  dependsOn: [
+    registryAccess
+    configurationAccess
+  ]
 }
 
 module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT) {
@@ -135,3 +164,4 @@ module privateDns 'modules/private-dns.bicep' = if (settings.PRIVATE_NETWORK_DEP
 }
 
 output proxyUrl string = 'https://${containerApp.outputs.proxyFqdn}'
+output companionAppUrl string = companionApp.?outputs.url ?? ''
