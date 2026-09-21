@@ -1,0 +1,24 @@
+# Exclude build artifacts and temporary files
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.git/
+**/.gitignore
+**/.dockerignore
+**/Dockerfile*
+**/*.md
+**/*.log
+
+# Exclude test files
+**/*Test*/
+**/*test*/
+
+# Exclude deployment files
+**/deployment/
+
+# Exclude user-specific files
+**/.user
+**/*.suo
+**/*.user
+**/.idea/
