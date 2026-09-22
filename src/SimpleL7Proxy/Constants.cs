@@ -17,6 +17,14 @@ public static class Constants
     public const string Random = "random";
     public const string Server = "simplel7proxy";
     public const string S7PHash = "S7PHash";
+    public const string TokenizerAdministratorOverride = "S7PAdministratorOverride";
+    public const string TokenizerApprovedException = "S7PApprovedException";
+    public const string TokenizerPremiumTenant = "S7PPremiumTenant";
+    public const string TokenizerEnterpriseTenant = "S7PEnterpriseTenant";
+    public const string TokenizerIncidentResponse = "S7PIncidentResponse";
+    public const string TokenizerAuditInvestigation = "S7PAuditInvestigation";
+    public const string TokenizerComplianceRequired = "S7PComplianceRequired";
+    public const string TokenizerBudgetExceeded = "S7PBudgetExceeded";
 
     public const string VERSION = "2.3.0";
 

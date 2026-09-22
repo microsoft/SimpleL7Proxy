@@ -7,7 +7,7 @@ _regression_renderer_dll="$_regression_script_dir/Framework/ReportRenderer/bin/D
 _regression_test_assembly="$_regression_script_dir/bin/Debug/net10.0/SimpleL7Proxy.Test.dll"
 
 regression_usage() {
-    cat <<'EOF'
+    cat <<'EOF_USAGE'
 SimpleL7Proxy test runner
 
 Usage:
@@ -20,9 +20,9 @@ Suites:
   fast          Quick local checks; skips integration, load, and performance tests.
   regression    Standard regression run without load tests. This is the default.
   integration   Integration tests without load tests.
-    load          Load and stress tests, excluding opt-in long-running tests.
-    longrun       Opt-in long-running tests, including the 24-hour token test.
-    all           Every test except opt-in long-running tests.
+  load          Load and stress tests, excluding opt-in long-running tests.
+  longrun       Opt-in long-running tests, including the 24-hour token test.
+  all           Every test except opt-in long-running tests.
 
 Commands:
   test NAME          Run one test method by name.
@@ -43,11 +43,11 @@ Examples:
   ./run-regression-master.sh fast
   ./run-regression-master.sh integration
   ./run-regression-master.sh load
-    ./run-regression-master.sh longrun
+  ./run-regression-master.sh longrun
   ./run-regression-master.sh test Reset_AllowsReIteration
   ./run-regression-master.sh category CircuitBreaker
   ./run-regression-master.sh list load
-EOF
+EOF_USAGE
 }
 
 regression_usage_error() {
@@ -103,9 +103,9 @@ regression_list_tests() {
     fi
     printf '\n'
 
-    dotnet build "$_regression_project" --nologo --verbosity quiet
+    dotnet build "$\_regression_project" --nologo --verbosity quiet
 
-    local -a command=(dotnet "$_regression_test_assembly" --list-tests)
+    local -a command=(dotnet "$\_regression_test_assembly" --list-tests)
     if [[ -n "$filter" ]]; then
         command+=(--filter "$filter")
     fi
@@ -139,13 +139,7 @@ regression_initialize() {
 
     mkdir -p -- "$REGRESSION_MASTER_RESULTS_DIR/runs"
 
-    export REGRESSION_MASTER_RUN_ID
-    export REGRESSION_RESULTS_ROOT
-    export REGRESSION_HISTORY_ROOT
-    export REGRESSION_MASTER_RESULTS_DIR
-    export REGRESSION_LANDING_HTML
-    export REGRESSION_MASTER_HTML
-    export REGRESSION_MASTER_MANIFEST
+    export REGRESSION_MASTER_RUN_ID REGRESSION_RESULTS_ROOT REGRESSION_HISTORY_ROOT REGRESSION_MASTER_RESULTS_DIR REGRESSION_LANDING_HTML REGRESSION_MASTER_HTML REGRESSION_MASTER_MANIFEST
 }
 
 regression_prepare_execution() {
@@ -162,13 +156,7 @@ regression_prepare_execution() {
     REGRESSION_CONSOLE_LOG="$REGRESSION_EXECUTION_DIR/console.log"
     mkdir -p -- "$REGRESSION_TRX_DIR"
 
-    export REGRESSION_EXECUTION_LABEL
-    export REGRESSION_EXECUTION_ID
-    export REGRESSION_EXECUTION_DIR
-    export REGRESSION_TRX_FILENAME
-    export REGRESSION_TRX_DIR
-    export REGRESSION_TRX_PATH
-    export REGRESSION_CONSOLE_LOG
+    export REGRESSION_EXECUTION_LABEL REGRESSION_EXECUTION_ID REGRESSION_EXECUTION_DIR REGRESSION_TRX_FILENAME REGRESSION_TRX_DIR REGRESSION_TRX_PATH REGRESSION_CONSOLE_LOG
 }
 
 regression_build_command() {
@@ -178,7 +166,9 @@ regression_build_command() {
     local -n target=$target_name
 
     target=(
-        dotnet test "$_regression_project" --
+        dotnet test "$_regression_project"
+        --logger "console;verbosity=detailed"
+        --
         --report-trx
         --report-trx-filename "$REGRESSION_TRX_FILENAME"
         --results-directory "$REGRESSION_TRX_DIR"
@@ -200,6 +190,7 @@ regression_finalize_execution() {
     local command_text=$2
     local started_utc=$3
     local completed_utc=$4
+
     if [[ ! -f "$_regression_renderer_dll" ]]; then
         dotnet build "$_regression_renderer_project" >/dev/null
     fi
@@ -218,7 +209,7 @@ regression_finalize_execution() {
         --exit-code "$exit_code" \
         --command "$command_text" \
         --started-utc "$started_utc" \
-        --completed-utc "$completed_utc" >/dev/null
+        --completed-utc "$completed_utc" >/dev/null || true
 
     if ((exit_code == 0)); then
         printf '\nResult: PASS\n'
@@ -245,29 +236,26 @@ regression_run() {
     fi
     printf '  Report: %s\n\n' "$REGRESSION_MASTER_HTML"
 
+    local started_utc
+    started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
     local -a command
     regression_build_command command "$filter" "$@"
     local command_text
     command_text=$(regression_format_command "${command[@]}")
-    local started_utc
-    started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    printf 'Executing: %s\n\n' "$command_text"
 
     local restore_errexit=false
-    if [[ $- == *e* ]]; then
+    if [[ "$-" == *e* ]]; then
         restore_errexit=true
+        set +e
     fi
-    set +e
+
     "${command[@]}" 2>&1 | tee "$REGRESSION_CONSOLE_LOG"
     local test_status=${PIPESTATUS[0]}
     if [[ "$restore_errexit" == true ]]; then
         set -e
-    fi
-
-    if [[ -n "${REGRESSION_POST_TEST_OUTPUT_FILE:-}" && -s "$REGRESSION_POST_TEST_OUTPUT_FILE" ]]; then
-        {
-            printf '\n%s\n\n' "${REGRESSION_POST_TEST_OUTPUT_TITLE:-Additional test output}"
-            cat -- "$REGRESSION_POST_TEST_OUTPUT_FILE"
-        } | tee -a "$REGRESSION_CONSOLE_LOG"
     fi
 
     local completed_utc
@@ -389,7 +377,7 @@ regression_main() {
                 extra_args+=("$@")
                 break
                 ;;
-            -*)
+            -* )
                 regression_usage_error "Unknown option '$1'."
                 return 2
                 ;;

@@ -139,6 +139,12 @@ public class ProxyConfig
     [ConfigOption("Response:StripResponseHeaders")]
     public List<string> StripResponseHeaders { get; set; } = [];
 
+    // Tokenomics
+    [ConfigOption("Tokenomics:Enable")]
+    public bool TokenomicsEnable { get; set; } = true;
+    [ConfigOption("Tokenomics:Options")]
+    public string TokenomicsOptions { get; set; } = "";
+
     // ── Sentinel ──
     [ConfigOption("Sentinel")]
     public string Sentinel { get; set; } = ""; // used for app configrefresh

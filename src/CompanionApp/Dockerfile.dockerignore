@@ -11,11 +11,11 @@
 !src/Shared/**
 !src/Shared-parser/**
 !src/HealthProbe/Constants.cs
-!deployment/deploy.parameters.example.sh
+!deployment/interactive/deploy.parameters.example.sh
 
 **/bin/
 **/obj/
-**/artifacts/
+**/artifacts/its 
 **/.git/
 **/.vs/
 **/.vscode/

@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
 WORKDIR /source
 
 COPY src/Shared/Shared.csproj src/Shared/
@@ -12,16 +12,18 @@ COPY src/Shared/ src/Shared/
 COPY src/Shared-parser/ src/Shared-parser/
 COPY src/SimpleL7Proxy/ src/SimpleL7Proxy/
 COPY src/HealthProbe/Constants.cs src/HealthProbe/
-COPY deployment/deploy.parameters.example.sh deployment/
+COPY deployment/interactive/deploy.parameters.example.sh deployment/interactive/
 COPY src/CompanionApp/ src/CompanionApp/
 
 RUN dotnet publish src/CompanionApp/CompanionApp.csproj \
     --configuration Release \
     --output /app/publish \
     --no-restore \
-    -p:UseAppHost=false
+    -p:UseAppHost=false \
+    && test -s /app/publish/wwwroot/_framework/blazor.web.js \
+    && test -s /app/publish/wwwroot/_framework/blazor.server.js
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.12 AS runtime
 WORKDIR /app
 
 ENV ASPNETCORE_ENVIRONMENT=Production \

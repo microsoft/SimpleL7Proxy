@@ -34,7 +34,7 @@
                         aria-selected="@(_selectedGroup == group.Id ? "true" : "false")" aria-controls="@($"panel-{group.Id}")"
                         tabindex="@(_selectedGroup == group.Id ? 0 : -1)" disabled="@(!RendererInfo.IsInteractive || _downloading)"
                         @onclick="() => SelectTab(group.Id)">
-                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "app" => "Container Apps", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
+                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "app" => "Container Apps", "companion" => "Companion App", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
                     @if (_completedGroups.Contains(group.Id))
                     {
                         <span class="deployment-complete">Complete</span>
@@ -77,7 +77,9 @@
                         @foreach (var section in group.Id == "app" ? new[] { "environment", "app", "health" } : new[] { "general" })
                         {
                         var healthSection = section == "health";
-                        var sectionFields = _fields.Where(field => field.Group == group.Id && field.Key != "HEALTHPROBE_TYPE"
+                        var sectionFields = _fields.Where(field => field.Group == group.Id
+                            && field.Key is not ("HEALTHPROBE_TYPE" or "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" or "COMPANION_IMAGE_NAME")
+                            && (group.Id != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
                             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP")
                             && field.Key is not ("ACA_ENVIRONMENT_NAME" or "MEMORY" or "WEB_MEMORY" or "HEALTH_MEMORY" or "BUILD_METHOD" or "DOCKERFILE_PATH"
                                 or "UPDATE_CONTAINER_APP_ENV")
@@ -190,6 +192,7 @@
                 else
                 {
                     var reviewGroupKeys = new List<string> { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" };
+                    if (Value("DEPLOY_COMPANION_APP") == "true") reviewGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
                     if (Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes") reviewGroupKeys.Add("NETWORK_RESOURCE_GROUP");
                     if (Value("ASYNC_DEPLOYMENT") == "yes") reviewGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
                     var reviewGroups = reviewGroupKeys.Select(key => _sameResourceGroup ? Value("CONTAINER_APP_RESOURCE_GROUP") : Value(key)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -207,6 +210,10 @@
                                 @if (Value("ASYNC_DEPLOYMENT") == "yes")
                                 {
                                     <li>Async enabled</li>
+                                }
+                                @if (Value("DEPLOY_COMPANION_APP") == "true")
+                                {
+                                    <li>Companion App</li>
                                 }
                             </ul>
                         </div>
@@ -232,7 +239,7 @@
                                 <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="48" height="48" alt="" />
                                 <h4>Container Apps</h4>
                                 <p>@Value("CONTAINER_APP_NAME")</p>
-                                <small>@(_bicepWorkflow ? Value("PROXY_IMAGE_NAME") + ":v2.3.0" : Value("PROXY_IMAGE_NAME"))</small>
+                                <small>Proxy release v2.3.0</small>
                                 @if (Value("HEALTHPROBE_TYPE") == "sidecar")
                                 {
                                     <small>+ @(_bicepWorkflow ? Value("HEALTH_IMAGE_NAME") + ":v2.0.1" : Value("HEALTH_IMAGE_NAME"))</small>
@@ -258,6 +265,13 @@
                                 <img src="images/azure/02989-icon-service-Container-Apps-Environments.svg" width="28" height="28" alt="" />
                                 <div><h4>Container Apps environment</h4><p>@Value("ENVIRONMENT_NAME")</p></div>
                             </li>
+                            @if (Value("DEPLOY_COMPANION_APP") == "true")
+                            {
+                                <li data-service="container-app">
+                                    <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="28" height="28" alt="" />
+                                    <div><h4>Companion App</h4><p>@Value("COMPANION_APP_NAME")</p><small>Release v2.3.0</small></div>
+                                </li>
+                            }
                             @if (Value("ENABLE_MANAGED_IDENTITY") == "true")
                             {
                                 <li data-service="identity">
@@ -339,12 +353,16 @@
                             <summary>Runtime details</summary>
                             <dl class="review-resource-details">
                                 <dt>Image build</dt><dd>@(_bicepWorkflow ? "Pinned release import" : Value("BUILD_METHOD") == "local" ? "Local Docker" : "ACR remote build")</dd>
-                                <dt>Proxy image</dt><dd>@(_bicepWorkflow ? Value("ACR_NAME") + "/" + Value("PROXY_IMAGE_NAME") + ":v2.3.0" : Value("PROXY_IMAGE_NAME"))</dd>
+                                <dt>Proxy release</dt><dd>v2.3.0</dd>
                                 @if (Value("HEALTHPROBE_TYPE") == "sidecar")
                                 {
                                     <dt>HealthProbe image</dt><dd>@(_bicepWorkflow ? Value("ACR_NAME") + "/" + Value("HEALTH_IMAGE_NAME") + ":v2.0.1" : Value("HEALTH_IMAGE_NAME"))</dd>
                                     <dt>Sidecar compute</dt><dd>@Value("HEALTH_CPU") vCPU / @Value("HEALTH_MEMORY") GiB</dd>
                                     <dt>Sidecar port</dt><dd>@Value("HEALTH_PORT")</dd>
+                                }
+                                @if (Value("DEPLOY_COMPANION_APP") == "true")
+                                {
+                                    <dt>Companion release</dt><dd>v2.3.0</dd>
                                 }
                                 <dt>Revision mode</dt><dd>@Value("REVISION_MODE")</dd>
                                 <dt>App Configuration tier</dt><dd>@Value("APPCONFIG_SKU")</dd>
@@ -389,7 +407,11 @@
                                 {
                                     <dt>HealthProbe release</dt><dd>v2.0.1 / digest-pinned</dd>
                                 }
-                                <dt>Image source</dt><dd>Pinned public release imported to @Value("ACR_NAME")</dd>
+                                @if (Value("DEPLOY_COMPANION_APP") == "true")
+                                {
+                                    <dt>Companion release</dt><dd>v2.3.0</dd>
+                                }
+                                <dt>Image source</dt><dd>Public releases imported to @Value("ACR_NAME")</dd>
                                 <dt>Registry access</dt><dd>System assigned / AcrPull</dd>
                             </dl>
                             <div class="review-standalone-download">
@@ -533,6 +555,7 @@ bash deploy.sh</code></pre>
     private static readonly (string Id, string Title)[] Groups = [
         ("mode", "Deployment mode"), ("common", "Location and resource groups"),
         ("images", "Registry and images"), ("app", "Container Apps (menu step 5)"),
+        ("companion", "Companion App"),
         ("config", "App Configuration"), ("private", "Private networking"),
         ("async", "Async storage and RequestAPI")
     ];
@@ -560,7 +583,7 @@ bash deploy.sh</code></pre>
     ];
 
     private static readonly Dictionary<string, string[]> ContainerSections = new(StringComparer.Ordinal) {
-        ["environment"] = ["ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "ENABLE_MANAGED_IDENTITY", "INGRESS_TYPE", "ENABLE_HTTPS",
+        ["environment"] = ["ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "COMPANION_APP_NAME", "ENABLE_MANAGED_IDENTITY", "INGRESS_TYPE", "ENABLE_HTTPS",
             "REVISION_MODE", "TERMINATION_GRACE_PERIOD_SECONDS", "ENABLE_APP_INSIGHTS", "LOG_ANALYTICS_WORKSPACE_NAME", "MIN_REPLICAS", "MAX_REPLICAS"],
         ["app"] = ["PROXY_IMAGE_NAME", "PROXY_VERSION_OVERRIDE", "WEB_CPU", "WEB_PORT"],
         ["health"] = ["HEALTH_IMAGE_NAME", "HEALTHPROBE_VERSION_OVERRIDE", "HEALTH_CPU", "HEALTH_PORT"]
@@ -593,11 +616,12 @@ bash deploy.sh</code></pre>
             };
             var value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
             if (value == "yes|no") value = "no";
+            if (key == "DEPLOY_COMPANION_APP") value = "true";
             if (key == "REQUESTAPI_LOCATION") value = "";
             if (key == "UPDATE_CONTAINER_APP_ENV") value = "true";
             if (key is "ACR_NAME" or "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT")
                 value += nameSuffix;
-            else if (key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || key is "CONTAINER_APP_NAME" or "ACA_ENVIRONMENT_NAME"
+            else if (key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" or "ACA_ENVIRONMENT_NAME"
                 or "ENVIRONMENT_NAME" or "APPCONFIG_NAME" or "LOG_ANALYTICS_WORKSPACE_NAME" or "VNET_NAME"
                 or "REQUESTAPI_FUNCTION_APP" or "REQUESTAPI_APPINSIGHTS_NAME" or "ACA_RECORD_NAME")
                 value += "-" + nameSuffix;
@@ -617,7 +641,8 @@ bash deploy.sh</code></pre>
                 "TERMINATION_GRACE_PERIOD_SECONDS" => "Shutdown grace period in seconds.",
                 _ => match.Groups[4].Value
             };
-            _fields.Add(new ParameterField(key, Legacy.Contains(key) || IsHealthField(key) || key is "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" ? "app" : group,
+            _fields.Add(new ParameterField(key, key is "DEPLOY_COMPANION_APP" or "COMPANION_APP_RESOURCE_GROUP" or "COMPANION_IMAGE_NAME" or "COMPANION_APP_NAME" ? "companion"
+                : Legacy.Contains(key) || IsHealthField(key) || key is "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" ? "app" : group,
                 key switch {
                     "APPCONFIG_NAME" => "App Configuration name",
                     "APPCONFIG_LABEL" => "Configuration label",
@@ -719,6 +744,7 @@ bash deploy.sh</code></pre>
         foreach (var field in _fields.Where(field => IsGroupVisible((field.Group, "")) && (groupId is null || field.Group == groupId)
             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP")
             && field.Key is not ("ACA_ENVIRONMENT_NAME" or "INGRESS_VISIBILITY" or "INGRESS_PORT" or "CPU" or "MEMORY" or "HOST1")
+            && (field.Group != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
             && (!IsHealthField(field.Key) || Value("HEALTHPROBE_TYPE") == "sidecar")))
         {
             var value = field.Value;
@@ -740,7 +766,7 @@ bash deploy.sh</code></pre>
             if (field.Key == "ACR_NAME" && !Regex.IsMatch(value, "^[a-zA-Z0-9]{5,50}$")) _errors[field.Key] = "Use 5-50 letters and numbers.";
             if (field.Key is "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT" && !Regex.IsMatch(value, "^[a-z0-9]{3,24}$"))
                 _errors[field.Key] = "Use 3-24 lowercase letters and numbers.";
-            if (field.Key == "CONTAINER_APP_NAME" && (!Regex.IsMatch(value, "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") || value.Contains("--")))
+            if (field.Key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" && (!Regex.IsMatch(value, "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") || value.Contains("--")))
                 _errors[field.Key] = "Use 2-32 lowercase letters, numbers, or single hyphens; start with a letter and end with a letter or number.";
             if (field.Key.EndsWith("RESOURCE_GROUP") && (!Regex.IsMatch(value, "^[a-zA-Z0-9_.()-]{1,90}$") || value.EndsWith('.')))
                 _errors[field.Key] = "Use up to 90 letters, numbers, underscores, parentheses, hyphens, or periods; no trailing period.";

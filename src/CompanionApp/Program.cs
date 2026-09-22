@@ -60,7 +60,67 @@ builder.Services.Configure<EventHubMonitorOptions>(
     builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
 
 var app = builder.Build();
+
 var companionAppOptions = app.Services.GetRequiredService<IOptions<CompanionAppOptions>>().Value;
+var appConfiguration = app.Services.GetRequiredService<AppConfigurationScaffoldService>();
+var appConfigurationLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CompanionApp.Startup");
+if (string.IsNullOrWhiteSpace(appConfiguration.DefaultEndpoint))
+{
+    appConfigurationLogger.LogWarning("App Configuration startup check skipped because CompanionApp:AppConfigurationEndpoint is empty");
+}
+else
+{
+    var configuredLabel = appConfiguration.DefaultLabel;
+    var labelDisplay = string.IsNullOrEmpty(configuredLabel) ? "(No label)" : configuredLabel;
+    try
+    {
+        var settings = await appConfiguration.LoadAsync(appConfiguration.DefaultEndpoint);
+        var labelExists = appConfiguration.CachedLabels?.Contains(configuredLabel, StringComparer.Ordinal) == true;
+        var labelSettingCount = settings.Count(setting => string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
+        if (!labelExists)
+        {
+            var drafts = appConfiguration.CreateLabelDraft(configuredLabel);
+            var result = await appConfiguration.UpdateAsync(
+                appConfiguration.DefaultEndpoint,
+                configuredLabel,
+                drafts,
+                createLabel: true);
+            appConfiguration.CachedLabel = configuredLabel;
+            var initializedSettingCount = result.Settings.Count(setting =>
+                string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
+            appConfigurationLogger.LogInformation(
+                "App Configuration startup initialized label {Label} with {SettingCount} published proxy settings at {Endpoint}",
+                labelDisplay,
+                initializedSettingCount,
+                appConfiguration.DefaultEndpoint);
+        }
+        else if (labelSettingCount == 0)
+        {
+            appConfigurationLogger.LogError(
+                "App Configuration startup check failed: label {Label} at {Endpoint} contains no published proxy settings",
+                labelDisplay,
+                appConfiguration.DefaultEndpoint);
+        }
+        else
+        {
+            appConfiguration.CachedLabel = configuredLabel;
+            appConfigurationLogger.LogInformation(
+                "App Configuration startup check succeeded: label {Label} contains {SettingCount} published proxy settings at {Endpoint}",
+                labelDisplay,
+                labelSettingCount,
+                appConfiguration.DefaultEndpoint);
+        }
+    }
+    catch (Exception exception)
+    {
+        appConfigurationLogger.LogError(
+            exception,
+            "App Configuration startup check failed for label {Label} at {Endpoint}; the admin page remains available for recovery",
+            labelDisplay,
+            appConfiguration.DefaultEndpoint);
+    }
+}
+
 app.Services.GetRequiredService<HistorySettings>()
     .ApplyDefaultsIfMissing(companionAppOptions.History);
 app.Services.GetRequiredService<ConversationSettings>()

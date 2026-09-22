@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using CompanionApp.Components.Pages;
 
 var root = Directory.GetCurrentDirectory();
-var baseline = File.ReadLines(Path.Combine(root, "deployment/deploy.parameters.example.sh"))
+var baseline = File.ReadLines(Path.Combine(root, "deployment/interactive/deploy.parameters.example.sh"))
     .Where(line => line.StartsWith("export ", StringComparison.Ordinal))
     .Select(line => Regex.Match(line, "^export ([A-Z][A-Z0-9_]*)=(?:\"([^\"]*)\"|([^ #]+))"))
     .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value);
@@ -18,7 +18,8 @@ var selectSetupTab = typeof(DeploymentSetupPage).GetMethod("SelectTab", setupFla
 string[] compactResourceKeys = ["ACR_NAME", "STORAGE_ACCOUNT_NAME", "REQUESTAPI_STORAGE_ACCOUNT"];
 string[] hyphenatedResourceKeys = [
     "NETWORK_RESOURCE_GROUP", "CONTAINER_APP_RESOURCE_GROUP", "STORAGE_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP",
-    "ACA_ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "ENVIRONMENT_NAME", "LOG_ANALYTICS_WORKSPACE_NAME", "APPCONFIG_NAME", "VNET_NAME",
+    "COMPANION_APP_RESOURCE_GROUP", "ACA_ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "COMPANION_APP_NAME", "ENVIRONMENT_NAME",
+    "LOG_ANALYTICS_WORKSPACE_NAME", "APPCONFIG_NAME", "VNET_NAME",
     "REQUESTAPI_FUNCTION_APP", "REQUESTAPI_APPINSIGHTS_NAME", "ACA_RECORD_NAME"
 ];
 var resourceNameKeys = compactResourceKeys.Concat(hyphenatedResourceKeys).ToHashSet(StringComparer.Ordinal);
@@ -33,7 +34,8 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
     foreach (var key in compactResourceKeys) Check(defaults[key] == baseline[key] + suffix, key + " shares suffix without a separator");
     foreach (var key in hyphenatedResourceKeys) Check(defaults[key] == baseline[key] + "-" + suffix, key + " shares suffix with a separator");
     foreach (var key in baseline.Keys.Where(key => !resourceNameKeys.Contains(key))) {
-        var expected = key is "PRIVATE_NETWORK_DEPLOYMENT" or "ASYNC_DEPLOYMENT" ? "no" : key == "REQUESTAPI_LOCATION" ? "" : baseline[key];
+        var expected = key is "PRIVATE_NETWORK_DEPLOYMENT" or "ASYNC_DEPLOYMENT" ? "no"
+            : key == "DEPLOY_COMPANION_APP" ? "true" : key == "REQUESTAPI_LOCATION" ? "" : baseline[key];
         Check(defaults[key] == expected, key + " remains unchanged by resource naming");
     }
     Check(Regex.IsMatch(defaults["ACR_NAME"], "^[a-z0-9]{5,50}$"), "default registry name satisfies Azure limits");
@@ -42,7 +44,7 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
     Check(Regex.IsMatch(defaults["CONTAINER_APP_NAME"], "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") && !defaults["CONTAINER_APP_NAME"].Contains("--"), "default Container App name satisfies Azure limits");
     Check(defaults["ACA_RECORD_NAME"] == defaults["CONTAINER_APP_NAME"], "default DNS record stays aligned with Container App");
     var script = (string)exportSetupScript.Invoke(setup, null)!;
-    foreach (var tab in new[] { "images", "app", "config", "review" }) selectSetupTab.Invoke(setup, [tab, false]);
+    foreach (var tab in new[] { "images", "app", "companion", "config", "review" }) selectSetupTab.Invoke(setup, [tab, false]);
     Check(script == (string)exportSetupScript.Invoke(setup, null)!, "tab changes and repeat downloads preserve generated names");
     Check(script.Contains($"export ACA_ENVIRONMENT_NAME='{defaults["ENVIRONMENT_NAME"]}'", StringComparison.Ordinal), "standalone environment alias uses the suffixed name");
     Check(!script.Contains("export HOST1=", StringComparison.Ordinal), "Deployment Setup omits Host1 from standalone parameters");
@@ -55,7 +57,7 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
     Check(DeploymentArmTemplate.GeneratePublishScript(defaults, "2.2.17", "2.0.1").Contains(defaults["ACR_NAME"], StringComparison.Ordinal), "publisher uses the initialized registry name");
 }
 Check(setupSuffixes.Count > 1, "new setup instances generate fresh suffixes");
-var acaDeploymentScript = File.ReadAllText(Path.Combine(root, "deployment/ACA/deploy.sh"));
+var acaDeploymentScript = File.ReadAllText(Path.Combine(root, "deployment/interactive/ACA/deploy.sh"));
 Check(!acaDeploymentScript.Contains("Host1=", StringComparison.Ordinal), "standalone ACA deployment omits Host1");
 Check(!acaDeploymentScript.Contains("--environment-variables", StringComparison.Ordinal), "standalone ACA deployment does not inject container environment variables");
 Console.WriteLine("PASS: randomized setup defaults, Azure name limits, unchanged references, and stable names across downloads.");
@@ -67,11 +69,14 @@ string? staticBicepEntryPoint = null;
 foreach (var shared in new[] { false, true })
 foreach (var network in new[] { false, true })
 foreach (var asyncMode in new[] { false, true })
-foreach (var sidecar in new[] { false, true }) {
+foreach (var sidecar in new[] { false, true })
+foreach (var companion in new[] { false, true }) {
     var values = new Dictionary<string, string>(baseline);
     values["PRIVATE_NETWORK_DEPLOYMENT"] = network ? "yes" : "no";
     values["ASYNC_DEPLOYMENT"] = asyncMode ? "yes" : "no";
+    values["DEPLOY_COMPANION_APP"] = companion ? "true" : "false";
     values["HEALTHPROBE_TYPE"] = sidecar ? "sidecar" : "internal";
+    values["COMPANION_APP_RESOURCE_GROUP"] = "rg-myapp-companion";
     values["WEB_PORT"] = "8123";
     values["MAX_REPLICAS"] = "7";
     if (shared) foreach (var key in values.Keys.Where(key => key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)).ToArray()) values[key] = "rg-shared";
@@ -122,7 +127,11 @@ foreach (var sidecar in new[] { false, true }) {
     Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-network", StringComparison.Ordinal)) == network, "network toggle");
     Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-request-api", StringComparison.Ordinal)) == asyncMode, "async toggle");
     var groups = template["resources"]!.AsArray().Where(node => node!["type"]!.GetValue<string>() == "Microsoft.Resources/resourceGroups").ToArray();
-    Check(groups.Length == (shared ? 1 : 2 + (network ? 1 : 0) + (asyncMode ? 2 : 0)), "group deduplication");
+    var selectedGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
+    if (network) selectedGroupKeys.Add("NETWORK_RESOURCE_GROUP");
+    if (asyncMode) selectedGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
+    var expectedGroupCount = selectedGroupKeys.Select(key => values[key]).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+    Check(groups.Length == expectedGroupCount, "group deduplication");
     Check(groups.All(group => group!["condition"] is null), "group creation is unconditional");
     if (asyncMode) foreach (var parameter in new[] { "serviceBusResourceGroup", "cosmosResourceGroup" }) {
         Check(template["parameters"]![parameter]!["type"]!.GetValue<string>() == "string", "external group parameter declared at portal root");
@@ -198,7 +207,7 @@ foreach (var sidecar in new[] { false, true }) {
         "bootstrap.bicep", "main.bicep", "types.bicep", "modules/registry.bicep", "modules/network.bicep",
         "modules/foundation.bicep", "modules/configuration.bicep", "modules/configuration-access.bicep",
         "modules/blob-storage.bicep", "modules/blob-access.bicep", "modules/request-api.bicep",
-        "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/container-app.bicep",
+        "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/companion-app.bicep", "modules/container-app.bicep",
         "modules/registry-access.bicep", "modules/private-dns.bicep"
     ];
     Check(templateAssets.All(bicepFiles.ContainsKey), "Bicep bundle includes every static template asset");
@@ -207,15 +216,19 @@ foreach (var sidecar in new[] { false, true }) {
     Check(bicepFiles.ContainsKey("parameters.json"), "Bicep bundle includes generated deployment parameters");
     Check(bicepFiles["README.md"].EndsWith('\n') && bicepFiles["deploy.sh"].EndsWith('\n'), "bundle text assets preserve their final newline");
     Check(bicepFiles["README.md"].Contains("\n## Check after leaving the terminal\n", StringComparison.Ordinal), "bundle README recovery heading is not indented as code");
-    Check(Regex.Matches(bicepFiles["README.md"], "^```bash$", RegexOptions.Multiline).Count == 5, "bundle README exposes deployment and four recovery command blocks");
-    Check(bicepFiles["README.md"].Contains($"deployment='{values["CONTAINER_APP_NAME"]}-bicep'", StringComparison.Ordinal), "bundle README includes its exact subscription deployment name");
-    Check(bicepFiles["deploy.sh"].Contains($"--name '{values["CONTAINER_APP_NAME"]}-bicep'", StringComparison.Ordinal), "bundle README deployment name matches its script");
-    Check(bicepFiles["deploy.sh"].Contains($"--location '{values["LOCATION"]}'", StringComparison.Ordinal), "deployment script asset substitutes the selected location");
+    Check(Regex.Matches(bicepFiles["README.md"], "^```bash$", RegexOptions.Multiline).Count == 6, "bundle README exposes deployment, uniqueness, and recovery command blocks");
+    Check(bicepFiles["README.md"].Contains("deployment='DEPLOYMENT_NAME'", StringComparison.Ordinal), "bundle README directs recovery to the deployment name printed by the script");
+    Check(bicepFiles["deploy.sh"].Contains("deployment_name=\"${container_app_name}-bicep\"", StringComparison.Ordinal), "deployment script derives its deployment name from effective parameters");
+    Check(bicepFiles["deploy.sh"].Contains("--name \"$deployment_name\"", StringComparison.Ordinal), "deployment script uses its effective deployment name");
+    Check(bicepFiles["deploy.sh"].Contains("--location \"$location\"", StringComparison.Ordinal), "deployment script uses the effective parameter location");
+    Check(bicepFiles["deploy.sh"].Contains("--MakeUniq", StringComparison.Ordinal), "deployment script exposes four-digit resource-name uniquification");
+    Check(bicepFiles["deploy.sh"].Contains("deployment_parameters_file=\"$temporary_parameters\"", StringComparison.Ordinal), "MakeUniq deploys with temporary parameters");
+    Check(!bicepFiles["deploy.sh"].Contains("mv \"$temporary_parameters\" \"$parameters_file\"", StringComparison.Ordinal), "MakeUniq does not replace the original parameters file");
     Check(!bicepFiles["README.md"].Contains("{{DEPLOYMENT_NAME}}", StringComparison.Ordinal), "README asset deployment token is resolved");
     Check(!Regex.IsMatch(bicepFiles["deploy.sh"], "\\{\\{[A-Z_]+\\}\\}"), "deployment script asset tokens are resolved");
     Check(bicepFiles["README.md"].Contains("az deployment sub show --subscription \"$subscription\" --name \"$deployment\"", StringComparison.Ordinal), "bundle README scopes status checks to the original subscription and deployment");
     Check(bicepFiles["README.md"].Contains("az deployment sub list --subscription \"$subscription\"", StringComparison.Ordinal), "bundle README documents deployment name discovery");
-    foreach (var query in new[] { "properties.provisioningState", "properties.timestamp", "properties.error", "properties.outputs.proxyUrl.value" })
+    foreach (var query in new[] { "properties.provisioningState", "properties.timestamp", "properties.error", "properties.outputs.proxyUrl.value", "properties.outputs.companionAppUrl.value" })
         Check(bicepFiles["README.md"].Contains(query, StringComparison.Ordinal), "bundle README documents " + query);
     Check(bicep.StartsWith("targetScope = 'subscription'", StringComparison.Ordinal), "Bicep entry point has subscription scope");
     staticBicepEntryPoint ??= bicep;
@@ -223,11 +236,13 @@ foreach (var sidecar in new[] { false, true }) {
     Check(bicep.Contains("param settings DeploymentSettings", StringComparison.Ordinal), "Bicep entry point consumes the typed settings parameter");
     Check(bicep.Contains("if (settings.PRIVATE_NETWORK_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls private networking from parameters");
     Check(bicep.Contains("if (settings.ASYNC_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls async resources from parameters");
+    Check(bicep.Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "Bicep entry point controls Companion App resources from parameters");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.ProxyImage, StringComparison.Ordinal), "Bicep deployment imports the pinned public proxy digest");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.HealthProbeImage, StringComparison.Ordinal) == sidecar, "Bicep deployment imports the pinned public sidecar digest only when selected");
+    Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.CompanionImage, StringComparison.Ordinal) == companion, "Bicep deployment imports the public Companion image only when selected");
     Check(!bicepFiles.ContainsKey("modules/configuration-values.bicep"), "Bicep export omits App Configuration values module");
     Check(!string.Join("\n", bicepFiles.Values).Contains("Microsoft.AppConfiguration/configurationStores/keyValues", StringComparison.Ordinal), "Bicep export omits App Configuration data-plane writes");
-    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 13, "Bicep bundle includes thirteen reusable resource modules");
+    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 14, "Bicep bundle includes fourteen reusable resource modules");
     Check(string.Join("\n", bicepFiles.Values).Contains("Microsoft.ContainerRegistry/registries", StringComparison.Ordinal), "Bicep bundle provisions and references ACR");
     Check(bicepFiles["modules/container-app.bicep"].Contains(":v2.3.0", StringComparison.Ordinal), "Bicep Container App uses the imported proxy tag");
     Check(bicepFiles["modules/container-app.bicep"].Contains(":v2.0.1", StringComparison.Ordinal), "Bicep sidecar uses the imported HealthProbe tag");
@@ -238,8 +253,19 @@ foreach (var sidecar in new[] { false, true }) {
         Check(!bicepFiles["modules/container-app.bicep"].Contains(removedSetting, StringComparison.Ordinal), "static Bicep omits " + removedSetting);
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("scope: configurationStore", StringComparison.Ordinal), "static Bicep scopes App Configuration RBAC to the store");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("516239f1-63e1-4d78-a4de-a74fb236a071", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Reader");
+    Check(bicepFiles["modules/configuration-access.bicep"].Contains("5ae67dd6-50cb-40e7-96ff-dc2bfa4b606b", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Owner to the Companion App");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: containerAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Reader to the Container App system principal");
+    Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Owner to the Companion App system principal");
+    Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Companion App system principal");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__AppConfigurationEndpoint'", StringComparison.Ordinal), "static Bicep configures the Companion App endpoint environment variable");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("value: appConfigurationEndpoint", StringComparison.Ordinal), "static Bicep sources the Companion App endpoint from App Configuration");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__AppConfigurationLabel'", StringComparison.Ordinal), "static Bicep configures the Companion App label environment variable");
     Check(bicepFiles["main.bicep"].Contains("containerAppBootstrap.outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Container App system principal output");
+    Check(bicepFiles["main.bicep"].Contains("companionAppBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Companion App system principal output");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: ''").Count == 2, "Bicep withholds the App Configuration endpoint from bootstrap revisions until RBAC exists");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: configuration.outputs.endpoint").Count == 2, "Bicep passes the App Configuration endpoint to the final proxy and Companion App revisions");
+    Check(bicepFiles["main.bicep"].Contains("output proxyUrl string", StringComparison.Ordinal), "Bicep exposes the proxy URL");
+    Check(bicepFiles["main.bicep"].Contains("output companionAppUrl string", StringComparison.Ordinal), "Bicep exposes the Companion App URL");
     Check(bicepFiles["main.bicep"].Contains("usePrivateRegistry: false", StringComparison.Ordinal), "Bicep creates the system identity with public images first");
     Check(bicepFiles["main.bicep"].Contains("usePrivateRegistry: true", StringComparison.Ordinal), "Bicep updates the Container App to ACR images after role assignment");
     foreach (var accessModule in new[] { "registryAccess", "configurationAccess", "blobAccess", "serviceBusAccess" })
@@ -254,10 +280,18 @@ foreach (var sidecar in new[] { false, true }) {
     Check(parameterDocument["parameters"]!["host1"] is null, "parameters omit Host1");
     Check(parameterSettings["PRIVATE_NETWORK_DEPLOYMENT"]!.GetValue<bool>() == network, "parameters preserve the private-network toggle as Boolean");
     Check(parameterSettings["ASYNC_DEPLOYMENT"]!.GetValue<bool>() == asyncMode, "parameters preserve the async toggle as Boolean");
+    Check(parameterSettings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == companion, "parameters preserve the Companion App toggle as Boolean");
+    Check(parameterSettings["MAKE_UNIQ_SUFFIX"]!.GetValue<string>() == string.Empty, "generated parameters reserve an empty persisted MakeUniq suffix");
+    Check(parameterSettings["COMPANION_APP_RESOURCE_GROUP"]!.GetValue<string>() == values["COMPANION_APP_RESOURCE_GROUP"], "parameters preserve the Companion App resource group");
+    Check(parameterSettings["COMPANION_IMAGE_NAME"]!.GetValue<string>() == values["COMPANION_IMAGE_NAME"], "parameters preserve the Companion image name");
+    Check(parameterSettings["COMPANION_APP_NAME"]!.GetValue<string>() == values["COMPANION_APP_NAME"], "parameters preserve the Companion App name");
     Check(parameterSettings["HEALTHPROBE_TYPE"]!.GetValue<string>() == (sidecar ? "sidecar" : "internal"), "parameters preserve the health mode");
     Check(parameterSettings["WEB_PORT"]!.GetValue<int>() == 8123, "parameters preserve numeric ingress values");
     Check(parameterSettings["MAX_REPLICAS"]!.GetValue<int>() == 7, "parameters preserve numeric scaling values");
-    Check(parameterSettings["RESOURCE_GROUPS"]!.AsArray().Count == (shared ? 1 : 2 + (network ? 1 : 0) + (asyncMode ? 2 : 0)), "parameters contain deduplicated selected resource groups");
+    var bicepGroupKeys = selectedGroupKeys.ToList();
+    if (companion) bicepGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
+    var expectedBicepGroupCount = bicepGroupKeys.Select(key => values[key]).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+    Check(parameterSettings["RESOURCE_GROUPS"]!.AsArray().Count == expectedBicepGroupCount, "parameters contain deduplicated selected resource groups");
     Check(parameterSettings["SERVICEBUS_RESOURCE_GROUP"]!.GetValue<string>() == values["REQUESTAPI_RESOURCE_GROUP"], "parameters default the Service Bus resource group explicitly");
     Check(parameterSettings["COSMOS_RESOURCE_GROUP"]!.GetValue<string>() == values["REQUESTAPI_RESOURCE_GROUP"], "parameters default the Cosmos resource group explicitly");
     var archiveBytes = DeploymentBicepBundle.CreateArchive(bicepFiles);
@@ -297,7 +331,7 @@ if (args.Length > 0) {
         (["--help"], null, 0, 0),
         (["-h"], null, 0, 0),
         (["test-subscription"], "validate", 0, 0),
-        (["test-subscription", ""], "validate", 0, 0),
+        (["test-subscription", ""], null, 1, 0),
         (["test-subscription", "validate"], "validate", 0, 0),
         (["test-subscription", "what-if"], "what-if", 0, 0),
         (["test-subscription", "create"], "create", 0, 0),
@@ -315,7 +349,7 @@ if (args.Length > 0) {
         startInfo.Environment.Remove("BASH_ENV");
         startInfo.Environment["MOCK_AZ_EXIT_CODE"] = scenario.AzureExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var execution = System.Diagnostics.Process.Start(startInfo)!;
-        execution.StandardInput.WriteLine("az() { printf '%s\\n' \"$@\"; return \"$MOCK_AZ_EXIT_CODE\"; }");
+        execution.StandardInput.WriteLine("az() { if [[ \"$1 $2 $3\" == 'deployment sub show' ]]; then printf '%s\\n' '{\"proxyUrl\":\"https://proxy.example\",\"companionAppUrl\":\"https://companion.example\"}'; return 0; fi; printf '%s\\n' \"$@\"; return \"$MOCK_AZ_EXIT_CODE\"; }");
         execution.StandardInput.WriteLine("export -f az");
         execution.StandardInput.WriteLine("bash \"$@\"");
         execution.StandardInput.Close();
@@ -324,7 +358,7 @@ if (args.Length > 0) {
         execution.WaitForExit();
         Check(execution.ExitCode == scenario.ExitCode, "deployment script exit code: " + string.Join(" ", scenario.Arguments));
         if (scenario.Operation is not null) {
-            var expectedOutput = new List<string>();
+            var expectedOutput = new List<string> { "Deployment name: " + baseline["CONTAINER_APP_NAME"] + "-bicep" };
             if (scenario.Operation == "create") {
                 expectedOutput.AddRange([
                     "deployment", "sub", "create", "--subscription", "test-subscription",
@@ -345,6 +379,9 @@ if (args.Length > 0) {
                 "--template-file", Path.Combine(scriptDirectory, "main.bicep"),
                 "--parameters", "@" + Path.Combine(scriptDirectory, "parameters.json")
             ]);
+            if (scenario.Operation == "create" && scenario.AzureExitCode == 0) expectedOutput.AddRange([
+                "", "Proxy URL: https://proxy.example", "Companion App URL: https://companion.example"
+            ]);
             Check(standardOutput.TrimEnd('\n').Split('\n').SequenceEqual(expectedOutput), "deployment script forwards exact Azure arguments from another working directory");
             Check(standardError.Length == 0, "deployment script preserves Azure output without extra diagnostics");
         } else if (scenario.ExitCode == 0) {
@@ -353,7 +390,7 @@ if (args.Length > 0) {
             Check(standardOutput.Length == 0 && standardError.Contains("Error:", StringComparison.Ordinal), "deployment script rejects invalid arguments before invoking Azure");
         }
     }
-    Console.WriteLine("PASS: 13 mocked deployment-script cases; help, input errors, default operation, exact arguments, working-directory independence, and Azure exit codes.");
+    Console.WriteLine("PASS: mocked deployment-script cases; help, input errors, default operation, exact arguments, URL output, working-directory independence, and Azure exit codes.");
 }
 
 baseline["PRIVATE_NETWORK_DEPLOYMENT"] = "no";

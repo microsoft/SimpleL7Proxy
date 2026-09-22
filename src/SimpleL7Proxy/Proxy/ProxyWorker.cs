@@ -16,6 +16,7 @@ using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
 using System.Collections.Frozen;
+using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -291,7 +292,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                         continue;
                     }
    
-
                     // Set the initial status based on request type
                     _lifecycleManager.TransitionToProcessing(incomingRequest);
 
@@ -420,6 +420,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                         await incomingRequest.asyncWorker.WaitForBlobWritesAsync().ConfigureAwait(false);
                         _lifecycleManager.FinalizeBackgroundCheckStatus(incomingRequest);
                         await incomingRequest.asyncWorker.PersistRequestStateAsync().ConfigureAwait(false);
+                    }
+
+                }
+                catch (S7PThrottledException e)
+                {
+                    _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.TooManyRequests, e.Message);
+                    eventData.Status = HttpStatusCode.TooManyRequests;
+                    eventData["Error"] = "Throttled";
+                    eventData["ErrorDetails"] = e.InnerException?.Message ?? e.Message;
+                    eventData.Type = EventType.Exception;
+                    eventData.Exception = e;
+                    if (lcontext != null)
+                    {
+                        await WriteErrorToClientAsync(
+                            lcontext,
+                            HttpStatusCode.TooManyRequests,
+                            e.Message,
+                            eventData,
+                            incomingRequest.Guid);
                     }
 
                 }
@@ -989,6 +1008,9 @@ public class ProxyWorker : IConfigChangeSubscriber
                             request.Guid, bodyString);
                     }
                 }
+                
+                // Check what Tokenomics wants to do before doing the work.
+                (string conditionString, TokenActionEnum action) = _wrkCntxt.TokenomicsProcessor.Evaluate(request);
 
                 if (request.runAsync &&
                     !request.AsyncTriggered &&
@@ -1286,6 +1308,9 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
             catch (S7PRequeueException e)
             {
+                if (e.now)
+                    throw;
+
                 TriggerHostCB = false;
                 intCode = (int)HttpStatusCode.TooManyRequests; // 429
                 PopulateRequestAttemptError(requestAttempt, HttpStatusCode.TooManyRequests,
@@ -1294,6 +1319,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 // Try all the hosts before sleeping
                 retryAfter.Add(e);
+
                 continue;
             }
             catch (ProxyErrorException e)

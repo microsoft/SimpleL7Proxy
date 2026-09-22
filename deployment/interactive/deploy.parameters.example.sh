@@ -19,12 +19,14 @@
 
 # -----------------------------------------------------------------------------
 # Deployment mode flags
-# These two settings control which steps are enabled in the menu.
+# These settings control which optional resources are enabled.
 #   PRIVATE_NETWORK_DEPLOYMENT=yes  enables step 2 (Virtual Network) and step 6 (Private DNS)
 #   ASYNC_DEPLOYMENT=yes            enables step 8 (Blob Storage) and steps 9-10 (RequestAPI)
+#   DEPLOY_COMPANION_APP=true       includes the Companion App in Bicep downloads
 # -----------------------------------------------------------------------------
 export PRIVATE_NETWORK_DEPLOYMENT="yes|no"
 export ASYNC_DEPLOYMENT="yes|no"
+export DEPLOY_COMPANION_APP="false"
 
 # -----------------------------------------------------------------------------
 # Common
@@ -32,10 +34,11 @@ export ASYNC_DEPLOYMENT="yes|no"
 export LOCATION="eastus"
 
 # Resource groups (one per concern; can all be the same RG if preferred)
-export NETWORK_RESOURCE_GROUP="rg-myapp-network"        # VNet, DNS, ACA env
-export CONTAINER_APP_RESOURCE_GROUP="rg-myapp-prod"     # Container App
-export STORAGE_RESOURCE_GROUP="rg-myapp-storage"
-export APPCONFIG_RESOURCE_GROUP="rg-myapp-appconfig"
+export NETWORK_RESOURCE_GROUP="rg-simplel7proxy-v2_30"        # VNet, DNS, ACA env
+export CONTAINER_APP_RESOURCE_GROUP="rg-simplel7proxy-v2_30"  # Container App
+export STORAGE_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
+export APPCONFIG_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
+export COMPANION_APP_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 
 # -----------------------------------------------------------------------------
 # Container Registry & Image
@@ -44,6 +47,7 @@ export ACR_NAME="acrsimplel7proxy"
 export ACR_SKU="Basic"                   # Basic | Standard | Premium
 export PROXY_IMAGE_NAME="simple-l7-proxy"
 export HEALTH_IMAGE_NAME="healthprobe"
+export COMPANION_IMAGE_NAME="companionapp"
 
 # "remote" = build runs in ACR, no Docker required (recommended)
 # "local"  = build runs on this machine, Docker required (dev/test only)
@@ -57,8 +61,9 @@ export HEALTHPROBE_VERSION_OVERRIDE=""
 # -----------------------------------------------------------------------------
 # Azure Container Apps
 # -----------------------------------------------------------------------------
-export ACA_ENVIRONMENT_NAME="cae-myapp"
-export CONTAINER_APP_NAME="ca-myapp-proxy"
+export ACA_ENVIRONMENT_NAME="simplel7proxy-env"
+export CONTAINER_APP_NAME="ca-simplel7proxy-proxy"
+export COMPANION_APP_NAME="ca-simplel7proxy-companion"
 
 export CPU="0.5"
 export MEMORY="1.0Gi"
@@ -73,10 +78,10 @@ export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/status
 
 export ENABLE_MANAGED_IDENTITY="true"
 export ENABLE_APP_INSIGHTS="true"
-export LOG_ANALYTICS_WORKSPACE_NAME="log-myapp"
+export LOG_ANALYTICS_WORKSPACE_NAME="laws-simplel7proxy"
 
 # proxy-with-sidecar variant
-export ENVIRONMENT_NAME="myapp-env"
+export ENVIRONMENT_NAME="simplel7proxy-env"
 
 export WEB_CPU=0.5
 export WEB_MEMORY=1.0
@@ -93,7 +98,7 @@ export TERMINATION_GRACE_PERIOD_SECONDS="30"
 # -----------------------------------------------------------------------------
 # App Configuration
 # -----------------------------------------------------------------------------
-export APPCONFIG_NAME="myapp-appcfg"       # Must be globally unique across Azure
+export APPCONFIG_NAME="appcfg-simplel7proxy" # Must be globally unique across Azure
 export APPCONFIG_SKU="standard"
 export APPCONFIG_LABEL="prod"
 export AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS="30"
@@ -129,7 +134,7 @@ export DISABLE_PRIVATE_ENDPOINT_NETWORK_POLICIES="true"
 # Private DNS
 export DNS_ZONE_NAME="internal.contoso.com"
 export ACA_INTERNAL_FQDN=""              # e.g. ca-myapp-proxy.internal.eastus.azurecontainerapps.io
-export ACA_RECORD_NAME="ca-myapp-proxy"
+export ACA_RECORD_NAME="ca-simplel7proxy-proxy"
 export APIM_PRIVATE_IP=""                # leave blank if APIM not deployed yet
 export APIM_RECORD_NAME="apim"
 
@@ -147,7 +152,7 @@ export BLOB_CONTAINERS="templates simplel7proxy"
 export CA_BLOB_ROLE="Storage Blob Data Contributor"
 
 # RequestAPI Azure Function (Flex Consumption, .NET 9 isolated worker)
-export REQUESTAPI_RESOURCE_GROUP="rg-myapp"
+export REQUESTAPI_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 export REQUESTAPI_FUNCTION_APP="myapprequestapi"         # globally unique
 export REQUESTAPI_LOCATION="${LOCATION}"
 export REQUESTAPI_STORAGE_ACCOUNT="myapprequestapifn"    # globally unique, 3-24 lowercase
