@@ -19,7 +19,9 @@ bash deploy.sh SUBSCRIPTION_ID what-if
 bash deploy.sh SUBSCRIPTION_ID create
 ```
 
-Validation and what-if contact Azure without importing images. Create provisions the resource groups and registry, imports the proxy, optional HealthProbe, and selected Companion App releases, and deploys the remaining infrastructure. The application stage first creates each selected Container App with its public image to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copy in ACR. The script defaults to validate when its second argument is omitted.
+Validation and what-if contact Azure without importing images. Create provisions the resource groups and registry, imports the proxy, optional HealthProbe, selected Companion App, and selected Metrics Server releases, and deploys the remaining infrastructure. The Metrics Server is a single-replica internal Container App in the same managed environment as the proxy. The application stage first creates each selected Container App with its public image to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copy in ACR. The script defaults to validate when its second argument is omitted.
+
+By default, the deployment creates the Container Apps environment in the proxy resource group. Set `USE_EXISTING_ENVIRONMENT=true`, `ENVIRONMENT_NAME`, and `ENVIRONMENT_RESOURCE_GROUP` to attach every selected Container App to an existing environment instead. The existing environment can share the proxy resource group or reside in another resource group in the same subscription; the deployment does not modify it.
 
 To add a new four-digit suffix to every deployment-created resource name, use `--MakeUniq`. The script applies the suffix to a generated parameters file, prints its path, and leaves it available for reference. The original `parameters.json` remains unchanged.
 
@@ -79,13 +81,13 @@ A missing deployment record does not establish that no resources were created. I
 - main.bicep creates or updates the selected infrastructure, enables the Container Apps' system-assigned identities, grants their selected ACR and App Configuration roles, and deploys from the imported ACR image tags.
 - modules/*.bicep are the static resource templates consumed by the two entry points.
 - parameters.json contains the settings selected in Deployment Setup and is consumed by both Bicep entry points.
-- deploy.sh imports the proxy, optional HealthProbe, and selected Companion App images from publicnvmacr into the selected ACR. It does not build local source code.
+- deploy.sh imports the proxy, optional HealthProbe, selected Companion App, and selected Metrics Server images from publicnvmacr into the selected ACR. It does not build local source code.
 - Regenerate the bundle to change resource names, image repository names, topology, or other setup values consistently.
 
 ## Verify
 
 - Confirm the deployment succeeds and inspect its proxy and Companion App URL outputs. Private-network proxy deployments require access to that network.
-- Confirm each selected Container App revision runs the expected proxy, optional HealthProbe, and Companion App images.
+- Confirm each selected Container App revision runs the expected proxy, optional HealthProbe, Companion App, and Metrics Server images.
 - In the Companion App, confirm the selected App Configuration label contains the expected proxy settings.
 - After adding a backend in Proxy Configuration, confirm readiness returns HTTP 200 and a request reaches that backend.
 

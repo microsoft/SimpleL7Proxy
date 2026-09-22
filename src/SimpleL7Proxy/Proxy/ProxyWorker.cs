@@ -1009,8 +1009,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                     }
                 }
                 
-                // Check what Tokenomics wants to do before doing the work.
-                (string conditionString, TokenActionEnum action) = _wrkCntxt.TokenomicsProcessor.Evaluate(request);
+                // Check what Tokenomics wants to do before working on the request.
+                _wrkCntxt.TokenomicsProcessor.TokenActionWork(request);
 
                 if (request.runAsync &&
                     !request.AsyncTriggered &&
@@ -1232,7 +1232,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                             if (shouldRequeue)
                             {
-                                throw new S7PRequeueException("Requeue request", pr, retryMs);
+                                throw new S7PRequeueException("Requeue request", retryMs);
                             }
                             else if (!acceptableStatusCode && intCode == 429)
                             {

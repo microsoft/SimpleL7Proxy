@@ -23,10 +23,12 @@
 #   PRIVATE_NETWORK_DEPLOYMENT=yes  enables step 2 (Virtual Network) and step 6 (Private DNS)
 #   ASYNC_DEPLOYMENT=yes            enables step 8 (Blob Storage) and steps 9-10 (RequestAPI)
 #   DEPLOY_COMPANION_APP=true       includes the Companion App in Bicep downloads
+#   DEPLOY_METRICS_SERVER=true      includes the Metrics Server in Bicep downloads
 # -----------------------------------------------------------------------------
 export PRIVATE_NETWORK_DEPLOYMENT="yes|no"
 export ASYNC_DEPLOYMENT="yes|no"
 export DEPLOY_COMPANION_APP="false"
+export DEPLOY_METRICS_SERVER="false"
 
 # -----------------------------------------------------------------------------
 # Common
@@ -39,6 +41,7 @@ export CONTAINER_APP_RESOURCE_GROUP="rg-simplel7proxy-v2_30"  # Container App
 export STORAGE_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 export APPCONFIG_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 export COMPANION_APP_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
+export ENVIRONMENT_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 
 # -----------------------------------------------------------------------------
 # Container Registry & Image
@@ -62,8 +65,10 @@ export HEALTHPROBE_VERSION_OVERRIDE=""
 # Azure Container Apps
 # -----------------------------------------------------------------------------
 export ACA_ENVIRONMENT_NAME="simplel7proxy-env"
+export USE_EXISTING_ENVIRONMENT="false"
 export CONTAINER_APP_NAME="ca-simplel7proxy-proxy"
 export COMPANION_APP_NAME="ca-simplel7proxy-companion"
+export METRICS_SERVER_NAME="ca-simplel7proxy-metrics"
 
 export CPU="0.5"
 export MEMORY="1.0Gi"
@@ -87,6 +92,8 @@ export WEB_CPU=0.5
 export WEB_MEMORY=1.0
 export HEALTH_CPU=0.25
 export HEALTH_MEMORY=0.5
+export METRICS_CPU=0.25
+export METRICS_MEMORY=0.5
 
 export WEB_PORT=8000
 export HEALTH_PORT=9000

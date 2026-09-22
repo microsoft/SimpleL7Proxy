@@ -41,6 +41,7 @@
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\service-bus-access.bicep" LogicalName="DeploymentBicepAsset/modules/service-bus-access.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\cosmos-access.bicep" LogicalName="DeploymentBicepAsset/modules/cosmos-access.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\companion-app.bicep" LogicalName="DeploymentBicepAsset/modules/companion-app.bicep" />
+    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\metrics-server.bicep" LogicalName="DeploymentBicepAsset/modules/metrics-server.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\container-app.bicep" LogicalName="DeploymentBicepAsset/modules/container-app.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\registry-access.bicep" LogicalName="DeploymentBicepAsset/modules/registry-access.bicep" />
     <EmbeddedResource Include="Assets\Deployment\Bicep\modules\private-dns.bicep" LogicalName="DeploymentBicepAsset/modules/private-dns.bicep" />

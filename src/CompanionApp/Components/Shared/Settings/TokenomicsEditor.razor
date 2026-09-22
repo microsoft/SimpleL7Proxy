@@ -455,8 +455,10 @@
         }
     }
 
-    private static TokenomicsSettings? ParseOptions(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? new TokenomicsSettings() : TokenomicsSettings.TryParse(value);
+    private static TokenomicsSettings? ParseOptions(string? value) {
+        var options = new TokenomicsSettings();
+        return string.IsNullOrWhiteSpace(value) || options.TryParse(value) ? options : null;
+    }
 
     private async Task SetEnabledAsync(ChangeEventArgs args) {
         if (EnableSetting is not { } setting) {

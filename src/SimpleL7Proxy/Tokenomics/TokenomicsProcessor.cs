@@ -55,7 +55,7 @@ public sealed class TokenomicsProcessor : IConfigChangeSubscriber
         return Task.CompletedTask;
     }
 
-    public void TokenWork(RequestData data)
+    public void TokenActionWork(RequestData data)
     {
         (string conditionString, TokenActionEnum action) = Evaluate(data);
 

@@ -34,7 +34,7 @@
                         aria-selected="@(_selectedGroup == group.Id ? "true" : "false")" aria-controls="@($"panel-{group.Id}")"
                         tabindex="@(_selectedGroup == group.Id ? 0 : -1)" disabled="@(!RendererInfo.IsInteractive || _downloading)"
                         @onclick="() => SelectTab(group.Id)">
-                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "app" => "Container Apps", "companion" => "Companion App", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
+                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "environment" => "Environment", "app" => "Proxy", "companion" => "Companion App", "metrics" => "Metrics Server", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
                     @if (_completedGroups.Contains(group.Id))
                     {
                         <span class="deployment-complete">Complete</span>
@@ -49,7 +49,7 @@
                 @foreach (var group in Groups.Where(group => IsGroupVisible(group) && group.Id == _selectedGroup))
                 {
                     <section id="@($"panel-{group.Id}")" class="deployment-section" role="tabpanel" aria-labelledby="@($"tab-{group.Id}")">
-                        <h2 @ref="_panelHeading" tabindex="-1" id="@($"heading-{group.Id}")" class="@(group.Id == "app" ? "visually-hidden" : null)">@(group.Id == "app" ? "Container Apps" : group.Title)</h2>
+                        <h2 @ref="_panelHeading" tabindex="-1" id="@($"heading-{group.Id}")" class="@(group.Id == "app" ? "visually-hidden" : null)">@(group.Id == "app" ? "SimpleL7Proxy" : group.Title)</h2>
                         @if (group.Id == "images")
                         {
                             <p class="text-muted">A cached copy of the SimpleL7Proxy container image will be preloaded into this registry.</p>
@@ -57,6 +57,10 @@
                         @if (group.Id == "config")
                         {
                             <p class="text-muted">Deploying App Configuration sets <code>AZURE_APPCONFIG_ENDPOINT</code> from the store name and writes the label and refresh interval to the Container App as environment variables. Without this deployment, the existing environment variables remain unchanged.</p>
+                        }
+                        @if (group.Id == "environment")
+                        {
+                            <p class="text-muted">The proxy, Companion App, and Metrics Server use this Container Apps environment. Select an existing environment to reuse it without deploying or modifying it.</p>
                         }
                         @if (group.Id == "private")
                         {
@@ -74,18 +78,23 @@
                                 <label class="form-check-label" for="same-resource-group">Use the same resource group for all</label>
                             </div>
                         }
-                        @foreach (var section in group.Id == "app" ? new[] { "environment", "app", "health" } : new[] { "general" })
+                        @foreach (var section in group.Id == "app" ? new[] { "app", "health" } : new[] { "general" })
                         {
                         var healthSection = section == "health";
                         var sectionFields = _fields.Where(field => field.Group == group.Id
                             && field.Key is not ("HEALTHPROBE_TYPE" or "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" or "COMPANION_IMAGE_NAME")
                             && (group.Id != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
-                            && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP")
-                            && field.Key is not ("ACA_ENVIRONMENT_NAME" or "MEMORY" or "WEB_MEMORY" or "HEALTH_MEMORY" or "BUILD_METHOD" or "DOCKERFILE_PATH"
+                            && (group.Id != "metrics" || field.Key == "DEPLOY_METRICS_SERVER" || Value("DEPLOY_METRICS_SERVER") == "true")
+                            && (field.Key != "ENVIRONMENT_RESOURCE_GROUP" || Value("USE_EXISTING_ENVIRONMENT") == "true")
+                            && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP"
+                                || field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true")
+                            && field.Key is not ("ACA_ENVIRONMENT_NAME" or "MEMORY" or "WEB_MEMORY" or "HEALTH_MEMORY" or "METRICS_MEMORY" or "BUILD_METHOD" or "DOCKERFILE_PATH"
                                 or "UPDATE_CONTAINER_APP_ENV")
                             && (section == "general" || (healthSection ? IsHealthField(field.Key)
                                 : ContainerSections[section].Contains(field.Key))))
-                            .OrderBy(field => ContainerSections.TryGetValue(section, out var keys) ? Array.IndexOf(keys, field.Key) : 0).ToArray();
+                            .OrderBy(field => group.Id == "environment" ? field.Key switch {
+                                "USE_EXISTING_ENVIRONMENT" => 0, "ENVIRONMENT_NAME" => 1, "ENVIRONMENT_RESOURCE_GROUP" => 2, _ => 3
+                            } : ContainerSections.TryGetValue(section, out var keys) ? Array.IndexOf(keys, field.Key) : 0).ToArray();
                         @if (sectionFields.Length > 0 || healthSection)
                         {
                         <div class="@(group.Id == "app" && section != "environment" ? "deployment-sidecar" : "")">
@@ -106,13 +115,13 @@
                         }
                         @if (!healthSection || Value("HEALTHPROBE_TYPE") == "sidecar")
                         {
-                        <div id="@(healthSection ? "health-container-fields" : section == "environment" ? "environment-fields" : null)" class="deployment-fields @(group.Id == "app" ? "deployment-fields-compact" : "") @(section is "app" or "health" ? "deployment-container-fields" : "")">
+                        <div id="@(healthSection ? "health-container-fields" : group.Id == "environment" ? "environment-fields" : null)" class="deployment-fields @(group.Id == "app" ? "deployment-fields-compact" : "") @(section is "app" or "health" ? "deployment-container-fields" : "")">
                             @foreach (var field in sectionFields)
                             {
                                 var error = _errors.GetValueOrDefault(field.Key);
                                 <div class="deployment-field @(field.Key is "ENVIRONMENT_NAME" or "CONTAINER_APP_NAME" ? "deployment-field-full" : field.Key.EndsWith("_NAME") ? "deployment-field-wide" : "")" @key="field.Key">
-                                    <label for="@field.Key" title="@field.Key">@(_sameResourceGroup && field.Key == "CONTAINER_APP_RESOURCE_GROUP" ? "Resource Group" : field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU" ? "CPU / memory" : field.Label)</label>
-                                    @if (field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU")
+                                    <label for="@field.Key" title="@field.Key">@(_sameResourceGroup && field.Key == "CONTAINER_APP_RESOURCE_GROUP" ? "Resource Group" : field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU" or "METRICS_CPU" ? "CPU / memory" : field.Label)</label>
+                                    @if (field.Key is "CPU" or "WEB_CPU" or "HEALTH_CPU" or "METRICS_CPU")
                                     {
                                         <select id="@field.Key" class="form-select" value="@field.Value" @onchange="@(args => SetSize(field, args.Value?.ToString() ?? ""))" aria-describedby="@($"hint-{field.Key}")">
                                             @foreach (var size in Enumerable.Range(1, 8).Select(index => index * 0.25m))
@@ -176,7 +185,10 @@
         @if (_selectedGroup is "review" or "deploy" && _reviewed)
         {
             <section id="@($"panel-{_selectedGroup}")" class="deployment-review" role="tabpanel" aria-labelledby="@($"tab-{_selectedGroup}")">
-                <h2 @ref="_panelHeading" tabindex="-1">@(_selectedGroup == "review" ? "Review your deployment" : "Choose your deployment method")</h2>
+                @if (_selectedGroup == "review")
+                {
+                    <h2 @ref="_panelHeading" tabindex="-1">Review your deployment</h2>
+                }
                 @if (_errors.Count > 0)
                 {
                     <div class="alert alert-danger" role="alert">
@@ -215,6 +227,10 @@
                                 {
                                     <li>Companion App</li>
                                 }
+                                @if (Value("DEPLOY_METRICS_SERVER") == "true")
+                                {
+                                    <li>Metrics Server</li>
+                                }
                             </ul>
                         </div>
                         <button type="button" class="review-edit" disabled="@_downloading" @onclick='() => SelectTab("app", true)'>Edit configuration</button>
@@ -242,7 +258,7 @@
                                 <small>Proxy release v2.3.0</small>
                                 @if (Value("HEALTHPROBE_TYPE") == "sidecar")
                                 {
-                                    <small>+ @(_bicepWorkflow ? Value("HEALTH_IMAGE_NAME") + ":v2.0.1" : Value("HEALTH_IMAGE_NAME"))</small>
+                                    <small>+ @(Value("HEALTH_IMAGE_NAME") + ":v2.0.1")</small>
                                 }
                             </div>
                             @if (Value("UPDATE_CONTAINER_APP_ENV") == "true")
@@ -263,13 +279,20 @@
                         <ul class="review-inventory" aria-label="Supporting Azure resources">
                             <li data-service="environment">
                                 <img src="images/azure/02989-icon-service-Container-Apps-Environments.svg" width="28" height="28" alt="" />
-                                <div><h4>Container Apps environment</h4><p>@Value("ENVIRONMENT_NAME")</p></div>
+                                <div><h4>Container Apps environment</h4><p>@Value("ENVIRONMENT_NAME")</p><small>@(Value("USE_EXISTING_ENVIRONMENT") == "true" ? "Existing / " + Value("ENVIRONMENT_RESOURCE_GROUP") : "Created")</small></div>
                             </li>
                             @if (Value("DEPLOY_COMPANION_APP") == "true")
                             {
                                 <li data-service="container-app">
                                     <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="28" height="28" alt="" />
                                     <div><h4>Companion App</h4><p>@Value("COMPANION_APP_NAME")</p><small>Release v2.3.0</small></div>
+                                </li>
+                            }
+                            @if (Value("DEPLOY_METRICS_SERVER") == "true")
+                            {
+                                <li data-service="container-app">
+                                    <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="28" height="28" alt="" />
+                                    <div><h4>Metrics Server</h4><p>@Value("METRICS_SERVER_NAME")</p><small>Release v1.0.0</small></div>
                                 </li>
                             }
                             @if (Value("ENABLE_MANAGED_IDENTITY") == "true")
@@ -352,17 +375,21 @@
                         <details class="review-details">
                             <summary>Runtime details</summary>
                             <dl class="review-resource-details">
-                                <dt>Image build</dt><dd>@(_bicepWorkflow ? "Pinned release import" : Value("BUILD_METHOD") == "local" ? "Local Docker" : "ACR remote build")</dd>
+                                <dt>Image build</dt><dd>Pinned release import</dd>
                                 <dt>Proxy release</dt><dd>v2.3.0</dd>
                                 @if (Value("HEALTHPROBE_TYPE") == "sidecar")
                                 {
-                                    <dt>HealthProbe image</dt><dd>@(_bicepWorkflow ? Value("ACR_NAME") + "/" + Value("HEALTH_IMAGE_NAME") + ":v2.0.1" : Value("HEALTH_IMAGE_NAME"))</dd>
+                                    <dt>HealthProbe image</dt><dd>@(Value("ACR_NAME") + "/" + Value("HEALTH_IMAGE_NAME") + ":v2.0.1")</dd>
                                     <dt>Sidecar compute</dt><dd>@Value("HEALTH_CPU") vCPU / @Value("HEALTH_MEMORY") GiB</dd>
                                     <dt>Sidecar port</dt><dd>@Value("HEALTH_PORT")</dd>
                                 }
                                 @if (Value("DEPLOY_COMPANION_APP") == "true")
                                 {
                                     <dt>Companion release</dt><dd>v2.3.0</dd>
+                                }
+                                @if (Value("DEPLOY_METRICS_SERVER") == "true")
+                                {
+                                    <dt>Metrics Server</dt><dd>@Value("METRICS_CPU") vCPU / @Value("METRICS_MEMORY") GiB</dd>
                                 }
                                 <dt>Revision mode</dt><dd>@Value("REVISION_MODE")</dd>
                                 <dt>App Configuration tier</dt><dd>@Value("APPCONFIG_SKU")</dd>
@@ -376,55 +403,48 @@
                     @if (_selectedGroup == "deploy")
                     {
                     <div class="review-deployment">
-                    <fieldset class="review-method" disabled="@_downloading">
-                        <legend id="deployment-method-heading">Deployment method</legend>
-                        <div class="review-method-options">
-                            <label class="review-method-option" for="deployment-portal">
-                                <input id="deployment-portal" type="radio" name="deployment-method" checked="@(_templateWorkflow && !_bicepWorkflow)" @onchange="() => { _bicepWorkflow = false; _templateWorkflow = true; }" aria-controls="deployment-workflow" />
-                                <span>Interactive via Portal</span>
-                            </label>
-                            <label class="review-method-option" for="deployment-standalone">
-                                <input id="deployment-standalone" type="radio" name="deployment-method" checked="@(!_templateWorkflow && !_bicepWorkflow)" @onchange="() => { _bicepWorkflow = false; _templateWorkflow = false; }" aria-controls="deployment-workflow" />
-                                <span>Standalone</span>
-                            </label>
-                            <label class="review-method-option" for="deployment-bicep">
-                                <input id="deployment-bicep" type="radio" name="deployment-method" checked="@_bicepWorkflow" @onchange="() => _bicepWorkflow = true" aria-controls="deployment-workflow" />
-                                <span>Bicep</span>
-                            </label>
+                        <div class="review-deployment-heading">
+                            <h2 @ref="_panelHeading" tabindex="-1" class="review-bundle-title">Deployment bundle</h2>
+                            <div class="review-method-tabs" role="tablist" aria-label="Deployment method">
+                                <button id="deployment-method-bicep" type="button" role="tab" class="review-method-tab"
+                                        aria-selected="@(_deploymentMethod == "bicep" ? "true" : "false")" aria-controls="deployment-panel-bicep"
+                                        disabled="@_downloading" @onclick='() => _deploymentMethod = "bicep"'>Bicep</button>
+                                <button id="deployment-method-portal" type="button" role="tab" class="review-method-tab"
+                                        aria-selected="@(_deploymentMethod == "portal" ? "true" : "false")" aria-controls="deployment-panel-portal"
+                                        disabled="@_downloading" @onclick='() => _deploymentMethod = "portal"'>Portal</button>
+                                <button id="deployment-method-standalone" type="button" role="tab" class="review-method-tab"
+                                        aria-selected="@(_deploymentMethod == "standalone" ? "true" : "false")" aria-controls="deployment-panel-standalone"
+                                        disabled="@_downloading" @onclick='() => _deploymentMethod = "standalone"'>Standalone</button>
+                            </div>
                         </div>
-                    </fieldset>
-                    <div id="deployment-workflow" role="region" aria-labelledby="deployment-method-heading">
-                    @if (_bicepWorkflow)
-                    {
-                        <section class="review-workflow" aria-labelledby="bicep-heading">
-                            <div class="review-workflow-heading"><h3 id="bicep-heading">ACR-backed release deployment</h3></div>
-                            <dl class="review-resource-details">
-                                <dt>Entry points</dt><dd>bootstrap.bicep + main.bicep</dd>
-                                <dt>Modules</dt><dd>Static Bicep templates</dd>
-                                <dt>Parameters</dt><dd>parameters.json</dd>
-                                <dt>Proxy release</dt><dd>v2.3.0 / digest-pinned</dd>
-                                @if (Value("HEALTHPROBE_TYPE") == "sidecar")
-                                {
-                                    <dt>HealthProbe release</dt><dd>v2.0.1 / digest-pinned</dd>
-                                }
-                                @if (Value("DEPLOY_COMPANION_APP") == "true")
-                                {
-                                    <dt>Companion release</dt><dd>v2.3.0</dd>
-                                }
-                                <dt>Image source</dt><dd>Public releases imported to @Value("ACR_NAME")</dd>
-                                <dt>Registry access</dt><dd>System assigned / AcrPull</dd>
-                            </dl>
-                            <div class="review-standalone-download">
-                                <div class="review-step-heading"><h4>Bicep deployment bundle</h4><p><code>simplel7proxy-bicep.zip</code></p></div>
-                                <button type="button" class="btn btn-primary review-download" aria-label="Download simplel7proxy-bicep.zip" disabled="@_downloading" @onclick='() => DownloadArmAsync("bicep")'>Download ZIP</button>
+                        @if (_deploymentMethod == "bicep")
+                        {
+                        <section id="deployment-panel-bicep" class="review-workflow review-workflow-primary" role="tabpanel" aria-labelledby="deployment-method-bicep">
+                            <div class="review-standalone-download review-primary-download">
+                                <code class="review-bundle-filename">simplel7proxy-bicep.zip</code>
+                                <button type="button" class="btn btn-primary review-download" aria-label="Download simplel7proxy-bicep.zip" disabled="@_downloading" @onclick='() => DownloadArmAsync("bicep")'>Download</button>
+                            </div>
+                            <div class="review-cloud-shell">
+                                <h3>Instructions</h3>
+                                <ol>
+                                    <li><a href="https://shell.azure.com/" target="_blank" rel="noopener noreferrer">Open Azure Cloud Shell</a>.</li>
+                                    <li>Download the ZIP above, then use <strong>Manage files &gt; Upload</strong> to upload it to Cloud Shell.</li>
+                                    <li>Confirm the target subscription, then extract and run the deployment:
+                                        <pre><code>unzip -q simplel7proxy-bicep.zip -d simplel7proxy-bicep
+cd simplel7proxy-bicep
+./deploy.sh "$(az account show --query id --output tsv)" create</code></pre>
+                                    </li>
+                                    <li>After deployment completes, the script shows the Proxy URL and Companion App URL. 
+                                        All resources will be deployed to <strong>@Value("CONTAINER_APP_RESOURCE_GROUP")</strong> resource group in the Azure portal.</li>
+                                </ol>
                             </div>
                         </section>
-                    }
-                    else if (_templateWorkflow)
-                    {
-                        <section class="review-workflow" aria-labelledby="arm-heading">
+                        }
+                        else if (_deploymentMethod == "portal")
+                        {
+                        <section id="deployment-panel-portal" class="review-workflow" role="tabpanel" aria-labelledby="deployment-method-portal">
                             <div class="review-workflow-heading">
-                                <h3 id="arm-heading">Deploy in three steps</h3>
+                                <h3 id="arm-heading">Interactive via Azure portal</h3>
                                 <a href="https://portal.azure.com/#create/Microsoft.Template" target="_blank" rel="noopener noreferrer">Open Azure portal</a>
                             </div>
                             <ol class="review-steps" role="list">
@@ -475,11 +495,11 @@
                                 <p>Subscription, permissions, name availability, quota, and existing resources have not been checked in Azure.</p>
                             </details>
                         </section>
-                    }
-                    else
-                    {
-                        <section class="review-workflow" aria-labelledby="standalone-heading">
-                            <div class="review-workflow-heading"><h3 id="standalone-heading">Deploy from your checkout</h3></div>
+                        }
+                        else
+                        {
+                        <section id="deployment-panel-standalone" class="review-workflow" role="tabpanel" aria-labelledby="deployment-method-standalone">
+                            <div class="review-workflow-heading"><h3 id="standalone-heading">Standalone from your checkout</h3></div>
                             <div class="review-standalone-download">
                                 <div class="review-step-heading"><h4>Deployment parameters</h4><p><code>deploy.parameters.sh</code></p></div>
                                 <div class="deployment-actions">
@@ -512,8 +532,7 @@ bash deploy.sh</code></pre>
                                 }
                             </details>
                         </section>
-                    }
-                    </div>
+                        }
                     </div>
                     }
                     </div>
@@ -540,11 +559,10 @@ bash deploy.sh</code></pre>
     private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
     private bool _reviewed;
     private bool _showPreview;
-    private bool _templateWorkflow = true;
-    private bool _bicepWorkflow;
     private bool _downloading;
     private string? _loadError;
     private string? _downloadError;
+    private string _deploymentMethod = "bicep";
     private string _selectedGroup = "mode";
     private readonly HashSet<string> _completedGroups = new(StringComparer.Ordinal);
     private ElementReference _tabList;
@@ -554,8 +572,8 @@ bash deploy.sh</code></pre>
 
     private static readonly (string Id, string Title)[] Groups = [
         ("mode", "Deployment mode"), ("common", "Location and resource groups"),
-        ("images", "Registry and images"), ("app", "Container Apps (menu step 5)"),
-        ("companion", "Companion App"),
+        ("images", "Registry and images"), ("environment", "Container Apps environment"), ("app", "SimpleL7Proxy"),
+        ("companion", "Companion App"), ("metrics", "Metrics Server"),
         ("config", "App Configuration"), ("private", "Private networking"),
         ("async", "Async storage and RequestAPI")
     ];
@@ -583,9 +601,8 @@ bash deploy.sh</code></pre>
     ];
 
     private static readonly Dictionary<string, string[]> ContainerSections = new(StringComparer.Ordinal) {
-        ["environment"] = ["ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "COMPANION_APP_NAME", "ENABLE_MANAGED_IDENTITY", "INGRESS_TYPE", "ENABLE_HTTPS",
-            "REVISION_MODE", "TERMINATION_GRACE_PERIOD_SECONDS", "ENABLE_APP_INSIGHTS", "LOG_ANALYTICS_WORKSPACE_NAME", "MIN_REPLICAS", "MAX_REPLICAS"],
-        ["app"] = ["PROXY_IMAGE_NAME", "PROXY_VERSION_OVERRIDE", "WEB_CPU", "WEB_PORT"],
+        ["app"] = ["CONTAINER_APP_NAME", "ENABLE_MANAGED_IDENTITY", "INGRESS_TYPE", "ENABLE_HTTPS", "REVISION_MODE", "TERMINATION_GRACE_PERIOD_SECONDS",
+            "ENABLE_APP_INSIGHTS", "LOG_ANALYTICS_WORKSPACE_NAME", "MIN_REPLICAS", "MAX_REPLICAS", "PROXY_IMAGE_NAME", "PROXY_VERSION_OVERRIDE", "WEB_CPU", "WEB_PORT"],
         ["health"] = ["HEALTH_IMAGE_NAME", "HEALTHPROBE_VERSION_OVERRIDE", "HEALTH_CPU", "HEALTH_PORT"]
     };
 
@@ -621,7 +638,7 @@ bash deploy.sh</code></pre>
             if (key == "UPDATE_CONTAINER_APP_ENV") value = "true";
             if (key is "ACR_NAME" or "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT")
                 value += nameSuffix;
-            else if (key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" or "ACA_ENVIRONMENT_NAME"
+            else if (key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" or "METRICS_SERVER_NAME" or "ACA_ENVIRONMENT_NAME"
                 or "ENVIRONMENT_NAME" or "APPCONFIG_NAME" or "LOG_ANALYTICS_WORKSPACE_NAME" or "VNET_NAME"
                 or "REQUESTAPI_FUNCTION_APP" or "REQUESTAPI_APPINSIGHTS_NAME" or "ACA_RECORD_NAME")
                 value += "-" + nameSuffix;
@@ -634,7 +651,8 @@ bash deploy.sh</code></pre>
                 "ENVIRONMENT_NAME" => "",
                 "WEB_PORT" => "Must match the proxy's listening port; the script does not change that runtime setting.",
                 "WEB_CPU" or "HEALTH_CPU" or "CPU" => "CPU cores. Azure validates the combined CPU and memory allocation.",
-                "WEB_MEMORY" or "HEALTH_MEMORY" => "Memory in GiB, without the Gi suffix.",
+                "METRICS_CPU" => "CPU cores for the Metrics Server Container App.",
+                "WEB_MEMORY" or "HEALTH_MEMORY" or "METRICS_MEMORY" => "Memory in GiB, without the Gi suffix.",
                 "MIN_REPLICAS" => "0-999 replicas.",
                 "MAX_REPLICAS" => "1-999 replicas; at least the minimum.",
                 "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS" => "Sets AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS on the Container App.",
@@ -642,8 +660,14 @@ bash deploy.sh</code></pre>
                 _ => match.Groups[4].Value
             };
             _fields.Add(new ParameterField(key, key is "DEPLOY_COMPANION_APP" or "COMPANION_APP_RESOURCE_GROUP" or "COMPANION_IMAGE_NAME" or "COMPANION_APP_NAME" ? "companion"
+                : key is "DEPLOY_METRICS_SERVER" or "METRICS_SERVER_NAME" or "METRICS_CPU" or "METRICS_MEMORY" ? "metrics"
+                : key is "USE_EXISTING_ENVIRONMENT" or "ENVIRONMENT_RESOURCE_GROUP" or "ENVIRONMENT_NAME" or "ACA_ENVIRONMENT_NAME" ? "environment"
                 : Legacy.Contains(key) || IsHealthField(key) || key is "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" ? "app" : group,
                 key switch {
+                    "DEPLOY_METRICS_SERVER" => "Enabled",
+                    "METRICS_SERVER_NAME" => "Container App name",
+                    "USE_EXISTING_ENVIRONMENT" => "Use existing Container Apps environment",
+                    "ENVIRONMENT_RESOURCE_GROUP" => "Environment resource group",
                     "APPCONFIG_NAME" => "App Configuration name",
                     "APPCONFIG_LABEL" => "Configuration label",
                     "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS" => "Refresh interval (seconds)",
@@ -709,6 +733,7 @@ bash deploy.sh</code></pre>
     private string Value(string key) => _fields.First(field => field.Key == key).Value;
 
     private static bool IsNumeric(string key) => key.EndsWith("CPU") || key is "WEB_MEMORY" or "HEALTH_MEMORY"
+        || key == "METRICS_MEMORY"
         || key.EndsWith("_PORT") || key.EndsWith("_SECONDS") || key.EndsWith("_REPLICAS")
         || key == "REQUESTAPI_MAX_INSTANCE_COUNT";
 
@@ -724,7 +749,7 @@ bash deploy.sh</code></pre>
 
     private bool SizeAllowed(string key, decimal size)
     {
-        if (key == "CPU" || Value("HEALTHPROBE_TYPE") != "sidecar") return size <= 2m;
+        if (key is "CPU" or "METRICS_CPU" || Value("HEALTHPROBE_TYPE") != "sidecar") return size <= 2m;
         var otherKey = key == "WEB_CPU" ? "HEALTH_CPU" : "WEB_CPU";
         return decimal.TryParse(Value(otherKey), NumberStyles.Number, CultureInfo.InvariantCulture, out var other) && size + other <= 2m;
     }
@@ -742,9 +767,12 @@ bash deploy.sh</code></pre>
     {
         _errors.Clear();
         foreach (var field in _fields.Where(field => IsGroupVisible((field.Group, "")) && (groupId is null || field.Group == groupId)
-            && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP")
+            && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP"
+                || field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true")
             && field.Key is not ("ACA_ENVIRONMENT_NAME" or "INGRESS_VISIBILITY" or "INGRESS_PORT" or "CPU" or "MEMORY" or "HOST1")
             && (field.Group != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
+            && (field.Group != "metrics" || field.Key == "DEPLOY_METRICS_SERVER" || Value("DEPLOY_METRICS_SERVER") == "true")
+            && (field.Key != "ENVIRONMENT_RESOURCE_GROUP" || Value("USE_EXISTING_ENVIRONMENT") == "true")
             && (!IsHealthField(field.Key) || Value("HEALTHPROBE_TYPE") == "sidecar")))
         {
             var value = field.Value;
@@ -756,7 +784,7 @@ bash deploy.sh</code></pre>
             if (value.Any(char.IsControl)) _errors[field.Key] = "Control characters are not allowed.";
             if (IsNumeric(field.Key))
             {
-                var fractional = field.Key.EndsWith("CPU") || field.Key is "WEB_MEMORY" or "HEALTH_MEMORY";
+                var fractional = field.Key.EndsWith("CPU") || field.Key is "WEB_MEMORY" or "HEALTH_MEMORY" or "METRICS_MEMORY";
                 if (!decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var number)
                     || number < (field.Key == "MIN_REPLICAS" ? 0 : 0.01m) || (!fractional && number != decimal.Truncate(number)))
                     _errors[field.Key] = fractional ? "Enter a positive decimal number." : "Enter a valid whole number.";
@@ -766,7 +794,7 @@ bash deploy.sh</code></pre>
             if (field.Key == "ACR_NAME" && !Regex.IsMatch(value, "^[a-zA-Z0-9]{5,50}$")) _errors[field.Key] = "Use 5-50 letters and numbers.";
             if (field.Key is "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT" && !Regex.IsMatch(value, "^[a-z0-9]{3,24}$"))
                 _errors[field.Key] = "Use 3-24 lowercase letters and numbers.";
-            if (field.Key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" && (!Regex.IsMatch(value, "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") || value.Contains("--")))
+            if (field.Key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" or "METRICS_SERVER_NAME" && (!Regex.IsMatch(value, "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") || value.Contains("--")))
                 _errors[field.Key] = "Use 2-32 lowercase letters, numbers, or single hyphens; start with a letter and end with a letter or number.";
             if (field.Key.EndsWith("RESOURCE_GROUP") && (!Regex.IsMatch(value, "^[a-zA-Z0-9_.()-]{1,90}$") || value.EndsWith('.')))
                 _errors[field.Key] = "Use up to 90 letters, numbers, underscores, parentheses, hyphens, or periods; no trailing period.";
@@ -778,17 +806,20 @@ bash deploy.sh</code></pre>
         }
         if ((groupId is null or "app") && int.TryParse(Value("MIN_REPLICAS"), out var min) && int.TryParse(Value("MAX_REPLICAS"), out var max) && min > max)
             _errors["MAX_REPLICAS"] = "Maximum replicas cannot be less than minimum replicas.";
-        if (groupId is null or "app")
+        if (groupId is null or "app" or "metrics")
         {
-            foreach (var key in new[] { "WEB_CPU", "HEALTH_CPU" })
+            foreach (var key in new[] { "WEB_CPU", "HEALTH_CPU", "METRICS_CPU" })
             {
                 if (key == "HEALTH_CPU" && Value("HEALTHPROBE_TYPE") != "sidecar") continue;
+                if (key == "METRICS_CPU" && Value("DEPLOY_METRICS_SERVER") != "true") continue;
                 var memoryKey = key == "CPU" ? "MEMORY" : key.Replace("CPU", "MEMORY", StringComparison.Ordinal);
                 var memoryValue = Value(memoryKey).Replace("Gi", "", StringComparison.Ordinal);
                 if (!decimal.TryParse(Value(key), NumberStyles.Number, CultureInfo.InvariantCulture, out var size)
                     || size < 0.25m || size > 2m || size % 0.25m != 0 || !SizeAllowed(key, size)
                     || !decimal.TryParse(memoryValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var memory) || memory != size * 2)
-                    _errors[key] = "Select a CPU / memory pair with an app and sidecar total no greater than 2 vCPU / 4 GiB.";
+                    _errors[key] = key == "METRICS_CPU"
+                        ? "Select a CPU / memory pair no greater than 2 vCPU / 4 GiB."
+                        : "Select a CPU / memory pair with an app and sidecar total no greater than 2 vCPU / 4 GiB.";
             }
         }
         _reviewed = groupId is null;
@@ -806,7 +837,8 @@ bash deploy.sh</code></pre>
         var output = new StringBuilder("#!/bin/bash\n\n# Deployment parameters for deployment/deploy.sh.\n# Keep this file out of source control.\n");
         foreach (var field in _fields.Where(field => field.Key != "HOST1"))
         {
-            var value = _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) ? Value("CONTAINER_APP_RESOURCE_GROUP")
+            var value = _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)
+                    && !(field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true") ? Value("CONTAINER_APP_RESOURCE_GROUP")
                 : field.Key == "ACA_ENVIRONMENT_NAME" ? Value("ENVIRONMENT_NAME")
                 : field.Key == "INGRESS_PORT" ? Value("WEB_PORT")
                 : field.Key == "INGRESS_VISIBILITY" ? CultureInfo.InvariantCulture.TextInfo.ToTitleCase(Value("INGRESS_TYPE"))
@@ -848,7 +880,8 @@ bash deploy.sh</code></pre>
         try
         {
             var values = _fields.ToDictionary(field => field.Key, field =>
-                _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) ? Value("CONTAINER_APP_RESOURCE_GROUP")
+                _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)
+                    && !(field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true") ? Value("CONTAINER_APP_RESOURCE_GROUP")
                 : field.Key == "REQUESTAPI_LOCATION" && string.IsNullOrWhiteSpace(field.Value) ? Value("LOCATION") : field.Value,
                 StringComparer.Ordinal);
             if (stage == "bicep")

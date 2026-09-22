@@ -119,20 +119,23 @@ if [[ "$make_uniq" == true ]]; then
 				else .[0:($max_length - 4)] + $suffix end
 			else . end;
 		.parameters.settings.value |= (
-			.RESOURCE_GROUPS |= map(with_hyphen(90))
-			| .NETWORK_RESOURCE_GROUP |= with_hyphen(90)
-			| .CONTAINER_APP_RESOURCE_GROUP |= with_hyphen(90)
-			| .STORAGE_RESOURCE_GROUP |= with_hyphen(90)
-			| .APPCONFIG_RESOURCE_GROUP |= with_hyphen(90)
-			| .REQUESTAPI_RESOURCE_GROUP |= with_hyphen(90)
-			| .COMPANION_APP_RESOURCE_GROUP |= with_hyphen(90)
+			.ENVIRONMENT_RESOURCE_GROUP as $environment_group
+			| .USE_EXISTING_ENVIRONMENT as $use_existing_environment
+			| .RESOURCE_GROUPS |= map(if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .NETWORK_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .CONTAINER_APP_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .STORAGE_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .APPCONFIG_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .REQUESTAPI_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .COMPANION_APP_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
 			| .SERVICEBUS_RESOURCE_GROUP |= (if contains($placeholder) then gsub($placeholder; $suffix) else . end)
 			| .COSMOS_RESOURCE_GROUP |= (if contains($placeholder) then gsub($placeholder; $suffix) else . end)
 			| .ACR_NAME |= compact(50)
 			| .CONTAINER_APP_NAME |= with_hyphen(32)
 			| .COMPANION_APP_NAME |= with_hyphen(32)
+			| .METRICS_SERVER_NAME |= with_hyphen(32)
 			| .LOG_ANALYTICS_WORKSPACE_NAME |= with_hyphen(63)
-			| .ENVIRONMENT_NAME |= with_hyphen(60)
+			| .ENVIRONMENT_NAME |= (if $use_existing_environment then . else with_hyphen(60) end)
 			| .APPCONFIG_NAME |= with_hyphen(50)
 			| .VNET_NAME |= with_hyphen(64)
 			| .ACA_RECORD_NAME |= with_hyphen(32)
@@ -182,6 +185,8 @@ if [[ "$operation" == 'create' ]]; then
 	{{HEALTH_IMAGE_IMPORT}}
 
 	{{COMPANION_IMAGE_IMPORT}}
+
+	{{METRICS_IMAGE_IMPORT}}
 fi
 
 az deployment sub "$operation" \

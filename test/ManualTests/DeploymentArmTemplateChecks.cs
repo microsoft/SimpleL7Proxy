@@ -18,7 +18,7 @@ var selectSetupTab = typeof(DeploymentSetupPage).GetMethod("SelectTab", setupFla
 string[] compactResourceKeys = ["ACR_NAME", "STORAGE_ACCOUNT_NAME", "REQUESTAPI_STORAGE_ACCOUNT"];
 string[] hyphenatedResourceKeys = [
     "NETWORK_RESOURCE_GROUP", "CONTAINER_APP_RESOURCE_GROUP", "STORAGE_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP",
-    "COMPANION_APP_RESOURCE_GROUP", "ACA_ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "COMPANION_APP_NAME", "ENVIRONMENT_NAME",
+    "COMPANION_APP_RESOURCE_GROUP", "ENVIRONMENT_RESOURCE_GROUP", "ACA_ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "COMPANION_APP_NAME", "METRICS_SERVER_NAME", "ENVIRONMENT_NAME",
     "LOG_ANALYTICS_WORKSPACE_NAME", "APPCONFIG_NAME", "VNET_NAME",
     "REQUESTAPI_FUNCTION_APP", "REQUESTAPI_APPINSIGHTS_NAME", "ACA_RECORD_NAME"
 ];
@@ -70,11 +70,13 @@ foreach (var shared in new[] { false, true })
 foreach (var network in new[] { false, true })
 foreach (var asyncMode in new[] { false, true })
 foreach (var sidecar in new[] { false, true })
-foreach (var companion in new[] { false, true }) {
+foreach (var companion in new[] { false, true })
+foreach (var metricsServer in new[] { false, true }) {
     var values = new Dictionary<string, string>(baseline);
     values["PRIVATE_NETWORK_DEPLOYMENT"] = network ? "yes" : "no";
     values["ASYNC_DEPLOYMENT"] = asyncMode ? "yes" : "no";
     values["DEPLOY_COMPANION_APP"] = companion ? "true" : "false";
+    values["DEPLOY_METRICS_SERVER"] = metricsServer ? "true" : "false";
     values["HEALTHPROBE_TYPE"] = sidecar ? "sidecar" : "internal";
     values["COMPANION_APP_RESOURCE_GROUP"] = "rg-myapp-companion";
     values["WEB_PORT"] = "8123";
@@ -207,7 +209,7 @@ foreach (var companion in new[] { false, true }) {
         "bootstrap.bicep", "main.bicep", "types.bicep", "modules/registry.bicep", "modules/network.bicep",
         "modules/foundation.bicep", "modules/configuration.bicep", "modules/configuration-access.bicep",
         "modules/blob-storage.bicep", "modules/blob-access.bicep", "modules/request-api.bicep",
-        "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/companion-app.bicep", "modules/container-app.bicep",
+        "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/companion-app.bicep", "modules/metrics-server.bicep", "modules/container-app.bicep",
         "modules/registry-access.bicep", "modules/private-dns.bicep"
     ];
     Check(templateAssets.All(bicepFiles.ContainsKey), "Bicep bundle includes every static template asset");
@@ -237,12 +239,15 @@ foreach (var companion in new[] { false, true }) {
     Check(bicep.Contains("if (settings.PRIVATE_NETWORK_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls private networking from parameters");
     Check(bicep.Contains("if (settings.ASYNC_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls async resources from parameters");
     Check(bicep.Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "Bicep entry point controls Companion App resources from parameters");
+    Check(bicep.Contains("if (settings.DEPLOY_METRICS_SERVER)", StringComparison.Ordinal), "Bicep entry point controls Metrics Server resources from parameters");
+    Check(bicep.Contains("scope: resourceGroup(settings.ENVIRONMENT_RESOURCE_GROUP)", StringComparison.Ordinal), "Bicep can reference an existing environment in its selected resource group");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.ProxyImage, StringComparison.Ordinal), "Bicep deployment imports the pinned public proxy digest");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.HealthProbeImage, StringComparison.Ordinal) == sidecar, "Bicep deployment imports the pinned public sidecar digest only when selected");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.CompanionImage, StringComparison.Ordinal) == companion, "Bicep deployment imports the public Companion image only when selected");
+    Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.MetricsServerImage, StringComparison.Ordinal) == metricsServer, "Bicep deployment imports the public Metrics Server image only when selected");
     Check(!bicepFiles.ContainsKey("modules/configuration-values.bicep"), "Bicep export omits App Configuration values module");
     Check(!string.Join("\n", bicepFiles.Values).Contains("Microsoft.AppConfiguration/configurationStores/keyValues", StringComparison.Ordinal), "Bicep export omits App Configuration data-plane writes");
-    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 14, "Bicep bundle includes fourteen reusable resource modules");
+    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 15, "Bicep bundle includes fifteen reusable resource modules");
     Check(string.Join("\n", bicepFiles.Values).Contains("Microsoft.ContainerRegistry/registries", StringComparison.Ordinal), "Bicep bundle provisions and references ACR");
     Check(bicepFiles["modules/container-app.bicep"].Contains(":v2.3.0", StringComparison.Ordinal), "Bicep Container App uses the imported proxy tag");
     Check(bicepFiles["modules/container-app.bicep"].Contains(":v2.0.1", StringComparison.Ordinal), "Bicep sidecar uses the imported HealthProbe tag");
@@ -257,6 +262,13 @@ foreach (var companion in new[] { false, true }) {
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: containerAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Reader to the Container App system principal");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Owner to the Companion App system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Companion App system principal");
+    Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Metrics Server system principal");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("publicnvmacr.azurecr.io/metricsserver:v1.0.0", StringComparison.Ordinal), "Metrics Server bootstrap uses the public release");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("/metricsserver:v1.0.0", StringComparison.Ordinal), "Metrics Server final deployment uses the imported ACR release");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("managedEnvironmentId: environmentId", StringComparison.Ordinal), "Metrics Server uses the shared Container Apps environment");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("external: false", StringComparison.Ordinal), "Metrics Server ingress is internal");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("maxReplicas: 1", StringComparison.Ordinal), "Metrics Server remains single-replica for in-memory metrics");
+    Check(bicepFiles["modules/foundation.bicep"].Contains("if (!settings.USE_EXISTING_ENVIRONMENT)", StringComparison.Ordinal), "foundation skips environment creation when an existing environment is selected");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__AppConfigurationEndpoint'", StringComparison.Ordinal), "static Bicep configures the Companion App endpoint environment variable");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("value: appConfigurationEndpoint", StringComparison.Ordinal), "static Bicep sources the Companion App endpoint from App Configuration");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__AppConfigurationLabel'", StringComparison.Ordinal), "static Bicep configures the Companion App label environment variable");
@@ -281,10 +293,16 @@ foreach (var companion in new[] { false, true }) {
     Check(parameterSettings["PRIVATE_NETWORK_DEPLOYMENT"]!.GetValue<bool>() == network, "parameters preserve the private-network toggle as Boolean");
     Check(parameterSettings["ASYNC_DEPLOYMENT"]!.GetValue<bool>() == asyncMode, "parameters preserve the async toggle as Boolean");
     Check(parameterSettings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == companion, "parameters preserve the Companion App toggle as Boolean");
+    Check(parameterSettings["DEPLOY_METRICS_SERVER"]!.GetValue<bool>() == metricsServer, "parameters preserve the Metrics Server toggle as Boolean");
     Check(parameterSettings["MAKE_UNIQ_SUFFIX"]!.GetValue<string>() == string.Empty, "generated parameters reserve an empty persisted MakeUniq suffix");
     Check(parameterSettings["COMPANION_APP_RESOURCE_GROUP"]!.GetValue<string>() == values["COMPANION_APP_RESOURCE_GROUP"], "parameters preserve the Companion App resource group");
     Check(parameterSettings["COMPANION_IMAGE_NAME"]!.GetValue<string>() == values["COMPANION_IMAGE_NAME"], "parameters preserve the Companion image name");
     Check(parameterSettings["COMPANION_APP_NAME"]!.GetValue<string>() == values["COMPANION_APP_NAME"], "parameters preserve the Companion App name");
+    Check(parameterSettings["METRICS_SERVER_NAME"]!.GetValue<string>() == values["METRICS_SERVER_NAME"], "parameters preserve the Metrics Server name");
+    Check(parameterSettings["METRICS_CPU"]!.GetValue<string>() == values["METRICS_CPU"], "parameters preserve Metrics Server CPU");
+    Check(parameterSettings["METRICS_MEMORY"]!.GetValue<string>() == values["METRICS_MEMORY"], "parameters preserve Metrics Server memory");
+    Check(parameterSettings["USE_EXISTING_ENVIRONMENT"]!.GetValue<bool>() == (values["USE_EXISTING_ENVIRONMENT"] == "true"), "parameters preserve existing-environment selection");
+    Check(parameterSettings["ENVIRONMENT_RESOURCE_GROUP"]!.GetValue<string>() == values["ENVIRONMENT_RESOURCE_GROUP"], "parameters preserve the environment resource group");
     Check(parameterSettings["HEALTHPROBE_TYPE"]!.GetValue<string>() == (sidecar ? "sidecar" : "internal"), "parameters preserve the health mode");
     Check(parameterSettings["WEB_PORT"]!.GetValue<int>() == 8123, "parameters preserve numeric ingress values");
     Check(parameterSettings["MAX_REPLICAS"]!.GetValue<int>() == 7, "parameters preserve numeric scaling values");
@@ -298,6 +316,7 @@ foreach (var companion in new[] { false, true }) {
     Check(archiveBytes.SequenceEqual(DeploymentBicepBundle.CreateArchive(DeploymentBicepBundle.Generate(values))), "deterministic Bicep ZIP");
     using (var archive = new System.IO.Compression.ZipArchive(new MemoryStream(archiveBytes))) {
         Check(archive.Entries.Count == bicepFiles.Count, "Bicep ZIP includes every file");
+        Check((archive.GetEntry("deploy.sh")!.ExternalAttributes >> 16 & Convert.ToInt32("777", 8)) == Convert.ToInt32("755", 8), "Bicep ZIP marks deploy.sh executable");
         foreach (var entry in archive.Entries) {
             using var reader = new StreamReader(entry.Open());
             Check(reader.ReadToEnd() == bicepFiles[entry.FullName], "Bicep ZIP content roundtrip");

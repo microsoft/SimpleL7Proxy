@@ -88,11 +88,11 @@ Edit `deploy.parameters.sh`, open the menu, then run the enabled steps in order.
 
 1. [Set up and start CompanionApp](../../src/CompanionApp/readme.md#set-up-companionapp).
 2. Open **Deployment Setup** (`/admin/deployment`) and complete the setup tabs.
-3. Review the topology, open **Deployment**, select **Bicep**, and download the ZIP.
+3. Review the topology, open **Deployment**, and download the ZIP.
 
 ```text
 Deployment Setup > Review
-Deployment Setup > Deployment > Bicep
+Deployment Setup > Deployment
 Download ZIP > simplel7proxy-bicep.zip
 ```
 

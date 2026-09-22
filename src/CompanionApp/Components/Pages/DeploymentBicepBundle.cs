@@ -19,6 +19,9 @@ public static class DeploymentBicepBundle {
     /// <summary>The anonymously pullable Companion App v2.3.0 release.</summary>
     public const string CompanionImage = "publicnvmacr.azurecr.io/companionapp:v2.3.0";
 
+    /// <summary>The anonymously pullable Metrics Server v1.0.0 release.</summary>
+    public const string MetricsServerImage = "publicnvmacr.azurecr.io/metricsserver:v1.0.0";
+
     /// <summary>Packages static Bicep templates with the selected deployment values.</summary>
     public static IReadOnlyDictionary<string, string> Generate(IReadOnlyDictionary<string, string> values) {
         ArgumentNullException.ThrowIfNull(values);
@@ -64,6 +67,7 @@ public static class DeploymentBicepBundle {
             ["PRIVATE_NETWORK_DEPLOYMENT"] = Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT"),
             ["ASYNC_DEPLOYMENT"] = Enabled(values, "ASYNC_DEPLOYMENT"),
             ["DEPLOY_COMPANION_APP"] = Enabled(values, "DEPLOY_COMPANION_APP"),
+            ["DEPLOY_METRICS_SERVER"] = Enabled(values, "DEPLOY_METRICS_SERVER"),
             ["MAKE_UNIQ_SUFFIX"] = "",
             ["LOCATION"] = Value(values, "LOCATION"),
             ["RESOURCE_GROUPS"] = resourceGroups,
@@ -82,16 +86,21 @@ public static class DeploymentBicepBundle {
             ["COMPANION_IMAGE_NAME"] = Value(values, "COMPANION_IMAGE_NAME"),
             ["CONTAINER_APP_NAME"] = Value(values, "CONTAINER_APP_NAME"),
             ["COMPANION_APP_NAME"] = Value(values, "COMPANION_APP_NAME"),
+            ["METRICS_SERVER_NAME"] = Value(values, "METRICS_SERVER_NAME"),
             ["MIN_REPLICAS"] = Integer(values, "MIN_REPLICAS"),
             ["MAX_REPLICAS"] = Integer(values, "MAX_REPLICAS"),
             ["ENABLE_MANAGED_IDENTITY"] = Enabled(values, "ENABLE_MANAGED_IDENTITY"),
             ["ENABLE_APP_INSIGHTS"] = Enabled(values, "ENABLE_APP_INSIGHTS"),
             ["LOG_ANALYTICS_WORKSPACE_NAME"] = Value(values, "LOG_ANALYTICS_WORKSPACE_NAME"),
+            ["USE_EXISTING_ENVIRONMENT"] = Enabled(values, "USE_EXISTING_ENVIRONMENT"),
+            ["ENVIRONMENT_RESOURCE_GROUP"] = Value(values, "ENVIRONMENT_RESOURCE_GROUP"),
             ["ENVIRONMENT_NAME"] = Value(values, "ENVIRONMENT_NAME"),
             ["WEB_CPU"] = Value(values, "WEB_CPU"),
             ["WEB_MEMORY"] = Value(values, "WEB_MEMORY"),
             ["HEALTH_CPU"] = Value(values, "HEALTH_CPU"),
             ["HEALTH_MEMORY"] = Value(values, "HEALTH_MEMORY"),
+            ["METRICS_CPU"] = Value(values, "METRICS_CPU"),
+            ["METRICS_MEMORY"] = Value(values, "METRICS_MEMORY"),
             ["WEB_PORT"] = Integer(values, "WEB_PORT"),
             ["HEALTH_PORT"] = Integer(values, "HEALTH_PORT"),
             ["INGRESS_TYPE"] = Value(values, "INGRESS_TYPE"),
@@ -176,6 +185,7 @@ public static class DeploymentBicepBundle {
             foreach (var file in files.OrderBy(file => file.Key, StringComparer.Ordinal)) {
                 var entry = archive.CreateEntry(file.Key, CompressionLevel.Optimal);
                 entry.LastWriteTime = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+                if (file.Key == "deploy.sh") entry.ExternalAttributes = Convert.ToInt32("100755", 8) << 16;
                 using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
                 writer.Write(file.Value);
             }
@@ -200,6 +210,9 @@ public static class DeploymentBicepBundle {
                 : string.Empty, StringComparison.Ordinal)
             .Replace("{{COMPANION_IMAGE_IMPORT}}", Enabled(values, "DEPLOY_COMPANION_APP")
                 ? $"az acr import --subscription \"$subscription\" --resource-group \"$acr_resource_group\" --name \"$acr_name\" --source {ShellString(CompanionImage)} --image {ShellString(values["COMPANION_IMAGE_NAME"] + ":v2.3.0")} --force"
+                : string.Empty, StringComparison.Ordinal)
+            .Replace("{{METRICS_IMAGE_IMPORT}}", Enabled(values, "DEPLOY_METRICS_SERVER")
+                ? $"az acr import --subscription \"$subscription\" --resource-group \"$acr_resource_group\" --name \"$acr_name\" --source {ShellString(MetricsServerImage)} --image 'metricsserver:v1.0.0' --force"
                 : string.Empty, StringComparison.Ordinal)
             .Replace("\r\n", "\n", StringComparison.Ordinal);
     }

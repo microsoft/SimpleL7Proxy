@@ -5,6 +5,11 @@ import { DeploymentSettings } from './types.bicep'
 @description('Deployment Setup values consumed by the static Bicep templates.')
 param settings DeploymentSettings
 
+resource existingEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = if (settings.USE_EXISTING_ENVIRONMENT) {
+  name: settings.ENVIRONMENT_NAME
+  scope: resourceGroup(settings.ENVIRONMENT_RESOURCE_GROUP)
+}
+
 module network 'modules/network.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT) {
   scope: resourceGroup(settings.NETWORK_RESOURCE_GROUP)
   params: {
@@ -17,6 +22,9 @@ module foundation 'modules/foundation.bicep' = {
   params: {
     settings: settings
     acaSubnetId: network.?outputs.acaSubnetId ?? ''
+    existingEnvironmentId: existingEnvironment.?id ?? ''
+    existingEnvironmentDomain: existingEnvironment.?properties.defaultDomain ?? ''
+    existingEnvironmentStaticIp: existingEnvironment.?properties.staticIp ?? ''
   }
 }
 
@@ -34,6 +42,15 @@ module companionAppBootstrap 'modules/companion-app.bicep' = if (settings.DEPLOY
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
     appConfigurationEndpoint: ''
+  }
+}
+
+module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRICS_SERVER) {
+  scope: resourceGroup(settings.CONTAINER_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    usePrivateRegistry: false
+    environmentId: foundation.outputs.environmentId
   }
 }
 
@@ -85,6 +102,8 @@ module registryAccess 'modules/registry-access.bicep' = {
     containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
     companionAppId: companionAppBootstrap.?outputs.appId ?? ''
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
+    metricsServerId: metricsServerBootstrap.?outputs.appId ?? ''
+    metricsServerPrincipalId: metricsServerBootstrap.?outputs.identityPrincipalId ?? ''
   }
 }
 
@@ -111,6 +130,18 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
   dependsOn: [
     registryAccess
     configurationAccess
+  ]
+}
+
+module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRICS_SERVER) {
+  scope: resourceGroup(settings.CONTAINER_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    usePrivateRegistry: true
+    environmentId: foundation.outputs.environmentId
+  }
+  dependsOn: [
+    registryAccess
   ]
 }
 

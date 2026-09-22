@@ -1,75 +1,63 @@
 #!/bin/bash
 
-# Build script for the MetricsServer Docker image
-# Mirrors the HealthProbe build pattern: extract version from Constants.cs, build, and push to ACR
+# Build and push MetricsServer container image
+# Version is extracted from MetricsServer/Constants.cs
 
-set -e
-
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+set -euo pipefail
 
 # Source parameters file if it exists (for ACR variable)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARAMS_FILE="$SCRIPT_DIR/../../deployment/proxy-with-sidecar/deploy.parameters.sh"
+PARAMS_FILE="$SCRIPT_DIR/../../deployment/interactive/deploy.parameters.sh"
 
-if [ -f "$PARAMS_FILE" ]; then
-    echo -e "${YELLOW}Sourcing deploy.parameters.sh...${NC}"
+if [[ -f "$PARAMS_FILE" ]]; then
+    echo "Sourcing deploy.parameters.sh..."
     source "$PARAMS_FILE"
 fi
 
+# The current deployment parameters use ACR_NAME; retain ACR compatibility.
+ACR="${ACR:-${ACR_NAME:-}}"
+
 # Validate ACR is set
-if [ -z "$ACR" ]; then
-    echo -e "${RED}Error: ACR environment variable is not set.${NC}"
+if [[ -z "$ACR" ]]; then
+    echo "Error: ACR environment variable is not set."
     echo "Either:"
-    echo "  1. Create deployment/proxy-with-sidecar/deploy.parameters.sh (copy from .example.sh)"
+    echo "  1. Create deployment/interactive/deploy.parameters.sh (copy from .example.sh)"
     echo "  2. Or run: export ACR=myregistry"
     exit 1
 fi
 
-echo -e "${GREEN}======================================${NC}"
-echo -e "${GREEN}Building MetricsServer Docker Image${NC}"
-echo -e "${GREEN}======================================${NC}"
+# Extract the version from MetricsServer/Constants.cs
+ver=$(grep -oP 'VERSION = "\K[^"]+' "$SCRIPT_DIR/Constants.cs")
 
-cd "$SCRIPT_DIR"
-
-# Extract the version from Constants.cs
-ver=$(grep -oP 'VERSION = "\K[^"]+' Constants.cs)
-
-# Add 'v' prefix if it doesn't start with it already
-if [[ ! $ver == v* ]]; then
+# Add v if it does not start with it already
+if [[ $ver != v* ]]; then
     ver="v$ver"
 fi
 
-echo -e "${GREEN}Extracted Version: ${ver}${NC}"
+image="$ACR.azurecr.io/metricsserver:$ver"
 
-FULL_IMAGE_NAME="$ACR.azurecr.io/metricsserver:$ver"
-echo -e "${YELLOW}Building image: ${FULL_IMAGE_NAME}${NC}"
+echo "========================================"
+echo "Building MetricsServer"
+echo "========================================"
+echo "ACR: $ACR"
+echo "Version: $ver"
+echo "Image: $image"
+echo "========================================"
 
 # Login to ACR (uses existing Azure CLI credentials)
-echo -e "${YELLOW}Logging into ACR...${NC}"
+echo "Logging into ACR..."
 if [[ -n "${ACRGROUP:-}" ]]; then
     az acr login --name "$ACR" --resource-group "$ACRGROUP"
 else
     az acr login --name "$ACR"
 fi
 
-# Build from the parent directory (src) so the Dockerfile paths resolve
-cd ..
-echo -e "${YELLOW}Building Docker image from src directory...${NC}"
-docker build -t "$FULL_IMAGE_NAME" -f MetricsServer/Dockerfile .
+# Build from the src directory so the Dockerfile paths resolve
+cd "$SCRIPT_DIR/.."
+docker build -t "$image" -f MetricsServer/Dockerfile .
+docker push "$image"
 
-echo -e "${GREEN}======================================${NC}"
-echo -e "${GREEN}Build Complete!${NC}"
-echo -e "${GREEN}======================================${NC}"
-
-# Push to ACR
-docker push "$FULL_IMAGE_NAME"
-
-echo -e "${GREEN}======================================${NC}"
-echo -e "${GREEN}Success!${NC}"
-echo -e "${GREEN}Image: ${FULL_IMAGE_NAME}${NC}"
-echo -e "${GREEN}======================================${NC}"
-echo -e "${GREEN}Done!${NC}"
+echo "========================================"
+echo "Published MetricsServer image:"
+echo "  $image"
+echo "========================================"
