@@ -38,6 +38,16 @@ Retention window = `METRICSSERVER_BUCKET_SECONDS` × `METRICSSERVER_BUCKET_COUNT
 | `GET` | `/metrics/users` | Known users, optionally filtered by `model`. |
 | `GET` | `/metrics/models` | Known models, optionally filtered by `user`. |
 | `GET` | `/metrics/stats` | Server counters and memory footprint. |
+| `POST` | `/tokenomics/metrics/rollups` | Registered tokenomics rollup route; returns `501 Not Implemented`. |
+| `POST` | `/tokenomics/metrics/outcomes` | Registered tokenomics outcome route; returns `501 Not Implemented`. |
+| `POST` | `/tokenomics/metrics/model-throttles` | Registered model-throttle route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/tokens/daily/users/{userId}` | Registered daily-token lookup route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/tokens/monthly/users/{userId}` | Registered monthly-token lookup route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/budgets/daily/users/{userId}` | Registered daily-budget lookup route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/budgets/monthly/users/{userId}` | Registered monthly-budget lookup route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/abuse-detected/users/{userId}` | Registered abuse-state lookup route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/approved-exception/users/{userId}` | Registered exception-state lookup route; returns `501 Not Implemented`. |
+| `GET` | `/tokenomics/metrics/administrator-override/users/{userId}` | Registered override-state lookup route; returns `501 Not Implemented`. |
 | `GET`/`HEAD` | `/health`, `/liveness`, `/readiness` | Container probes. |
 
 Query parameters for `/metrics/status` and `/metrics/series`: `user`, `model`, and `window` (seconds). Omit `user` or `model` to aggregate across all values. `window` defaults to, and is capped at, the retention window, and is rounded up to whole buckets.

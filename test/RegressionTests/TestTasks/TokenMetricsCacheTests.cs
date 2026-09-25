@@ -31,7 +31,10 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-rollup", "Queued usage becomes visible at rollup", "Daily and monthly totals must exclude pending metrics, then include input and output tokens across models without mixing users.")]
     public async Task AddMetric_LeavesPeriodicTotalsUnchangedUntilRollup() {
         var settings = new TokenomicsSettings {
-            ModelCostPerToken = new() { ["model-a"] = 0.01m, ["model-b"] = 0.02m }
+            ModelCostPerToken = new() {
+                ["model-a"] = new() { Input = 0.01m, CachedInput = 0.01m, Output = 0.01m },
+                ["model-b"] = new() { Input = 0.02m, CachedInput = 0.02m, Output = 0.02m }
+            }
         };
         using var cache = new TokenMetricsCache(Options.Create(new ProxyConfig()), settings);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -134,7 +137,10 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-rollup", "Unpriced models consume quota without spend", "Usage from unpriced and zero-cost models must count towards both quotas while only priced usage contributes to spending.")]
     public async Task Rollup_UnpricedModels_CountTokensWithoutCharging() {
         using var cache = CreateCache(new TokenomicsSettings {
-            ModelCostPerToken = new() { ["paid"] = 0.01m, ["free"] = 0m }
+            ModelCostPerToken = new() {
+                ["paid"] = new() { Input = 0.01m, CachedInput = 0.01m, Output = 0.01m },
+                ["free"] = new()
+            }
         });
         cache.AddMetric("alice", "unpriced", 500, 250);
         cache.AddMetric("alice", "free", 3, 1);
@@ -156,11 +162,14 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-rollup", "Rollup applies the current model price", "Changing the configured rate after enqueue must affect the eventual spending calculation, leaving enqueue free of pricing work.")]
     public async Task Rollup_UsesModelPriceAtCollapse() {
         var settings = new TokenomicsSettings {
-            ModelCostPerToken = new() { ["model-a"] = 0.01m }
+            ModelCostPerToken = new() {
+                ["model-a"] = new() { Input = 0.01m, CachedInput = 0.01m, Output = 0.01m }
+            }
         };
         using var cache = CreateCache(settings);
         cache.AddMetric("alice", "model-a", 100, 50);
-        settings.ModelCostPerToken["model-a"] = 0.02m;
+        settings.ModelCostPerToken["model-a"] =
+            new ModelTokenPricing { Input = 0.02m, CachedInput = 0.02m, Output = 0.02m };
 
         await RollupAsync(cache);
 
@@ -174,7 +183,10 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-rollup", "Concurrent producers retain every metric", "Concurrent additions across two users and two models must produce exact token and decimal spending totals after rollup.")]
     public async Task Rollup_ConcurrentProducers_IsolatesUsersAndModels() {
         using var cache = CreateCache(new TokenomicsSettings {
-            ModelCostPerToken = new() { ["model-a"] = 0.01m, ["model-b"] = 0.02m }
+            ModelCostPerToken = new() {
+                ["model-a"] = new() { Input = 0.01m, CachedInput = 0.01m, Output = 0.01m },
+                ["model-b"] = new() { Input = 0.02m, CachedInput = 0.02m, Output = 0.02m }
+            }
         });
 
         Parallel.For(0, 1000, iteration => {
@@ -203,7 +215,9 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-rollup", "Periodic and final rollup count usage once", "The running service must publish pending usage, accept the next batch, and drain it at shutdown without double counting on repeated lifecycle calls.")]
     public async Task StartAsync_PeriodicallyRollsQueuesWithoutDoubleCounting() {
         using var cache = CreateCache(new TokenomicsSettings {
-            ModelCostPerToken = new() { ["model-a"] = 0.01m }
+            ModelCostPerToken = new() {
+                ["model-a"] = new() { Input = 0.01m, CachedInput = 0.01m, Output = 0.01m }
+            }
         });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         cache.AddMetric("alice", "model-a", 200, 100);
@@ -235,7 +249,10 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-rollup", "Shutdown drains both metric buffers", "A producer can retain the old queue index across a swap; shutdown must include pending metrics in either buffer after producers finish.")]
     public async Task StopAsync_DrainsBothMetricBuffers() {
         using var cache = CreateCache(new TokenomicsSettings {
-            ModelCostPerToken = new() { ["model-a"] = 0.01m, ["model-b"] = 0.02m }
+            ModelCostPerToken = new() {
+                ["model-a"] = new() { Input = 0.01m, CachedInput = 0.01m, Output = 0.01m },
+                ["model-b"] = new() { Input = 0.02m, CachedInput = 0.02m, Output = 0.02m }
+            }
         });
         var queues = GetCacheField<ConcurrentQueue<(string UserId, string Model, int InputTokens, int OutputTokens, DateOnly Day)>[]>(cache, "_metrics");
         cache.AddMetric("alice", "model-a", 100, 50);
@@ -258,7 +275,9 @@ public sealed class TokenMetricsCacheTests : IRegressionTestMetadata {
     [RegressionTestCase("token-periods", "Queued UTC date controls accounting ({0} days)", "A metric dated {0} days from today must retain its original day and month rather than being charged to the rollup date; expired period entries must be removed.")]
     public async Task Rollup_UsesQueuedUtcDateAndRemovesExpiredPeriods(int dayOffset) {
         using var cache = CreateCache(new TokenomicsSettings {
-            ModelCostPerToken = new() { ["model-a"] = 0.25m }
+            ModelCostPerToken = new() {
+                ["model-a"] = new() { Input = 0.25m, CachedInput = 0.25m, Output = 0.25m }
+            }
         });
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var metricDay = today.AddDays(dayOffset);

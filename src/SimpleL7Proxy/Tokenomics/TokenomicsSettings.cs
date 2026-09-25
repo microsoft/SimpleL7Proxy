@@ -6,6 +6,19 @@ using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Tokenomics;
 
+/// <summary>Defines USD prices for each token category supported by a model.</summary>
+public sealed class ModelTokenPricing
+{
+    /// <summary>Gets or sets the USD price per non-cached input token.</summary>
+    public decimal Input { get; set; }
+
+    /// <summary>Gets or sets the USD price per cached input token.</summary>
+    public decimal CachedInput { get; set; }
+
+    /// <summary>Gets or sets the USD price per output token.</summary>
+    public decimal Output { get; set; }
+}
+
 public class TokenomicsSettings
 {
     public int MonthlyTokenLimit { get; set; }=10000;
@@ -13,6 +26,8 @@ public class TokenomicsSettings
 
     public decimal DailyBudgetUsd { get; set; } = 50m;
     public decimal MonthlyBudgetUsd { get; set; }=1000m;
+    /// <summary>Gets or sets the delay duration in milliseconds.</summary>
+    public int DelayDuration { get; set; } = (int)TimeSpan.FromSeconds(10).TotalMilliseconds;
 
     public double CurrentCapacityUtilizationPercent { get; set; }=0.0;
     public double CapacityConstraintThresholdPercent { get; set; }=80.0;
@@ -23,8 +38,13 @@ public class TokenomicsSettings
     public int CriticalPriority { get; set; }=1;
     public int HighPriority { get; set; }=2;
 
-    /// <summary>Gets or sets USD per input or output token for each priced model; unlisted models are excluded from spend totals.</summary>
-    public Dictionary<string, decimal> ModelCostPerToken { get; set; } = new();
+    /// <summary>Gets or sets the default model name; an empty value leaves it unconfigured.</summary>
+    public string DefaultModel { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets input, cached-input, and output USD prices per token for each priced model; unlisted models are excluded from spend totals.</summary>
+    public Dictionary<string, ModelTokenPricing> ModelCostPerToken { get; set; } = new();
+    /// <summary>Gets or sets model lists keyed by hierarchy prefix.</summary>
+    public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new();
 
     /// <summary>Gets or sets the action when abuse is detected.</summary>
     public TokenActionEnum AbuseDetectedAction { get; set; } = TokenActionEnum.Reject;
@@ -106,15 +126,78 @@ public class TokenomicsSettings
     };
 
 
-    /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning null for invalid input.</summary>
-    /// <remarks>Model prices use ModelCostPerToken.&lt;model&gt;=price, with URI-escaped model names.</remarks>
+    /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
+    /// <remarks>DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
     public  bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
         }
 
-        var parts = data.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0) {
+        var parts = new List<string>();
+        var partStart = 0;
+        var hierarchyBracketDepth = 0;
+        var isModelHierarchyPart = false;
+
+        for (var index = 0; index < data.Length; index++) {
+            var currentCharacter = data[index];
+
+            if (!isModelHierarchyPart && currentCharacter == '=') {
+                isModelHierarchyPart = data[partStart..index].Trim()
+                    .Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (isModelHierarchyPart) {
+                if (currentCharacter == '[') {
+                    hierarchyBracketDepth++;
+                } else if (currentCharacter == ']') {
+                    if (hierarchyBracketDepth == 0) {
+                        return false;
+                    }
+
+                    hierarchyBracketDepth--;
+                }
+            }
+
+            var isSeparator = currentCharacter == ';';
+            if (currentCharacter == ',') {
+                isSeparator = !isModelHierarchyPart || hierarchyBracketDepth == 0;
+
+                if (isSeparator && isModelHierarchyPart) {
+                    var remainingData = data[(index + 1)..];
+                    var nextColon = remainingData.IndexOf(':');
+                    var nextEquals = remainingData.IndexOf('=');
+                    isSeparator = nextEquals >= 0 && (nextColon < 0 || nextEquals < nextColon);
+                }
+            }
+
+            if (!isSeparator) {
+                continue;
+            }
+
+            if (isModelHierarchyPart && hierarchyBracketDepth != 0) {
+                return false;
+            }
+
+            var part = data[partStart..index].Trim();
+            if (part.Length > 0) {
+                parts.Add(part);
+            }
+
+            partStart = index + 1;
+            hierarchyBracketDepth = 0;
+            isModelHierarchyPart = false;
+        }
+
+        if (isModelHierarchyPart && hierarchyBracketDepth != 0) {
+            return false;
+        }
+
+        var finalPart = data[partStart..].Trim();
+        if (finalPart.Length > 0) {
+            parts.Add(finalPart);
+        }
+
+        if (parts.Count == 0) {
             return false;
         }
 
@@ -122,7 +205,7 @@ public class TokenomicsSettings
 
         foreach (var part in parts) {
             var splitIndex = part.IndexOf('=');
-            if (splitIndex <= 0 || splitIndex >= part.Length - 1) {
+            if (splitIndex <= 0) {
                 return false;
             }
 
@@ -130,13 +213,57 @@ public class TokenomicsSettings
 
             if (key.StartsWith(modelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
                 var model = Uri.UnescapeDataString(key[modelCostPrefix.Length..]);
-                if (string.IsNullOrWhiteSpace(model) ||
-                    !decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var modelCost) ||
-                    modelCost < 0) {
+                if (string.IsNullOrWhiteSpace(model)) {
                     return false;
                 }
 
-                ModelCostPerToken[model] = modelCost;
+                ModelTokenPricing modelPricing;
+                if (decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var legacyOutputCost)) {
+                    if (legacyOutputCost < 0) {
+                        return false;
+                    }
+
+                    modelPricing = new ModelTokenPricing { Output = legacyOutputCost };
+                } else {
+                    decimal? inputCost = null;
+                    decimal? cachedInputCost = null;
+                    decimal? outputCost = null;
+
+                    foreach (var pricingPart in value.Split('|', StringSplitOptions.TrimEntries)) {
+                        var pricingPair = pricingPart.Split(':', 2, StringSplitOptions.TrimEntries);
+                        if (pricingPair.Length != 2 ||
+                            !decimal.TryParse(pricingPair[1], NumberStyles.Float, CultureInfo.InvariantCulture,
+                                out var parsedCost) ||
+                            parsedCost < 0) {
+                            return false;
+                        }
+
+                        if (pricingPair[0].Equals(nameof(ModelTokenPricing.Input), StringComparison.OrdinalIgnoreCase)
+                            && !inputCost.HasValue) {
+                            inputCost = parsedCost;
+                        } else if (pricingPair[0].Equals(nameof(ModelTokenPricing.CachedInput), StringComparison.OrdinalIgnoreCase)
+                            && !cachedInputCost.HasValue) {
+                            cachedInputCost = parsedCost;
+                        } else if (pricingPair[0].Equals(nameof(ModelTokenPricing.Output), StringComparison.OrdinalIgnoreCase)
+                            && !outputCost.HasValue) {
+                            outputCost = parsedCost;
+                        } else {
+                            return false;
+                        }
+                    }
+
+                    if (!inputCost.HasValue || !cachedInputCost.HasValue || !outputCost.HasValue) {
+                        return false;
+                    }
+
+                    modelPricing = new ModelTokenPricing {
+                        Input = inputCost.Value,
+                        CachedInput = cachedInputCost.Value,
+                        Output = outputCost.Value
+                    };
+                }
+
+                ModelCostPerToken[model] = modelPricing;
                 continue;
             }
 
@@ -147,7 +274,127 @@ public class TokenomicsSettings
             }
 
             object parsedValue;
-            if (property.PropertyType == typeof(int) &&
+            if (property.Name == nameof(ModelHierarchy)) {
+                var hierarchy = new Dictionary<string, List<string>>();
+                var hierarchyIndex = 0;
+
+                while (hierarchyIndex < value.Length) {
+                    while (hierarchyIndex < value.Length && char.IsWhiteSpace(value[hierarchyIndex])) {
+                        hierarchyIndex++;
+                    }
+
+                    var colonIndex = value.IndexOf(':', hierarchyIndex);
+                    if (colonIndex <= hierarchyIndex) {
+                        return false;
+                    }
+
+                    var encodedPrefix = value[hierarchyIndex..colonIndex].Trim();
+                    var prefix = Uri.UnescapeDataString(encodedPrefix);
+                    if (string.IsNullOrWhiteSpace(prefix)) {
+                        return false;
+                    }
+
+                    hierarchyIndex = colonIndex + 1;
+                    while (hierarchyIndex < value.Length && char.IsWhiteSpace(value[hierarchyIndex])) {
+                        hierarchyIndex++;
+                    }
+
+                    if (hierarchyIndex >= value.Length || value[hierarchyIndex] != '[') {
+                        return false;
+                    }
+
+                    var closeBracketIndex = value.IndexOf(']', hierarchyIndex + 1);
+                    if (closeBracketIndex < 0) {
+                        return false;
+                    }
+
+                    var models = new List<string>();
+                    var encodedModels = value[(hierarchyIndex + 1)..closeBracketIndex].Trim();
+                    if (encodedModels.Length > 0) {
+                        foreach (var encodedModel in encodedModels.Split(',', StringSplitOptions.TrimEntries)) {
+                            var model = Uri.UnescapeDataString(encodedModel);
+                            if (string.IsNullOrWhiteSpace(model)) {
+                                return false;
+                            }
+
+                            models.Add(model);
+                        }
+                    }
+
+                    hierarchy[prefix] = models;
+                    hierarchyIndex = closeBracketIndex + 1;
+                    while (hierarchyIndex < value.Length && char.IsWhiteSpace(value[hierarchyIndex])) {
+                        hierarchyIndex++;
+                    }
+
+                    if (hierarchyIndex == value.Length) {
+                        break;
+                    }
+
+                    if (value[hierarchyIndex] != ',') {
+                        return false;
+                    }
+
+                    hierarchyIndex++;
+                    if (hierarchyIndex == value.Length) {
+                        return false;
+                    }
+                }
+
+                parsedValue = hierarchy;
+            } else if (property.Name == nameof(DelayDuration)) {
+                long totalMilliseconds;
+                if (value.EndsWith("ms", StringComparison.OrdinalIgnoreCase)) {
+                    if (!long.TryParse(value[..^2], NumberStyles.None, CultureInfo.InvariantCulture,
+                            out totalMilliseconds) ||
+                        totalMilliseconds < 0 ||
+                        totalMilliseconds > int.MaxValue) {
+                        return false;
+                    }
+                } else if (value.EndsWith("s", StringComparison.OrdinalIgnoreCase)) {
+                    if (!long.TryParse(value[..^1], NumberStyles.None, CultureInfo.InvariantCulture,
+                            out var totalSeconds) ||
+                        totalSeconds < 0 ||
+                        totalSeconds > int.MaxValue / 1000L) {
+                        return false;
+                    }
+
+                    totalMilliseconds = totalSeconds * 1000L;
+                } else {
+                    var durationParts = value.Split(':');
+                    if (durationParts.Length is < 2 or > 3) {
+                        return false;
+                    }
+
+                    var minuteValue = 0L;
+                    if (durationParts.Length == 3 &&
+                        (!long.TryParse(durationParts[0], NumberStyles.None, CultureInfo.InvariantCulture,
+                            out minuteValue) ||
+                         minuteValue < 0 ||
+                         minuteValue > int.MaxValue / 60000L)) {
+                        return false;
+                    }
+
+                    if (!int.TryParse(durationParts[^2], NumberStyles.None, CultureInfo.InvariantCulture,
+                            out var secondValue) ||
+                        secondValue is < 0 or > 59 ||
+                        durationParts[^1].Length is < 1 or > 3 ||
+                        !int.TryParse(durationParts[^1], NumberStyles.None, CultureInfo.InvariantCulture,
+                            out var millisecondValue) ||
+                        millisecondValue is < 0 or > 999) {
+                        return false;
+                    }
+
+                    totalMilliseconds = ((minuteValue * 60L) + secondValue) * 1000L + millisecondValue;
+                    if (totalMilliseconds > int.MaxValue) {
+                        return false;
+                    }
+                }
+
+                parsedValue = (int)totalMilliseconds;
+            } else if (property.PropertyType == typeof(string)) {
+                parsedValue = Uri.UnescapeDataString(value);
+            } else if (property.PropertyType == typeof(int) &&
                 int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue)) {
                 parsedValue = intValue;
             } else if (property.PropertyType == typeof(bool) && bool.TryParse(value, out var boolValue)) {
@@ -163,6 +410,9 @@ public class TokenomicsSettings
                 float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var floatValue) &&
                 float.IsFinite(floatValue)) {
                 parsedValue = floatValue;
+            } else if (property.PropertyType == typeof(TimeSpan) &&
+                TimeSpan.TryParseExact(value, "c", CultureInfo.InvariantCulture, out var timeSpanValue)) {
+                parsedValue = timeSpanValue;
             } else if (property.PropertyType == typeof(TokenActionEnum) &&
                 Enum.TryParse<TokenActionEnum>(value, true, out var action) && Enum.IsDefined(action) &&
                 value.Equals(action.ToString(), StringComparison.OrdinalIgnoreCase)) {
@@ -177,14 +427,45 @@ public class TokenomicsSettings
         return true;
     }
 
-    /// <summary>Returns semicolon-separated key=value settings with named actions and invariant-culture numbers.</summary>
+    /// <summary>Returns semicolon-separated key=value settings with a clock-formatted delay, URI-escaped model names, model hierarchies, named actions, and invariant-culture numbers.</summary>
     public override string ToString() {
         var parts = new List<string>();
         foreach (var property in JsonSerializer.SerializeToElement(this, _serializerOptions).EnumerateObject()) {
-            if (property.Name == nameof(ModelCostPerToken)) {
-                foreach (var modelCost in property.Value.EnumerateObject()) {
-                    parts.Add($"{property.Name}.{Uri.EscapeDataString(modelCost.Name)}={modelCost.Value}");
+            if (property.Name == nameof(DefaultModel)) {
+                parts.Add($"{property.Name}={Uri.EscapeDataString(DefaultModel)}");
+            } else if (property.Name == nameof(DelayDuration)) {
+                if (DelayDuration < 0) {
+                    throw new InvalidOperationException($"{nameof(DelayDuration)} cannot be negative.");
                 }
+
+                var totalMinutes = DelayDuration / 60000;
+                var seconds = DelayDuration / 1000 % 60;
+                var milliseconds = DelayDuration % 1000;
+                var formattedDuration = totalMinutes > 0
+                    ? string.Create(CultureInfo.InvariantCulture,
+                        $"{totalMinutes:D2}:{seconds:D2}:{milliseconds:D3}")
+                    : string.Create(CultureInfo.InvariantCulture, $"{seconds:D2}:{milliseconds:D3}");
+                parts.Add($"{property.Name}={formattedDuration}");
+            } else if (property.Name == nameof(ModelCostPerToken)) {
+                foreach (var modelCost in property.Value.EnumerateObject()) {
+                    if (!ModelCostPerToken.TryGetValue(modelCost.Name, out var pricing) ||
+                        pricing.Input < 0 ||
+                        pricing.CachedInput < 0 ||
+                        pricing.Output < 0) {
+                        throw new InvalidOperationException(
+                            $"{nameof(ModelCostPerToken)} values cannot be null or negative.");
+                    }
+
+                    parts.Add(
+                        $"{property.Name}.{Uri.EscapeDataString(modelCost.Name)}=" +
+                        $"{nameof(ModelTokenPricing.Input)}:{pricing.Input.ToString(CultureInfo.InvariantCulture)}|" +
+                        $"{nameof(ModelTokenPricing.CachedInput)}:{pricing.CachedInput.ToString(CultureInfo.InvariantCulture)}|" +
+                        $"{nameof(ModelTokenPricing.Output)}:{pricing.Output.ToString(CultureInfo.InvariantCulture)}");
+                }
+            } else if (property.Name == nameof(ModelHierarchy)) {
+                var hierarchy = string.Join(", ", ModelHierarchy.Select(entry =>
+                    $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
+                parts.Add($"{property.Name}={hierarchy}");
             } else {
                 parts.Add($"{property.Name}={property.Value}");
             }

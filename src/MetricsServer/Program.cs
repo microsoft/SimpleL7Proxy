@@ -20,6 +20,8 @@ public class Program
             {
                 services.AddSingleton(options);
                 services.AddSingleton<MetricsStore>();
+                services.AddSingleton<TokenomicsMetricsStore>();
+                services.AddSingleton<TokenomicsRollupProcessor>();
                 ConfigureAppInsights(services, options);
                 services.AddHostedService<MetricsHttpServer>();
             })

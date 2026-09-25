@@ -5,21 +5,21 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Proxy;
 using System.Net;
 
-public sealed class TokenomicsProcessor : IConfigChangeSubscriber
+public sealed class TokenomicsHandler : IConfigChangeSubscriber
 {
     public IConcurrentPriQueue<RequestData> Queue { get; }
     public TokenMetricsCache TokenMetricsCache { get; }
     public TokenomicsSettings Settings { get; }
-    private readonly ILogger<TokenomicsProcessor> _logger;
+    private readonly ILogger<TokenomicsHandler> _logger;
     private readonly ProxyConfig _options;
     public bool doTokenomics { get; private set; }
     private int _minPriority=0;
 
-    public TokenomicsProcessor(
+    public TokenomicsHandler(
         IConcurrentPriQueue<RequestData> queue,
         TokenMetricsCache tokenMetricsCache,
         TokenomicsSettings settings,
-        ILogger<TokenomicsProcessor> logger,
+        ILogger<TokenomicsHandler> logger,
         ProxyConfig options,
         ConfigChangeNotifier configChangeNotifier)
     {
@@ -55,7 +55,7 @@ public sealed class TokenomicsProcessor : IConfigChangeSubscriber
         return Task.CompletedTask;
     }
 
-    public void TokenActionWork(RequestData data)
+    public (ModelOverrideEnum, String) ProcessRequest(RequestData data)
     {
         (string conditionString, TokenActionEnum action) = Evaluate(data);
 
@@ -63,46 +63,51 @@ public sealed class TokenomicsProcessor : IConfigChangeSubscriber
         {
             case TokenActionEnum.IncreasePriority:
                 data.Priority = Math.Min(data.Priority - 1, 0);
-                break;
+                throw new S7PRequeueException("Request delayed due to policy", now: true);
+
             case TokenActionEnum.DecreasePriority:
                 data.Priority = Math.Max(data.Priority + 1, _minPriority);
-                break;
+                throw new S7PRequeueException("Request delayed due to policy", now: true);
+
             case TokenActionEnum.Reject:
                 throw new ProxyErrorException(ProxyErrorException.ErrorType.NotEnqueued,
                                               (HttpStatusCode)429,
                                               "Message rejected due to policy.");
 
-
             // Scheduling
             case TokenActionEnum.Requeue:
-            case TokenActionEnum.Delay:
-            case TokenActionEnum.WaitForReset:
                 throw new S7PRequeueException("Request delayed due to policy", now: true);
 
+            case TokenActionEnum.Delay:
+                throw new S7PRequeueException("Request delayed due to policy", now: true, retry_after: Settings.DelayDuration);
 
-            // Model routing
-            case TokenActionEnum.ChangeModel:
-                break;
-            case TokenActionEnum.UpgradeModel:
-                break;
-            case TokenActionEnum.DowngradeModel:
-                break;
+            case TokenActionEnum.WaitForReset:
+                throw new S7PRequeueException("Request delayed due to policy", now: true);
 
             // Token governance
             case TokenActionEnum.Throttle:
                 throw new S7PThrottledException("Message throttled due to policy", now: true);
-
-            case TokenActionEnum.IncreaseLimit:
-                break;
-            case TokenActionEnum.DecreaseLimit:
-                break;
-            case TokenActionEnum.Cap:
-                break;
             case TokenActionEnum.Bypass:
-            case TokenActionEnum.None:
-            default:
-                break;
+                return (ModelOverrideEnum.None, String.Empty);
+
+            case TokenActionEnum.ChangeModel:
+                return (ModelOverrideEnum.Override, Settings.DefaultModel);
+
+            case TokenActionEnum.UpgradeModel:
+                return (ModelOverrideEnum.Upgrade,  String.Empty); // do it later when the modelname is known
+
+            case TokenActionEnum.DowngradeModel:
+                return (ModelOverrideEnum.Downgrade, String.Empty); // do it later when the modelname is known
+
         }
+
+        return (ModelOverrideEnum.None, String.Empty);
+
+        //     // Model routing
+        //     case TokenActionEnum.IncreaseLimit:
+        //     case TokenActionEnum.DecreaseLimit:
+        //     case TokenActionEnum.Cap:
+
     }
     public (string, TokenActionEnum) Evaluate(RequestData data)
     {
@@ -166,38 +171,46 @@ public sealed class TokenomicsProcessor : IConfigChangeSubscriber
         return ("Default", Settings.DefaultAction);
     }
 
-    public (string, TokenActionEnum) EvaluateBeforeQuery(TokenomicsCondition c)
+    public string UpdateModel(string currentModel, ModelOverrideEnum modelOverride)
     {
-        ArgumentNullException.ThrowIfNull(c);
-
-        if (c.PreferredModelUnavailable)
+        if (string.IsNullOrWhiteSpace(currentModel)
+            || modelOverride is not (ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade))
         {
-            if (c.ModelReplacementAllowed)
-                return ("PreferredModelReplacement", Settings.PreferredModelReplacementAction);
-
-            return ("PreferredModelUnavailable", Settings.PreferredModelUnavailableAction);
+            return currentModel;
         }
 
-        if (c.LargeContextRequest)
+        List<string>? matchingModels = null;
+        int longestPrefixLength = -1;
+        foreach (var hierarchy in Settings.ModelHierarchy)
         {
-            if (c.CapacityAvailable)
-                return ("LargeContextCapacityAvailable", Settings.LargeContextCapacityAvailableAction);
-
-            return ("LargeContextRequest", Settings.LargeContextRequestAction);
+            if (!string.IsNullOrWhiteSpace(hierarchy.Key)
+                && hierarchy.Key.Length > longestPrefixLength
+                && currentModel.StartsWith(hierarchy.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                matchingModels = hierarchy.Value;
+                longestPrefixLength = hierarchy.Key.Length;
+            }
         }
 
-        if (c.CriticalPriority)
-            return ("CriticalPriority", Settings.CriticalPriorityAction);
+        if (matchingModels == null)
+        {
+            return currentModel;
+        }
 
-        if (c.HighPriority && (c.PremiumTenant || c.EnterpriseTenant))
-            return ("HighPriorityEntitledTenant", Settings.HighPriorityEntitledTenantAction);
+        for (int index = 0; index < matchingModels.Count; index++)
+        {
+            if (currentModel.Equals(matchingModels[index], StringComparison.OrdinalIgnoreCase))
+            {
+                int updatedIndex = modelOverride == ModelOverrideEnum.Upgrade
+                    ? index - 1
+                    : index + 1;
+                return updatedIndex >= 0 && updatedIndex < matchingModels.Count
+                    ? matchingModels[updatedIndex]
+                    : currentModel;
+            }
+        }
 
-        if (c.PremiumTenant || c.EnterpriseTenant)
-            return ("TenantEntitlement", Settings.TenantEntitlementAction);
-
-        if (c.ComplianceRequired || c.AuditInvestigation)
-            return ("GovernanceWorkload", Settings.GovernanceWorkloadAction);
-
-        return ("Default", Settings.DefaultAction);
+        return currentModel;
     }
+
 }

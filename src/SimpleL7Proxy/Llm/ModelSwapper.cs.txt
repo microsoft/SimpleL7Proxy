@@ -1,19 +1,17 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
-using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Llm;
+using SimpleL7Proxy.Tokenomics;
 
 public class ModelSwapper
 {
     private readonly ILogger<ModelSwapper> _logger;
-    private readonly TokenomicsHandler _tokenomicsHandler;
 
-    public ModelSwapper(ILogger<ModelSwapper> logger, TokenomicsHandler tokenomicsHandler)
+    public ModelSwapper(ILogger<ModelSwapper> logger)
     {
         _logger = logger;
-        _tokenomicsHandler = tokenomicsHandler;
     }
 
     /// <summary>
@@ -25,13 +23,9 @@ public class ModelSwapper
     /// when no model has been captured yet.
     /// </summary>
     /// <returns>The request body bytes, rewritten when an override was applied; otherwise the original bytes.</returns>
-    public static ReadOnlyMemory<byte> ValidateModel(RequestData request, 
-                ReadOnlyMemory<byte> bodyBytes, 
-                ModelOverrideEnum modelOverride,
-                string ModelOverrideName,
-                TokenomicsHandler tokenomicsHandler)
+    public static ReadOnlyMemory<byte> ValidateModel(RequestData request, ReadOnlyMemory<byte> bodyBytes, string? modelOverride = null)
     {
-        bool hasOverride = modelOverride != ModelOverrideEnum.None;
+        bool hasOverride = !string.IsNullOrWhiteSpace(modelOverride);
         request.WordCount = 0;
         System.Buffers.ArrayBufferWriter<byte>? buffer = null;
         Utf8JsonWriter? writer = null;
@@ -83,20 +77,11 @@ public class ModelSwapper
                 return bodyBytes;
             }
 
-            // Now that we finally know the source model,do what tokenomics told us to do
-            if ( hasOverride)
-            {
-                if (modelOverride is ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade)
-                {
-                    ModelOverrideName = tokenomicsHandler.UpdateModel(sourceModel, modelOverride);
-                }
-            }
-
-            request.Model = ModelOverrideName;
+            request.Model = modelOverride!;
             reader = new Utf8JsonReader(bodyBytes.Span, isFinalBlock: true, state: default);
             reader.Read();
 
-            buffer = new System.Buffers.ArrayBufferWriter<byte>(bodyBytes.Length + ModelOverrideName.Length + 16);
+            buffer = new System.Buffers.ArrayBufferWriter<byte>(bodyBytes.Length + modelOverride!.Length + 16);
             writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
             {
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
@@ -104,7 +89,7 @@ public class ModelSwapper
             writer.WriteStartObject();
 
             var (fieldsToRemove, fieldsToRename) = hasOverride && !string.IsNullOrWhiteSpace(sourceModel)
-                ? ModelMap.Get(sourceModel, ModelOverrideName)
+                ? ModelMap.Get(sourceModel, modelOverride!)
                 : (FieldRemovalMap.Empty, FieldRenameMap.Empty);
 
             bool handledModel = false;
@@ -116,7 +101,7 @@ public class ModelSwapper
                     {
                         if (writer != null)
                         {
-                            writer.WriteString("model", ModelOverrideName);
+                            writer.WriteString("model", modelOverride);
                             handledModel = true;
                             reader.Read();
                             reader.Skip();
@@ -175,7 +160,7 @@ public class ModelSwapper
             {
                 if (!handledModel)
                 {
-                    writer.WriteString("model", ModelOverrideName);
+                    writer.WriteString("model", modelOverride);
                 }
 
                 writer.WriteEndObject();
@@ -270,6 +255,5 @@ public class ModelSwapper
 
         return wordCount;
     }
-
 
 }

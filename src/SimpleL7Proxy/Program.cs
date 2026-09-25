@@ -292,7 +292,7 @@ public class Program
         // Register tokenomics-related services.
         services.AddSingleton<TokenomicsSettings>();
         services.AddSingleton<TokenMetricsCache>();
-        services.AddSingleton<TokenomicsProcessor>();
+        services.AddSingleton<TokenomicsHandler>();
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
         services.AddSingleton<IShutdownParticipant>(sp => (IShutdownParticipant)sp.GetRequiredService<IRequeueWorker>());

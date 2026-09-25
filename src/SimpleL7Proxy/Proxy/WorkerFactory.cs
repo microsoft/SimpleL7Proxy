@@ -16,9 +16,9 @@ public class WorkerFactory : BackgroundService, IReadinessParticipant
 
   private readonly ProxyConfig _backendOptions;
   private readonly WorkerContext _context;
-  private readonly ILogger<ProxyWorker> _logger;
+  private readonly ILogger<ProxyRequestHandler> _logger;
   //private readonly ProxyStreamWriter _proxyStreamWriter;
-  private static readonly List<ProxyWorker> _workers = new();
+  private static readonly List<ProxyRequestHandler> _workers = new();
   private static readonly List<Task> _tasks = new();
 
   private static readonly CancellationTokenSource _internalCancellationTokenSource = new();
@@ -69,7 +69,7 @@ public class WorkerFactory : BackgroundService, IReadinessParticipant
 
     _logger.LogInformation($"[WORKER] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
     foreach (var pw in _workers)
-      _tasks.Add(Task.Run(() => pw.TaskRunnerAsync(), cancellationToken));
+      _tasks.Add(Task.Run(() => pw.RunWorkerLoopAsync(), cancellationToken));
 
     // Close the Workers readiness gate once enough TaskRunners have entered their loops.
     // Matches the threshold ProxyWorker.TaskRunnerAsync uses to flip s_readyToWork.

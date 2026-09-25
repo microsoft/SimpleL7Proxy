@@ -14,4 +14,8 @@
     <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.23.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Shared-parser\Shared-parser.csproj" />
+  </ItemGroup>
+
 </Project>

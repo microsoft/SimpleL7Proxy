@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Frozen;
 using System.Globalization;
 using System.IO.Pipelines;
 using System.Text;
@@ -12,6 +13,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using SimpleL7Proxy.Tokenomics;
+
 namespace MetricsServer;
 
 /// <summary>
@@ -20,15 +23,11 @@ namespace MetricsServer;
 /// </summary>
 public sealed class MetricsHttpServer : BackgroundService
 {
-    private static readonly PathString s_healthPath = new(Constants.Health);
-    private static readonly PathString s_livenessPath = new(Constants.Liveness);
-    private static readonly PathString s_readinessPath = new(Constants.Readiness);
-    private static readonly PathString s_rollupPath = new(Constants.Rollup);
-    private static readonly PathString s_statusPath = new(Constants.Status);
-    private static readonly PathString s_usersPath = new(Constants.Users);
-    private static readonly PathString s_modelsPath = new(Constants.Models);
-    private static readonly PathString s_seriesPath = new(Constants.Series);
-    private static readonly PathString s_statsPath = new(Constants.Stats);
+    /// <summary>
+    /// Identity extracted once per request from the <c>u</c> (user), <c>r</c> (ACA replica), and
+    /// <c>b</c> (batch) query parameters.
+    /// </summary>
+    public readonly record struct RequestIdentity(string? UserId, string? ReplicaId, string? BatchId);
 
     private static readonly byte[] s_okBytes = Encoding.UTF8.GetBytes("OK\n");
     private static readonly byte[] s_recordsProperty = Encoding.UTF8.GetBytes("\"records\"");
@@ -37,18 +36,51 @@ public sealed class MetricsHttpServer : BackgroundService
     private readonly MetricsOptions _options;
     private readonly MetricsStore _store;
     private readonly TelemetryClient? _telemetryClient;
+    private readonly TokenomicsRollupProcessor _tokenomicsRollupProcessor;
+    private readonly TokenomicsMetricsStore _tokenomicsMetricsStore;
+    public readonly FrozenDictionary<string, (Func<HttpContext, RequestIdentity, Task> Dispatch, bool AllowHead)> getMap;
+    private readonly FrozenDictionary<string, Func<HttpContext, RequestIdentity, Task>> _postRoutes;
     private WebApplication? _app;
 
     public MetricsHttpServer(
         ILogger<MetricsHttpServer> logger,
         MetricsOptions options,
         MetricsStore store,
+        TokenomicsRollupProcessor tokenomicsRollupProcessor,
+        TokenomicsMetricsStore tokenomicsMetricsStore,
         TelemetryClient? telemetryClient = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _tokenomicsRollupProcessor = tokenomicsRollupProcessor ?? throw new ArgumentNullException(nameof(tokenomicsRollupProcessor));
+        _tokenomicsMetricsStore = tokenomicsMetricsStore ?? throw new ArgumentNullException(nameof(tokenomicsMetricsStore));
         _telemetryClient = telemetryClient;
+
+        getMap = new Dictionary<string, (Func<HttpContext, RequestIdentity, Task> Dispatch, bool AllowHead)>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Constants.Health] = (Health, true),
+            [Constants.Liveness] = (Liveness, true),
+            [Constants.Readiness] = (Readiness, true),
+            [Constants.Status] = (Status, false),
+            [Constants.Users] = (Users, false),
+            [Constants.Models] = (Models, false),
+            [Constants.Series] = (Series, false),
+            [Constants.Stats] = (Stats, false),
+            [Constants.TokenomicsDailyTokens] = (DailyTokens, false),
+            [Constants.TokenomicsMonthlyTokens] = (MonthlyTokens, false),
+            [Constants.TokenomicsDailyBudgets] = (DailyBudgets, false),
+            [Constants.TokenomicsMonthlyBudgets] = (MonthlyBudgets, false),
+            [Constants.TokenomicsAbuseDetected] = (AbuseDetected, false),
+            [Constants.TokenomicsApprovedException] = (ApprovedException, false),
+            [Constants.TokenomicsAdministratorOverride] = (AdministratorOverride, false)
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+        _postRoutes = new Dictionary<string, Func<HttpContext, RequestIdentity, Task>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Constants.Rollup] = IngestAsync,
+            [Constants.TokenomicsUpload] = TokenomicsUploadAsync
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -106,7 +138,8 @@ public sealed class MetricsHttpServer : BackgroundService
 
         await Task.WhenAll(
             _app.RunAsync(cancellationToken),
-            MaintenanceLoopAsync(cancellationToken)).ConfigureAwait(false);
+            MaintenanceLoopAsync(cancellationToken),
+            _tokenomicsRollupProcessor.RunAsync(cancellationToken)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -155,87 +188,29 @@ public sealed class MetricsHttpServer : BackgroundService
 
     private Task HandleRequestAsync(HttpContext ctx)
     {
-        var path = ctx.Request.Path;
+        var path = ctx.Request.Path.Value ?? string.Empty;
         var method = ctx.Request.Method;
+        var identity = ParseIdentity(ctx.Request.Query);
 
-        if (path == s_rollupPath)
+        if (HttpMethods.IsPost(method) && _postRoutes.TryGetValue(path, out var postRoute))
         {
-            return HttpMethods.IsPost(method)
-                ? IngestAsync(ctx)
-                : WriteMethodNotAllowedAsync(ctx.Response, "POST");
+            return postRoute(ctx, identity);
         }
 
-        if (path == s_statusPath)
+        if (getMap.TryGetValue(path, out var getRoute))
         {
-            if (!HttpMethods.IsGet(method))
+            if (HttpMethods.IsGet(method)
+                || (getRoute.AllowHead && HttpMethods.IsHead(method)))
             {
-                return WriteMethodNotAllowedAsync(ctx.Response, "GET");
+                return getRoute.Dispatch(ctx, identity);
             }
 
-            var query = ctx.Request.Query;
-            var status = _store.Query(query["user"], query["model"], ReadWindow(query));
-            return WriteJsonAsync(ctx.Response, status, MetricsJsonContext.Default.StatusResponse);
+            return WriteMethodNotAllowedAsync(ctx.Response, getRoute.AllowHead ? "GET, HEAD" : "GET");
         }
 
-        if (path == s_seriesPath)
+        if (_postRoutes.ContainsKey(path))
         {
-            if (!HttpMethods.IsGet(method))
-            {
-                return WriteMethodNotAllowedAsync(ctx.Response, "GET");
-            }
-
-            var query = ctx.Request.Query;
-            var series = _store.QuerySeries(query["user"], query["model"], ReadWindow(query));
-            return WriteJsonAsync(ctx.Response, series, MetricsJsonContext.Default.SeriesResponse);
-        }
-
-        if (path == s_usersPath)
-        {
-            if (!HttpMethods.IsGet(method))
-            {
-                return WriteMethodNotAllowedAsync(ctx.Response, "GET");
-            }
-
-            var users = _store.ListUsers(ctx.Request.Query["model"]);
-            return WriteJsonAsync(ctx.Response, users, MetricsJsonContext.Default.NamesResponse);
-        }
-
-        if (path == s_modelsPath)
-        {
-            if (!HttpMethods.IsGet(method))
-            {
-                return WriteMethodNotAllowedAsync(ctx.Response, "GET");
-            }
-
-            var models = _store.ListModels(ctx.Request.Query["user"]);
-            return WriteJsonAsync(ctx.Response, models, MetricsJsonContext.Default.NamesResponse);
-        }
-
-        if (path == s_statsPath)
-        {
-            return HttpMethods.IsGet(method)
-                ? WriteJsonAsync(ctx.Response, _store.Stats(), MetricsJsonContext.Default.StatsResponse)
-                : WriteMethodNotAllowedAsync(ctx.Response, "GET");
-        }
-
-        if (path == s_healthPath || path == s_livenessPath || path == s_readinessPath)
-        {
-            if (HttpMethods.IsHead(method))
-            {
-                WriteProbeHeaders(ctx.Response);
-                return Task.CompletedTask;
-            }
-
-            if (HttpMethods.IsGet(method))
-            {
-                WriteProbeHeaders(ctx.Response);
-                var destination = ctx.Response.BodyWriter.GetSpan(s_okBytes.Length);
-                s_okBytes.AsSpan().CopyTo(destination);
-                ctx.Response.BodyWriter.Advance(s_okBytes.Length);
-                return Task.CompletedTask;
-            }
-
-            return WriteMethodNotAllowedAsync(ctx.Response, "GET, HEAD");
+            return WriteMethodNotAllowedAsync(ctx.Response, "POST");
         }
 
         ctx.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -243,7 +218,188 @@ public sealed class MetricsHttpServer : BackgroundService
         return Task.CompletedTask;
     }
 
-    private async Task IngestAsync(HttpContext ctx)
+    /// <summary>
+    /// Extracts the <c>u</c> (user), <c>r</c> (replica), and <c>b</c> (batch) query parameters
+    /// once per request so every GET and POST handler shares the same parsed identity.
+    /// </summary>
+    private static RequestIdentity ParseIdentity(IQueryCollection query)
+    {
+        var userId = query.TryGetValue("u", out var u) ? u.ToString() : null;
+        var replicaId = query.TryGetValue("r", out var r) ? r.ToString() : null;
+        var batchId = query.TryGetValue("b", out var b) ? b.ToString() : null;
+        return new RequestIdentity(
+            string.IsNullOrEmpty(userId) ? null : userId,
+            string.IsNullOrEmpty(replicaId) ? null : replicaId,
+            string.IsNullOrEmpty(batchId) ? null : batchId);
+    }
+
+    public static Task Health(HttpContext ctx, RequestIdentity identity) => HandleProbeAsync(ctx);
+
+    public static Task Liveness(HttpContext ctx, RequestIdentity identity) => HandleProbeAsync(ctx);
+
+    public static Task Readiness(HttpContext ctx, RequestIdentity identity) => HandleProbeAsync(ctx);
+
+    public Task Status(HttpContext ctx, RequestIdentity identity)
+    {
+        var query = ctx.Request.Query;
+        var status = _store.Query(query["user"], query["model"], ReadWindow(query));
+        return WriteJsonAsync(ctx.Response, status, MetricsJsonContext.Default.StatusResponse);
+    }
+
+    public Task Users(HttpContext ctx, RequestIdentity identity)
+    {
+        var users = _store.ListUsers(ctx.Request.Query["model"]);
+        return WriteJsonAsync(ctx.Response, users, MetricsJsonContext.Default.NamesResponse);
+    }
+
+    public Task Models(HttpContext ctx, RequestIdentity identity)
+    {
+        var models = _store.ListModels(ctx.Request.Query["user"]);
+        return WriteJsonAsync(ctx.Response, models, MetricsJsonContext.Default.NamesResponse);
+    }
+
+    public Task Series(HttpContext ctx, RequestIdentity identity)
+    {
+        var query = ctx.Request.Query;
+        var series = _store.QuerySeries(query["user"], query["model"], ReadWindow(query));
+        return WriteJsonAsync(ctx.Response, series, MetricsJsonContext.Default.SeriesResponse);
+    }
+
+    public Task Stats(HttpContext ctx, RequestIdentity identity) =>
+        WriteJsonAsync(ctx.Response, _store.Stats(), MetricsJsonContext.Default.StatsResponse);
+
+    public Task DailyTokens(HttpContext ctx, RequestIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.UserId))
+        {
+            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
+        }
+
+        var tokens = _tokenomicsMetricsStore.GetDailyTokenBalance(identity.UserId);
+        return WriteJsonAsync(
+            ctx.Response,
+            new TokenBalanceResponse { UserId = identity.UserId, Tokens = tokens },
+            MetricsJsonContext.Default.TokenBalanceResponse);
+    }
+
+    public Task MonthlyTokens(HttpContext ctx, RequestIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.UserId))
+        {
+            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
+        }
+
+        var tokens = _tokenomicsMetricsStore.GetMonthlyTokenBalance(identity.UserId);
+        return WriteJsonAsync(
+            ctx.Response,
+            new TokenBalanceResponse { UserId = identity.UserId, Tokens = tokens },
+            MetricsJsonContext.Default.TokenBalanceResponse);
+    }
+
+    public Task DailyBudgets(HttpContext ctx, RequestIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.UserId))
+        {
+            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
+        }
+
+        var costUsd = _tokenomicsMetricsStore.GetDailyBudgetUsage(identity.UserId);
+        return WriteJsonAsync(
+            ctx.Response,
+            new BudgetUsageResponse { UserId = identity.UserId, CostUsd = costUsd },
+            MetricsJsonContext.Default.BudgetUsageResponse);
+    }
+
+    public Task MonthlyBudgets(HttpContext ctx, RequestIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.UserId))
+        {
+            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
+        }
+
+        var costUsd = _tokenomicsMetricsStore.GetMonthlyBudgetUsage(identity.UserId);
+        return WriteJsonAsync(
+            ctx.Response,
+            new BudgetUsageResponse { UserId = identity.UserId, CostUsd = costUsd },
+            MetricsJsonContext.Default.BudgetUsageResponse);
+    }
+
+    // Abuse detection, approved exceptions, and administrator overrides have no data source in
+    // the rollups queue (userId, model, dayUtc, inputTokens, outputTokens, costUsd); they remain
+    // unimplemented pending a lookup source (e.g. the outcomes upload endpoint or an admin API).
+    public static Task AbuseDetected(HttpContext ctx, RequestIdentity identity) => HandleNotImplementedAsync(ctx, identity);
+
+    public static Task ApprovedException(HttpContext ctx, RequestIdentity identity) => HandleNotImplementedAsync(ctx, identity);
+
+    public static Task AdministratorOverride(HttpContext ctx, RequestIdentity identity) => HandleNotImplementedAsync(ctx, identity);
+
+    private static Task HandleProbeAsync(HttpContext ctx)
+    {
+        WriteProbeHeaders(ctx.Response);
+        if (!HttpMethods.IsHead(ctx.Request.Method))
+        {
+            var destination = ctx.Response.BodyWriter.GetSpan(s_okBytes.Length);
+            s_okBytes.AsSpan().CopyTo(destination);
+            ctx.Response.BodyWriter.Advance(s_okBytes.Length);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task HandleNotImplementedAsync(HttpContext ctx, RequestIdentity identity) =>
+        WriteNotImplementedAsync(ctx.Response);
+
+    /// <summary>
+    /// Single upload endpoint for tokenomics data pushed by proxy instances. Accepts a CSV batch
+    /// of token/spend deltas and enqueues the raw body for later processing. Parsing happens on
+    /// the dequeue side, inside <see cref="TokenomicsRollupProcessor.RunAsync"/>. This replaces
+    /// the former separate rollups/outcomes/model-throttles routes; only token/spend rollup rows
+    /// are currently sent or parsed.
+    /// 
+    /// PAYLOAD FORMAT:
+    /// ReplicaId: <replica-id>
+    /// BatchId: <batch-id>
+    /// <csv-headers><csv-content>
+    /// 
+    /// BatchId: <batch-id>
+    /// <csv-headers><csv-content>
+    /// 
+    /// </summary>
+    private async Task TokenomicsUploadAsync(HttpContext ctx, RequestIdentity identity)
+    {
+        try
+        {
+            var rlr = new ReplicaPayloadReader(ctx.Request.BodyReader);
+            var replicaPayload = await rlr.ReadAsync();
+
+            foreach (KeyValuePair<string, string> batch in replicaPayload.Batches)
+            {
+                _tokenomicsRollupProcessor.Enqueue(replicaPayload.ReplicaId, batch.Key, batch.Value);
+            }
+
+            var response = new MetricsServerResponse
+            {
+                BatchId = identity.BatchId,
+                ProcessedBatches = _tokenomicsRollupProcessor.PeekRecentBatches(replicaPayload.ReplicaId),
+                PendingBatches = [.. _tokenomicsRollupProcessor.GetPendingBatches(replicaPayload.ReplicaId)]
+            };
+
+            ctx.Response.StatusCode = StatusCodes.Status202Accepted;
+            await WriteJsonBodyAsync(ctx.Response, response, MetricsJsonContext.Default.MetricsServerResponse)
+            .ConfigureAwait(false);
+
+
+        }
+        catch (BadHttpRequestException)
+        {
+            await WriteErrorAsync(ctx.Response, StatusCodes.Status413PayloadTooLarge, "Request body too large.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+    }
+
+    private async Task IngestAsync(HttpContext ctx, RequestIdentity identity)
     {
         byte[]? body;
         try
@@ -337,6 +493,62 @@ public sealed class MetricsHttpServer : BackgroundService
         await WriteJsonBodyAsync(ctx.Response, response, MetricsJsonContext.Default.IngestResponse)
             .ConfigureAwait(false);
     }
+    /// <summary>
+    /// Parses the payload into individual batches.
+    /// </summary>
+    /// <param name="data">The raw payload data as an array of byte arrays.</param>
+    /// <remarks>
+    /// PAYLOAD FORMAT:
+    /// ReplicaId: <replica-id>
+    /// BatchId: <batch-id>
+    /// <csv-headers><csv-content>
+    /// 
+    /// BatchId: <batch-id>
+    /// <csv-headers><csv-content>
+    /// 
+    /// </remarks>
+    public void parsePayload(byte[] data)
+    {
+        var payloadText = Encoding.UTF8.GetString(data);
+        var payloadLines = payloadText.Split('\n');
+
+        string? replicaId = null;
+        string? currentBatchId = null;
+        var currentContent = new StringBuilder();
+
+        foreach (var rawLine in payloadLines)
+        {
+            var line = rawLine.TrimEnd('\r');
+
+            if (replicaId is null && line.StartsWith("ReplicaId:", StringComparison.OrdinalIgnoreCase))
+            {
+                replicaId = line["ReplicaId:".Length..].Trim();
+                continue;
+            }
+
+            if (line.StartsWith("BatchId:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (currentBatchId is not null)
+                {
+                    // Process the previous batch here if needed
+                }
+
+                currentBatchId = line["BatchId:".Length..].Trim();
+                currentContent.Clear();
+                continue;
+            }
+
+            if (currentBatchId is not null)
+            {
+                currentContent.AppendLine(line);
+            }
+        }
+
+        if (currentBatchId is not null)
+        {
+            // Process the last batch here if needed
+        }
+    }
 
     private void Count(RollupRecord? record, ref int accepted, ref int rejected, ref bool capacityReached)
     {
@@ -411,6 +623,21 @@ public sealed class MetricsHttpServer : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Reads a request body as text via a <see cref="BufferedStream"/>-wrapped <see cref="StreamReader"/>,
+    /// decoding UTF-8 as the bytes arrive instead of buffering raw bytes and decoding them afterward.
+    /// Returns null if the decoded text exceeds <paramref name="maxBytes"/>, matching the
+    /// too-large contract of <see cref="ReadBodyAsync"/>.
+    /// </summary>
+    private static async Task<string?> ReadBodyAsStringAsync(Stream body, int maxBytes, CancellationToken cancellationToken)
+    {
+        using var bufferedStream = new BufferedStream(body);
+        using var reader = new StreamReader(bufferedStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
+
+        var text = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        return Encoding.UTF8.GetByteCount(text) > maxBytes ? null : text;
+    }
+
     private static void WriteProbeHeaders(HttpResponse response)
     {
         response.StatusCode = StatusCodes.Status200OK;
@@ -432,6 +659,12 @@ public sealed class MetricsHttpServer : BackgroundService
         response.StatusCode = statusCode;
         return WriteJsonBodyAsync(response, new ErrorResponse { Error = message }, MetricsJsonContext.Default.ErrorResponse);
     }
+
+    private static Task WriteNotImplementedAsync(HttpResponse response) =>
+        WriteErrorAsync(
+            response,
+            StatusCodes.Status501NotImplemented,
+            "The tokenomics metrics route is registered but not implemented.");
 
     private static Task WriteJsonAsync<T>(HttpResponse response, T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
     {

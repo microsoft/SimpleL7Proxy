@@ -23,7 +23,8 @@ public sealed class StreamProcessorFactory
             ["AllUsage"] = static () => new AllUsageProcessor(),
             ["DefaultStream"] = static () => DefaultStreamProcessorInstance, // Reuse singleton
             ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor(),
-            ["AllUsage-2"] = static () => new CompleteAllUsageProcessor()
+            ["AllUsage-2"] = static () => new CompleteAllUsageProcessor(),
+            ["Tokenomics"] = static () => new TokenomicsProcessor()
         };
 
     // Constants for processor selection logic
@@ -52,6 +53,8 @@ public sealed class StreamProcessorFactory
     ///   - OpenAI: OpenAI-specific response processing with batch detection
     ///   - AllUsage: Usage tracking for OpenAI responses
     ///   - MultiLineAllUsage: Multi-line usage data extraction
+    ///   - Tokenomics: Prompt/completion/cached token counts plus jailbreak and content-filter
+    ///     signals for Tokenomics accounting (captures every stream line)
     /// </summary>
     /// <param name="proxyResponse">The HTTP response from the backend</param>
     /// <param name="mediaType">The content type of the response</param>

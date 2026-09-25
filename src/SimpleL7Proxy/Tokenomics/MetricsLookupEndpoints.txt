@@ -1,0 +1,35 @@
+Tokenomics Metrics Lookup Endpoints
+
+Status: Routes are registered by MetricsServer and return 501 Not Implemented.
+Base path: /tokenomics/metrics
+
+Path parameters:
+- {userId}: URL-encoded user identifier.
+
+GET /tokenomics/metrics/tokens/daily/users?u={userId} -> Int64 token count | Lookup: GetDailyTokenBalanceAsync
+GET /tokenomics/metrics/tokens/monthly/users?u=... -> Int64 token count | Lookup: GetMonthlyTokenBalanceAsync
+GET /tokenomics/metrics/budgets/daily/users?u=.. -> Decimal USD amount | Lookup: GetDailyBudgetUsageAsync
+GET /tokenomics/metrics/budgets/monthly/users?u=... -> Decimal USD amount | Lookup: GetMonthlyBudgetUsageAsync
+GET /tokenomics/metrics/abuse-detected/users?u=... -> Boolean | Lookup: IsAbuseDetectedAsync
+GET /tokenomics/metrics/approved-exception/users?u=... -> Boolean | Lookup: HasApprovedExceptionAsync
+GET /tokenomics/metrics/administrator-override/users?u=... -> Boolean | Lookup: HasAdministratorOverrideAsync
+
+Metric Upload Endpoints
+
+Current local collapse interval: 1 second.
+Proposed upload interval: 5 seconds.
+Each upload covers [windowStartUtc, windowEndUtc) and contains only new deltas or samples from that window.
+Batch upload paths omit {userId}; each entry contains its userId (where applicable) so one request can upload all active users.
+Upload envelope: batchId, sourceId, windowStartUtc, windowEndUtc, entries.
+
+POST /tokenomics/metrics/upload -> Single push call covering token/spend deltas, request outcomes, and model-throttle deadlines | Entry: kind, userId, model, dayUtc, inputTokens, outputTokens, costUsd, statusCode, latencyMs, retryAfterSeconds, wakeUtc, timestampUtc
+- kind "rollup" uses: userId, model, dayUtc, inputTokens, outputTokens, costUsd
+- kind "outcome" uses: userId, model, statusCode, latencyMs, timestampUtc
+- kind "modelThrottle" uses: model, retryAfterSeconds, wakeUtc, timestampUtc
+
+Upload rules:
+- The receiver deduplicates by sourceId and batchId.
+- A retry reuses the same sourceId, batchId, window, and entries.
+- The sender retains a batch until the receiver returns a successful 2xx response.
+- The sender does not upload cumulative daily or monthly totals as deltas.
+- The receiver derives UTC daily and monthly totals from dayUtc and costUsd.

@@ -75,8 +75,11 @@
                                 <ConfigurationHelp Section="Tokenomics" Topic="@property.Name" />
                             </div>
                             <ConfigurationExplanation Section="Tokenomics" Topic="@property.Name" />
-                            <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm" type="number"
-                                   step="@InputStep(property.PropertyType)" value="@FormatValue(property.GetValue(_options))"
+                            <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm"
+                                   type="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
+                                   placeholder="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? "00:10:000" : null)"
+                                   step="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? null : InputStep(property.PropertyType))"
+                                   value="@FormatValue(property.GetValue(_options), property.Name)"
                                    aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
                                    aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
                                    @onchange="args => SetOptionAsync(property, args)" />
@@ -110,6 +113,40 @@
         else if (_selectedTab == "costs")
         {
             <section id="tokenomics-panel-costs" class="tokenomics-tab-panel" role="tabpanel" aria-labelledby="tokenomics-tab-costs">
+                <div class="config-newhost-grid">
+                    @foreach (var property in SelectedNumericProperties)
+                    {
+                        var errorId = $"tokenomics-{property.Name}-error";
+                        <div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)" @key="property.Name">
+                            <div class="config-setting-heading">
+                                <label class="form-label" for="@($"tokenomics-{property.Name}")">@FieldLabel(property.Name)</label>
+                                <ConfigurationHelp Section="Tokenomics" Topic="@property.Name" />
+                            </div>
+                            <ConfigurationExplanation Section="Tokenomics" Topic="@property.Name" />
+                            @if (property.Name == nameof(TokenomicsSettings.ModelHierarchy))
+                            {
+                                <textarea id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm font-monospace" rows="3"
+                                          placeholder="prefix: [model1, model2]"
+                                          value="@FormatValue(property.GetValue(_options))"
+                                          aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
+                                          aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
+                                          @onchange="args => SetOptionAsync(property, args)"></textarea>
+                            }
+                            else
+                            {
+                                <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm" type="text"
+                                       value="@FormatValue(property.GetValue(_options))"
+                                       aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
+                                       aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
+                                       @onchange="args => SetOptionAsync(property, args)" />
+                            }
+                            @if (_fieldErrors.TryGetValue(property.Name, out var error))
+                            {
+                                <span id="@errorId" class="small text-danger" role="alert">@error</span>
+                            }
+                        </div>
+                    }
+                </div>
                 <div class="tokenomics-inline-actions tokenomics-cost-actions" aria-label="Model routing actions">
                     @foreach (var actionProperty in SelectedActionProperties)
                     {
@@ -167,7 +204,9 @@
                             <thead>
                                 <tr>
                                     <th scope="col">Model</th>
-                                    <th scope="col">USD per token</th>
+                                    <th scope="col">Input USD/token</th>
+                                    <th scope="col">Cached input USD/token</th>
+                                    <th scope="col">Output USD/token</th>
                                     <th scope="col"><span class="visually-hidden">Actions</span></th>
                                 </tr>
                             </thead>
@@ -179,20 +218,40 @@
                                             <label class="visually-hidden" for="@($"tokenomics-model-{row.Id}")">Model</label>
                                             <input id="@($"tokenomics-model-{row.Id}")" class="form-control form-control-sm" value="@row.Model"
                                                    aria-invalid="@(row.ModelError is null ? "false" : "true")"
-                                                   @onchange="args => SetModelCostAsync(row, args.Value?.ToString(), null)" />
+                                                   @onchange="args => SetModelCostAsync(row, args.Value?.ToString(), null, null, null)" />
                                             @if (row.ModelError is not null)
                                             {
                                                 <span class="small text-danger" role="alert">@row.ModelError</span>
                                             }
                                         </td>
                                         <td>
-                                            <label class="visually-hidden" for="@($"tokenomics-cost-{row.Id}")">USD per token for @row.Model</label>
-                                            <input id="@($"tokenomics-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
-                                                   value="@row.Cost" aria-invalid="@(row.CostError is null ? "false" : "true")"
-                                                   @onchange="args => SetModelCostAsync(row, null, args.Value?.ToString())" />
-                                            @if (row.CostError is not null)
+                                            <label class="visually-hidden" for="@($"tokenomics-input-cost-{row.Id}")">Input USD per token for @row.Model</label>
+                                            <input id="@($"tokenomics-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                                   value="@row.InputCost" aria-invalid="@(row.InputCostError is null ? "false" : "true")"
+                                                   @onchange="args => SetModelCostAsync(row, null, args.Value?.ToString(), null, null)" />
+                                            @if (row.InputCostError is not null)
                                             {
-                                                <span class="small text-danger" role="alert">@row.CostError</span>
+                                                <span class="small text-danger" role="alert">@row.InputCostError</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <label class="visually-hidden" for="@($"tokenomics-cached-input-cost-{row.Id}")">Cached input USD per token for @row.Model</label>
+                                            <input id="@($"tokenomics-cached-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                                   value="@row.CachedInputCost" aria-invalid="@(row.CachedInputCostError is null ? "false" : "true")"
+                                                   @onchange="args => SetModelCostAsync(row, null, null, args.Value?.ToString(), null)" />
+                                            @if (row.CachedInputCostError is not null)
+                                            {
+                                                <span class="small text-danger" role="alert">@row.CachedInputCostError</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <label class="visually-hidden" for="@($"tokenomics-output-cost-{row.Id}")">Output USD per token for @row.Model</label>
+                                            <input id="@($"tokenomics-output-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                                   value="@row.OutputCost" aria-invalid="@(row.OutputCostError is null ? "false" : "true")"
+                                                   @onchange="args => SetModelCostAsync(row, null, null, null, args.Value?.ToString())" />
+                                            @if (row.OutputCostError is not null)
+                                            {
+                                                <span class="small text-danger" role="alert">@row.OutputCostError</span>
                                             }
                                         </td>
                                         <td class="text-end">
@@ -263,8 +322,10 @@
     .tokenomics-model-table-wrap { max-height: 28rem; border: 1px solid #d2d2d7; }
     .tokenomics-model-table { table-layout: fixed; }
     .tokenomics-model-table th { position: sticky; top: 0; z-index: 1; padding: 0.5rem 0.65rem; background: #f5f5f7; color: #515154; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
-    .tokenomics-model-table th:first-child { width: 60%; }
-    .tokenomics-model-table th:nth-child(2) { width: 32%; }
+    .tokenomics-model-table th:first-child { width: 34%; }
+    .tokenomics-model-table th:nth-child(2),
+    .tokenomics-model-table th:nth-child(3),
+    .tokenomics-model-table th:nth-child(4) { width: 19%; }
     .tokenomics-model-table th:last-child { width: 3.5rem; }
     .tokenomics-model-table td { padding: 0.4rem 0.65rem; }
     .tokenomics-model-table .form-control { min-width: 0; }
@@ -274,7 +335,7 @@
     @@media (max-width: 600px) {
         .tokenomics-inline-action { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
         .tokenomics-model-search { flex-basis: 100%; }
-        .tokenomics-model-table { min-width: 36rem; }
+        .tokenomics-model-table { min-width: 60rem; }
     }
 </style>
 
@@ -369,8 +430,10 @@
         "capacity" => property.Name is nameof(TokenomicsSettings.CurrentCapacityUtilizationPercent)
             or nameof(TokenomicsSettings.CapacityConstraintThresholdPercent)
             or nameof(TokenomicsSettings.HighQueueDepthThreshold)
-            or nameof(TokenomicsSettings.LargeContextThreshold),
+            or nameof(TokenomicsSettings.LargeContextThreshold)
+            or nameof(TokenomicsSettings.DelayDuration),
         "priority" => property.Name is nameof(TokenomicsSettings.CriticalPriority) or nameof(TokenomicsSettings.HighPriority),
+        "costs" => property.Name is nameof(TokenomicsSettings.DefaultModel) or nameof(TokenomicsSettings.ModelHierarchy),
         _ => false,
     });
 
@@ -451,7 +514,23 @@
         _options = parsedOptions;
         _parseError = null;
         foreach (var modelCost in _options.ModelCostPerToken) {
-            _modelCosts.Add(new ModelCostRow(modelCost.Key, modelCost.Value.ToString(CultureInfo.InvariantCulture)));
+            _modelCosts.Add(new ModelCostRow(
+                modelCost.Key,
+                modelCost.Value.Input.ToString(CultureInfo.InvariantCulture),
+                modelCost.Value.CachedInput.ToString(CultureInfo.InvariantCulture),
+                modelCost.Value.Output.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        var configuredModels = _modelCosts
+            .Select(row => row.Model.Trim())
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var model in _options.ModelHierarchy.Values
+            .SelectMany(models => models)
+            .Select(model => model.Trim())
+            .Where(model => model.Length > 0)) {
+            if (configuredModels.Add(model)) {
+                _modelCosts.Add(new ModelCostRow(model, string.Empty, string.Empty, string.Empty));
+            }
         }
     }
 
@@ -497,21 +576,77 @@
 
     private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args) {
         var value = args.Value?.ToString() ?? string.Empty;
-        if (!TryParseValue(property.PropertyType, value, out var parsedValue)) {
+        if (!TryParseValue(property.PropertyType, property.Name, value, out var parsedValue)
+            || property.Name == nameof(TokenomicsSettings.DelayDuration) && parsedValue is int duration && duration < 0) {
             _fieldErrors[property.Name] = $"Enter a valid {FieldLabel(property.Name)} value.";
             await OnChanged.InvokeAsync();
             return;
         }
 
+        var previousHierarchyModels = property.Name == nameof(TokenomicsSettings.ModelHierarchy)
+            ? _options.ModelHierarchy.Values
+                .SelectMany(models => models)
+                .Select(model => model.Trim())
+                .ToHashSet(StringComparer.Ordinal)
+            : null;
+
         _fieldErrors.Remove(property.Name);
         property.SetValue(_options, parsedValue);
+
+        if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
+            var hierarchyModels = _options.ModelHierarchy.Values
+                .SelectMany(models => models)
+                .Select(model => model.Trim())
+                .Where(model => model.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+
+            _modelCosts.RemoveAll(row =>
+                string.IsNullOrWhiteSpace(row.InputCost)
+                && string.IsNullOrWhiteSpace(row.CachedInputCost)
+                && string.IsNullOrWhiteSpace(row.OutputCost)
+                && previousHierarchyModels!.Contains(row.Model.Trim())
+                && !hierarchyModels.Contains(row.Model.Trim()));
+
+            var configuredModels = _modelCosts
+                .Select(row => row.Model.Trim())
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var model in hierarchyModels) {
+                if (configuredModels.Add(model)) {
+                    _modelCosts.Add(new ModelCostRow(model, string.Empty, string.Empty, string.Empty));
+                }
+            }
+
+            _modelSearch = string.Empty;
+            _modelPage = 1;
+        }
+
         CommitOptions();
         await OnChanged.InvokeAsync();
     }
 
-    private static bool TryParseValue(Type type, string value, out object? parsedValue) {
+    private static bool TryParseValue(Type type, string propertyName, string value, out object? parsedValue) {
         parsedValue = null;
-        if (type == typeof(int) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) {
+        if (propertyName == nameof(TokenomicsSettings.DelayDuration)) {
+            var durationParts = value.Split(':');
+            if (durationParts.Length == 3
+                && durationParts[0].Length >= 2
+                && durationParts[1].Length == 2
+                && durationParts[2].Length == 3
+                && long.TryParse(durationParts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var minutes)
+                && minutes >= 0
+                && minutes <= int.MaxValue / 60000L
+                && int.TryParse(durationParts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+                && seconds is >= 0 and <= 59
+                && int.TryParse(durationParts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var milliseconds)
+                && milliseconds is >= 0 and <= 999) {
+                var totalMilliseconds = (minutes * 60000L) + (seconds * 1000L) + milliseconds;
+                if (totalMilliseconds <= int.MaxValue) {
+                    parsedValue = (int)totalMilliseconds;
+                }
+            }
+        } else if (type == typeof(string)) {
+            parsedValue = value;
+        } else if (type == typeof(int) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) {
             parsedValue = integer;
         } else if (type == typeof(decimal) && decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue)) {
             parsedValue = decimalValue;
@@ -525,13 +660,20 @@
             && Enum.TryParse<TokenActionEnum>(value, true, out var action)
             && Enum.IsDefined(action)) {
             parsedValue = action;
+        } else if (type == typeof(Dictionary<string, List<string>>)) {
+            var options = new TokenomicsSettings();
+            if (!value.Contains(';')
+                && !value.Contains('=')
+                && options.TryParse($"{nameof(TokenomicsSettings.ModelHierarchy)}={value}")) {
+                parsedValue = options.ModelHierarchy;
+            }
         }
 
         return parsedValue is not null;
     }
 
     private void AddModelCost() {
-        _modelCosts.Insert(0, new ModelCostRow(string.Empty, string.Empty));
+        _modelCosts.Insert(0, new ModelCostRow(string.Empty, string.Empty, string.Empty, string.Empty));
         _modelSearch = string.Empty;
         _modelPage = 1;
     }
@@ -557,12 +699,23 @@
         _modelPage = Math.Clamp(page, 1, ModelPageCount);
     }
 
-    private async Task SetModelCostAsync(ModelCostRow row, string? model, string? cost) {
+    private async Task SetModelCostAsync(
+        ModelCostRow row,
+        string? model,
+        string? inputCost,
+        string? cachedInputCost,
+        string? outputCost) {
         if (model is not null) {
             row.Model = model;
         }
-        if (cost is not null) {
-            row.Cost = cost;
+        if (inputCost is not null) {
+            row.InputCost = inputCost;
+        }
+        if (cachedInputCost is not null) {
+            row.CachedInputCost = cachedInputCost;
+        }
+        if (outputCost is not null) {
+            row.OutputCost = outputCost;
         }
 
         TryCommitModelCosts();
@@ -577,27 +730,64 @@
     }
 
     private bool TryCommitModelCosts() {
-        var costs = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var costs = new Dictionary<string, ModelTokenPricing>(StringComparer.Ordinal);
+        var models = new HashSet<string>(StringComparer.Ordinal);
+        var hierarchyModels = _options.ModelHierarchy.Values
+            .SelectMany(hierarchy => hierarchy)
+            .Select(model => model.Trim())
+            .ToHashSet(StringComparer.Ordinal);
         var valid = true;
         foreach (var row in _modelCosts) {
             row.ModelError = null;
-            row.CostError = null;
+            row.InputCostError = null;
+            row.CachedInputCostError = null;
+            row.OutputCostError = null;
             var model = row.Model.Trim();
             if (string.IsNullOrEmpty(model)) {
                 row.ModelError = "Enter a model name.";
                 valid = false;
-            } else if (costs.ContainsKey(model)) {
+            } else if (!models.Add(model)) {
                 row.ModelError = "Model names must be unique.";
                 valid = false;
             }
 
-            if (!decimal.TryParse(row.Cost, NumberStyles.Float, CultureInfo.InvariantCulture, out var cost) || cost < 0) {
-                row.CostError = "Enter a non-negative cost.";
+            var isHierarchyPlaceholder = row.ModelError is null
+                && string.IsNullOrWhiteSpace(row.InputCost)
+                && string.IsNullOrWhiteSpace(row.CachedInputCost)
+                && string.IsNullOrWhiteSpace(row.OutputCost)
+                && hierarchyModels.Contains(model);
+            if (isHierarchyPlaceholder) {
+                continue;
+            }
+
+            if (!decimal.TryParse(row.InputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var inputCost)
+                || inputCost < 0) {
+                row.InputCostError = "Enter a non-negative input cost.";
                 valid = false;
             }
 
-            if (row.ModelError is null && row.CostError is null) {
-                costs[model] = cost;
+            if (!decimal.TryParse(row.CachedInputCost, NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out var cachedInputCost)
+                || cachedInputCost < 0) {
+                row.CachedInputCostError = "Enter a non-negative cached input cost.";
+                valid = false;
+            }
+
+            if (!decimal.TryParse(row.OutputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var outputCost)
+                || outputCost < 0) {
+                row.OutputCostError = "Enter a non-negative output cost.";
+                valid = false;
+            }
+
+            if (row.ModelError is null
+                && row.InputCostError is null
+                && row.CachedInputCostError is null
+                && row.OutputCostError is null) {
+                costs[model] = new ModelTokenPricing {
+                    Input = inputCost,
+                    CachedInput = cachedInputCost,
+                    Output = outputCost
+                };
             }
         }
 
@@ -633,27 +823,60 @@
         await OnChanged.InvokeAsync();
     }
 
-    private bool IsOptionChanged(PropertyInfo property) =>
-        !Equals(property.GetValue(_options), property.GetValue(_loadedOptions));
+    private bool IsOptionChanged(PropertyInfo property) {
+        if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
+            return _options.ModelHierarchy.Count != _loadedOptions.ModelHierarchy.Count
+                || _options.ModelHierarchy.Any(entry =>
+                    !_loadedOptions.ModelHierarchy.TryGetValue(entry.Key, out var loadedModels)
+                    || !entry.Value.SequenceEqual(loadedModels, StringComparer.Ordinal));
+        }
+
+        return !Equals(property.GetValue(_options), property.GetValue(_loadedOptions));
+    }
 
     private bool IsModelCostChanged(ModelCostRow row) {
-        if (!_loadedOptions.ModelCostPerToken.TryGetValue(row.Model.Trim(), out var loadedCost)) {
+        var model = row.Model.Trim();
+        if (string.IsNullOrWhiteSpace(row.InputCost)
+            && string.IsNullOrWhiteSpace(row.CachedInputCost)
+            && string.IsNullOrWhiteSpace(row.OutputCost)
+            && _options.ModelHierarchy.Values
+                .SelectMany(models => models)
+                .Any(hierarchyModel => string.Equals(hierarchyModel.Trim(), model, StringComparison.Ordinal))) {
+            return _loadedOptions.ModelCostPerToken.ContainsKey(model);
+        }
+
+        if (!_loadedOptions.ModelCostPerToken.TryGetValue(model, out var loadedPricing)) {
             return true;
         }
 
-        return !decimal.TryParse(row.Cost, NumberStyles.Float, CultureInfo.InvariantCulture, out var cost) || cost != loadedCost;
+        return !decimal.TryParse(row.InputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var inputCost)
+            || !decimal.TryParse(row.CachedInputCost, NumberStyles.Float, CultureInfo.InvariantCulture,
+                out var cachedInputCost)
+            || !decimal.TryParse(row.OutputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var outputCost)
+            || inputCost != loadedPricing.Input
+            || cachedInputCost != loadedPricing.CachedInput
+            || outputCost != loadedPricing.Output;
     }
 
     private static string InputStep(Type type) => type == typeof(int) ? "1" : "any";
 
-    private static string FormatValue(object? value) => value switch {
+    private static string FormatValue(object? value, string? propertyName = null) => value switch {
         null => string.Empty,
+        int duration when propertyName == nameof(TokenomicsSettings.DelayDuration) && duration >= 0 =>
+            string.Create(CultureInfo.InvariantCulture,
+                $"{duration / 60000:D2}:{duration / 1000 % 60:D2}:{duration % 1000:D3}"),
         bool boolean => boolean.ToString().ToLowerInvariant(),
+        Dictionary<string, List<string>> hierarchy => string.Join(", ", hierarchy.Select(entry =>
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]")),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
         _ => value.ToString() ?? string.Empty
     };
 
     private static string FieldLabel(string name) {
+        if (name == nameof(TokenomicsSettings.DelayDuration)) {
+            return "delay duration (mm:ss:mmm)";
+        }
+
         var builder = new System.Text.StringBuilder(name.Length + 8);
         for (var index = 0; index < name.Length; index++) {
             var character = name[index];
@@ -668,11 +891,19 @@
 
     private static string ActionLabel(string name) => FieldLabel(name);
 
-    private sealed class ModelCostRow(string model, string cost) {
+    private sealed class ModelCostRow(
+        string model,
+        string inputCost,
+        string cachedInputCost,
+        string outputCost) {
         public Guid Id { get; } = Guid.NewGuid();
         public string Model { get; set; } = model;
-        public string Cost { get; set; } = cost;
+        public string InputCost { get; set; } = inputCost;
+        public string CachedInputCost { get; set; } = cachedInputCost;
+        public string OutputCost { get; set; } = outputCost;
         public string? ModelError { get; set; }
-        public string? CostError { get; set; }
+        public string? InputCostError { get; set; }
+        public string? CachedInputCostError { get; set; }
+        public string? OutputCostError { get; set; }
     }
 }

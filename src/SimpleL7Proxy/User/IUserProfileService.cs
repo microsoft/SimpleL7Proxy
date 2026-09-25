@@ -17,6 +17,8 @@ public interface IUserProfileService
 {
     public (Dictionary<string, string> profile, bool isSoftDeleted, bool isStale) GetUserProfile(string userId);
     public UserProfileSnapshot? GetUserProfileSnapshot(string userId);
+    /// <summary>Gets transient tokenomics profile values for a user.</summary>
+    public Dictionary<string, bool> GetTokenomicsData(string userId);
     public bool IsUserSuspended(string userId);
     public bool IsAuthAppIDValid(string authAppId);
     public AsyncClientInfo? GetAsyncParams(string UserId);

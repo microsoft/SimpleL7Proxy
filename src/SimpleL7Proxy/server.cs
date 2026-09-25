@@ -55,7 +55,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
-    private readonly TokenomicsProcessor _tokenomicsProcessor;
     private readonly IEventClient? _eventHubClient;
     private static ProxyEvent _staticEvent = new ProxyEvent();
     private static ProxyEvent _probe = new ProxyEvent();
@@ -78,7 +77,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         IUserPriorityService userPriority,
         IUserProfileService userProfile,
         ProfileEnricher profileEnricher,
-        TokenomicsProcessor tokenomicsProcessor,
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
         IEndpointMonitorService backends,
@@ -109,7 +107,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         _userPriority = userPriority;
         _userProfile = userProfile;
         _profileEnricher = profileEnricher;
-        _tokenomicsProcessor = tokenomicsProcessor;
         _logger = logger;
         _blobWriter = blobWriter;
         _healthService = healthService;

@@ -144,6 +144,8 @@ public class ProxyConfig
     public bool TokenomicsEnable { get; set; } = true;
     [ConfigOption("Tokenomics:Options")]
     public string TokenomicsOptions { get; set; } = "";
+    [ConfigOption("Tokenomics:MetricsServer")]
+    public string TokenomicsMetricsServer { get; set; } = "";
 
     // ── Sentinel ──
     [ConfigOption("Sentinel")]

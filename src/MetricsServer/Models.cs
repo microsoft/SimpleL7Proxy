@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SimpleL7Proxy.Tokenomics;
 
 namespace MetricsServer;
 
@@ -57,6 +58,93 @@ public sealed class RollupBatch
     /// <summary>Rollup records contained in the batch.</summary>
     [JsonPropertyName("records")]
     public List<RollupRecord>? Records { get; set; }
+}
+
+/// <summary>
+/// A single token/spend delta entry parsed from one CSV data row of the tokenomics rollups
+/// endpoint. Not JSON-serialized: the request body is CSV text with a header row, not JSON.
+/// </summary>
+public sealed class TokenomicsRollupEntry
+{
+    /// <summary>User the delta belongs to.</summary>
+    public string? UserId { get; set; }
+
+    /// <summary>Model the delta belongs to.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>UTC day the delta applies to (e.g. "2024-01-31").</summary>
+    public string? DayUtc { get; set; }
+
+    /// <summary>Input (prompt) tokens consumed.</summary>
+    public long InputTokens { get; set; }
+
+    /// <summary>Output (completion) tokens produced.</summary>
+    public long OutputTokens { get; set; }
+
+    /// <summary>Cost of the delta, in US dollars.</summary>
+    public double CostUsd { get; set; }
+}
+
+/// <summary>
+/// Result of a tokenomics rollups enqueue call.
+/// </summary>
+public sealed class TokenomicsRollupResponse
+{
+    /// <summary>Batch id supplied by the client for this request, or null when omitted.</summary>
+    [JsonPropertyName("batchId")]
+    public string? BatchId { get; set; }
+
+    /// <summary>
+    /// Total number of batches the background processor has completed since process start.
+    /// Reflects processor progress at response time, not necessarily including this request's
+    /// batch, since parsing happens asynchronously on the next processor tick.
+    /// </summary>
+    [JsonPropertyName("batchesProcessed")]
+    public long BatchesProcessed { get; set; }
+
+    /// <summary>
+    /// Most recently enqueued batch ids for the replica that sent this request, newest first,
+    /// capped at 10. Each ACA replica maintains its own independent batch history.
+    /// </summary>
+    [JsonPropertyName("recentBatches")]
+    public List<string> RecentBatches { get; set; } = new();
+
+    /// <summary>
+    /// Batch ids for the replica that sent this request which have been received but not yet
+    /// processed, in FIFO order (oldest first). Merging into the in-memory store happens
+    /// asynchronously on the next processor tick, so this request's own batch id is typically
+    /// included here rather than in <see cref="RecentBatches"/>.
+    /// </summary>
+    [JsonPropertyName("pendingBatches")]
+    public List<string> PendingBatches { get; set; } = new();
+}
+
+/// <summary>
+/// Result of a tokenomics daily or monthly token balance lookup.
+/// </summary>
+public sealed class TokenBalanceResponse
+{
+    /// <summary>User the balance applies to.</summary>
+    [JsonPropertyName("userId")]
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>Input + output tokens consumed in the queried UTC period.</summary>
+    [JsonPropertyName("tokens")]
+    public long Tokens { get; set; }
+}
+
+/// <summary>
+/// Result of a tokenomics daily or monthly budget usage lookup.
+/// </summary>
+public sealed class BudgetUsageResponse
+{
+    /// <summary>User the spend applies to.</summary>
+    [JsonPropertyName("userId")]
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>USD spend in the queried UTC period.</summary>
+    [JsonPropertyName("costUsd")]
+    public decimal CostUsd { get; set; }
 }
 
 /// <summary>
@@ -284,6 +372,10 @@ public sealed class ErrorResponse
 [JsonSerializable(typeof(RollupRecord))]
 [JsonSerializable(typeof(RollupRecord[]))]
 [JsonSerializable(typeof(RollupBatch))]
+[JsonSerializable(typeof(TokenomicsRollupResponse))]
+[JsonSerializable(typeof(MetricsServerResponse))]
+[JsonSerializable(typeof(TokenBalanceResponse))]
+[JsonSerializable(typeof(BudgetUsageResponse))]
 [JsonSerializable(typeof(IngestResponse))]
 [JsonSerializable(typeof(StatusResponse))]
 [JsonSerializable(typeof(SeriesResponse))]
