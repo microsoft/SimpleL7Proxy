@@ -1,18 +1,13 @@
-Tokenomics Metrics Lookup Endpoints
+Tokenomics Metrics Lookup Endpoint
 
-Status: Routes are registered by MetricsServer and return 501 Not Implemented.
+Status: Implemented by MetricsServer.
 Base path: /tokenomics/metrics
 
-Path parameters:
+Query parameters:
 - {userId}: URL-encoded user identifier.
+- {model}: URL-encoded model identifier.
 
-GET /tokenomics/metrics/tokens/daily/users?u={userId} -> Int64 token count | Lookup: GetDailyTokenBalanceAsync
-GET /tokenomics/metrics/tokens/monthly/users?u=... -> Int64 token count | Lookup: GetMonthlyTokenBalanceAsync
-GET /tokenomics/metrics/budgets/daily/users?u=.. -> Decimal USD amount | Lookup: GetDailyBudgetUsageAsync
-GET /tokenomics/metrics/budgets/monthly/users?u=... -> Decimal USD amount | Lookup: GetMonthlyBudgetUsageAsync
-GET /tokenomics/metrics/abuse-detected/users?u=... -> Boolean | Lookup: IsAbuseDetectedAsync
-GET /tokenomics/metrics/approved-exception/users?u=... -> Boolean | Lookup: HasApprovedExceptionAsync
-GET /tokenomics/metrics/administrator-override/users?u=... -> Boolean | Lookup: HasAdministratorOverrideAsync
+GET /tokenomics/metrics/lookup?u={userId}&m={model} -> MetricsLookupResponse containing all current lookup values for the user/model combination.
 
 Metric Upload Endpoints
 

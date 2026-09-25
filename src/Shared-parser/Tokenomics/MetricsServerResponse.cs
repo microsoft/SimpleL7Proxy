@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 namespace SimpleL7Proxy.Tokenomics;
 
 /// <summary>
-/// Shape of the MetricsServer's upload response (see <c>TokenomicsRollupResponse</c> in
-/// MetricsServer), used to acknowledge processed batches and observe replica-side batch state.
+/// Shape of the MetricsServer's tokenomics upload response, used to acknowledge processed
+/// batches and observe replica-side batch state.
 /// </summary>
 public sealed class MetricsServerResponse
 {

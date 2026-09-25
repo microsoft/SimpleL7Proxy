@@ -28,27 +28,15 @@ public sealed class TokenomicsRollupProcessor
     private readonly ConcurrentDictionary<string, List<string>> _recentBatchesByReplica =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private long _batchesProcessed;
-    private Dictionary<string, HashSet<string>> pendingBatches = new();
-
     public TokenomicsRollupProcessor(TokenomicsMetricsStore store)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
-    /// <summary>Total number of batches the processor has completed since process start.</summary>
-    public long BatchesProcessed => Interlocked.Read(ref _batchesProcessed);
-
     /// <summary>Enqueues a raw CSV batch body for later parsing and processing.</summary>
     public void Enqueue(string? replicaId, string batchId, string body)
     {
         _queue.Enqueue(new QueueItem(replicaId, batchId, body));
-        if (!pendingBatches.TryGetValue(replicaId ?? "unknown", out var set))
-        {
-            set = new HashSet<string>();
-            pendingBatches[replicaId ?? "unknown"] = set;
-        }
-        set.Add(batchId);
     }
 
     /// <summary>
@@ -113,11 +101,14 @@ public sealed class TokenomicsRollupProcessor
                     var entries = ParseCsvEntries(item.Body);
                     foreach (var entry in entries)
                     {
-                        _store.Record(entry.UserId, entry.Day, entry.InputTokens + entry.OutputTokens, (decimal)entry.LatencyMs);
+                        _store.Record(
+                            entry.UserId,
+                            entry.Model,
+                            entry.Day,
+                            entry.InputTokens + entry.OutputTokens);
                     }
 
                     RecordBatch(item.ReplicaId, item.BatchId);
-                    Interlocked.Increment(ref _batchesProcessed);
                 }
             }
         }

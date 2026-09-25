@@ -24,10 +24,10 @@ namespace MetricsServer;
 public sealed class MetricsHttpServer : BackgroundService
 {
     /// <summary>
-    /// Identity extracted once per request from the <c>u</c> (user), <c>r</c> (ACA replica), and
-    /// <c>b</c> (batch) query parameters.
+    /// Identity extracted once per request from the <c>u</c> (user) and <c>b</c> (batch) query
+    /// parameters.
     /// </summary>
-    public readonly record struct RequestIdentity(string? UserId, string? ReplicaId, string? BatchId);
+    public readonly record struct RequestIdentity(string? UserId, string? BatchId);
 
     private static readonly byte[] s_okBytes = Encoding.UTF8.GetBytes("OK\n");
     private static readonly byte[] s_recordsProperty = Encoding.UTF8.GetBytes("\"records\"");
@@ -67,13 +67,7 @@ public sealed class MetricsHttpServer : BackgroundService
             [Constants.Models] = (Models, false),
             [Constants.Series] = (Series, false),
             [Constants.Stats] = (Stats, false),
-            [Constants.TokenomicsDailyTokens] = (DailyTokens, false),
-            [Constants.TokenomicsMonthlyTokens] = (MonthlyTokens, false),
-            [Constants.TokenomicsDailyBudgets] = (DailyBudgets, false),
-            [Constants.TokenomicsMonthlyBudgets] = (MonthlyBudgets, false),
-            [Constants.TokenomicsAbuseDetected] = (AbuseDetected, false),
-            [Constants.TokenomicsApprovedException] = (ApprovedException, false),
-            [Constants.TokenomicsAdministratorOverride] = (AdministratorOverride, false)
+            [Constants.TokenomicsLookup] = (TokenomicsLookup, false)
         }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
         _postRoutes = new Dictionary<string, Func<HttpContext, RequestIdentity, Task>>(StringComparer.OrdinalIgnoreCase)
@@ -219,17 +213,15 @@ public sealed class MetricsHttpServer : BackgroundService
     }
 
     /// <summary>
-    /// Extracts the <c>u</c> (user), <c>r</c> (replica), and <c>b</c> (batch) query parameters
-    /// once per request so every GET and POST handler shares the same parsed identity.
+    /// Extracts the <c>u</c> (user) and <c>b</c> (batch) query parameters once per request so
+    /// every GET and POST handler shares the same parsed identity.
     /// </summary>
     private static RequestIdentity ParseIdentity(IQueryCollection query)
     {
         var userId = query.TryGetValue("u", out var u) ? u.ToString() : null;
-        var replicaId = query.TryGetValue("r", out var r) ? r.ToString() : null;
         var batchId = query.TryGetValue("b", out var b) ? b.ToString() : null;
         return new RequestIdentity(
             string.IsNullOrEmpty(userId) ? null : userId,
-            string.IsNullOrEmpty(replicaId) ? null : replicaId,
             string.IsNullOrEmpty(batchId) ? null : batchId);
     }
 
@@ -268,70 +260,27 @@ public sealed class MetricsHttpServer : BackgroundService
     public Task Stats(HttpContext ctx, RequestIdentity identity) =>
         WriteJsonAsync(ctx.Response, _store.Stats(), MetricsJsonContext.Default.StatsResponse);
 
-    public Task DailyTokens(HttpContext ctx, RequestIdentity identity)
+    public Task TokenomicsLookup(HttpContext ctx, RequestIdentity identity)
     {
         if (string.IsNullOrWhiteSpace(identity.UserId))
         {
             return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
         }
 
-        var tokens = _tokenomicsMetricsStore.GetDailyTokenBalance(identity.UserId);
-        return WriteJsonAsync(
-            ctx.Response,
-            new TokenBalanceResponse { UserId = identity.UserId, Tokens = tokens },
-            MetricsJsonContext.Default.TokenBalanceResponse);
-    }
-
-    public Task MonthlyTokens(HttpContext ctx, RequestIdentity identity)
-    {
-        if (string.IsNullOrWhiteSpace(identity.UserId))
+        var model = ctx.Request.Query.TryGetValue("m", out var modelValue)
+            ? modelValue.ToString()
+            : null;
+        if (string.IsNullOrWhiteSpace(model))
         {
-            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
+            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'm' query parameter.");
         }
 
-        var tokens = _tokenomicsMetricsStore.GetMonthlyTokenBalance(identity.UserId);
+        var response = _tokenomicsMetricsStore.GetMetrics(identity.UserId, model);
         return WriteJsonAsync(
             ctx.Response,
-            new TokenBalanceResponse { UserId = identity.UserId, Tokens = tokens },
-            MetricsJsonContext.Default.TokenBalanceResponse);
+            response,
+            MetricsJsonContext.Default.MetricsLookupResponse);
     }
-
-    public Task DailyBudgets(HttpContext ctx, RequestIdentity identity)
-    {
-        if (string.IsNullOrWhiteSpace(identity.UserId))
-        {
-            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
-        }
-
-        var costUsd = _tokenomicsMetricsStore.GetDailyBudgetUsage(identity.UserId);
-        return WriteJsonAsync(
-            ctx.Response,
-            new BudgetUsageResponse { UserId = identity.UserId, CostUsd = costUsd },
-            MetricsJsonContext.Default.BudgetUsageResponse);
-    }
-
-    public Task MonthlyBudgets(HttpContext ctx, RequestIdentity identity)
-    {
-        if (string.IsNullOrWhiteSpace(identity.UserId))
-        {
-            return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'u' query parameter.");
-        }
-
-        var costUsd = _tokenomicsMetricsStore.GetMonthlyBudgetUsage(identity.UserId);
-        return WriteJsonAsync(
-            ctx.Response,
-            new BudgetUsageResponse { UserId = identity.UserId, CostUsd = costUsd },
-            MetricsJsonContext.Default.BudgetUsageResponse);
-    }
-
-    // Abuse detection, approved exceptions, and administrator overrides have no data source in
-    // the rollups queue (userId, model, dayUtc, inputTokens, outputTokens, costUsd); they remain
-    // unimplemented pending a lookup source (e.g. the outcomes upload endpoint or an admin API).
-    public static Task AbuseDetected(HttpContext ctx, RequestIdentity identity) => HandleNotImplementedAsync(ctx, identity);
-
-    public static Task ApprovedException(HttpContext ctx, RequestIdentity identity) => HandleNotImplementedAsync(ctx, identity);
-
-    public static Task AdministratorOverride(HttpContext ctx, RequestIdentity identity) => HandleNotImplementedAsync(ctx, identity);
 
     private static Task HandleProbeAsync(HttpContext ctx)
     {
@@ -345,9 +294,6 @@ public sealed class MetricsHttpServer : BackgroundService
 
         return Task.CompletedTask;
     }
-
-    private static Task HandleNotImplementedAsync(HttpContext ctx, RequestIdentity identity) =>
-        WriteNotImplementedAsync(ctx.Response);
 
     /// <summary>
     /// Single upload endpoint for tokenomics data pushed by proxy instances. Accepts a CSV batch
@@ -623,21 +569,6 @@ public sealed class MetricsHttpServer : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Reads a request body as text via a <see cref="BufferedStream"/>-wrapped <see cref="StreamReader"/>,
-    /// decoding UTF-8 as the bytes arrive instead of buffering raw bytes and decoding them afterward.
-    /// Returns null if the decoded text exceeds <paramref name="maxBytes"/>, matching the
-    /// too-large contract of <see cref="ReadBodyAsync"/>.
-    /// </summary>
-    private static async Task<string?> ReadBodyAsStringAsync(Stream body, int maxBytes, CancellationToken cancellationToken)
-    {
-        using var bufferedStream = new BufferedStream(body);
-        using var reader = new StreamReader(bufferedStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
-
-        var text = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        return Encoding.UTF8.GetByteCount(text) > maxBytes ? null : text;
-    }
-
     private static void WriteProbeHeaders(HttpResponse response)
     {
         response.StatusCode = StatusCodes.Status200OK;
@@ -659,12 +590,6 @@ public sealed class MetricsHttpServer : BackgroundService
         response.StatusCode = statusCode;
         return WriteJsonBodyAsync(response, new ErrorResponse { Error = message }, MetricsJsonContext.Default.ErrorResponse);
     }
-
-    private static Task WriteNotImplementedAsync(HttpResponse response) =>
-        WriteErrorAsync(
-            response,
-            StatusCodes.Status501NotImplemented,
-            "The tokenomics metrics route is registered but not implemented.");
 
     private static Task WriteJsonAsync<T>(HttpResponse response, T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
     {

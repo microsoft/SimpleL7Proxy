@@ -20,13 +20,7 @@ public static class Constants
     public const string TokenomicsUpload = "/tokenomics/metrics/upload";
 
     // Tokenomics query route prefixes
-    public const string TokenomicsDailyTokens = "/tokenomics/metrics/tokens/daily/users";
-    public const string TokenomicsMonthlyTokens = "/tokenomics/metrics/tokens/monthly/users";
-    public const string TokenomicsDailyBudgets = "/tokenomics/metrics/budgets/daily/users";
-    public const string TokenomicsMonthlyBudgets = "/tokenomics/metrics/budgets/monthly/users";
-    public const string TokenomicsAbuseDetected = "/tokenomics/metrics/abuse-detected/users";
-    public const string TokenomicsApprovedException = "/tokenomics/metrics/approved-exception/users";
-    public const string TokenomicsAdministratorOverride = "/tokenomics/metrics/administrator-override/users";
+    public const string TokenomicsLookup = "/tokenomics/metrics/lookup";
 
     // Query routes
     public const string Status = "/metrics/status";
