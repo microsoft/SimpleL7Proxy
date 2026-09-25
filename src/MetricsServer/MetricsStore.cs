@@ -10,8 +10,6 @@ namespace MetricsServer;
 public sealed class MetricsStore
 {
     private const string UnknownName = "unknown";
-    private const double DegradedFailureRatio = 0.05;
-    private const double UnhealthyFailureRatio = 0.25;
 
     private readonly MetricsOptions _options;
     private readonly ConcurrentDictionary<MetricKey, MetricSeries> _series = new();
@@ -94,43 +92,25 @@ public sealed class MetricsStore
         var minBucketId = maxBucketId - ((window / _options.BucketSeconds) - 1);
 
         var aggregate = default(MetricAggregate);
-        var seriesCount = 0;
-        long lastUpdate = 0;
 
         foreach (var series in Select(user, model))
         {
-            seriesCount++;
             series.Accumulate(minBucketId, maxBucketId, ref aggregate);
-            if (series.LastUpdate > lastUpdate)
-            {
-                lastUpdate = series.LastUpdate;
-            }
         }
 
         var response = new StatusResponse
         {
             User = string.IsNullOrWhiteSpace(user) ? "*" : user.Trim(),
             Model = string.IsNullOrWhiteSpace(model) ? "*" : model.Trim(),
-            WindowSeconds = window,
-            WindowStart = minBucketId * _options.BucketSeconds,
-            WindowEnd = (maxBucketId + 1) * _options.BucketSeconds,
-            SeriesCount = seriesCount,
-            Requests = aggregate.Requests,
-            Successes = aggregate.Successes,
-            Failures = aggregate.Failures,
-            MaxLatencyMs = aggregate.LatencyMsMax,
             PromptTokens = aggregate.PromptTokens,
-            CompletionTokens = aggregate.CompletionTokens,
-            LastUpdate = lastUpdate
+            CompletionTokens = aggregate.CompletionTokens
         };
 
         if (aggregate.Requests > 0)
         {
-            response.SuccessRate = (double)aggregate.Successes / aggregate.Requests;
             response.AverageLatencyMs = (double)aggregate.LatencyMsTotal / aggregate.Requests;
         }
 
-        response.Status = Classify(aggregate);
         return response;
     }
 
@@ -164,13 +144,9 @@ public sealed class MetricsStore
             response.Buckets.Add(new BucketResponse
             {
                 Start = (minBucketId + i) * _options.BucketSeconds,
-                Requests = aggregate.Requests,
-                Successes = aggregate.Successes,
-                Failures = aggregate.Failures,
                 AverageLatencyMs = aggregate.Requests > 0
                     ? (double)aggregate.LatencyMsTotal / aggregate.Requests
                     : 0,
-                MaxLatencyMs = aggregate.LatencyMsMax,
                 PromptTokens = aggregate.PromptTokens,
                 CompletionTokens = aggregate.CompletionTokens
             });
@@ -344,22 +320,6 @@ public sealed class MetricsStore
         // Round up to whole buckets so a window always covers at least one bucket.
         var buckets = (windowSeconds + _options.BucketSeconds - 1) / _options.BucketSeconds;
         return Math.Max(1, buckets) * _options.BucketSeconds;
-    }
-
-    private static string Classify(in MetricAggregate aggregate)
-    {
-        if (aggregate.Requests <= 0)
-        {
-            return "unknown";
-        }
-
-        var failureRatio = (double)aggregate.Failures / aggregate.Requests;
-        if (failureRatio <= DegradedFailureRatio)
-        {
-            return "healthy";
-        }
-
-        return failureRatio <= UnhealthyFailureRatio ? "degraded" : "unhealthy";
     }
 
     private static string Normalize(string? value)

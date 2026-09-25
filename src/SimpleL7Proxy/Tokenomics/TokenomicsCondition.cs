@@ -38,18 +38,18 @@ public sealed class TokenomicsCondition
 
         AbuseDetected = data.IsAbusive;
 
-        DailyQuotaExceeded = tokenMetricsCache.GetDailyTokenBalance(data.UserID) >= settings.DailyTokenLimit;
-        MonthlyQuotaExceeded = tokenMetricsCache.GetMonthlyTokenBalance(data.UserID) >= settings.MonthlyTokenLimit;
+        DailyQuotaExceeded = tokenMetricsCache.GetDailyTokenBalance(data.UserID, data.Model) >= settings.DailyTokenLimit;
+        MonthlyQuotaExceeded = tokenMetricsCache.GetMonthlyTokenBalance(data.UserID, data.Model) >= settings.MonthlyTokenLimit;
 
-        MonthlyBudgetExceeded = tokenMetricsCache.GetMonthlyBudgetUsage(data.UserID) >= settings.MonthlyBudgetUsd;
-        DailyBudgetExceeded = tokenMetricsCache.GetDailyBudgetUsage(data.UserID) >= settings.DailyBudgetUsd;
+        MonthlyBudgetExceeded = tokenMetricsCache.GetMonthlyBudgetUsage(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
+        DailyBudgetExceeded = tokenMetricsCache.GetDailyBudgetUsage(data.UserID, data.Model) >= settings.DailyBudgetUsd;
 
         CapacityConstrained = settings.CurrentCapacityUtilizationPercent >= settings.CapacityConstraintThresholdPercent;
         CapacityAvailable = settings.CurrentCapacityUtilizationPercent < settings.CapacityConstraintThresholdPercent;
 
         QueueDepthHigh = queue.thrdSafeCount >= (queue.MaxQueueLength * settings.HighQueueDepthThreshold);
 
-        PreferredModelUnavailable = !tokenMetricsCache.IsModelAvailable(data.Model);
+        // PreferredModelUnavailable = !tokenMetricsCache.IsModelAvailable(data.Model);
         ModelReplacementAllowed = data.ModelReplacementAllowed;
 
         LargeContextRequest = data.S7PInputTokens >= settings.LargeContextThreshold;

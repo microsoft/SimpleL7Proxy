@@ -76,7 +76,6 @@ public sealed class TokenomicsRollupProcessor
         var replicaKey = string.IsNullOrEmpty(replicaId) ? "unknown" : replicaId;
         if (!_recentBatchesByReplica.TryGetValue(replicaKey, out var history))
         {
-            Console.WriteLine($"No recent batches found for replica {replicaId ?? "unknown"}");
             return new List<string>();
         }
 
@@ -101,11 +100,7 @@ public sealed class TokenomicsRollupProcessor
                     var entries = ParseCsvEntries(item.Body);
                     foreach (var entry in entries)
                     {
-                        _store.Record(
-                            entry.UserId,
-                            entry.Model,
-                            entry.Day,
-                            entry.InputTokens + entry.OutputTokens);
+                        _store.Record(entry);
                     }
 
                     RecordBatch(item.ReplicaId, item.BatchId);

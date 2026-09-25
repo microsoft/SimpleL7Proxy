@@ -6,7 +6,8 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build-env
 
 WORKDIR /app
 
-# Copy the project file first so restore layers cache
+# Copy project files first so restore layers cache
+COPY Shared-parser/Shared-parser.csproj ./Shared-parser/
 COPY MetricsServer/MetricsServer.csproj ./MetricsServer/
 
 WORKDIR /app/MetricsServer
@@ -14,6 +15,7 @@ RUN dotnet restore
 
 # Copy the rest of the source code
 WORKDIR /app
+COPY Shared-parser/ ./Shared-parser/
 COPY MetricsServer/ ./MetricsServer/
 
 WORKDIR /app/MetricsServer

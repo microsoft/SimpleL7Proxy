@@ -286,7 +286,7 @@ public sealed class ErrorResponse
 [JsonSerializable(typeof(RollupRecord[]))]
 [JsonSerializable(typeof(RollupBatch))]
 [JsonSerializable(typeof(MetricsServerResponse))]
-[JsonSerializable(typeof(MetricsLookupResponse))]
+[JsonSerializable(typeof(ResponseMetric))]
 [JsonSerializable(typeof(IngestResponse))]
 [JsonSerializable(typeof(StatusResponse))]
 [JsonSerializable(typeof(SeriesResponse))]

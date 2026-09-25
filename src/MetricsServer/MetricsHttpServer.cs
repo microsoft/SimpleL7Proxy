@@ -72,7 +72,6 @@ public sealed class MetricsHttpServer : BackgroundService
 
         _postRoutes = new Dictionary<string, Func<HttpContext, RequestIdentity, Task>>(StringComparer.OrdinalIgnoreCase)
         {
-            [Constants.Rollup] = IngestAsync,
             [Constants.TokenomicsUpload] = TokenomicsUploadAsync
         }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
     }
@@ -279,7 +278,7 @@ public sealed class MetricsHttpServer : BackgroundService
         return WriteJsonAsync(
             ctx.Response,
             response,
-            MetricsJsonContext.Default.MetricsLookupResponse);
+            MetricsJsonContext.Default.ResponseMetric);
     }
 
     private static Task HandleProbeAsync(HttpContext ctx)
@@ -299,8 +298,8 @@ public sealed class MetricsHttpServer : BackgroundService
     /// Single upload endpoint for tokenomics data pushed by proxy instances. Accepts a CSV batch
     /// of token/spend deltas and enqueues the raw body for later processing. Parsing happens on
     /// the dequeue side, inside <see cref="TokenomicsRollupProcessor.RunAsync"/>. This replaces
-    /// the former separate rollups/outcomes/model-throttles routes; only token/spend rollup rows
-    /// are currently sent or parsed.
+    /// the former separate rollups/outcomes/model-throttles routes; token, safety, status, and
+    /// latency deltas are sent and parsed in the same rollup rows.
     /// 
     /// PAYLOAD FORMAT:
     /// ReplicaId: <replica-id>
@@ -347,95 +346,8 @@ public sealed class MetricsHttpServer : BackgroundService
 
     private async Task IngestAsync(HttpContext ctx, RequestIdentity identity)
     {
-        byte[]? body;
-        try
-        {
-            body = await ReadBodyAsync(ctx.Request.BodyReader, _options.MaxRequestBodyBytes, ctx.RequestAborted)
-                .ConfigureAwait(false);
-        }
-        catch (BadHttpRequestException)
-        {
-            await WriteErrorAsync(ctx.Response, StatusCodes.Status413PayloadTooLarge, "Request body too large.")
-                .ConfigureAwait(false);
-            return;
-        }
 
-        if (body is null)
-        {
-            await WriteErrorAsync(ctx.Response, StatusCodes.Status413PayloadTooLarge, "Request body too large.")
-                .ConfigureAwait(false);
-            return;
-        }
-
-        if (body.Length == 0)
-        {
-            await WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Request body is empty.")
-                .ConfigureAwait(false);
-            return;
-        }
-
-        var accepted = 0;
-        var rejected = 0;
-        var capacityReached = false;
-
-        try
-        {
-            if (IsJsonArray(body))
-            {
-                var records = JsonSerializer.Deserialize(body, MetricsJsonContext.Default.RollupRecordArray);
-                if (records is not null)
-                {
-                    foreach (var record in records)
-                    {
-                        Count(record, ref accepted, ref rejected, ref capacityReached);
-                    }
-                }
-            }
-            else if (HasRecordsProperty(body))
-            {
-                var batch = JsonSerializer.Deserialize(body, MetricsJsonContext.Default.RollupBatch);
-                if (batch?.Records is { Count: > 0 } batchRecords)
-                {
-                    foreach (var record in batchRecords)
-                    {
-                        Count(record, ref accepted, ref rejected, ref capacityReached);
-                    }
-                }
-            }
-            else
-            {
-                var record = JsonSerializer.Deserialize(body, MetricsJsonContext.Default.RollupRecord);
-                Count(record, ref accepted, ref rejected, ref capacityReached);
-            }
-        }
-        catch (JsonException)
-        {
-            await WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Invalid JSON payload.")
-                .ConfigureAwait(false);
-            return;
-        }
-
-        var response = new IngestResponse { Accepted = accepted, Rejected = rejected };
-
-        if (accepted > 0)
-        {
-            ctx.Response.StatusCode = StatusCodes.Status202Accepted;
-        }
-        else if (capacityReached)
-        {
-            // The series limit is a server capacity condition, so retrying later can succeed.
-            ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        }
-        else if (rejected > 0)
-        {
-            // Stale timestamps and unusable records are client errors; retrying will not help.
-            ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
-        }
-        else
-        {
-            ctx.Response.StatusCode = StatusCodes.Status202Accepted;
-        }
-
+        var response = new IngestResponse { Accepted = 0, Rejected = 0 };
         await WriteJsonBodyAsync(ctx.Response, response, MetricsJsonContext.Default.IngestResponse)
             .ConfigureAwait(false);
     }

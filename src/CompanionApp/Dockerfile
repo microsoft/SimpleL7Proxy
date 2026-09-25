@@ -18,7 +18,6 @@ COPY src/CompanionApp/ src/CompanionApp/
 RUN dotnet publish src/CompanionApp/CompanionApp.csproj \
     --configuration Release \
     --output /app/publish \
-    --no-restore \
     -p:UseAppHost=false \
     && test -s /app/publish/wwwroot/_framework/blazor.web.js \
     && test -s /app/publish/wwwroot/_framework/blazor.server.js

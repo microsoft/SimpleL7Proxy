@@ -88,7 +88,7 @@ public class ModelSwapper
             {
                 if (modelOverride is ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade)
                 {
-                    ModelOverrideName = tokenomicsHandler.UpdateModel(sourceModel, modelOverride);
+                    ModelOverrideName = tokenomicsHandler.UpdateModel(request.Model, modelOverride);
                 }
             }
 

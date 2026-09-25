@@ -34,7 +34,7 @@ internal sealed record RollupBatch(
 /// <see cref="AddMetric"/> and drive <see cref="Collapse"/>; content-safety counters and
 /// request-outcome sampling remain the caller's responsibility.
 /// </remarks>
-public sealed class TokenRollupCollector: IConfigChangeSubscriber
+public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedService
 {
     private const int InputTokensIndex = 0;
     private const int OutputTokensIndex = 1;
@@ -51,12 +51,9 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber
     private readonly ConcurrentDictionary<(string UserId, string Model), long[]> _aggregateBalance = new();
     private Dictionary<(string UserId, string Model, DateOnly Day), (long InputTokens, long OutputTokens, long CachedTokens)> _pendingRollups = new();
 
-    /// <summary>Guards <see cref="_pendingRollups"/> and <see cref="_collapseCyclesSincePayload"/> during <see cref="Collapse"/> and <see cref="TryGetBatch"/>.</summary>
-    private readonly object _pendingRollupsLock = new();
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     private int _activeQueueIndex;
-    private int _collapseCyclesSincePayload;
     private readonly CancellationTokenSource _transmissionLoopCts = new();
     private Task? _transmissionLoopTask;
     private Uri _metricsServerUri = null!;
@@ -89,6 +86,7 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber
 
     public void InitVars()
     {
+
         if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
         {
             _options.TokenomicsEnable = false;
@@ -97,42 +95,12 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber
         _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/upload");
     }
 
-    /// <summary>
-    /// Starts this collector's own periodic detach-and-transmit loop, independent of the
-    /// caller's <see cref="Collapse"/> cadence.
-    /// </summary>
-    public void StartTransmissionLoop()
-    {
-        if (_transmissionLoopTask != null)
-        {
-            return;
-        }
-
-        _transmissionLoopTask = Task.Run(() => RunTransmissionLoopAsync(_transmissionLoopCts.Token));
-    }
-
-    /// <summary>Stops the transmission loop started by <see cref="StartTransmissionLoop"/>, waiting for any in-flight cycle to finish.</summary>
-    public async Task StopTransmissionLoopAsync()
-    {
-        if (_transmissionLoopTask == null)
-        {
-            return;
-        }
-
-        await _transmissionLoopCts.CancelAsync().ConfigureAwait(false);
-
-        try
-        {
-            await _transmissionLoopTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
+    const string NL = "\n";
 
     /// <summary>Runs the detach-and-transmit cycle on <see cref="TransmissionInterval"/> until cancellation is requested.</summary>
     private async Task RunTransmissionLoopAsync(CancellationToken cancellationToken)
     {
+        Console.WriteLine("[TokenRollupCollector] Started");
         using var timer = new PeriodicTimer(TransmissionInterval);
         var replicaId = _options.ReplicaName;
 
@@ -141,9 +109,7 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber
 
         // List<string> processingBatches = new();
         List<string> processedBatches = new();
-        string currentBatchId = "";
         Dictionary<string, string> batchPayloads = new();
-        const string NL = "\n";
 
         try
         {
@@ -233,7 +199,7 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber
         CollapsedCSV.Append(PendingMetric.CsvHeader).Append(NL);
         foreach ( string l in _csvmetrics[queueToCollapseIndex])
         {
-            CollapsedCSV.AppendLine(l);
+            CollapsedCSV.Append(l).Append(NL);
         }
         _csvmetrics[queueToCollapseIndex].Clear();
         return CollapsedCSV.ToString();
@@ -275,6 +241,44 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber
                 .ConfigureAwait(false);
 
         }
+    }
+
+
+        /// <summary>
+    /// Starts this collector's own periodic detach-and-transmit loop, independent of the
+    /// caller's <see cref="Collapse"/> cadence.
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+
+        if (_transmissionLoopTask != null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _transmissionLoopTask = Task.Run(() => RunTransmissionLoopAsync(_transmissionLoopCts.Token));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Stops the transmission loop started by <see cref="StartTransmissionLoop"/>, waiting for any in-flight cycle to finish.</summary>
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_transmissionLoopTask == null)
+        {
+            return ;
+        }
+
+        await _transmissionLoopCts.CancelAsync().ConfigureAwait(false);
+
+        try
+        {
+            await _transmissionLoopTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return ;
     }
 
 

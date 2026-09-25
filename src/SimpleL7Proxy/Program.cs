@@ -290,6 +290,12 @@ public class Program
         services.AddSingleton<ProfileEnricher>();
 
         // Register tokenomics-related services.
+        services.AddSingleton<TokenRollupCollector>();
+        services.AddHostedService<TokenRollupCollector>(sp => sp.GetRequiredService<TokenRollupCollector>());
+
+        services.AddSingleton<LiveMetrics>();
+        services.AddHostedService<LiveMetrics>(sp => sp.GetRequiredService<LiveMetrics>());
+        
         services.AddSingleton<TokenomicsSettings>();
         services.AddSingleton<TokenMetricsCache>();
         services.AddSingleton<TokenomicsHandler>();

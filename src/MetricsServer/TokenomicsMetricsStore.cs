@@ -12,75 +12,156 @@ namespace MetricsServer;
 /// </summary>
 public sealed class TokenomicsMetricsStore
 {
-    private sealed class Totals
+    private sealed class InternalMetric
     {
-        public long Tokens;
+        public long InputTokens;
+        public long OutputTokens;
+        public long CachedTokens;
+        public bool IsJailbreakDetected;
+        public bool IsContentFiltered;
+        public long StatusSamples;
+        public long Status429;
+        public double LatencyMsTotal;
+        public long LatencySamples;
     }
 
-    private readonly ConcurrentDictionary<string, Totals> _dailyByUserModel = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, Totals> _monthlyByUserModel = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, InternalMetric> _dailyByUserModel = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, InternalMetric> _dailyByModel = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, InternalMetric> _monthlyByUserModel = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, InternalMetric> _monthlyByModel = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _rollupLock = new();
+
+    private DateOnly _currentDay;
+    private int _currentMonth;
 
     /// <summary>
-    /// Merges one normalized rollup delta into the user/model daily and monthly totals. Empty
-    /// identifiers are recorded as "unknown", matching the convention used elsewhere.
+    /// Updates the current-day and current-month user/model and model aggregates.
     /// </summary>
-    public void Record(string? userId, string? model, DateOnly day, long tokens)
+    public void Record(in PendingMetric metric)
     {
-        var user = Normalize(userId);
-        var normalizedModel = Normalize(model);
+        var user = Normalize(metric.UserId);
+        var model = Normalize(metric.Model);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var month = (today.Year * 100) + today.Month;
 
-        Accumulate(
-            _dailyByUserModel.GetOrAdd(DailyUserModelKey(user, normalizedModel, day), _ => new Totals()),
-            tokens);
-        Accumulate(
-            _monthlyByUserModel.GetOrAdd(MonthlyUserModelKey(user, normalizedModel, day.Year, day.Month), _ => new Totals()),
-            tokens);
+        lock (_rollupLock)
+        {
+            if (_currentDay != today)
+            {
+                _dailyByUserModel.Clear();
+                _dailyByModel.Clear();
+                _currentDay = today;
+            }
+
+            if (_currentMonth != month)
+            {
+                _monthlyByUserModel.Clear();
+                _monthlyByModel.Clear();
+                _currentMonth = month;
+            }
+
+            if (metric.Day != today)
+            {
+                return;
+            }
+
+            Accumulate(
+                _dailyByUserModel.GetOrAdd(
+                    DailyUserModelKey(user, model, today),
+                    _ => new InternalMetric()),
+                metric);
+            Accumulate(_dailyByModel.GetOrAdd(model, _ => new InternalMetric()), metric);
+            Accumulate(
+                _monthlyByUserModel.GetOrAdd(
+                    MonthlyUserModelKey(user, model, today.Year, today.Month),
+                    _ => new InternalMetric()),
+                metric);
+            Accumulate(_monthlyByModel.GetOrAdd(model, _ => new InternalMetric()), metric);
+        }
     }
 
     /// <summary>Gets all available metrics for a user and model combination.</summary>
-    public MetricsLookupResponse GetMetrics(string? userId, string? model)
+    public ResponseMetric GetMetrics(string? userId, string? model)
     {
         var user = Normalize(userId);
         var normalizedModel = Normalize(model);
         var now = DateTime.UtcNow;
         var today = DateOnly.FromDateTime(now);
+        var month = (today.Year * 100) + today.Month;
 
-        return new MetricsLookupResponse
+        lock (_rollupLock)
         {
-            UserId = user,
-            Model = normalizedModel,
-            DailyTokenBalance = GetTokens(
-                _dailyByUserModel,
-                DailyUserModelKey(user, normalizedModel, today)),
-            MonthlyTokenBalance = GetTokens(
-                _monthlyByUserModel,
-                MonthlyUserModelKey(user, normalizedModel, now.Year, now.Month)),
-            DailyBudgetUsage = 0m,
-            MonthlyBudgetUsage = 0m,
-            IsAbuseDetected = false,
-            HasApprovedException = false,
-            HasAdministratorOverride = false
-        };
-    }
+            if (_currentDay != today)
+            {
+                _dailyByUserModel.Clear();
+                _dailyByModel.Clear();
+                _currentDay = today;
+            }
 
-    private static void Accumulate(Totals totals, long tokens)
-    {
-        lock (totals)
-        {
-            totals.Tokens += tokens;
+            if (_currentMonth != month)
+            {
+                _monthlyByUserModel.Clear();
+                _monthlyByModel.Clear();
+                _currentMonth = month;
+            }
+
+            _dailyByUserModel.TryGetValue(
+                DailyUserModelKey(user, normalizedModel, today),
+                out var daily);
+            _monthlyByUserModel.TryGetValue(
+                MonthlyUserModelKey(user, normalizedModel, today.Year, today.Month),
+                out var monthly);
+            _dailyByModel.TryGetValue(normalizedModel, out var dailyModel);
+            _monthlyByModel.TryGetValue(normalizedModel, out var monthlyModel);
+
+            return new ResponseMetric(
+                user,
+                normalizedModel,
+                checked((int)(daily?.InputTokens ?? 0)),
+                checked((int)(daily?.OutputTokens ?? 0)),
+                checked((int)(daily?.CachedTokens ?? 0)),
+                daily?.IsJailbreakDetected ?? false,
+                daily?.IsContentFiltered ?? false,
+                dailyModel is { StatusSamples: > 0 } ? checked((int)dailyModel.Status429) : 0,
+                daily is { StatusSamples: > 0 } ? checked((int)daily.Status429) : 0,
+                checked((int)(monthly?.InputTokens ?? 0)),
+                checked((int)(monthly?.OutputTokens ?? 0)),
+                checked((int)(monthly?.CachedTokens ?? 0)),
+                monthly?.IsJailbreakDetected ?? false,
+                monthly?.IsContentFiltered ?? false,
+                monthlyModel is { StatusSamples: > 0 } ? checked((int)monthlyModel.Status429) : 0,
+                monthly is { StatusSamples: > 0 } ? checked((int)monthly.Status429) : 0,
+                daily is { LatencySamples: > 0 }
+                    ? daily.LatencyMsTotal / daily.LatencySamples
+                    : 0,
+                monthly is { LatencySamples: > 0 }
+                    ? monthly.LatencyMsTotal / monthly.LatencySamples
+                    : 0,
+                now);
         }
     }
 
-    private static long GetTokens(ConcurrentDictionary<string, Totals> dict, string key)
+    private static void Accumulate(InternalMetric totals, in PendingMetric metric)
     {
-        if (!dict.TryGetValue(key, out var totals))
+        totals.InputTokens += metric.InputTokens;
+        totals.OutputTokens += metric.OutputTokens;
+        totals.CachedTokens += metric.CachedTokens;
+        totals.IsJailbreakDetected |= metric.IsJailbreakDetected;
+        totals.IsContentFiltered |= metric.IsContentFiltered;
+
+        if (metric.StatusCode.HasValue)
         {
-            return 0;
+            totals.StatusSamples++;
+            if (metric.StatusCode == 429)
+            {
+                totals.Status429++;
+            }
         }
 
-        lock (totals)
+        if (metric.LatencyMs.HasValue)
         {
-            return totals.Tokens;
+            totals.LatencyMsTotal += metric.LatencyMs.Value;
+            totals.LatencySamples++;
         }
     }
 
