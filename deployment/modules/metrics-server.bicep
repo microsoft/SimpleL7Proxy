@@ -64,3 +64,4 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
 
 output appId string = app.id
 output identityPrincipalId string = app.identity.principalId
+output url string = 'https://${app.properties.configuration.ingress.fqdn}'

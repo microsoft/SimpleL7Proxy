@@ -92,7 +92,14 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
             _options.TokenomicsEnable = false;
             return;
         }
-        _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/upload");
+        try 
+        {
+            _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/upload");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TokenRollupCollector] Failed to initialize metrics server URI");
+        }
     }
 
     const string NL = "\n";

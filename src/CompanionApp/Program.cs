@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
+var metricsServerOverride = Environment.GetEnvironmentVariable("MerticsServerOverride");
 builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
@@ -80,6 +82,16 @@ else
         if (!labelExists)
         {
             var drafts = appConfiguration.CreateLabelDraft(configuredLabel);
+            if (metricsServerOverride is not null)
+            {
+                drafts.Single(setting => setting.Key == "Warm:Tokenomics:MetricsServer").DraftValue = metricsServerOverride;
+                drafts.Single(setting => setting.Key == "Warm:Tokenomics:Enable").DraftValue = "true";
+            }
+            if (sidecarOverride is not null)
+            {
+                drafts.Single(setting => setting.Key == "Warm:HealthProbe:Sidecar").DraftValue =
+                    $"Enabled=true;url={sidecarOverride}";
+            }
             var result = await appConfiguration.UpdateAsync(
                 appConfiguration.DefaultEndpoint,
                 configuredLabel,

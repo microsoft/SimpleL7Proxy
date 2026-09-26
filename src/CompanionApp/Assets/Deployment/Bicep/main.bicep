@@ -42,6 +42,7 @@ module companionAppBootstrap 'modules/companion-app.bicep' = if (settings.DEPLOY
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
     appConfigurationEndpoint: ''
+    metricsServerUrl: metricsServerBootstrap.?outputs.url ?? ''
   }
 }
 
@@ -126,6 +127,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     usePrivateRegistry: true
     environmentId: foundation.outputs.environmentId
     appConfigurationEndpoint: configuration.outputs.endpoint
+    metricsServerUrl: metricsServerBootstrap.?outputs.url ?? ''
   }
   dependsOn: [
     registryAccess

@@ -7,8 +7,31 @@ param settings DeploymentSettings
 param usePrivateRegistry bool
 param environmentId string
 param appConfigurationEndpoint string
+param metricsServerUrl string
 
 var companionImage = usePrivateRegistry ? '${registry.properties.loginServer}/${settings.COMPANION_IMAGE_NAME}:v2.3.0' : 'publicnvmacr.azurecr.io/companionapp:v2.3.0'
+var sidecarOverrideEnvironment = settings.HEALTHPROBE_TYPE == 'sidecar' ? [
+  {
+    name: 'SidecarOverride'
+    value: 'http://localhost:${settings.HEALTH_PORT}'
+  }
+] : []
+var metricsServerOverrideEnvironment = settings.DEPLOY_METRICS_SERVER ? [
+  {
+    name: 'MerticsServerOverride'
+    value: metricsServerUrl
+  }
+] : []
+var companionEnvironment = concat([
+  {
+    name: 'CompanionApp__AppConfigurationEndpoint'
+    value: appConfigurationEndpoint
+  }
+  {
+    name: 'CompanionApp__AppConfigurationLabel'
+    value: settings.APPCONFIG_LABEL
+  }
+], sidecarOverrideEnvironment, metricsServerOverrideEnvironment)
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: settings.ACR_NAME
@@ -51,16 +74,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'companion'
           image: companionImage
-          env: [
-            {
-              name: 'CompanionApp__AppConfigurationEndpoint'
-              value: appConfigurationEndpoint
-            }
-            {
-              name: 'CompanionApp__AppConfigurationLabel'
-              value: settings.APPCONFIG_LABEL
-            }
-          ]
+          env: companionEnvironment
           resources: {
             cpu: json(settings.WEB_CPU)
             memory: '${settings.WEB_MEMORY}Gi'
