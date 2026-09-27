@@ -4,6 +4,7 @@ using CompanionApp.Components.Shared.EventHub;
 using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
+using SimpleL7Proxy.StreamProcessor;
 
 var builder = WebApplication.CreateBuilder(args);
 var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
@@ -57,6 +58,7 @@ builder.Services.Configure<CompanionAppOptions>(options =>
     options.Hosts = builder.Configuration
         .GetSection($"{CompanionAppOptions.UiSectionName}:Hosts")
         .Get<AppConfigHostSettings>() ?? new();
+    options.Hosts.FieldChoices["processor"] = StreamProcessorFactory.ProcessorNames.ToArray();
 });
 builder.Services.Configure<EventHubMonitorOptions>(
     builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));

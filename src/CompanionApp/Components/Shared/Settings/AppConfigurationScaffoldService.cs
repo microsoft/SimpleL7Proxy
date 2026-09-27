@@ -106,14 +106,28 @@ public sealed class AppConfigurationScaffoldService
     public IReadOnlyList<AppConfigurationScaffoldSetting> CreateLabelDraft(
         string label, IReadOnlyCollection<AppConfigurationScaffoldSetting>? source = null)
     {
-        if (string.IsNullOrWhiteSpace(label) || label.Length > 256 || label.IndexOfAny(['*', ',', '\\', '\0']) >= 0)
+        if (label is null
+            || label.Length > 256
+            || (label.Length > 0 && string.IsNullOrWhiteSpace(label))
+            || label.IndexOfAny(['*', ',', '\\', '\0']) >= 0)
         {
-            throw new ArgumentException("Enter a label of 1-256 characters without *, comma, backslash, or null characters.");
+            throw new ArgumentException("Enter no label or a label of 1-256 characters without *, comma, backslash, or null characters.");
         }
 
+        var defaults = ReadProxyDefaults();
         var values = source is null
-            ? ReadProxyDefaults()
+            ? defaults.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal)
             : source.ToDictionary(setting => setting.Key, setting => setting.LoadedValue, StringComparer.Ordinal);
+        if (source is not null)
+        {
+            foreach (var entry in defaults.Where(entry =>
+                entry.Key.StartsWith("Warm:Tokenomics:", StringComparison.OrdinalIgnoreCase)
+                && !values.Keys.Contains(entry.Key, StringComparer.OrdinalIgnoreCase)))
+            {
+                values.Add(entry.Key, entry.Value);
+            }
+        }
+
         var drafts = new List<AppConfigurationScaffoldSetting>();
         foreach (var entry in values)
         {

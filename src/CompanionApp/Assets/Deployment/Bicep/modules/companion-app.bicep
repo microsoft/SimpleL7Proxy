@@ -7,13 +7,14 @@ param settings DeploymentSettings
 param usePrivateRegistry bool
 param environmentId string
 param appConfigurationEndpoint string
+param sidecarUrl string
 param metricsServerUrl string
 
 var companionImage = usePrivateRegistry ? '${registry.properties.loginServer}/${settings.COMPANION_IMAGE_NAME}:v2.3.0' : 'publicnvmacr.azurecr.io/companionapp:v2.3.0'
-var sidecarOverrideEnvironment = settings.HEALTHPROBE_TYPE == 'sidecar' ? [
+var sidecarOverrideEnvironment = !empty(sidecarUrl) ? [
   {
     name: 'SidecarOverride'
-    value: 'http://localhost:${settings.HEALTH_PORT}'
+    value: sidecarUrl
   }
 ] : []
 var metricsServerOverrideEnvironment = settings.DEPLOY_METRICS_SERVER ? [

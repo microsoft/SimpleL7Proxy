@@ -180,3 +180,4 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 output containerAppId string = containerApp.id
 output identityPrincipalId string = containerApp.identity.principalId
 output proxyFqdn string = containerApp.properties.configuration.ingress.fqdn
+output healthProbeSidecarUrl string = settings.HEALTHPROBE_TYPE == 'sidecar' ? 'http://localhost:${settings.HEALTH_PORT}' : ''

@@ -34,8 +34,11 @@ internal sealed record RollupBatch(
 /// <see cref="AddMetric"/> and drive <see cref="Collapse"/>; content-safety counters and
 /// request-outcome sampling remain the caller's responsibility.
 /// </remarks>
-public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedService
+public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscriber, IHostedService, IReadinessParticipant
 {
+    public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.Tokenomics;
+    public ReadinessRegistry Readiness { get; }
+
     private const int InputTokensIndex = 0;
     private const int OutputTokensIndex = 1;
 
@@ -63,6 +66,7 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
 
     public TokenRollupCollector(
         TokenomicsSettings settings,
+        ReadinessRegistry readiness,
         ILogger<TokenRollupCollector> logger,
         ProxyConfig options,
         ConfigChangeNotifier configChangeNotifier)
@@ -70,6 +74,7 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
 
         InitVars();
 
@@ -84,21 +89,26 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
         return Task.CompletedTask;
     }
 
+    private static bool PrevValue = true;
     public void InitVars()
     {
 
+        try 
+        {
         if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
         {
             _options.TokenomicsEnable = false;
             return;
         }
-        try 
-        {
             _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/upload");
         }
         catch (Exception ex)
         {
+            _options.TokenomicsEnable = false;
             _logger.LogError(ex, "[TokenRollupCollector] Failed to initialize metrics server URI");
+        }
+        finally 
+        {
         }
     }
 
@@ -107,7 +117,6 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
     /// <summary>Runs the detach-and-transmit cycle on <see cref="TransmissionInterval"/> until cancellation is requested.</summary>
     private async Task RunTransmissionLoopAsync(CancellationToken cancellationToken)
     {
-        Console.WriteLine("[TokenRollupCollector] Started");
         using var timer = new PeriodicTimer(TransmissionInterval);
         var replicaId = _options.ReplicaName;
 
@@ -255,25 +264,23 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
     /// Starts this collector's own periodic detach-and-transmit loop, independent of the
     /// caller's <see cref="Collapse"/> cadence.
     /// </summary>
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    //public Task StartAsync(CancellationToken cancellationToken)
     {
 
         if (_transmissionLoopTask != null)
         {
-            return Task.CompletedTask;
+            return ;
         }
 
         _transmissionLoopTask = Task.Run(() => RunTransmissionLoopAsync(_transmissionLoopCts.Token));
-        return Task.CompletedTask;
-    }
 
-    /// <summary>Stops the transmission loop started by <see cref="StartTransmissionLoop"/>, waiting for any in-flight cycle to finish.</summary>
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        if (_transmissionLoopTask == null)
-        {
-            return ;
-        }
+        _logger.LogWarning("[Tokenomics] Tokenomics metrics server {Status}", _options.TokenomicsEnable ? "Enabled" : "Disabled");
+
+        this.RegisterReady();
+
+        // wait for the cancellation token
+        await Task.Delay(Timeout.Infinite, stoppingToken).ConfigureAwait(false);
 
         await _transmissionLoopCts.CancelAsync().ConfigureAwait(false);
 
@@ -287,6 +294,4 @@ public sealed class TokenRollupCollector: IConfigChangeSubscriber, IHostedServic
 
         return ;
     }
-
-
 }

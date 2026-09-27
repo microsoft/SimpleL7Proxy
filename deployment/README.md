@@ -29,7 +29,7 @@ To add a new four-digit suffix to every deployment-created resource name, use `-
 bash deploy.sh SUBSCRIPTION_ID validate --MakeUniq
 ```
 
-The deployment creates the App Configuration store and grants the proxy managed identity App Configuration Data Reader. When Companion App deployment is selected, it grants that app's managed identity App Configuration Data Owner and sets `CompanionApp__AppConfigurationEndpoint` to the created store endpoint. It does not write configuration settings. After `create` succeeds, the script prints the proxy URL and the Companion App URL. Open **Proxy Configuration** in the Companion App and create or duplicate a configuration for the selected label.
+The deployment creates the App Configuration store, grants the deployment principal App Configuration Data Owner, and grants the proxy managed identity App Configuration Data Reader. When Companion App deployment is selected, it also grants that app's managed identity App Configuration Data Owner and sets `CompanionApp__AppConfigurationEndpoint` to the created store endpoint. Selected HealthProbe and Metrics Server endpoints are resolved from their deployments and used automatically when the Companion App initializes a new label; no endpoint entry is required. It does not write configuration settings. After `create` succeeds, the script prints the proxy URL and the Companion App URL. Open **Proxy Configuration** in the Companion App and create or duplicate a configuration for the selected label.
 
 ## Check after leaving the terminal
 
