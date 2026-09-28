@@ -1,8 +1,8 @@
 # CompanionApp
 
-CompanionApp is a .NET Blazor application that can be run locally or deployed to Azure. It can be used to deploy SimpleL7Proxy to Azure, manage the proxy settings via Azure App Configuration, and test HTTP and LLM endpoints.
+CompanionApp is a .NET Blazor application that is meant to be deployed as a container app.  On startup, it completes setup for a proxy by creating the configuration settings.  It is also meant to be usued to configure the running settings.  When not needed, it is safe to stop the service and the proxy will continue operation uninterrupted.
 
-Follow the quick guides below for your scenario.
+Once deployed, you can follow the quick guides below for your scenario.
 
 <table>
 <thead>
@@ -27,7 +27,7 @@ Follow the quick guides below for your scenario.
 
 ## Set up CompanionApp
 
-The application configuration file is located in the application root folder at: `src/CompanionApp`.  
+The default settings in the file should be sufficient, however you want to override the default values you can update either settings.   If you deployed to Azure Container Apps, the settings will be in the Azure Portal for the Container Environment variables.  If running locally from the repo, the application configuration file is located in the application root folder at: `src/CompanionApp`.  
 You will want to configure the app for your environment so that you don't have to keep editing them in the UI.  These settings are stored in your local `src/CompanionApp/appsettings.json` or `src/CompanionApp/appsettings.Development.json` file.  As a best practice, your local changes should be made to `src/CompanionApp/appsettings.Development.json` as it distingueshes your settings vs the repo settings.  If it doesn't already exist, create a new file and start with a copy of the `CompanionApp` section:
 
 ```json

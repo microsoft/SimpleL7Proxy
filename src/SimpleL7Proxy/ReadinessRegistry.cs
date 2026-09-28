@@ -79,10 +79,10 @@ public sealed class ReadinessRegistry
             && Interlocked.Increment(ref _readyCount) == _expectedCount
             && _ready.TrySetResult())
         {
-            _logger.LogInformation("[GATE] \u2713 All participants ready");
+            _logger.LogInformation("[ GATE  ] \u2713 All participants ready");
         } else 
         {
-            _logger.LogInformation("[GATE] \u2713 {Name} marked ready: Waiting on not ready participants[{list}]:", 
+            _logger.LogInformation("[ GATE  ] \u2713 {Name} marked ready: Waiting on not ready participants[{list}]:", 
                 p, 
                 string.Join(", ", Enum.GetValues<ReadinessParticipantEnum>().Where(x => _expected[(int)x] && Volatile.Read(ref _state[(int)x]) == 0).Select(x => _participantNames[(int)x])));
         }
@@ -93,7 +93,7 @@ public sealed class ReadinessRegistry
         int idx = (int)p;
         if (Interlocked.Exchange(ref _state[idx], 0) != 1) return;
 
-        _logger.LogWarning("[GATE] \u25cb {Name} not ready", p);
+        _logger.LogWarning("[ GATE  ] \u25cb {Name} not ready", p);
         if (_expected[idx]) Interlocked.Decrement(ref _readyCount);
     }
 

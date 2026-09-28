@@ -25,8 +25,6 @@ public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHo
     private ConcurrentQueue<PendingMetric> _pendingMetrics = new();
 
     private readonly TokenomicsSettings _tokenomicsSettings;
-    private Uri _metricsServerUri = null!;
-
 
     /// <summary>Initializes a metrics cache with proxy configuration and model token pricing.</summary>
     public TokenMetricsCache(ProxyConfig options,
@@ -38,11 +36,7 @@ public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHo
         _tokenomicsSettings = tokenomicsSettings ?? throw new ArgumentNullException(nameof(tokenomicsSettings));
         _rollupCollector = rollupCollector ?? throw new ArgumentNullException(nameof(rollupCollector));
 
-            InitVars();
-
-        configChangeNotifier.Subscribe(this,
-           [options => options.TokenomicsEnable,
-            options => options.TokenomicsMetricsServer]);
+        InitVars();
     }
 
     public Task OnConfigChangedAsync(IReadOnlyList<ConfigChange> changes, ProxyConfig backendOptions, CancellationToken cancellationToken)
@@ -53,13 +47,6 @@ public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHo
 
     public void InitVars()
     {
-        if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
-        {
-            Console.WriteLine("Tokenomics metrics server is not configured 2.");
-            _options.TokenomicsEnable = false;
-            return;
-        }
-        _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/lookup");
     }
 
     /// <summary>Records the minimal fact-set needed by the token rollup and optional request-outcome trend analysis.</summary>
@@ -108,7 +95,7 @@ public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHo
         {
             model = "unknown";
         }
-
+Console.WriteLine("Recording request outcome for user: " + userId + ", model: " + model);
         AddMetric(userId, model, 0, 0, statusCode: statusCode, latencyMs: Math.Max(0d, latencyMs));
     }
 
@@ -125,12 +112,16 @@ public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHo
     {
         var toCollapseMetrics = Interlocked.Exchange(ref _pendingMetrics, new ConcurrentQueue<PendingMetric>());
 
+        if (toCollapseMetrics.IsEmpty)
+        {
+            return;
+        }
+
         StringBuilder csvBuilder = new StringBuilder();
         foreach (var metric in toCollapseMetrics)
         {
             try
             {
-                Console.WriteLine("Collapsing metric for user: " + metric.UserId + ", model: " + metric.Model);
                 csvBuilder.Append(metric.ToCSV()).AppendLine();
             }
             catch
@@ -189,25 +180,5 @@ public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHo
         _cancellationTokenSource.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
-    }
-
-    internal int GetDailyTokenBalance(string userID, string model)
-    {
-        throw new NotImplementedException();
-    }
-
-    internal int GetMonthlyTokenBalance(string userID, string model)
-    {
-        throw new NotImplementedException();
-    }
-
-    internal decimal GetMonthlyBudgetUsage(string userID, string model)
-    {
-        throw new NotImplementedException();
-    }
-
-    internal decimal GetDailyBudgetUsage(string userID, string model)
-    {
-        throw new NotImplementedException();
     }
 }

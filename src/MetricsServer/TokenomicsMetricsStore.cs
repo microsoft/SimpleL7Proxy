@@ -65,6 +65,9 @@ public sealed class TokenomicsMetricsStore
                 return;
             }
 
+Console.WriteLine($"\n\nRecording metric for user: {user}, model: {model}, day: {today}");
+Console.WriteLine($"Pre Data: DailyByUserModel Count: {_dailyByUserModel.Count}, DailyByModel Count: {_dailyByModel.Count}, MonthlyByUserModel Count: {_monthlyByUserModel.Count}, MonthlyByModel Count: {_monthlyByModel.Count}");
+
             Accumulate(
                 _dailyByUserModel.GetOrAdd(
                     DailyUserModelKey(user, model, today),
@@ -77,6 +80,8 @@ public sealed class TokenomicsMetricsStore
                     _ => new InternalMetric()),
                 metric);
             Accumulate(_monthlyByModel.GetOrAdd(model, _ => new InternalMetric()), metric);
+
+Console.WriteLine($"Post Data: DailyByUserModel Count: {_dailyByUserModel.Count}, DailyByModel Count: {_dailyByModel.Count}, MonthlyByUserModel Count: {_monthlyByUserModel.Count}, MonthlyByModel Count: {_monthlyByModel.Count}");
         }
     }
 

@@ -131,8 +131,7 @@ public sealed class MetricsHttpServer : BackgroundService
 
         await Task.WhenAll(
             _app.RunAsync(cancellationToken),
-            MaintenanceLoopAsync(cancellationToken),
-            _tokenomicsRollupProcessor.RunAsync(cancellationToken)).ConfigureAwait(false);
+            MaintenanceLoopAsync(cancellationToken)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -314,11 +313,13 @@ public sealed class MetricsHttpServer : BackgroundService
     {
         try
         {
+            Console.WriteLine("Reading replica payload from request body.");
             var rlr = new ReplicaPayloadReader(ctx.Request.BodyReader);
             var replicaPayload = await rlr.ReadAsync();
 
             foreach (KeyValuePair<string, string> batch in replicaPayload.Batches)
             {
+                Console.WriteLine($"Enqueuing batch {batch.Key} for replica {replicaPayload.ReplicaId}");
                 _tokenomicsRollupProcessor.Enqueue(replicaPayload.ReplicaId, batch.Key, batch.Value);
             }
 

@@ -67,7 +67,7 @@ public class WorkerFactory : BackgroundService, IReadinessParticipant
       _workers.Add(new(wrkrNum, workerPriority, _context, _internalCancellationTokenSource.Token));
     }
 
-    _logger.LogInformation($"[WORKER] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
+    _logger.LogInformation($"[WORKER ] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
     foreach (var pw in _workers)
       _tasks.Add(Task.Run(() => pw.RunWorkerLoopAsync(), cancellationToken));
 
@@ -104,7 +104,7 @@ public class WorkerFactory : BackgroundService, IReadinessParticipant
         var remaining = _tasks.Count(t => !t.IsCompleted);
         if (remaining > 0)
         {
-          _logger.LogInformation("[WORKER] ⏳ Waiting for {count} workers to complete...", remaining);
+          _logger.LogInformation("[WORKER ] ⏳ Waiting for {count} workers to complete...", remaining);
         }
       }
     }

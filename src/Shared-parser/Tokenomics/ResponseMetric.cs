@@ -66,4 +66,9 @@ public readonly struct ResponseMetric
         MonthlyAvgLatencyMs = monthlyAvgLatencyMs;
         ResponseTimeUtc = responseTimeUtc;
     }
+
+    public string ToString()
+    {
+        return $"UserId: {UserId}, Model: {Model}, DailyInputTokens: {DailyInputTokens}, DailyOutputTokens: {DailyOutputTokens}, DailyCachedTokens: {DailyCachedTokens}, IsDailyJailbreakDetected: {IsDailyJailbreakDetected}, IsDailyContentFiltered: {IsDailyContentFiltered}, DailyModel429: {DailyModel429}, DailyUser429: {DailyUser429}, MonthlyInputTokens: {MonthlyInputTokens}, MonthlyOutputTokens: {MonthlyOutputTokens}, MonthlyCachedTokens: {MonthlyCachedTokens}, IsMonthlyJailbreakDetected: {IsMonthlyJailbreakDetected}, IsMonthlyContentFiltered: {IsMonthlyContentFiltered}, MonthlyModel429: {MonthlyModel429}, MonthlyUser429: {MonthlyUser429}, DailyAvgLatencyMs: {DailyAvgLatencyMs}, MonthlyAvgLatencyMs: {MonthlyAvgLatencyMs}, ResponseTimeUtc: {ResponseTimeUtc}";
+    }
 }

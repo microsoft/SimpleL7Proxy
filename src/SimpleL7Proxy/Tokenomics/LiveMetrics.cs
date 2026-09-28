@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Tokenomics;
 
-public class LiveMetrics: IConfigChangeSubscriber, IHostedService, IDisposable
+public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
 {
     private volatile bool _metricsCacheisRunning;
     private bool _disposed;
@@ -57,9 +57,11 @@ public class LiveMetrics: IConfigChangeSubscriber, IHostedService, IDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
         ArgumentException.ThrowIfNullOrWhiteSpace(Model);
+        // bool cacheHit = true;
 
-        if ( !_metricsCache.TryGetValue((UserId, Model), out var metric))
+        if (!_metricsCache.TryGetValue((UserId, Model), out var metric))
         {
+            // cacheHit = false;
             // Build new URL
             UriBuilder ub = new UriBuilder(_metricsServerUri);
             ub.Query = $"u={Uri.EscapeDataString(UserId)}&m={Uri.EscapeDataString(Model)}";
@@ -76,24 +78,61 @@ public class LiveMetrics: IConfigChangeSubscriber, IHostedService, IDisposable
             }
 
             _metricsCache[(UserId, Model)] = metric;
-            string expiresAt = DateTime.UtcNow.AddSeconds(5).ToString("T");
-    
-            if (!_expiresAt.TryGetValue(expiresAt, out var _hash))
+            DateTime expiresAt = DateTime.UtcNow.AddSeconds(5);
+
+            if (!_expiresAt.TryGetValue(expiresAt.ToString("O"), out var _hash))  // Use ISO format as key
             {
                 _hash = new HashSet<(string, string)>();
-                _expiresAt[expiresAt] = _hash;
+                _expiresAt[expiresAt.ToString("O")] = _hash;
             }
             _hash.Add((UserId, Model));
 
         }
 
+        // Console.WriteLine($"Cache hit: {cacheHit}. Cached metric: " + metric.ToString());
+
         return metric;
     }
 
+    private async Task CleanupExpiredMetricsAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(ExpiresCleanupInterval);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+            {
+                var now = DateTime.UtcNow;
+                var expiredKeys = _expiresAt.Keys
+                    .Where(k => DateTime.TryParse(k, out var expTime) && expTime <= now)
+                    .ToList();
+
+                foreach (var expiredKey in expiredKeys)
+                {
+                    if (_expiresAt.TryRemove(expiredKey, out var items))
+                    {
+                        foreach (var item in items)
+                        {
+                            _metricsCache.TryRemove(item, out _);
+                        }
+                    }
+                }
+
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            _metricsCacheisRunning = false;
+        }
+
+    }
 
     // LOOKATME
     /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
-    public async Task<long> GetTokenBalanceAsync(string UserId, string Model)
+    public async Task<int> GetDailyTokenBalanceAsync(string UserId, string Model)
     {
         var pm = await GetMetric(UserId, Model);
 
@@ -103,6 +142,17 @@ public class LiveMetrics: IConfigChangeSubscriber, IHostedService, IDisposable
         return pm.DailyInputTokens + pm.DailyOutputTokens;
     }
 
+    // LOOKATME
+    /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
+    public async Task<int> GetMonthlyTokenBalanceAsync(string UserId, string Model)
+    {
+        var pm = await GetMetric(UserId, Model);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
+
+        return pm.MonthlyInputTokens + pm.MonthlyOutputTokens;
+    }
     // LOOKATME
     public async Task<int> GetDailyUser429CountAsync(TimeSpan window, string UserId, string Model)
     {
@@ -219,31 +269,6 @@ public class LiveMetrics: IConfigChangeSubscriber, IHostedService, IDisposable
         _metricsCacheisRunning = true;
         _expiresCleanupTask = Task.Run(() => CleanupExpiredMetricsAsync(_cancellationTokenSource.Token), CancellationToken.None);
         return Task.CompletedTask;
-    }
-
-    private async Task CleanupExpiredMetricsAsync(CancellationToken token)
-    {
-        using var timer = new PeriodicTimer(ExpiresCleanupInterval);
-
-        try
-        {
-            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
-            {
-                string expiresAt = DateTime.UtcNow.ToString("T");
-
-                // remove expired metrics based on the current time
-                _expiresAt.TryRemove(expiresAt, out _);
-
-            }
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
-        }
-        finally
-        {
-            _metricsCacheisRunning = false;
-        }
-
     }
 
     /// <summary>Stops periodic metric collapsing after draining queued metrics.</summary>

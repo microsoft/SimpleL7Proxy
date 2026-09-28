@@ -22,6 +22,7 @@ public class Program
                 services.AddSingleton<MetricsStore>();
                 services.AddSingleton<TokenomicsMetricsStore>();
                 services.AddSingleton<TokenomicsRollupProcessor>();
+                services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TokenomicsRollupProcessor>());
                 ConfigureAppInsights(services, options);
                 services.AddHostedService<MetricsHttpServer>();
             })

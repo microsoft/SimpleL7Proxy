@@ -34,7 +34,7 @@ internal sealed record RollupBatch(
 /// <see cref="AddMetric"/> and drive <see cref="Collapse"/>; content-safety counters and
 /// request-outcome sampling remain the caller's responsibility.
 /// </remarks>
-public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscriber, IHostedService, IReadinessParticipant
+public sealed class TokenRollupCollector : BackgroundService, IConfigChangeSubscriber, IHostedService, IReadinessParticipant
 {
     public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.Tokenomics;
     public ReadinessRegistry Readiness { get; }
@@ -47,8 +47,6 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
 
     /// <summary>Cadence of this collector's own detach-and-transmit loop, independent of the caller's <see cref="Collapse"/> cadence.</summary>
     private static readonly TimeSpan TransmissionInterval = TimeSpan.FromSeconds(5);
-
-    private const string CsvHeader = "userId,model,dayUtc,inputTokens,outputTokens,cachedTokens";
 
     private readonly ConcurrentQueue<string>[] _csvmetrics = [new(), new()];
     private readonly ConcurrentDictionary<(string UserId, string Model), long[]> _aggregateBalance = new();
@@ -80,7 +78,8 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
 
         configChangeNotifier.Subscribe(this,
            [options => options.TokenomicsEnable,
-            options => options.TokenomicsMetricsServer]);
+            options => options.TokenomicsMetricsServer,
+            options => options.TokenomicsOptions]);
     }
 
     public Task OnConfigChangedAsync(IReadOnlyList<ConfigChange> changes, ProxyConfig backendOptions, CancellationToken cancellationToken)
@@ -92,28 +91,32 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
     public void InitVars()
     {
 
-        try 
-        {
-            if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
-            {
-                Console.WriteLine("Tokenomics metrics server is not configured 3.");
-                _options.TokenomicsEnable = false;
-                return;
-            }
+        var configuredValue = _options.TokenomicsMetricsServer;
 
-            _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/upload");
-            Console.WriteLine("Initialized metrics server URI: " + _metricsServerUri);
-        }
-        catch (Exception ex)
+        if (string.IsNullOrWhiteSpace(configuredValue))
         {
-            Console.WriteLine("Exception occurred while initializing metrics server URI: " + ex.Message);
             _options.TokenomicsEnable = false;
-            _logger.LogError(ex, "[TokenRollupCollector] Failed to initialize metrics server URI");
+            return;
         }
-        finally 
+
+        var endpoint = configuredValue.TrimEnd('/') + "/tokenomics/metrics/upload";
+
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var metricsServerUri))
         {
+            _options.TokenomicsEnable = false;
+            _logger.LogError("[TOKN-IX] Invalid tokenomics metrics server URI: {MetricsServer}", configuredValue);
+            return;
+        }
+
+        _metricsServerUri = metricsServerUri;
+        if (!_settings.TryParse(_options.TokenomicsOptions))
+        {
+            _options.TokenomicsEnable = false;
+            _logger.LogError("[TOKN-IX] Invalid tokenomics options: {Options}", _options.TokenomicsOptions);
+            return;
         }
     }
+
 
     const string NL = "\n";
 
@@ -121,7 +124,7 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
     private async Task RunTransmissionLoopAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TransmissionInterval);
-        var replicaId = _options.ReplicaName;
+        var replicaId = string.IsNullOrWhiteSpace(_options.ReplicaName) ? "DEV" : _options.ReplicaName!;
 
         HashSet<string> needsProcessing = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> ServerIsProcessing = new(StringComparer.OrdinalIgnoreCase);
@@ -134,60 +137,71 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
         {
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                // Skip this cycle if tokenomics is disabled.
-                if (_options.TokenomicsEnable == false)  continue;
-
-                Console.WriteLine("Starting transmission cycle at: " + DateTime.UtcNow);
-
-                // Stage 1: determine batches to transmit.
-                var csv_batch = CollapseCurrentMetrics();
-                List<KeyValuePair<string, string>> batches = new ();
-
-                if (!string.IsNullOrWhiteSpace(csv_batch))
+                try
                 {
+
+                    // Skip this cycle if tokenomics is disabled.
+                    if (_options.TokenomicsEnable == false) continue;
+
+                    // Stage 1: determine batches to transmit.
+                    if (CollapseCurrentMetrics() is not string csv_batch)
+                        continue;
+
+                    List<KeyValuePair<string, string>> batches = new();
+
                     var newBatchId = Guid.NewGuid().ToString("N");
-                    batchPayloads[newBatchId] = csv_batch;
 
-                    Console.WriteLine("Created new batch with ID: " + newBatchId);
+                    if (!string.IsNullOrWhiteSpace(csv_batch))
+                    {
+                        batchPayloads[newBatchId] = csv_batch;
 
-                    batches.Add( new KeyValuePair<string, string>(newBatchId, csv_batch) );
-                    needsProcessing.Add(newBatchId);
+                        batches.Add(new KeyValuePair<string, string>(newBatchId, csv_batch));
+                        needsProcessing.Add(newBatchId);
+                    }
 
+                    // Stage 2: package payload. Every batch still tracked here is, by construction,
+                    // not yet acknowledged (acknowledged ones were pruned above), so all of them are
+                    // retransmitted as-is.
+                    var payload = new StringBuilder("ReplicaId: " + replicaId).Append(NL);
+
+                    foreach (var bpid in needsProcessing)
+                    {
+                        if (bpid != newBatchId && !ServerIsProcessing.Contains(bpid))
+                            batches.Add(new KeyValuePair<string, string>(bpid, batchPayloads[bpid]));
+                    }
+
+                    // Stage 3: transmit.
+                    var strcontent = new StringContent(ReplicaPayloadMaker.Make(replicaId, batches), Encoding.UTF8, "text/csv");
+
+                    var response = await TransmitAsync(strcontent).ConfigureAwait(false);
+                    if (response == null)
+                    {
+                        Console.WriteLine("[ERROR] Transmission returned null response");
+                        continue;
+                    }
+
+                    // Stage 4: update payloads processed.
+                    var responseAck = await ReadResponseAsync(response).ConfigureAwait(false);
+
+                    if (responseAck is null)
+                        continue;
+
+                    // remove acknowledged batches from batchPayloads; once pruned, nothing further needs to remember them.
+                    foreach (var bid in responseAck.ProcessedBatches!)
+                    {
+                        batchPayloads.Remove(bid);
+                        needsProcessing.Remove(bid);
+                    }
+
+                    ServerIsProcessing.Clear();
+                    foreach (var bid in responseAck.PendingBatches!)
+                    {
+                        ServerIsProcessing.Add(bid);
+                    }
                 }
-
-                // Stage 2: package payload. Every batch still tracked here is, by construction,
-                // not yet acknowledged (acknowledged ones were pruned above), so all of them are
-                // retransmitted as-is.
-                var payload = new StringBuilder("ReplicaId: " + replicaId).Append(NL);
-
-                foreach (var bpid in needsProcessing)
+                catch (Exception ex)
                 {
-                    if (!ServerIsProcessing.Contains(bpid))
-                        batches.Add( new KeyValuePair<string, string>(bpid, batchPayloads[bpid]) );
-                }
-
-                Console.WriteLine("Prepared payload with " + batches.Count + " batches for transmission.");
-                // Stage 3: transmit.
-                var strcontent = new StringContent(ReplicaPayloadMaker.Make(replicaId, batches), Encoding.UTF8, "text/csv");
-                var response = await TransmitAsync(strcontent, cancellationToken).ConfigureAwait(false);
-            
-                // Stage 4: update payloads processed.
-                var responseAck = await ReadResponseAsync(response, cancellationToken).ConfigureAwait(false);
-
-                if ( responseAck is null)
-                    continue;
-
-                // remove acknowledged batches from batchPayloads; once pruned, nothing further needs to remember them.
-                foreach (var bid in responseAck.ProcessedBatches!)
-                {
-                    batchPayloads.Remove(bid);
-                    needsProcessing.Remove(bid);
-                }
-
-                ServerIsProcessing.Clear();
-                foreach (var bid in responseAck.PendingBatches!)
-                {
-                    ServerIsProcessing.Add(bid);
+                    Console.WriteLine($"[ERROR] Exception occurred: {ex.Message}");
                 }
 
             }
@@ -201,6 +215,7 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
     public void AddMetric(string csvmetric)
     {
         var queueIndex = Volatile.Read(ref _activeQueueIndex);
+
         _csvmetrics[queueIndex].Enqueue(csvmetric);
     }
 
@@ -209,7 +224,7 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
     /// the per-(user, model) live balance and the pending per-(user, model, day) deltas, and
     /// returning the drained batch for further processing.
     /// </summary>
-    public string CollapseCurrentMetrics()
+    public string? CollapseCurrentMetrics()
     {
         var queueToCollapseIndex = Volatile.Read(ref _activeQueueIndex);
 
@@ -217,12 +232,13 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
         var nextQueueIndex = queueToCollapseIndex ^ 1;
         Interlocked.Exchange(ref _activeQueueIndex, nextQueueIndex);
 
-        Console.WriteLine("Collapsing current metrics at: " + DateTime.UtcNow);
+        if (_csvmetrics[queueToCollapseIndex].IsEmpty)
+            return null;
+
         StringBuilder CollapsedCSV = new StringBuilder();
         CollapsedCSV.Append(PendingMetric.CsvHeader).Append(NL);
-        foreach ( string l in _csvmetrics[queueToCollapseIndex])
+        foreach (string l in _csvmetrics[queueToCollapseIndex])
         {
-            Console.WriteLine("Adding metric to collapsed CSV: " + l);
             CollapsedCSV.Append(l).Append(NL);
         }
         _csvmetrics[queueToCollapseIndex].Clear();
@@ -230,24 +246,28 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
     }
 
     /// <summary>Stage 3: transmits one packaged payload, returning the response, or null if the request could not be completed (network failure, timeout, etc.), in which case the caller retries the same payload on the next transmission cycle.</summary>
-    private async Task<HttpResponseMessage?> TransmitAsync(StringContent payload, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage?> TransmitAsync(StringContent payload)
     {
         using (payload)
         {
             try
             {
-                return await _httpClient.PostAsync(_metricsServerUri, payload, cancellationToken).ConfigureAwait(false);
+                var response = await _httpClient.PostAsync(_metricsServerUri, payload).ConfigureAwait(false);
+                return response;
             }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] Transmission failed: {ex.Message}");
                 return null;
             }
         }
     }
 
-    /// <summary>Stage 4: reads and deserializes a transmitted payload's response, if any. Returns null when there is no response, the request was unsuccessful, or the response is not the expected shape; acknowledging (removing) any reported batch ids is the caller's responsibility.</summary>
-    private async Task<MetricsServerResponse?> ReadResponseAsync(
-            HttpResponseMessage? response, CancellationToken cancellationToken)
+    /// <summary>Stage 4: reads and deserializes a transmitted payload's response, if any. 
+    /// Returns null when there is no response, the request was unsuccessful, 
+    /// or the response is not the expected shape; 
+    /// acknowledging (removing) any reported batch ids is the caller's responsibility.</summary>
+    private async Task<MetricsServerResponse?> ReadResponseAsync(HttpResponseMessage? response)
     {
         if (response == null)
         {
@@ -260,15 +280,32 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
             {
                 return null;
             }
-
-            return await response.Content.ReadFromJsonAsync<MetricsServerResponse>(cancellationToken)
+            return await response.Content.ReadFromJsonAsync<MetricsServerResponse>()
                 .ConfigureAwait(false);
 
         }
     }
 
+    private async Task<bool> TestTokenomicsMetricsServer()
+    {
+        if (!_options.TokenomicsEnable) return false;
+        if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer)) return false;
 
-        /// <summary>
+        // Attempt to send a test request to the metrics server to verify connectivity.
+        try
+        {
+            var testPayload = new StringContent("{}");
+            var response = await TransmitAsync(testPayload).ConfigureAwait(false);
+            var result = await ReadResponseAsync(response).ConfigureAwait(false);
+            return result != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Starts this collector's own periodic detach-and-transmit loop, independent of the
     /// caller's <see cref="Collapse"/> cadence.
     /// </summary>
@@ -278,12 +315,17 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
 
         if (_transmissionLoopTask != null)
         {
-            return ;
+            return;
         }
 
         _transmissionLoopTask = Task.Run(() => RunTransmissionLoopAsync(_transmissionLoopCts.Token));
 
-        _logger.LogWarning("[Tokenomics] Tokenomics service server {Status}", _options.TokenomicsEnable ? "Enabled" : "Disabled");
+        // Wait for metrics server to ack health probe for up to 10 seconds
+        var response = await TestTokenomicsMetricsServer().ConfigureAwait(false);
+        var status = response ? " Responding - OK." : "--UNREACHABLE--";
+
+        _logger.LogWarning("[TOKN-IX] Tokenomics service server {Status}.  {Reachability}  ",
+            _options.TokenomicsEnable ? "Enabled" : "Disabled", status);
 
         this.RegisterReady();
 
@@ -300,6 +342,6 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
         {
         }
 
-        return ;
+        return;
     }
 }

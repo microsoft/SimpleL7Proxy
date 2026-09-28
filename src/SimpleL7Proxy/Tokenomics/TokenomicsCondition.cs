@@ -25,31 +25,33 @@ public sealed class TokenomicsCondition
     public bool LargeContextRequest { get; set; }
     public bool CapacityAvailable { get; set; }
 
-    public TokenomicsCondition(
+    public async Task<TokenomicsCondition> CreateAsync(
         RequestData data,
         TokenomicsSettings settings,
-        TokenMetricsCache tokenMetricsCache,
+        LiveMetrics lm,
         IConcurrentPriQueue<RequestData> queue)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(tokenMetricsCache);
+        ArgumentNullException.ThrowIfNull(lm);
         ArgumentNullException.ThrowIfNull(queue);
 
         AbuseDetected = data.IsAbusive;
 
-        DailyQuotaExceeded = tokenMetricsCache.GetDailyTokenBalance(data.UserID, data.Model) >= settings.DailyTokenLimit;
-        MonthlyQuotaExceeded = tokenMetricsCache.GetMonthlyTokenBalance(data.UserID, data.Model) >= settings.MonthlyTokenLimit;
+        DailyQuotaExceeded = await lm.GetDailyTokenBalanceAsync(data.UserID, data.Model) >= settings.DailyTokenLimit;
+        MonthlyQuotaExceeded = await lm.GetMonthlyTokenBalanceAsync(data.UserID, data.Model) >= settings.MonthlyTokenLimit;
 
-        MonthlyBudgetExceeded = tokenMetricsCache.GetMonthlyBudgetUsage(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
-        DailyBudgetExceeded = tokenMetricsCache.GetDailyBudgetUsage(data.UserID, data.Model) >= settings.DailyBudgetUsd;
+        Console.WriteLine($"DailyQuotaExceeded: {DailyQuotaExceeded}, MonthlyQuotaExceeded: {MonthlyQuotaExceeded}");
+
+        //MonthlyBudgetExceeded = await lm.GetMonthlyBudgetUsageAsync(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
+        //DailyBudgetExceeded = await lm.GetDailyBudgetUsageAsync(data.UserID, data.Model) >= settings.DailyBudgetUsd;
 
         CapacityConstrained = settings.CurrentCapacityUtilizationPercent >= settings.CapacityConstraintThresholdPercent;
         CapacityAvailable = settings.CurrentCapacityUtilizationPercent < settings.CapacityConstraintThresholdPercent;
 
         QueueDepthHigh = queue.thrdSafeCount >= (queue.MaxQueueLength * settings.HighQueueDepthThreshold);
 
-        // PreferredModelUnavailable = !tokenMetricsCache.IsModelAvailable(data.Model);
+        // PreferredModelUnavailable = !lm.IsModelAvailable(data.Model);
         ModelReplacementAllowed = data.ModelReplacementAllowed;
 
         LargeContextRequest = data.S7PInputTokens >= settings.LargeContextThreshold;
@@ -66,5 +68,18 @@ public sealed class TokenomicsCondition
         IncidentResponse = bool.TryParse(data.Headers[Constants.TokenizerIncidentResponse], out var incidentResponse) && incidentResponse;
         AuditInvestigation = bool.TryParse(data.Headers[Constants.TokenizerAuditInvestigation], out var auditInvestigation) && auditInvestigation;
         ComplianceRequired = bool.TryParse(data.Headers[Constants.TokenizerComplianceRequired], out var complianceRequired) && complianceRequired;
+
+        return this;
+    }
+
+    public string ToString()
+    {
+        return $"AbuseDetected: {AbuseDetected}, DailyQuotaExceeded: {DailyQuotaExceeded}, MonthlyQuotaExceeded: {MonthlyQuotaExceeded}, " +
+               $"CapacityConstrained: {CapacityConstrained}, CapacityAvailable: {CapacityAvailable}, QueueDepthHigh: {QueueDepthHigh}, " +
+               $"ModelReplacementAllowed: {ModelReplacementAllowed}, LargeContextRequest: {LargeContextRequest}, " +
+               $"CriticalPriority: {CriticalPriority}, HighPriority: {HighPriority}, " +
+               $"AdministratorOverride: {AdministratorOverride}, ApprovedException: {ApprovedException}, " +
+               $"PremiumTenant: {PremiumTenant}, EnterpriseTenant: {EnterpriseTenant}, " +
+               $"IncidentResponse: {IncidentResponse}, AuditInvestigation: {AuditInvestigation}, ComplianceRequired: {ComplianceRequired}";
     }
 }

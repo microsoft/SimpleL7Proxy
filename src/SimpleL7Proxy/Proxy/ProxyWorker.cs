@@ -17,6 +17,7 @@ using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
 using System.Collections.Frozen;
 using SimpleL7Proxy.Tokenomics;
+using System.IO.Pipelines;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -417,37 +418,32 @@ public class ProxyWorker : IConfigChangeSubscriber
                     throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
                 }
 
-                if (_wrkCntxt.TokenomicsHandler.doTokenomics && !wasCached && bodyBytes.Length > 0)
+                if (_options.TokenomicsEnable && !wasCached && bodyBytes.Length > 0)
                 {
+        
+                    // Parse the request... get word Count and model
+                    var parseResult = ModelSwapper.ParseModel(bodyBytes);
+                    request.WordCount = parseResult.WordCount;
+                    request.Model = parseResult.SourceModel ?? "unknown";
+                    request.S7PInputTokens = (int)((double)request.WordCount * .75);
+                    if ( request.Model == String.Empty)
+                        request.Model = request.Headers["S7P-Model-Override"] ?? String.Empty;
 
+                    // Check what Tokenomics wants to do before working on the request.
+                    ModelOverrideEnum actionOverride = await _wrkCntxt.TokenomicsHandler.ProcessRequestAsync(request);
+                    
                     if (request.Debug)
                     {
                         _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
                             request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
                     }
-        
-                    // Check what Tokenomics wants to do before working on the request.
-                    (ModelOverrideEnum actionOverride, string ModelName) = _wrkCntxt.TokenomicsHandler.ProcessRequest(request);
-                    if ( ModelName == String.Empty)
-                    {
-                        actionOverride = ModelOverrideEnum.Override;
-                        ModelName = request.Headers["S7P-Model-Override"] ?? String.Empty;
-                    }
 
-                    bodyBytes = ModelSwapper.ValidateModel(
-                        request,
-                        bodyBytes,
-                        actionOverride,
-                        ModelName,
-                        _wrkCntxt.TokenomicsHandler);
+                    ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
 
                     if (request.Headers["S7PDEBUGBODY"] is {} debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
                     {
                         var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
-                        _logger.LogInformation("[ValidateModel:{Guid}] Request body after model validation: {BodyContent}",
-                            request.Guid, bodyString);
                     }
-
                 }
                 
 
@@ -766,14 +762,20 @@ public class ProxyWorker : IConfigChangeSubscriber
                 PopulateRequestAttemptError(requestAttempt, e.StatusCode, e.Message);
                 intCode = (int)e.StatusCode;
 
-                if (e.Type == ProxyErrorException.ErrorType.TTLExpired)
+                switch (e.Type)
                 {
-                    ttlExpired = true;
-                    intCode = 412;//(int)HttpResponseCode.PreconditionFailed; // 412
-                    lastStatusCode = HttpStatusCode.PreconditionFailed;
-                    TriggerHostCB = false;
+                    case ProxyErrorException.ErrorType.Rejected:
+                        TriggerHostCB = false;
 
-                    break;
+                        throw new S7PRejectedException(e.Message);
+
+                    case ProxyErrorException.ErrorType.TTLExpired:
+                        ttlExpired = true;
+                        intCode = 412;//(int)HttpResponseCode.PreconditionFailed; // 412
+                        lastStatusCode = HttpStatusCode.PreconditionFailed;
+                        TriggerHostCB = false;
+
+                        break;
                 }
 
                 continue;
@@ -839,6 +841,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 // 500 Internal Server Error
                 _logger.LogError(e, "Internal server error processing request {Guid} to {FullURL}",
                     request.Guid, request.FullURL);
+                _logger.LogError(e.StackTrace);
 
                 PopulateRequestAttemptError(requestAttempt, HttpStatusCode.InternalServerError,
                     $"Internal Error: {e.Message}");
@@ -1477,8 +1480,13 @@ public class ProxyWorker : IConfigChangeSubscriber
                 {
                     processor.GetStats(request.EventData, proxyResponse.Headers);
 
+                    if (string.IsNullOrWhiteSpace(request.Model))
+                    {
+                        request.Model = "unknown";
+                    }
+
                     // submit stats to Tokenomics
-                    if (_wrkCntxt.TokenomicsHandler.doTokenomics
+                    if (_options.TokenomicsEnable
                         && !string.IsNullOrWhiteSpace(request.UserID)
                         && !string.IsNullOrWhiteSpace(request.Model))
                     {

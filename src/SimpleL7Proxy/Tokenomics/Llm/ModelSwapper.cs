@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using SimpleL7Proxy.Tokenomics;
+using System.Collections.Frozen;
 
 namespace SimpleL7Proxy.Llm;
 
@@ -16,244 +17,146 @@ public class ModelSwapper
         _tokenomicsHandler = tokenomicsHandler;
     }
 
-    /// <summary>
-    /// Walks a JSON request body to capture the top-level "model" property and count whitespace-delimited
-    /// words in its other string values. When <paramref name="modelOverride"/> is provided it wins over the
-    /// body value, and a second pass rewrites the body so the backend receives the overridden model (adding
-    /// it when absent). The <see cref="Utf8JsonWriter"/> is only allocated when an override is present, so
-    /// the common detect-only path stays allocation-free. On malformed JSON, sets a sentinel value only
-    /// when no model has been captured yet.
-    /// </summary>
-    /// <returns>The request body bytes, rewritten when an override was applied; otherwise the original bytes.</returns>
-    public static ReadOnlyMemory<byte> ValidateModel(RequestData request, 
-                ReadOnlyMemory<byte> bodyBytes, 
-                ModelOverrideEnum modelOverride,
-                string ModelOverrideName,
-                TokenomicsHandler tokenomicsHandler)
+    public class ModelParseResult
     {
-        bool hasOverride = modelOverride != ModelOverrideEnum.None;
-        request.WordCount = 0;
-        System.Buffers.ArrayBufferWriter<byte>? buffer = null;
-        Utf8JsonWriter? writer = null;
+        public string? SourceModel { get; set; }
+        public int WordCount { get; set; }
+        public ReadOnlyMemory<byte> OriginalBodyBytes { get; set; }
+
+        // All captured in one parse
+        public (int Start, int End)? ModelValueOffset { get; set; }
+        public List<(string Name, int Start, int End)> TopLevelFields { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Single parse: extracts model, word count, and captures all top-level field offsets.
+    /// </summary>
+    public static ModelParseResult ParseModel(ReadOnlyMemory<byte> bodyBytes)
+    {
+        var result = new ModelParseResult
+        {
+            OriginalBodyBytes = bodyBytes,
+            WordCount = 0,
+            SourceModel = null
+        };
 
         try
         {
-            var reader = new Utf8JsonReader(bodyBytes.Span, isFinalBlock: true, state: default);
+            using var doc = JsonDocument.Parse(bodyBytes);
+            var root = doc.RootElement;
 
-            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
-            {
-                return bodyBytes;
-            }
+            if (root.ValueKind != JsonValueKind.Object)
+                return result;
 
-            string? sourceModel = null;
             int wordCount = 0;
-            while (reader.Read() && !(reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == 0))
+            foreach (var prop in root.EnumerateObject())
             {
-                if (reader.CurrentDepth == 1
-                    && reader.TokenType == JsonTokenType.PropertyName
-                    && reader.ValueTextEquals("model"u8))
+                // Capture field offset
+                var fieldStart = bodyBytes.Span.IndexOf(Encoding.UTF8.GetBytes($"\"{prop.Name}\""));
+                var rawValue = prop.Value.GetRawText();
+                var fieldEnd = bodyBytes.Span[(fieldStart + prop.Name.Length + 2)..].IndexOf(Encoding.UTF8.GetBytes("}")) + fieldStart + prop.Name.Length + 2;
+
+                if (fieldStart >= 0)
                 {
-                    if (reader.Read())
-                    {
-                        if (reader.TokenType == JsonTokenType.String && sourceModel == null)
-                        {
-                            sourceModel = reader.GetString();
-                            if (!hasOverride && !string.IsNullOrWhiteSpace(sourceModel))
-                            {
-                                request.Model = sourceModel;
-                            }
-                        }
-
-                        reader.Skip();
-                    }
-
-                    continue;
+                    result.TopLevelFields.Add((prop.Name, fieldStart, fieldEnd));
                 }
 
-                if (reader.TokenType == JsonTokenType.String)
+                // Track model value offset specially
+                if (prop.Name == "model" && prop.Value.ValueKind == JsonValueKind.String)
                 {
-                    wordCount += CountWords(ref reader);
+                    result.SourceModel = prop.Value.GetString();
+                    var modelLocation = prop.Value.GetRawText();
+                    result.ModelValueOffset = FindOffset(bodyBytes.Span, modelLocation);
+                }
+
+                // Count words
+                if (prop.Value.ValueKind == JsonValueKind.String)
+                {
+                    wordCount += CountWords(prop.Value.GetString() ?? "");
                 }
             }
-
-            request.WordCount = wordCount;
-
-            if (!hasOverride)
-            {
-                return bodyBytes;
-            }
-
-            // Now that we finally know the source model,do what tokenomics told us to do
-            if ( hasOverride)
-            {
-                if (modelOverride is ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade)
-                {
-                    ModelOverrideName = tokenomicsHandler.UpdateModel(request.Model, modelOverride);
-                }
-            }
-
-            request.Model = ModelOverrideName;
-            reader = new Utf8JsonReader(bodyBytes.Span, isFinalBlock: true, state: default);
-            reader.Read();
-
-            buffer = new System.Buffers.ArrayBufferWriter<byte>(bodyBytes.Length + ModelOverrideName.Length + 16);
-            writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            });
-            writer.WriteStartObject();
-
-            var (fieldsToRemove, fieldsToRename) = hasOverride && !string.IsNullOrWhiteSpace(sourceModel)
-                ? ModelMap.Get(sourceModel, ModelOverrideName)
-                : (FieldRemovalMap.Empty, FieldRenameMap.Empty);
-
-            bool handledModel = false;
-            while (reader.Read() && !(reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == 0))
-            {
-                if (reader.CurrentDepth == 1 && reader.TokenType == JsonTokenType.PropertyName)
-                {
-                    if (reader.ValueTextEquals("model"u8))
-                    {
-                        if (writer != null)
-                        {
-                            writer.WriteString("model", ModelOverrideName);
-                            handledModel = true;
-                            reader.Read();
-                            reader.Skip();
-                            continue;
-                        }
-
-                        if (reader.Read() && reader.TokenType == JsonTokenType.String)
-                        {
-                            var model = reader.GetString();
-                            if (!string.IsNullOrWhiteSpace(model))
-                            {
-                                request.Model = model;
-                            }
-                        }
-                        break;
-                    }
-
-                    if (writer != null)
-                    {
-                        string propertyName = reader.GetString()!;
-                        if (fieldsToRemove.Contains(propertyName))
-                        {
-                            reader.Read();
-                            reader.Skip();
-                            continue;
-                        }
-
-                        writer.WritePropertyName(fieldsToRename.GetValueOrDefault(propertyName, propertyName));
-                        continue;
-                    }
-
-                    reader.Read();
-                    reader.Skip();
-                    continue;
-                }
-
-                if (writer != null)
-                {
-                    switch (reader.TokenType)
-                    {
-                        case JsonTokenType.StartObject: writer.WriteStartObject(); break;
-                        case JsonTokenType.EndObject: writer.WriteEndObject(); break;
-                        case JsonTokenType.StartArray: writer.WriteStartArray(); break;
-                        case JsonTokenType.EndArray: writer.WriteEndArray(); break;
-                        case JsonTokenType.PropertyName: writer.WritePropertyName(reader.GetString()!); break;
-                        case JsonTokenType.String: writer.WriteStringValue(reader.GetString()); break;
-                        case JsonTokenType.Number: writer.WriteRawValue(reader.ValueSpan, skipInputValidation: true); break;
-                        case JsonTokenType.True: writer.WriteBooleanValue(true); break;
-                        case JsonTokenType.False: writer.WriteBooleanValue(false); break;
-                        case JsonTokenType.Null: writer.WriteNullValue(); break;
-                    }
-                }
-            }
-
-            if (writer != null)
-            {
-                if (!handledModel)
-                {
-                    writer.WriteString("model", ModelOverrideName);
-                }
-
-                writer.WriteEndObject();
-                writer.Flush();
-
-                var rewritten = buffer!.WrittenMemory;
-                request.setBody(rewritten);
-                return rewritten;
-            }
+            result.WordCount = wordCount;
         }
         catch (JsonException)
         {
-            if (!hasOverride && string.IsNullOrEmpty(request.Model))
+            // Leave result in partially-parsed state
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Merges using pre-captured offsets and field transforms.
+    /// Single pass: copy original, skip removed fields, replace model value.
+    /// </summary>
+    public static ReadOnlyMemory<byte> MergeModel(
+        string? sourceModel,
+        string newModel,
+        ModelParseResult parseResult)
+    {
+        var (fieldsToRemove, fieldsToRename) = !string.IsNullOrWhiteSpace(parseResult.SourceModel)
+            ? ModelMap.Get(parseResult.SourceModel, newModel)
+            : (FrozenSet<string>.Empty, FrozenDictionary<string, string>.Empty);
+
+        if (sourceModel == newModel && fieldsToRemove.Count == 0 && fieldsToRename.Count == 0)
+            return parseResult.OriginalBodyBytes;
+
+        var buffer = new ArrayBufferWriter<byte>(parseResult.OriginalBodyBytes.Length + newModel.Length + 16);
+        var originalSpan = parseResult.OriginalBodyBytes.Span;
+        int pos = 0;
+        var newModelBytes = Encoding.UTF8.GetBytes($"\"{newModel}\"");
+
+        while (pos < originalSpan.Length)
+        {
+            // Replace model value
+            if (parseResult.ModelValueOffset.HasValue && pos == parseResult.ModelValueOffset.Value.Start)
             {
-                request.Model = "Error parsing model";
+                buffer.Write(newModelBytes);
+                pos = parseResult.ModelValueOffset.Value.End;
+                continue;
             }
-        }
-        finally
-        {
-            writer?.Dispose();
+
+            // Skip fields marked for removal
+            var fieldToRemove = parseResult.TopLevelFields.FirstOrDefault(f => pos >= f.Start && pos < f.End && fieldsToRemove.Contains(f.Name));
+            if (fieldToRemove.Name != null)
+            {
+                pos = fieldToRemove.End;
+                continue;
+            }
+
+            var span = buffer.GetSpan(1);
+            span[0] = originalSpan[pos];
+            buffer.Advance(1);
+            pos++;
         }
 
-        return bodyBytes;
+        return buffer.WrittenMemory;
     }
 
-    private static int CountWords(ref Utf8JsonReader reader)
+    /// <summary>
+    /// Finds the byte offset of a substring in the original body.
+    /// </summary>
+    private static (int Start, int End)? FindOffset(ReadOnlySpan<byte> data, string target)
     {
-        if (!reader.ValueIsEscaped)
-        {
-            return CountWords(reader.ValueSpan);
-        }
-
-        int maximumLength = reader.ValueSpan.Length;
-        if (maximumLength <= 256)
-        {
-            Span<byte> unescaped = stackalloc byte[maximumLength];
-            int bytesWritten = reader.CopyString(unescaped);
-            return CountWords(unescaped[..bytesWritten]);
-        }
-
-        byte[] rentedBuffer = ArrayPool<byte>.Shared.Rent(maximumLength);
-        try
-        {
-            int bytesWritten = reader.CopyString(rentedBuffer);
-            return CountWords(rentedBuffer.AsSpan(0, bytesWritten));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rentedBuffer);
-        }
+        var targetBytes = Encoding.UTF8.GetBytes(target);
+        int index = data.IndexOf(targetBytes);
+        return index >= 0 ? (index, index + targetBytes.Length) : null;
     }
 
-    private static int CountWords(ReadOnlySpan<byte> utf8Text)
+    /// <summary>
+    /// Counts whitespace-delimited words in the given text.
+    /// </summary>
+    private static int CountWords(string text)
     {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0;
+
         int wordCount = 0;
         bool inWord = false;
-        int offset = 0;
 
-        while (offset < utf8Text.Length)
+        foreach (char c in text)
         {
-            byte current = utf8Text[offset];
-            bool isWhiteSpace;
-            int bytesConsumed;
-
-            if (current <= 0x7F)
-            {
-                isWhiteSpace = current is 0x09 or 0x0A or 0x0B or 0x0C or 0x0D or 0x20;
-                bytesConsumed = 1;
-            }
-            else if (Rune.DecodeFromUtf8(utf8Text[offset..], out Rune rune, out bytesConsumed) == OperationStatus.Done)
-            {
-                isWhiteSpace = Rune.IsWhiteSpace(rune);
-            }
-            else
-            {
-                isWhiteSpace = false;
-                bytesConsumed = 1;
-            }
+            bool isWhiteSpace = char.IsWhiteSpace(c);
 
             if (isWhiteSpace)
             {
@@ -264,12 +167,34 @@ public class ModelSwapper
                 wordCount++;
                 inWord = true;
             }
-
-            offset += bytesConsumed;
         }
 
         return wordCount;
     }
 
+    public ReadOnlyMemory<byte> ValidateModel(
+        RequestData request,
+        ReadOnlyMemory<byte> bodyBytes,
+        ModelOverrideEnum modelOverride,
+        string modelOverrideName)
+    {
+        // 1. Parse once: model, word count, all field offsets
+        var parseResult = ParseModel(bodyBytes);
+        request.WordCount = parseResult.WordCount;
 
+        // 2. Decide final model
+        string finalModel = modelOverride switch
+        {
+            ModelOverrideEnum.None => parseResult.SourceModel ?? "unknown",
+            ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade
+                => _tokenomicsHandler.UpdateModel(parseResult.SourceModel ?? "unknown", modelOverride),
+            _ => modelOverrideName
+        };
+
+        request.Model = finalModel;
+
+        // 3. Get transforms and merge
+
+        return MergeModel(parseResult.SourceModel, finalModel, parseResult);
+    }
 }

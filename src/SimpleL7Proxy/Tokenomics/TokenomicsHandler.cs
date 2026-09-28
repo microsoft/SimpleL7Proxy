@@ -9,6 +9,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 {
     public IConcurrentPriQueue<RequestData> Queue { get; }
     public TokenMetricsCache TokenMetricsCache { get; }
+    public LiveMetrics LiveMetrics { get; }
     public TokenomicsSettings Settings { get; }
     private readonly ILogger<TokenomicsHandler> _logger;
     private readonly ProxyConfig _options;
@@ -19,15 +20,18 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         IConcurrentPriQueue<RequestData> queue,
         TokenMetricsCache tokenMetricsCache,
         TokenomicsSettings settings,
+        LiveMetrics liveMetrics,
         ILogger<TokenomicsHandler> logger,
         ProxyConfig options,
         ConfigChangeNotifier configChangeNotifier)
     {
         Queue = queue ?? throw new ArgumentNullException(nameof(queue));
         TokenMetricsCache = tokenMetricsCache ?? throw new ArgumentNullException(nameof(tokenMetricsCache));
+        LiveMetrics = liveMetrics ?? throw new ArgumentNullException(nameof(liveMetrics));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+
 
         InitVars();
 
@@ -38,7 +42,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
     public void InitVars()
     {
-        doTokenomics = _options.TokenomicsEnable && Settings.TryParse(_options.TokenomicsOptions);
+        doTokenomics = _options.TokenomicsEnable;
         // 0 is the highest priority
         _minPriority = _options.PriorityValues.Max();
     }
@@ -50,14 +54,15 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
     {
         InitVars();
 
-        _logger.LogInformation("Tokenomics service is {Status}", doTokenomics ? "enabled" : "disabled");
-
         return Task.CompletedTask;
     }
 
-    public (ModelOverrideEnum, String) ProcessRequest(RequestData data)
+    public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
     {
-        (string conditionString, TokenActionEnum action) = Evaluate(data);
+        (string conditionString, TokenActionEnum action) = await EvaluateAsync(data);
+
+    Console.WriteLine("Tokenomics condition: " + conditionString);
+    Console.WriteLine("Tokenomics action: " + action);
 
         switch (action)
         {
@@ -70,7 +75,8 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
                 throw new S7PRequeueException("Request delayed due to policy", now: true);
 
             case TokenActionEnum.Reject:
-                throw new ProxyErrorException(ProxyErrorException.ErrorType.NotEnqueued,
+                Console.WriteLine("::Tokenomics action: Reject");
+                throw new ProxyErrorException(ProxyErrorException.ErrorType.Rejected,
                                               (HttpStatusCode)429,
                                               "Message rejected due to policy.");
 
@@ -87,21 +93,24 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             // Token governance
             case TokenActionEnum.Throttle:
                 throw new S7PThrottledException("Message throttled due to policy", now: true);
+
             case TokenActionEnum.Bypass:
-                return (ModelOverrideEnum.None, String.Empty);
+                break;
 
             case TokenActionEnum.ChangeModel:
-                return (ModelOverrideEnum.Override, Settings.DefaultModel);
+                data.Model = Settings.DefaultModel;
+                break;
 
             case TokenActionEnum.UpgradeModel:
-                return (ModelOverrideEnum.Upgrade,  String.Empty); // do it later when the modelname is known
+                data.Model = UpdateModel(data.Model, ModelOverrideEnum.Upgrade);
+                break;
 
             case TokenActionEnum.DowngradeModel:
-                return (ModelOverrideEnum.Downgrade, String.Empty); // do it later when the modelname is known
-
+                data.Model = UpdateModel(data.Model, ModelOverrideEnum.Downgrade);
+                break;
         }
 
-        return (ModelOverrideEnum.None, String.Empty);
+        return ModelOverrideEnum.None;
 
         //     // Model routing
         //     case TokenActionEnum.IncreaseLimit:
@@ -109,12 +118,15 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         //     case TokenActionEnum.Cap:
 
     }
-    public (string, TokenActionEnum) Evaluate(RequestData data)
+
+    public async Task<(string, TokenActionEnum)> EvaluateAsync(RequestData data)
     {
         if (!doTokenomics)
             return ("TokenomicsDisabled", TokenActionEnum.None);
 
-        TokenomicsCondition c = new TokenomicsCondition(data, Settings, TokenMetricsCache, Queue);
+        TokenomicsCondition c = await new TokenomicsCondition().CreateAsync(data, Settings, LiveMetrics, Queue);
+
+        Console.WriteLine("Tokenomics condition: " + c.ToString());
 
         if (c.AbuseDetected)
             return ("AbuseDetected", Settings.AbuseDetectedAction);
@@ -127,6 +139,8 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
         if (c.DailyQuotaExceeded)
         {
+            Console.WriteLine("Daily quota exceeded for user: " + data.UserID);
+
             if (c.IncidentResponse || c.AuditInvestigation || c.ComplianceRequired)
                 return ("DailyQuotaGovernance", Settings.DailyQuotaGovernanceAction);
 

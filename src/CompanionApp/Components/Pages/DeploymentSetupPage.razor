@@ -115,7 +115,7 @@
                         }
                         @if (!healthSection || Value("HEALTHPROBE_TYPE") == "sidecar")
                         {
-                        <div id="@(healthSection ? "health-container-fields" : group.Id == "environment" ? "environment-fields" : null)" class="deployment-fields @(group.Id == "app" ? "deployment-fields-compact" : "") @(section is "app" or "health" ? "deployment-container-fields" : "")">
+                        <div id="@(healthSection ? "health-container-fields" : group.Id == "environment" ? "environment-fields" : null)" class="deployment-fields @(group.Id is "app" or "metrics" ? "deployment-fields-compact" : "") @(section is "app" or "health" ? "deployment-container-fields" : "")">
                             @foreach (var field in sectionFields)
                             {
                                 var error = _errors.GetValueOrDefault(field.Key);

@@ -10,7 +10,7 @@ namespace MetricsServer;
 /// raw CSV body as-is; this class dequeues, parses, and records batch history on its own tick,
 /// independent of the HTTP request/response cycle.
 /// </summary>
-public sealed class TokenomicsRollupProcessor
+public sealed class TokenomicsRollupProcessor : BackgroundService
 {
     /// <summary>
     /// A tokenomics rollups batch queued for later processing. The raw body is kept as-is;
@@ -37,6 +37,7 @@ public sealed class TokenomicsRollupProcessor
     public void Enqueue(string? replicaId, string batchId, string body)
     {
         _queue.Enqueue(new QueueItem(replicaId, batchId, body));
+        Console.WriteLine($"Enqueued batch {batchId} for replica {replicaId}");
     }
 
     /// <summary>
@@ -87,20 +88,29 @@ public sealed class TokenomicsRollupProcessor
     /// sending replica's batch history. Wakes on every tick, processes whatever is currently
     /// queued, and goes back to waiting when the queue is empty.
     /// </summary>
-    public async Task RunAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(s_processInterval);
 
         try
         {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
             {
+                Console.WriteLine("Getting items for processing");
                 while (_queue.TryDequeue(out var item))
                 {
-                    var entries = ParseCsvEntries(item.Body);
-                    foreach (var entry in entries)
+                    Console.WriteLine($"\n\nProcessing item from replica: {item.ReplicaId}, batch: {item.BatchId}");
+                    try
                     {
-                        _store.Record(entry);
+                        var entries = ParseCsvEntries(item.Body);
+                        foreach (var entry in entries)
+                        {
+                            _store.Record(entry);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex.StackTrace);
                     }
 
                     RecordBatch(item.ReplicaId, item.BatchId);
@@ -171,4 +181,6 @@ public sealed class TokenomicsRollupProcessor
 
         return entries;
     }
+
+
 }
