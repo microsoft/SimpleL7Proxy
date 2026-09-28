@@ -50,7 +50,8 @@ public class AppConfigService : BackgroundService
         if (_lastRefreshTime == DateTime.MinValue)
             return "AppConfigService not initialized";
             
-        return $"Label: {_labelFilter} Last Refresh: {_lastRefreshTime}, Last Sentinel: {_lastSentinel}";
+        return $"Label: {_labelFilter} Last Refresh: {_lastRefreshTime}, Last Sentinel: {_lastSentinel}, Tokenomics:  {_options.TokenomicsMetricsServer}";
+
     }
 
     public AppConfigService(ILogger<AppConfigService> logger, ProxyConfig backendOptions, DefaultCredential defaultCredential)
@@ -123,6 +124,11 @@ public class AppConfigService : BackgroundService
         if (_lastSentinel == null)
             _logger.LogInformation("[APP-CONFIG] Sentinel missing");
         _isInitialized = true;
+
+
+        Console.WriteLine("Warm settings: " + string.Join(", ", warm.Keys));
+        Console.WriteLine("Metrics Server: " + WarmSettings["TokenomicsMetricsServer"] + "|");
+
 
         return (WarmSettings, ColdSettings);
     }

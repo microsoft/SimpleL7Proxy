@@ -21,13 +21,15 @@
             </div>
             <ConfigurationExplanation Section="HealthProbe" Topic="url" />
             <input class="form-control form-control-sm" placeholder="http://localhost:9000"
-                   value="@Url" @oninput="OnUrlChanged" />
+                   @bind:get="Url" @bind:set="SetUrl" @bind:event="oninput"
+                   @onchange="NotifyChangedAsync" />
         </div>
     </div>
 }
 
 @code {
     [Parameter, EditorRequired] public AppConfigurationScaffoldSetting Setting { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
 
     private bool Enabled => IsEnabled(Setting);
 
@@ -57,11 +59,16 @@
         return string.Empty;
     }
 
-    private void OnEnabledChanged(ChangeEventArgs args) =>
+    private async Task OnEnabledChanged(ChangeEventArgs args)
+    {
         SetValue(args.Value is bool isChecked && isChecked, Url);
+        await OnChanged.InvokeAsync();
+    }
 
-    private void OnUrlChanged(ChangeEventArgs args) =>
-        SetValue(Enabled, args.Value?.ToString() ?? string.Empty);
+    private void SetUrl(string? url) =>
+        SetValue(Enabled, url ?? string.Empty);
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
 
     private void SetValue(bool enabled, string url) =>
         Setting.DraftValue = $"Enabled={(enabled ? "true" : "false")};url={url}";

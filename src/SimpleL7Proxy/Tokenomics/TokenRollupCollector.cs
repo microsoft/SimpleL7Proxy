@@ -89,21 +89,24 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
         return Task.CompletedTask;
     }
 
-    private static bool PrevValue = true;
     public void InitVars()
     {
 
         try 
         {
-        if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
-        {
-            _options.TokenomicsEnable = false;
-            return;
-        }
+            if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
+            {
+                Console.WriteLine("Tokenomics metrics server is not configured 3.");
+                _options.TokenomicsEnable = false;
+                return;
+            }
+
             _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/upload");
+            Console.WriteLine("Initialized metrics server URI: " + _metricsServerUri);
         }
         catch (Exception ex)
         {
+            Console.WriteLine("Exception occurred while initializing metrics server URI: " + ex.Message);
             _options.TokenomicsEnable = false;
             _logger.LogError(ex, "[TokenRollupCollector] Failed to initialize metrics server URI");
         }
@@ -134,6 +137,7 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
                 // Skip this cycle if tokenomics is disabled.
                 if (_options.TokenomicsEnable == false)  continue;
 
+                Console.WriteLine("Starting transmission cycle at: " + DateTime.UtcNow);
 
                 // Stage 1: determine batches to transmit.
                 var csv_batch = CollapseCurrentMetrics();
@@ -143,6 +147,8 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
                 {
                     var newBatchId = Guid.NewGuid().ToString("N");
                     batchPayloads[newBatchId] = csv_batch;
+
+                    Console.WriteLine("Created new batch with ID: " + newBatchId);
 
                     batches.Add( new KeyValuePair<string, string>(newBatchId, csv_batch) );
                     needsProcessing.Add(newBatchId);
@@ -160,7 +166,7 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
                         batches.Add( new KeyValuePair<string, string>(bpid, batchPayloads[bpid]) );
                 }
 
-                
+                Console.WriteLine("Prepared payload with " + batches.Count + " batches for transmission.");
                 // Stage 3: transmit.
                 var strcontent = new StringContent(ReplicaPayloadMaker.Make(replicaId, batches), Encoding.UTF8, "text/csv");
                 var response = await TransmitAsync(strcontent, cancellationToken).ConfigureAwait(false);
@@ -211,10 +217,12 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
         var nextQueueIndex = queueToCollapseIndex ^ 1;
         Interlocked.Exchange(ref _activeQueueIndex, nextQueueIndex);
 
+        Console.WriteLine("Collapsing current metrics at: " + DateTime.UtcNow);
         StringBuilder CollapsedCSV = new StringBuilder();
         CollapsedCSV.Append(PendingMetric.CsvHeader).Append(NL);
         foreach ( string l in _csvmetrics[queueToCollapseIndex])
         {
+            Console.WriteLine("Adding metric to collapsed CSV: " + l);
             CollapsedCSV.Append(l).Append(NL);
         }
         _csvmetrics[queueToCollapseIndex].Clear();
@@ -275,7 +283,7 @@ public sealed class TokenRollupCollector: BackgroundService, IConfigChangeSubscr
 
         _transmissionLoopTask = Task.Run(() => RunTransmissionLoopAsync(_transmissionLoopCts.Token));
 
-        _logger.LogWarning("[Tokenomics] Tokenomics metrics server {Status}", _options.TokenomicsEnable ? "Enabled" : "Disabled");
+        _logger.LogWarning("[Tokenomics] Tokenomics service server {Status}", _options.TokenomicsEnable ? "Enabled" : "Disabled");
 
         this.RegisterReady();
 

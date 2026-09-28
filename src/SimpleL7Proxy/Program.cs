@@ -295,9 +295,11 @@ public class Program
 
         services.AddSingleton<LiveMetrics>();
         services.AddHostedService<LiveMetrics>(sp => sp.GetRequiredService<LiveMetrics>());
-        
+
         services.AddSingleton<TokenomicsSettings>();
         services.AddSingleton<TokenMetricsCache>();
+        services.AddHostedService<TokenMetricsCache>(sp => sp.GetRequiredService<TokenMetricsCache>());
+        
         services.AddSingleton<TokenomicsHandler>();
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();

@@ -7,7 +7,7 @@ using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Tokenomics;
 
-public class TokenMetricsCache : IConfigChangeSubscriber, IHostedService, IDisposable
+public class TokenMetricsCache : BackgroundService, IConfigChangeSubscriber, IHostedService, IDisposable
 {
     private static readonly TimeSpan CollapseInterval = TimeSpan.FromSeconds(1);
 
@@ -20,7 +20,6 @@ public class TokenMetricsCache : IConfigChangeSubscriber, IHostedService, IDispo
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly ProxyConfig _options;
 
-    private Task? _collapseTask;
     private volatile bool _isRunning;
     private bool _disposed;
     private ConcurrentQueue<PendingMetric> _pendingMetrics = new();
@@ -56,13 +55,12 @@ public class TokenMetricsCache : IConfigChangeSubscriber, IHostedService, IDispo
     {
         if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
         {
+            Console.WriteLine("Tokenomics metrics server is not configured 2.");
             _options.TokenomicsEnable = false;
             return;
         }
         _metricsServerUri = new Uri(_options.TokenomicsMetricsServer.TrimEnd('/') + "/tokenomics/metrics/lookup");
     }
-
-
 
     /// <summary>Records the minimal fact-set needed by the token rollup and optional request-outcome trend analysis.</summary>
     /// <param name="CachedTokens">Cached input tokens (a subset of <paramref name="InputTokens"/>), billed at a different rate than non-cached input. Pricing is applied by the MetricsServer, not this cache; not billed locally. Must not exceed <paramref name="InputTokens"/>.</param>
@@ -132,6 +130,7 @@ public class TokenMetricsCache : IConfigChangeSubscriber, IHostedService, IDispo
         {
             try
             {
+                Console.WriteLine("Collapsing metric for user: " + metric.UserId + ", model: " + metric.Model);
                 csvBuilder.Append(metric.ToCSV()).AppendLine();
             }
             catch
@@ -144,19 +143,28 @@ public class TokenMetricsCache : IConfigChangeSubscriber, IHostedService, IDispo
         _rollupCollector.AddMetric(csvCollapsedMetrics);
     }
 
-    /// <summary>Runs the periodic collapse loop until cancellation is requested.</summary>
-    private async Task RunAsync(CancellationToken cancellationToken)
+    /// <summary>Starts periodic metric collapsing.</summary>
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (_isRunning)
+        {
+            return;
+        }
+
+        _isRunning = true;
+
         using var timer = new PeriodicTimer(CollapseInterval);
 
         try
         {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
             {
-                CollapseMetrics(cancellationToken);
+                CollapseMetrics(CancellationToken.None);
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
         finally
@@ -165,34 +173,8 @@ public class TokenMetricsCache : IConfigChangeSubscriber, IHostedService, IDispo
             CollapseMetrics(CancellationToken.None);
             _isRunning = false;
         }
-    }
 
-    /// <summary>Starts periodic metric collapsing.</summary>
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        if (_isRunning)
-        {
-            return Task.CompletedTask;
-        }
-
-        _isRunning = true;
-        _collapseTask = Task.Run(() => RunAsync(_cancellationTokenSource.Token), CancellationToken.None);
-        return Task.CompletedTask;
-    }
-
-    /// <summary>Stops periodic metric collapsing after draining queued metrics.</summary>
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        if (_collapseTask == null)
-        {
-            return;
-        }
-
-        _cancellationTokenSource.Cancel();
-        await _collapseTask.WaitAsync(cancellationToken);
-        _isRunning = false;
+        return;
     }
 
     /// <summary>Releases resources used by the metrics cache.</summary>

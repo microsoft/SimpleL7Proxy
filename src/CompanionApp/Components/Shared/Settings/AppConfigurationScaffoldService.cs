@@ -28,6 +28,14 @@ public sealed record AppConfigurationScaffoldSetting(
     public bool IsNew { get; set; }
 
     public bool IsChanged => IsNew || !string.Equals(LoadedValue, DraftValue, StringComparison.Ordinal);
+
+    /// <summary>Restores the loaded value and cancels a staged addition.</summary>
+    public void RevertDraft()
+    {
+        DraftValue = LoadedValue;
+        DraftName = Name;
+        IsNew = false;
+    }
 }
 
 public sealed class AppConfigurationScaffoldService

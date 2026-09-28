@@ -19,7 +19,7 @@ var sidecarOverrideEnvironment = !empty(sidecarUrl) ? [
 ] : []
 var metricsServerOverrideEnvironment = settings.DEPLOY_METRICS_SERVER ? [
   {
-    name: 'MerticsServerOverride'
+    name: 'MetricsServerOverride'
     value: metricsServerUrl
   }
 ] : []

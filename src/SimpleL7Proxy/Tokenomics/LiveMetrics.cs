@@ -46,6 +46,7 @@ public class LiveMetrics: IConfigChangeSubscriber, IHostedService, IDisposable
     {
         if (string.IsNullOrWhiteSpace(_options.TokenomicsMetricsServer))
         {
+            Console.WriteLine("Tokenomics metrics server is not configured.");
             _options.TokenomicsEnable = false;
             return;
         }

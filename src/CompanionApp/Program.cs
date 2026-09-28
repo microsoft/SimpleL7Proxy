@@ -8,7 +8,7 @@ using SimpleL7Proxy.StreamProcessor;
 
 var builder = WebApplication.CreateBuilder(args);
 var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
-var metricsServerOverride = Environment.GetEnvironmentVariable("MerticsServerOverride");
+var metricsServerOverride = Environment.GetEnvironmentVariable("MetricsServerOverride");
 builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);

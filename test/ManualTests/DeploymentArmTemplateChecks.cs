@@ -282,7 +282,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'SidecarOverride'", StringComparison.Ordinal), "Companion App receives the sidecar override variable");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("value: sidecarUrl", StringComparison.Ordinal), "sidecar override uses the proxy deployment output");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("var metricsServerOverrideEnvironment = settings.DEPLOY_METRICS_SERVER ? [", StringComparison.Ordinal), "Companion App metrics override follows the Metrics Server selection");
-    Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'MerticsServerOverride'", StringComparison.Ordinal), "Companion App receives the Metrics Server override variable");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'MetricsServerOverride'", StringComparison.Ordinal), "Companion App receives the Metrics Server override variable");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("value: metricsServerUrl", StringComparison.Ordinal), "Metrics Server override uses the deployed internal URL");
     Check(bicepFiles["main.bicep"].Contains("containerAppBootstrap.outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Container App system principal output");
     Check(bicepFiles["main.bicep"].Contains("companionAppBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Companion App system principal output");

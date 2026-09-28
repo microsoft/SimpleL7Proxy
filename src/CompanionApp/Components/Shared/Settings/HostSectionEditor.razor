@@ -29,7 +29,7 @@ else
     <tbody>
         @foreach (var setting in Hosts)
         {
-            <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting"
+            <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting.Key"
                 @onclick="() => EditHost(setting)">
                 <th scope="row">
                     <button type="button" class="btn btn-link p-0 fw-semibold text-start" @onclick:stopPropagation="true" @onclick="() => EditHost(setting)">@setting.Name</button>

@@ -377,7 +377,7 @@
                         {
                             @if (HealthProbeSetting is { } probe)
                             {
-                                <HealthProbeEditor Setting="probe" />
+                                <HealthProbeEditor Setting="probe" OnChanged="StateHasChanged" />
                             }
                         }
                         else if (IsTokenomicsSection)
@@ -386,11 +386,11 @@
                         }
                         else if (IsCircuitBreakerSection)
                         {
-                            <CircuitBreakerEditor Settings="SelectedSettings" />
+                            <CircuitBreakerEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (IsLoadBalancingSection)
                         {
-                            <LoadBalancingEditor Settings="SelectedSettings" />
+                            <LoadBalancingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
                         {
@@ -439,7 +439,8 @@
                                         <td>
                                             @if (IsBoolean(setting.LoadedValue))
                                             {
-                                                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetDraftValue(setting, args)">
+                                                <select class="form-select form-select-sm"
+                                                        @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))">
                                                     <option value="true">true</option>
                                                     <option value="false">false</option>
                                                 </select>
@@ -447,12 +448,12 @@
                                             else if (IsMultiline(setting.LoadedValue))
                                             {
                                                 <textarea class="form-control form-control-sm font-monospace" rows="2"
-                                                          value="@setting.DraftValue" @oninput="args => SetDraftValue(setting, args)"></textarea>
+                                                          @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"></textarea>
                                             }
                                             else
                                             {
                                                 <input class="form-control form-control-sm font-monospace" type="@InputType(setting.LoadedValue)"
-                                                       value="@setting.DraftValue" @oninput="args => SetDraftValue(setting, args)" />
+                                                       @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))" />
                                             }
                                             @if (setting.IsChanged)
                                             {
@@ -1374,6 +1375,7 @@
     private string? _loadedEndpoint;
     private string _draftLabelName = string.Empty;
     private string? _duplicateSource;
+    private IReadOnlyList<AppConfigurationScaffoldSetting> _selectedSettings = Array.Empty<AppConfigurationScaffoldSetting>();
     private ElementReference _labelDialog;
     private ElementReference _leaveDialog;
     private IJSObjectReference? _dialogModule;
@@ -1593,19 +1595,32 @@
         finally { pageReference?.Dispose(); }
     }
 
-    private void SelectSection(string section) => SelectedSection = section;
+    private void SelectSection(string section)
+    {
+        SelectedSection = section;
+        RefreshSelectedSettings();
+    }
 
-    private void CloseSection() => SelectedSection = null;
+    private void CloseSection()
+    {
+        SelectedSection = null;
+        _selectedSettings = Array.Empty<AppConfigurationScaffoldSetting>();
+    }
 
     private void AddCreatedHost(AppConfigurationScaffoldSetting host)
     {
         Settings.Insert(0, host);
+        RefreshSelectedSettings();
     }
 
-    private IReadOnlyList<AppConfigurationScaffoldSetting> SelectedSettings =>
-        SelectedSection is null
+    private IReadOnlyList<AppConfigurationScaffoldSetting> SelectedSettings => _selectedSettings;
+
+    private void RefreshSelectedSettings()
+    {
+        _selectedSettings = SelectedSection is null
             ? Array.Empty<AppConfigurationScaffoldSetting>()
             : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
 
     private bool IsHostSection => string.Equals(SelectedSection, "Hosts", StringComparison.OrdinalIgnoreCase);
 
@@ -1666,7 +1681,7 @@
     private void ApplyLabelFilter()
     {
         AppConfiguration.CachedLabel = Label;
-        SelectedSection = null;
+        CloseSection();
         Settings = _allSettings
             .Where(setting => string.Equals(setting.Label, Label ?? string.Empty, StringComparison.Ordinal))
             .Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false })
@@ -1710,7 +1725,7 @@
         Label = _draftLabelName.Trim();
         _newLabelDraft = true;
         _editingLabel = true;
-        SelectedSection = null;
+        CloseSection();
         CancelStatusClear();
         _dataReadyAtUtc = null;
         HasLoadError = false;
@@ -1737,7 +1752,7 @@
         _configurationAction = null;
         _newLabelDraft = false;
         Settings.Clear();
-        SelectedSection = null;
+        CloseSection();
         StatusMessage = string.Empty;
         HasLoadError = false;
     }
@@ -1839,10 +1854,10 @@
 
     private static string DisplayLoadedValue(string value) => string.IsNullOrEmpty(value) ? "(empty)" : value;
 
-    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, ChangeEventArgs args) =>
-        setting.DraftValue = args.Value?.ToString() ?? string.Empty;
+    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, string? value) =>
+        setting.DraftValue = value ?? string.Empty;
 
-    private static void Reset(AppConfigurationScaffoldSetting setting) => setting.DraftValue = setting.LoadedValue;
+    private static void Reset(AppConfigurationScaffoldSetting setting) => setting.RevertDraft();
 
     private void ResetAll()
     {
