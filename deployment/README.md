@@ -1,102 +1,243 @@
 # Deploy SimpleL7Proxy
 
-Deploy the selected proxy stack through static subscription-scoped Bicep templates and one generated parameters file.
+The quickest way to deploy is to use Azure Cloud Shell to deploy the ZIP created by Deployment Setup. The zip file contains parameterized bicep files and deploys the following architecture:
 
-## Prerequisites
+![alt text](arch.png)
 
-- Azure CLI with Bicep support, Bash, `jq`, and an Azure sign-in for the target subscription.
-- Subscription Contributor plus role-assignment authority, or subscription Owner.
-- Permission to create the selected Azure Container Registry and import images into it.
-- For async mode, the selected Service Bus and Cosmos DB resources must already exist. Publish RequestAPI code separately after infrastructure deployment.
+## Before you begin
 
-## Deploy
+You need:
 
-Extract the complete ZIP downloaded from Deployment Setup. Use its included deploy.sh from the extracted directory; no repository checkout is required. Replace SUBSCRIPTION_ID with the target subscription ID:
+- The complete deployment ZIP from Deployment Setup.
+- The target Azure subscription ID.
+- Subscription Contributor access plus permission to assign roles, or subscription Owner access.
+- Permission to create an Azure Container Registry and import images.
 
-```bash
-./deploy.sh SUBSCRIPTION_ID validate
-./deploy.sh SUBSCRIPTION_ID what-if
-./deploy.sh SUBSCRIPTION_ID create
-```
+## Deploy from Azure Cloud Shell
 
-Validation and what-if contact Azure without importing images. Create provisions the resource groups and registry, imports the proxy, optional HealthProbe, selected Companion App, and selected Metrics Server releases, and deploys the remaining infrastructure. The Metrics Server is a single-replica internal Container App in the same managed environment as the proxy. The application stage first creates each selected Container App with its public image to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copy in ACR. The script defaults to validate when its second argument is omitted.
-
-By default, the deployment creates the Container Apps environment in the proxy resource group. Set `USE_EXISTING_ENVIRONMENT=true`, `ENVIRONMENT_NAME`, and `ENVIRONMENT_RESOURCE_GROUP` to attach every selected Container App to an existing environment instead. The existing environment can share the proxy resource group or reside in another resource group in the same subscription; the deployment does not modify it.
-
-To add a new four-digit suffix to every deployment-created resource name, use `--MakeUniq`. The script applies the suffix to a generated parameters file, prints its path, and leaves it available for reference. The original `parameters.json` remains unchanged.
+1. Open Azure Cloud Shell in Bash mode.
+2. Select **Manage files > Upload**.
+3. Upload the deployment ZIP.
+4. Extract it and open the extracted directory:
 
 ```bash
-./deploy.sh SUBSCRIPTION_ID validate --MakeUniq
+zip='YOUR_DEPLOYMENT_ZIP.zip'
+
+mkdir simplel7proxy-deployment
+unzip "$zip" -d simplel7proxy-deployment
+cd simplel7proxy-deployment
 ```
 
-The deployment creates the App Configuration store, grants the deployment principal App Configuration Data Owner, and grants the proxy managed identity App Configuration Data Reader. When Companion App deployment is selected, it also grants that app's managed identity App Configuration Data Owner and sets `CompanionApp__AppConfigurationEndpoint` to the created store endpoint. Selected HealthProbe and Metrics Server endpoints are resolved from their deployments and used automatically when the Companion App initializes a new label; no endpoint entry is required. It does not write configuration settings. After `create` succeeds, the script prints the proxy URL and the Companion App URL. Open **Proxy Configuration** in the Companion App and create or duplicate a configuration for the selected label.
-
-## Check after leaving the terminal
-
-**Check the deployment's status before running create again.** Once Azure accepts the deployment, it runs server-side even if Cloud Shell or your terminal disconnects. Reopen Cloud Shell or another Azure CLI terminal signed into the same tenant with access to the original subscription.
-
-Shell variables must be set again in a new session. Replace SUBSCRIPTION_ID with the subscription used for create and DEPLOYMENT_NAME with the name printed by `deploy.sh`. These read-only commands work from any directory without the ZIP, Bicep, or repository checkout:
+5. Set the subscription and deploy:
 
 ```bash
-subscription='SUBSCRIPTION_ID'
-deployment='DEPLOYMENT_NAME'
-az deployment sub show --subscription "$subscription" --name "$deployment" \
-    --query '{State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
+sub='YOUR_SUBSCRIPTION_ID'
+./deploy.sh "$sub" create
 ```
 
-| State | What to do |
+This creates a uniq deployment by adding uique name to the end of the resources.
+
+![alt text](deployment.png)
+
+When deployment succeeds, the script prints the available proxy and Companion App URLs. Make a note of these so that you can validate the proxy..
+
+
+## Configure the proxy
+
+Open the Companion App URL and select **Proxy Configuration**.
+
+Select Update and pick the deployment label: prod.
+![alt text](Config.png)
+
+The deployment seeds the App Configuration store with default values during the deployment.  You can make updates in the Companion App; most settings will become active in 30 seconds but some will require a proxy restart.
+
+## Verify the deployment
+
+- Open the Log Stream in the proxy container app to validate that everything comes up cleanly:
+![alt text](ready.png)
+
+
+The proxy doesn't know about your backend hosts yet, so you should now configure the host in the companion app to start using the proxy.
+
+## Check deployment status
+
+**Do not run `create` again while the deployment is still active.** Azure continues the deployment after Cloud Shell or your terminal disconnects.
+
+Open Cloud Shell and set the original subscription and deployment name:
+
+```bash
+sub='YOUR_SUBSCRIPTION_ID'
+deployment='YOUR_DEPLOYMENT_NAME'
+
+az deployment sub show \
+    --subscription "$sub" \
+    --name "$deployment" \
+    --query '{State:properties.provisioningState,Timestamp:properties.timestamp}' \
+    --output table
+```
+
+| State | Next step |
 | --- | --- |
-| Accepted, Running, or another nonterminal state | Check again later. Do not submit another create while this deployment is active. |
-| Succeeded | Retrieve the application URLs below, then verify readiness and a backend request. |
-| Failed or Canceled | Inspect the error below and resolve the cause before retrying. Resources already created remain; a failed deployment is not an automatic rollback. |
+| `Accepted` or `Running` | Wait and check again. |
+| `Succeeded` | Retrieve the URLs and verify the deployment. |
+| `Failed` or `Canceled` | Inspect the error and resolve it before retrying. |
 
-To inspect a failure, including nested deployment errors:
-
-```bash
-az deployment sub show --subscription "$subscription" --name "$deployment" \
-    --query properties.error --output json
-```
-
-To retrieve both application URLs after Succeeded:
+Inspect a failure:
 
 ```bash
-az deployment sub show --subscription "$subscription" --name "$deployment" \
-    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value}' --output table
+az deployment sub show \
+    --subscription "$sub" \
+    --name "$deployment" \
+    --query properties.error \
+    --output json
 ```
 
-If the name is unavailable or Azure reports DeploymentNotFound, confirm the tenant and subscription, then identify the original deployment by name and timestamp:
+Retrieve the application URLs:
 
 ```bash
-az deployment sub list --subscription "$subscription" \
-    --query '[].{Name:name,State:properties.provisioningState,Timestamp:properties.timestamp}' --output table
+az deployment sub show \
+    --subscription "$sub" \
+    --name "$deployment" \
+    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value}' \
+    --output table
 ```
 
-A missing deployment record does not establish that no resources were created. In the Azure portal, open **Subscriptions > your subscription > Deployments**, select the original deployment, and inspect its operation details. Follow failed nested deployments into their resource groups when more detail is needed.
+If Azure reports `DeploymentNotFound`, confirm the tenant and subscription, then list recent subscription deployments:
 
-**Retry only after a terminal failure and after resolving its cause.** Return to the original extracted ZIP directory, run `./deploy.sh "$subscription" what-if`, review the changes, then run `./deploy.sh "$subscription" create`. Keep the same subscription, resource names, and bundle. Do not regenerate a setup or delete partially created resources just to check status or reconnect. The retry reapplies the template; it does not resume the old shell process.
+```bash
+az deployment sub list \
+    --subscription "$sub" \
+    --query '[].{Name:name,State:properties.provisioningState,Timestamp:properties.timestamp}' \
+    --output table
+```
 
-## Bundle Contents
+A missing deployment record does not mean that no resources were created. In the Azure portal, open **Subscriptions > your subscription > Deployments** and inspect the deployment operations.
 
-- bootstrap.bicep creates the selected resource groups and Azure Container Registry before image import.
-- main.bicep creates or updates the selected infrastructure, enables the Container Apps' system-assigned identities, grants their selected ACR and App Configuration roles, and deploys from the imported ACR image tags.
-- modules/*.bicep are the static resource templates consumed by the two entry points.
-- parameters.json contains the settings selected in Deployment Setup and is consumed by both Bicep entry points.
-- deploy.sh imports the proxy, optional HealthProbe, selected Companion App, and selected Metrics Server images from publicnvmacr into the selected ACR. It does not build local source code.
-- Regenerate the bundle to change resource names, image repository names, topology, or other setup values consistently.
+## Retry a failed deployment
 
-## Verify
+Retry only after the deployment reaches a terminal state and you resolve the reported error.
 
-- Confirm the deployment succeeds and inspect its proxy and Companion App URL outputs. Private-network proxy deployments require access to that network.
-- Confirm each selected Container App revision runs the expected proxy, optional HealthProbe, Companion App, and Metrics Server images.
-- In the Companion App, confirm the selected App Configuration label contains the expected proxy settings.
-- After adding a backend in Proxy Configuration, confirm readiness returns HTTP 200 and a request reaches that backend.
+Return to the original extracted ZIP directory:
+
+```bash
+./deploy.sh "$sub" what-if
+./deploy.sh "$sub" create
+```
+
+Use the same subscription, resource names, and deployment ZIP. Do not regenerate the setup or delete partially created resources only to retry the deployment.
+
+## Preview changes
+
+Validate the deployment:
+
+```bash
+./deploy.sh "$sub" validate
+```
+
+Preview the Azure changes:
+
+```bash
+./deploy.sh "$sub" what-if
+```
+
+These commands contact Azure but do not import images or create the deployment.
+
+If no action is supplied, `deploy.sh` runs `validate`.
+
+## Use unique resource names
+
+Add `--MakeUniq` to generate a new four-digit suffix for deployment-created resource names:
+
+```bash
+./deploy.sh "$sub" validate --MakeUniq
+```
+
+The script prints the generated parameters-file path. The original `parameters.json` remains unchanged.
+
+## Use an existing Container Apps environment
+
+By default, the deployment creates the Container Apps environment in the proxy resource group.
+
+Set these values to use an existing environment:
+
+```bash
+USE_EXISTING_ENVIRONMENT=true
+ENVIRONMENT_NAME='YOUR_ENVIRONMENT_NAME'
+ENVIRONMENT_RESOURCE_GROUP='YOUR_ENVIRONMENT_RESOURCE_GROUP'
+```
+
+The environment must be in the same subscription. It can be in the proxy resource group or another resource group. The deployment does not modify it.
+
+## Deploy from a local terminal
+
+Azure Cloud Shell is the recommended deployment environment.
+
+For local deployment, install:
+
+- Azure CLI with Bicep support
+- Bash
+- `jq`
+
+Sign in to the target Azure tenant, extract the deployment ZIP, and run:
+
+```bash
+sub='YOUR_SUBSCRIPTION_ID'
+./deploy.sh "$sub" create
+```
+
+The same Azure permissions and recovery steps apply.
+
+## What the deployment creates
+
+The deployment:
+
+- Creates the selected resource groups and Azure Container Registry.
+- Imports the selected proxy, HealthProbe, Companion App, and Metrics Server images.
+- Creates the selected infrastructure.
+- Enables system-assigned identities on the Container Apps.
+- Grants the required ACR and App Configuration roles.
+- Updates the Container Apps to use the imported ACR images.
+- Creates the Metrics Server as a single-replica internal Container App when selected.
+- Prints the deployment name and available application URLs.
+
+The deployment grants:
+
+- App Configuration Data Owner to the deployment principal.
+- App Configuration Data Reader to the proxy managed identity.
+- App Configuration Data Owner to the Companion App managed identity when selected.
+
+## What the ZIP contains
+
+- `bootstrap.bicep` creates the selected resource groups and Azure Container Registry.
+- `main.bicep` creates or updates the selected application infrastructure.
+- `modules/*.bicep` contains the Bicep modules used by the entry points.
+- `parameters.json` contains the values selected in Deployment Setup.
+- `deploy.sh` validates, previews, and creates the deployment.
+
+The script imports released images from `publicnvmacr`. It does not build source code locally.
+
+Regenerate the ZIP when changing resource names, image names, topology, or Deployment Setup selections.
 
 ## Troubleshoot
 
-- Image import failure: confirm the deploying identity can import into the selected ACR and can reach the pinned public source image.
-- Image pull failure: confirm the imported tag exists and the proxy managed identity has AcrPull on the selected ACR.
-- Role-assignment failure: check the deploying identity's role-assignment authority and applicable conditions.
-- App Configuration 403 in the Companion App: grant its signed-in identity App Configuration Data Owner on the store and allow time for the assignment to take effect.
-- Missing async resource: check the existing Service Bus and Cosmos resource groups, names, and data resources.
+**Image import fails**
 
-Generation does not verify Azure permissions, quota, resource-name availability, or backend connectivity.
+Confirm the deployment identity can import images into the selected Azure Container Registry and can reach the public source registry.
+
+**A Container App cannot pull its image**
+
+Confirm the imported image tag exists and the Container App managed identity has `AcrPull` on the registry.
+
+**Role assignment fails**
+
+Confirm the deployment identity can create role assignments at the required scopes.
+
+**The Companion App receives HTTP 403 from App Configuration**
+
+Confirm its managed identity has App Configuration Data Owner. Allow time for the role assignment to take effect, then retry.
+
+**An async resource is missing**
+
+Confirm the configured Service Bus and Cosmos DB resources, resource groups, and data resources already exist.
+
+Deployment generation does not check Azure permissions, quota, resource-name availability, or backend connectivity.
