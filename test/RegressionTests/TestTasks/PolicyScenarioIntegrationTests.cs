@@ -43,6 +43,14 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
                 "Reliability & Capacity",
                 "Circuit-breaker mixed-traffic stress",
                 "Confirms three backends drain sustained mixed traffic across success, retry, expiration, and terminal failure paths."),
+            ["named-route-iteration-mode"] = new(
+                "Traffic Routing",
+                "Named route iteration override",
+                "Verifies a route-specific iteration mode overrides the global default unless an explicit request header changes the mode."),
+            ["time-to-first-byte-load"] = new(
+                "Reliability & Capacity",
+                "TTFB backend selection under load",
+                "Ensures latency-aware backend selection prefers the fastest healthy backend instead of a visibly slower peer."),
             ["request-body-read-failure"] = new(
                 "Request Lifecycle",
                 "Disconnected request body handling",

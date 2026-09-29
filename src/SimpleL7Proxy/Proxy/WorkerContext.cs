@@ -9,6 +9,7 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.StreamProcessor;
 using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Backend.Iterators;
+using SimpleL7Proxy.Tokenomics;
 
 
 public class WorkerContext
@@ -22,7 +23,7 @@ public class WorkerContext
     public IEndpointMonitorService Backends { get; }
     public IConcurrentPriQueue<RequestData> Queue { get; }
     public IEventClient EventClient { get; }
-    public ILogger<ProxyWorker> Logger { get; }
+    public ILogger<ProxyRequestHandler> Logger { get; }
     public IRequeueWorker RequeueWorker { get; }
     public ISharedIteratorRegistry? SharedIteratorRegistry { get; }
     public IUserPriorityService UserPriorityService { get; }
@@ -30,6 +31,7 @@ public class WorkerContext
     public RequestLifecycleManager LifecycleManager { get; }
     public StreamProcessorFactory StreamProcessorFactory { get; }
     public StreamFlusher StreamFlusher { get; }
+    public TokenomicsHandler TokenomicsHandler { get; }
 
     public WorkerContext(
         ProxyConfig backendOptions,
@@ -39,7 +41,7 @@ public class WorkerContext
         IUserProfileService userProfileService,
         IRequeueWorker requeueWorker,
         IEventClient eventClient,
-        ILogger<ProxyWorker> logger,
+        ILogger<ProxyRequestHandler> logger,
         StreamProcessorFactory streamProcessorFactory,
         RequestLifecycleManager lifecycleManager,
         EventDataBuilder eventDataBuilder,
@@ -47,7 +49,8 @@ public class WorkerContext
         ConfigChangeNotifier configChangeNotifier,
         StreamFlusher streamFlusher,
         AsyncWorkerContext? asyncWorkerContext = null,
-        ISharedIteratorRegistry? sharedIteratorRegistry = null)
+        ISharedIteratorRegistry? sharedIteratorRegistry = null,
+        TokenomicsHandler tokenomicsHandler = null!)
     {
 
         ArgumentNullException.ThrowIfNull(backendOptions);
@@ -65,6 +68,7 @@ public class WorkerContext
         ArgumentNullException.ThrowIfNull(configChangeNotifier);
         ArgumentNullException.ThrowIfNull(streamFlusher);
         ArgumentNullException.ThrowIfNull(sharedIteratorRegistry);
+        ArgumentNullException.ThrowIfNull(tokenomicsHandler);
 
         BackendOptions = backendOptions;
         Queue = queue;
@@ -82,5 +86,6 @@ public class WorkerContext
         ConfigChangeNotifier = configChangeNotifier;
         SharedIteratorRegistry = sharedIteratorRegistry;
         StreamFlusher = streamFlusher;
+        TokenomicsHandler = tokenomicsHandler;
     }
 }

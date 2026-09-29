@@ -1,0 +1,30 @@
+ReplicaId: replica-01
+BatchId: batch-1001
+UserId,Model,Day,InputTokens,OutputTokens,CachedTokens,IsJailbreakDetected,IsContentFiltered,StatusCode,LatencyMs,TimestampUtc
+alice,gpt-4o,2026-09-24,1250,340,100,false,false,200,145.7,2026-09-24T12:15:22.123Z
+bob,gpt-4.1,2026-09-24,875,210,50,false,true,200,98.4,2026-09-24T12:16:11.456Z
+charlie,o3,2026-09-24,2300,780,0,true,false,429,312.9,2026-09-24T12:17:45.789Z
+
+BatchId: batch-1002
+UserId,Model,Day,InputTokens,OutputTokens,CachedTokens,IsJailbreakDetected,IsContentFiltered,StatusCode,LatencyMs,TimestampUtc
+diana,gpt-4o,2026-09-24,1100,250,25,false,false,200,132.1,2026-09-24T12:20:22.123Z
+eric,gpt-4.1,2026-09-24,920,190,75,false,false,200,101.2,2026-09-24T12:21:11.456Z
+frank,o3,2026-09-24,1800,670,0,false,false,200,288.6,2026-09-24T12:22:45.789Z
+
+BatchId: batch-1003
+UserId,Model,Day,InputTokens,OutputTokens,CachedTokens,IsJailbreakDetected,IsContentFiltered,StatusCode,LatencyMs,TimestampUtc
+grace,gpt-4o,2026-09-24,1000,300,80,false,false,200,140.5,2026-09-24T12:25:22.123Z
+henry,gpt-4.1,2026-09-24,760,180,40,false,true,400,95.3,2026-09-24T12:26:11.456Z
+ivy,o3,2026-09-24,2100,720,0,false,false,200,274.1,2026-09-24T12:27:45.789Z
+
+BatchId: batch-1004
+UserId,Model,Day,InputTokens,OutputTokens,CachedTokens,IsJailbreakDetected,IsContentFiltered,StatusCode,LatencyMs,TimestampUtc
+jack,gpt-4o,2026-09-24,1430,390,90,false,false,200,151.8,2026-09-24T12:30:22.123Z
+kate,gpt-4.1,2026-09-24,820,240,55,false,false,200,107.6,2026-09-24T12:31:11.456Z
+liam,o3,2026-09-24,1950,640,0,true,false,403,299.2,2026-09-24T12:32:45.789Z
+
+BatchId: batch-1005
+UserId,Model,Day,InputTokens,OutputTokens,CachedTokens,IsJailbreakDetected,IsContentFiltered,StatusCode,LatencyMs,TimestampUtc
+mia,gpt-4o,2026-09-24,1180,310,60,false,false,200,136.4,2026-09-24T12:35:22.123Z
+noah,gpt-4.1,2026-09-24,890,220,30,false,false,200,102.7,2026-09-24T12:36:11.456Z
+olivia,o3,2026-09-24,2400,810,0,false,true,500,341.5,2026-09-24T12:37:45.789Z

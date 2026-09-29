@@ -22,7 +22,7 @@ public static class ReadinessParticipantExtensions
 public enum ReadinessParticipantEnum
 {
     // Always required
-    Backends, BackendTokens, Workers, UserProfiles, EventClient,
+    Backends, BackendTokens, Workers, UserProfiles, EventClient, Tokenomics,
 
     // Async mode only
     AsyncTemplates, BlobWriter, SBQueue, SBTopic,
@@ -46,6 +46,7 @@ public sealed class ReadinessRegistry
     private readonly int[] _state;       // 0 = not ready, 1 = ready, indexed by (int)enum
     private readonly bool[] _expected;   // true for participants required by config
     private readonly int _expectedCount;
+    private readonly string[] _participantNames;
     private int _readyCount;
     private readonly TaskCompletionSource _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -56,11 +57,15 @@ public sealed class ReadinessRegistry
         var values = Enum.GetValues<ReadinessParticipantEnum>();
         _state = new int[values.Length];
         _expected = new bool[values.Length];
+        _participantNames = new string[values.Length];
         var asyncEnabled = options.Value.AsyncModeEnabled;
+        var tokenomicsEnabled = options.Value.TokenomicsEnable;
         foreach (var p in values)
         {
             if (ReadinessParticipantInfo.IsAsyncOnly(p) && !asyncEnabled) continue;
+            if (p == ReadinessParticipantEnum.Tokenomics && !tokenomicsEnabled) continue;
             _expected[(int)p] = true;
+            _participantNames[(int)p] = p.ToString();
             _expectedCount++;
         }
     }
@@ -70,12 +75,16 @@ public sealed class ReadinessRegistry
         int idx = (int)p;
         if (Interlocked.Exchange(ref _state[idx], 1) != 0) return;
 
-         _logger.LogInformation("[GATE] \u2713 {Name} ready", p);
         if (_expected[idx]
             && Interlocked.Increment(ref _readyCount) == _expectedCount
             && _ready.TrySetResult())
         {
-            _logger.LogInformation("[GATE] \u2713 All participants ready");
+            _logger.LogInformation("[ GATE  ] \u2713 All participants ready");
+        } else 
+        {
+            _logger.LogInformation("[ GATE  ] \u2713 {Name} marked ready: Waiting on not ready participants [{list}]:", 
+                p, 
+                string.Join(", ", Enum.GetValues<ReadinessParticipantEnum>().Where(x => _expected[(int)x] && Volatile.Read(ref _state[(int)x]) == 0).Select(x => _participantNames[(int)x])));
         }
     }
 
@@ -84,7 +93,7 @@ public sealed class ReadinessRegistry
         int idx = (int)p;
         if (Interlocked.Exchange(ref _state[idx], 0) != 1) return;
 
-        _logger.LogWarning("[GATE] \u25cb {Name} not ready", p);
+        _logger.LogWarning("[ GATE  ] \u25cb {Name} not ready", p);
         if (_expected[idx]) Interlocked.Decrement(ref _readyCount);
     }
 

@@ -17,7 +17,9 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         DisallowedKey,
         UnknownProfile,
         AsyncWorkerError,
-        ContentTooLarge
+        ContentTooLarge,
+        NotEnqueued,
+        Rejected
     } 
     
     public ErrorType Type { get; set; } = type;

@@ -29,7 +29,7 @@
                 <div class="config-newhost-grid">
                     @foreach (var setting in Settings.Where(setting => GroupName(setting.Name) == destination.Name))
                     {
-                        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
+                        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
                             <div class="config-setting-heading">
                                 <label class="form-label" for="@setting.Key">@FieldLabel(setting.Name.StartsWith("EventHub:", StringComparison.OrdinalIgnoreCase) ? setting.Name[9..] : setting.Name)</label>
                                 <ConfigurationHelp Section="Logging" Topic="@setting.Name" />
@@ -38,13 +38,14 @@
                             <input id="@setting.Key" class="form-control form-control-sm" autocomplete="off"
                                 disabled="@(!enabled)"
                                    type='@(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "password" : decimal.TryParse(setting.LoadedValue, out _) ? "number" : "text")'
-                                   value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                                   @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                                   @bind:event="oninput" @onchange="NotifyChangedAsync" />
                             @if (setting.IsChanged)
                             {
                                 <div class="small text-muted text-break mt-1">Current: @(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</div>
                                 <button class="btn btn-sm btn-outline-secondary text-nowrap align-self-start" type="button" title="Discard this edit and restore the current loaded value"
                                         aria-label="@($"Revert {FieldLabel(setting.Name)} to its loaded value")"
-                                        @onclick="() => SetValue(setting, setting.LoadedValue)">
+                                        @onclick="() => RevertAsync(setting)">
                                     <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                                 </button>
                             }
@@ -60,7 +61,7 @@
         <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button"
                 title="Discard destination edits and restore the current loaded value"
                 aria-label="Revert event loggers to their loaded value"
-                @onclick="() => SetValue(changedLoggers, changedLoggers.LoadedValue)">
+                @onclick="() => RevertAsync(changedLoggers)">
             <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
         </button>
     }
@@ -97,7 +98,7 @@
                     _ => false,
                 };
                  <div class='config-newhost-field logging-setting @(setting.IsChanged ? "config-field-changed" : string.Empty) @(group.Key == "Headers" && setting.Name.ToLowerInvariant() is not ("logallrequestheaders" or "logallrequestheadersexcept" or "logallresponseheaders" or "logallresponseheadersexcept") ? "logging-header-wide" : string.Empty)'
-                     @key="setting">
+                     @key="setting.Key">
                       <div class="config-setting-heading">
                     <label class="form-label" for="@setting.Key">@(setting.Name.ToLowerInvariant() switch
                     {
@@ -151,27 +152,30 @@
                     {
                         <input id="@setting.Key" class="form-control form-control-sm" type="password" autocomplete="off"
                                disabled="@inactive"
-                               value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                               @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                               @bind:event="oninput" @onchange="NotifyChangedAsync" />
                     }
                     else if (setting.LoadedValue.Length > 100 || setting.LoadedValue.Contains(',') || setting.LoadedValue.Contains('\n'))
                     {
                         <textarea id="@setting.Key" class="form-control form-control-sm" rows="3"
                                   disabled="@inactive"
-                                  value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())"></textarea>
+                                  @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                                  @bind:event="oninput" @onchange="NotifyChangedAsync"></textarea>
                     }
                     else
                     {
                         <input id="@setting.Key" class="form-control form-control-sm"
                                disabled="@inactive"
                                type='@(decimal.TryParse(setting.LoadedValue, out _) ? "number" : "text")'
-                               value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                               @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                               @bind:event="oninput" @onchange="NotifyChangedAsync" />
                     }
                     @if (setting.IsChanged)
                     {
                         <div class="small text-muted text-break mt-1">Current: @(setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase) ? "(hidden)" : string.IsNullOrEmpty(setting.LoadedValue) ? "(empty)" : setting.LoadedValue)</div>
                         <button class="btn btn-sm btn-outline-secondary text-nowrap align-self-start" type="button" title="Discard this edit and restore the current loaded value"
                                 aria-label="@($"Revert {FieldLabel(setting.Name)} to its loaded value")"
-                                @onclick="() => SetValue(setting, setting.LoadedValue)">
+                                @onclick="() => RevertAsync(setting)">
                             <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                         </button>
                     }
@@ -323,7 +327,7 @@
         ("poller", "Poller"), ("circuitbreaker", "Circuit breaker"), ("console", "Console"),
         ("custom", "Custom events"), ("exception", "Exceptions"), ("profile", "Profile errors"),
         ("proxy", "Proxy requests"), ("enqueued", "Enqueued requests"),
-        ("auth", "Authentication"), ("metric", "Metrics"),
+        ("auth", "Authentication"), ("metric", "Metrics"), ("tokenomics", "Tokenomics"),
     };
 
     private static string EventTypeSummary(string rawValue)
@@ -460,7 +464,18 @@
 
     private async Task SetValue(AppConfigurationScaffoldSetting setting, string? value)
     {
+        SetDraftValue(setting, value);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, string? value) =>
         setting.DraftValue = value ?? string.Empty;
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+
+    private async Task RevertAsync(AppConfigurationScaffoldSetting setting)
+    {
+        setting.RevertDraft();
         await OnChanged.InvokeAsync();
     }
 

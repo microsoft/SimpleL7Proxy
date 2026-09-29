@@ -82,7 +82,6 @@ public abstract class BaseIterator : IHostIterator
                 checkedHostCount, retryAfterMs);
             throw new S7PRequeueException(
                 "All matching backend circuit breakers are open",
-                new ProxyData(),
                 retryAfterMs);
         }
 

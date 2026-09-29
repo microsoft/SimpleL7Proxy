@@ -23,8 +23,12 @@ public sealed class StreamProcessorFactory
             ["AllUsage"] = static () => new AllUsageProcessor(),
             ["DefaultStream"] = static () => DefaultStreamProcessorInstance, // Reuse singleton
             ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor(),
-            ["AllUsage-2"] = static () => new CompleteAllUsageProcessor()
+            ["AllUsage-2"] = static () => new CompleteAllUsageProcessor(),
+            ["Tokenomics"] = static () => new TokenomicsProcessor()
         };
+
+    /// <summary>Gets the registered processor names accepted by <see cref="GetStreamProcessor"/>.</summary>
+    public static IReadOnlyCollection<string> ProcessorNames => ProcessorFactories.Keys;
 
     // Constants for processor selection logic
     public const string DEFAULT_PROCESSOR = "DefaultStream";
@@ -52,6 +56,9 @@ public sealed class StreamProcessorFactory
     ///   - OpenAI: OpenAI-specific response processing with batch detection
     ///   - AllUsage: Usage tracking for OpenAI responses
     ///   - MultiLineAllUsage: Multi-line usage data extraction
+    ///   - AllUsage-2: Complete usage data extraction
+    ///   - Tokenomics: Prompt/completion/cached token counts plus jailbreak and content-filter
+    ///     signals for Tokenomics accounting (captures every stream line)
     /// </summary>
     /// <param name="proxyResponse">The HTTP response from the backend</param>
     /// <param name="mediaType">The content type of the response</param>
@@ -81,7 +88,7 @@ public sealed class StreamProcessorFactory
     /// Gets a stream processor instance by name with fallback to default.
     /// Returns a pre-allocated singleton for "DefaultStream" (stateless, no allocation).
     /// Creates a new instance per call for all other processors (OpenAI, AllUsage,
-    /// MultiLineAllUsage, AllUsage-2) since they may hold per-request state.
+    /// MultiLineAllUsage, AllUsage-2, Tokenomics) since they may hold per-request state.
     /// Falls back to the default processor if the requested name is unknown or construction fails.
     /// </summary>
     /// <param name="processorName">The name of the processor to retrieve</param>

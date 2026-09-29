@@ -6,7 +6,7 @@
         var secret = setting.Name.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase)
             || setting.Name.ToLowerInvariant() is "auth:key1" or "auth:key2";
         var multiline = !secret && (setting.LoadedValue.Length > 100 || setting.LoadedValue.IndexOfAny(new[] { ',', '\n', '[', '{' }) >= 0);
-        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
             <div class="config-setting-heading">
                 <label class="form-label" for="@setting.Key" title="@setting.Key">@Label(setting.Name)</label>
                 <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name" />
@@ -17,19 +17,21 @@
                 <div class="form-check">
                     <input id="@setting.Key" class="form-check-input" type="checkbox"
                            checked='@string.Equals(setting.DraftValue, "true", StringComparison.OrdinalIgnoreCase)'
-                           @onchange='args => SetValue(setting, args.Value is true ? "true" : "false")' />
+                           @onchange='args => SetValueAsync(setting, args.Value is true ? "true" : "false")' />
                 </div>
             }
             else if (multiline)
             {
                 <textarea id="@setting.Key" class="form-control form-control-sm" rows="3"
-                          value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())"></textarea>
+                          @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                          @bind:event="oninput" @onchange="NotifyChangedAsync"></textarea>
             }
             else
             {
                 <input id="@setting.Key" class="form-control form-control-sm" autocomplete="off" step="any"
                        type='@(secret ? "password" : decimal.TryParse(setting.LoadedValue, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _) ? "number" : "text")'
-                       value="@setting.DraftValue" @oninput="args => SetValue(setting, args.Value?.ToString())" />
+                       @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                       @bind:event="oninput" @onchange="NotifyChangedAsync" />
             }
             @if (setting.IsChanged)
             {
@@ -38,7 +40,7 @@
                     <button class="btn btn-sm btn-outline-secondary text-nowrap ms-auto" type="button"
                             title="Discard this edit and restore the current loaded value"
                             aria-label="@($"Revert {Label(setting.Name)} to its loaded value")"
-                            @onclick="() => SetValue(setting, setting.LoadedValue)">
+                            @onclick="() => RevertAsync(setting)">
                         <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                     </button>
                 </div>
@@ -59,9 +61,20 @@
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
     [Parameter] public EventCallback OnChanged { get; set; }
 
-    private async Task SetValue(AppConfigurationScaffoldSetting setting, string? value)
-    {
+    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, string? value) =>
         setting.DraftValue = value ?? string.Empty;
+
+    private async Task SetValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        SetDraftValue(setting, value);
+        await OnChanged.InvokeAsync();
+    }
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+
+    private async Task RevertAsync(AppConfigurationScaffoldSetting setting)
+    {
+        setting.RevertDraft();
         await OnChanged.InvokeAsync();
     }
 

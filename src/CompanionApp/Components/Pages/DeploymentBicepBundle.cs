@@ -10,11 +10,17 @@ namespace CompanionApp.Components.Pages;
 public static class DeploymentBicepBundle {
     private const string AssetPrefix = "DeploymentBicepAsset/";
 
-    /// <summary>The anonymously pullable SimpleL7Proxy v2.3.0 release, pinned by digest.</summary>
-    public const string ProxyImage = "publicnvmacr.azurecr.io/simplel7proxy@sha256:2ebaff3e90fc9162421f08f8095a030627c4aea7046b3da59a8ea7720e4c530f";
+    /// <summary>The anonymously pullable SimpleL7Proxy v2.3.0 release.</summary>
+    public const string ProxyImage = "publicnvmacr.azurecr.io/simplel7proxy:v2.3.0";
 
     /// <summary>The anonymously pullable HealthProbe v2.0.1 release, pinned by digest.</summary>
     public const string HealthProbeImage = "publicnvmacr.azurecr.io/healthprobe@sha256:e28a0bd8555d97ec800f80cb37201785e4ceb9c783fbedf679de5145e3c689d1";
+
+    /// <summary>The anonymously pullable Companion App v2.3.0 release.</summary>
+    public const string CompanionImage = "publicnvmacr.azurecr.io/companionapp:v2.3.0";
+
+    /// <summary>The anonymously pullable Metrics Server v1.0.0 release.</summary>
+    public const string MetricsServerImage = "publicnvmacr.azurecr.io/metricsserver:v1.0.0";
 
     /// <summary>Packages static Bicep templates with the selected deployment values.</summary>
     public static IReadOnlyDictionary<string, string> Generate(IReadOnlyDictionary<string, string> values) {
@@ -49,6 +55,7 @@ public static class DeploymentBicepBundle {
 
     private static string GenerateParameters(IReadOnlyDictionary<string, string> values) {
         var resourceGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
+        if (Enabled(values, "DEPLOY_COMPANION_APP")) resourceGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
         if (Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT")) resourceGroupKeys.Add("NETWORK_RESOURCE_GROUP");
         if (Enabled(values, "ASYNC_DEPLOYMENT")) resourceGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
         var resourceGroups = new JsonArray();
@@ -59,6 +66,9 @@ public static class DeploymentBicepBundle {
         var settings = new JsonObject {
             ["PRIVATE_NETWORK_DEPLOYMENT"] = Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT"),
             ["ASYNC_DEPLOYMENT"] = Enabled(values, "ASYNC_DEPLOYMENT"),
+            ["DEPLOY_COMPANION_APP"] = Enabled(values, "DEPLOY_COMPANION_APP"),
+            ["DEPLOY_METRICS_SERVER"] = Enabled(values, "DEPLOY_METRICS_SERVER"),
+            ["MAKE_UNIQ_SUFFIX"] = "",
             ["LOCATION"] = Value(values, "LOCATION"),
             ["RESOURCE_GROUPS"] = resourceGroups,
             ["NETWORK_RESOURCE_GROUP"] = Value(values, "NETWORK_RESOURCE_GROUP"),
@@ -68,21 +78,29 @@ public static class DeploymentBicepBundle {
             ["REQUESTAPI_RESOURCE_GROUP"] = Value(values, "REQUESTAPI_RESOURCE_GROUP"),
             ["SERVICEBUS_RESOURCE_GROUP"] = OptionalValue(values, "SERVICEBUS_RESOURCE_GROUP", Value(values, "REQUESTAPI_RESOURCE_GROUP")),
             ["COSMOS_RESOURCE_GROUP"] = OptionalValue(values, "COSMOS_RESOURCE_GROUP", Value(values, "REQUESTAPI_RESOURCE_GROUP")),
+            ["COMPANION_APP_RESOURCE_GROUP"] = Value(values, "COMPANION_APP_RESOURCE_GROUP"),
             ["ACR_NAME"] = Value(values, "ACR_NAME"),
             ["ACR_SKU"] = Value(values, "ACR_SKU"),
             ["PROXY_IMAGE_NAME"] = Value(values, "PROXY_IMAGE_NAME"),
             ["HEALTH_IMAGE_NAME"] = Value(values, "HEALTH_IMAGE_NAME"),
+            ["COMPANION_IMAGE_NAME"] = Value(values, "COMPANION_IMAGE_NAME"),
             ["CONTAINER_APP_NAME"] = Value(values, "CONTAINER_APP_NAME"),
+            ["COMPANION_APP_NAME"] = Value(values, "COMPANION_APP_NAME"),
+            ["METRICS_SERVER_NAME"] = Value(values, "METRICS_SERVER_NAME"),
             ["MIN_REPLICAS"] = Integer(values, "MIN_REPLICAS"),
             ["MAX_REPLICAS"] = Integer(values, "MAX_REPLICAS"),
             ["ENABLE_MANAGED_IDENTITY"] = Enabled(values, "ENABLE_MANAGED_IDENTITY"),
             ["ENABLE_APP_INSIGHTS"] = Enabled(values, "ENABLE_APP_INSIGHTS"),
             ["LOG_ANALYTICS_WORKSPACE_NAME"] = Value(values, "LOG_ANALYTICS_WORKSPACE_NAME"),
+            ["USE_EXISTING_ENVIRONMENT"] = Enabled(values, "USE_EXISTING_ENVIRONMENT"),
+            ["ENVIRONMENT_RESOURCE_GROUP"] = Value(values, "ENVIRONMENT_RESOURCE_GROUP"),
             ["ENVIRONMENT_NAME"] = Value(values, "ENVIRONMENT_NAME"),
             ["WEB_CPU"] = Value(values, "WEB_CPU"),
             ["WEB_MEMORY"] = Value(values, "WEB_MEMORY"),
             ["HEALTH_CPU"] = Value(values, "HEALTH_CPU"),
             ["HEALTH_MEMORY"] = Value(values, "HEALTH_MEMORY"),
+            ["METRICS_CPU"] = Value(values, "METRICS_CPU"),
+            ["METRICS_MEMORY"] = Value(values, "METRICS_MEMORY"),
             ["WEB_PORT"] = Integer(values, "WEB_PORT"),
             ["HEALTH_PORT"] = Integer(values, "HEALTH_PORT"),
             ["INGRESS_TYPE"] = Value(values, "INGRESS_TYPE"),
@@ -167,6 +185,7 @@ public static class DeploymentBicepBundle {
             foreach (var file in files.OrderBy(file => file.Key, StringComparer.Ordinal)) {
                 var entry = archive.CreateEntry(file.Key, CompressionLevel.Optimal);
                 entry.LastWriteTime = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+                if (file.Key == "deploy.sh") entry.ExternalAttributes = Convert.ToInt32("100755", 8) << 16;
                 using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
                 writer.Write(file.Value);
             }
@@ -187,7 +206,13 @@ public static class DeploymentBicepBundle {
             .Replace("{{PROXY_SOURCE_IMAGE}}", ShellString(ProxyImage), StringComparison.Ordinal)
             .Replace("{{PROXY_TARGET_IMAGE}}", ShellString(values["PROXY_IMAGE_NAME"] + ":v2.3.0"), StringComparison.Ordinal)
             .Replace("{{HEALTH_IMAGE_IMPORT}}", values["HEALTHPROBE_TYPE"] == "sidecar"
-                ? $"az acr import --subscription \"$subscription\" --resource-group {ShellString(values["CONTAINER_APP_RESOURCE_GROUP"])} --name {ShellString(values["ACR_NAME"])} --source {ShellString(HealthProbeImage)} --image {ShellString(values["HEALTH_IMAGE_NAME"] + ":v2.0.1")} --force"
+                ? $"az acr import --subscription \"$subscription\" --resource-group \"$acr_resource_group\" --name \"$acr_name\" --source {ShellString(HealthProbeImage)} --image {ShellString(values["HEALTH_IMAGE_NAME"] + ":v2.0.1")} --force"
+                : string.Empty, StringComparison.Ordinal)
+            .Replace("{{COMPANION_IMAGE_IMPORT}}", Enabled(values, "DEPLOY_COMPANION_APP")
+                ? $"az acr import --subscription \"$subscription\" --resource-group \"$acr_resource_group\" --name \"$acr_name\" --source {ShellString(CompanionImage)} --image {ShellString(values["COMPANION_IMAGE_NAME"] + ":v2.3.0")} --force"
+                : string.Empty, StringComparison.Ordinal)
+            .Replace("{{METRICS_IMAGE_IMPORT}}", Enabled(values, "DEPLOY_METRICS_SERVER")
+                ? $"az acr import --subscription \"$subscription\" --resource-group \"$acr_resource_group\" --name \"$acr_name\" --source {ShellString(MetricsServerImage)} --image 'metricsserver:v1.0.0' --force"
                 : string.Empty, StringComparison.Ordinal)
             .Replace("\r\n", "\n", StringComparison.Ordinal);
     }

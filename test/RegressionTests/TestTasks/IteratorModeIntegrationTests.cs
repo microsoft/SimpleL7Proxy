@@ -11,6 +11,10 @@ namespace SimpleL7Proxy.Test;
 public sealed partial class PolicyScenarioIntegrationTests
 {
     [TestMethod]
+    [RegressionTestCase(
+        "apim-failover",
+        "Priority-group mode is accepted and normalized",
+        "Validates that the priority-group load-balance mode is accepted and normalized to the canonical constant value used by the proxy.")]
     public void PriorityGroupLoadBalanceMode_IsAccepted()
     {
         var config = new ProxyConfig

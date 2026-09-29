@@ -739,6 +739,23 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         return (new Dictionary<string, string>(), false, false);
     }
 
+    /// <summary>Gets transient tokenomics profile values for a user.</summary>
+    public Dictionary<string, bool> GetTokenomicsData(string userId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
+        return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PremiumTenant"] = false,
+            ["EnterpriseTenant"] = false,
+            ["IncidentResponse"] = false,
+            ["AuditInvestigation"] = false,
+            ["ComplianceRequired"] = false,
+            ["ModelReplacementAllowed"] = false,
+            ["ModelAvailable"] = true
+        };
+    }
+
     public UserProfileSnapshot? GetUserProfileSnapshot(string userId)
     {
         if (string.IsNullOrEmpty(userId))

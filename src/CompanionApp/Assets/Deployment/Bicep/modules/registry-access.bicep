@@ -5,6 +5,10 @@ import { DeploymentSettings } from '../types.bicep'
 param settings DeploymentSettings
 param containerAppId string
 param containerAppPrincipalId string
+param companionAppId string
+param companionAppPrincipalId string
+param metricsServerId string
+param metricsServerPrincipalId string
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
@@ -18,6 +22,26 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
     principalId: containerAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource companionAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_COMPANION_APP) {
+  name: guid(registry.id, companionAppId, acrPullRoleId)
+  scope: registry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: companionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource metricsServerAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_METRICS_SERVER) {
+  name: guid(registry.id, metricsServerId, acrPullRoleId)
+  scope: registry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: metricsServerPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

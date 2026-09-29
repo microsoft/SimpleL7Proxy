@@ -37,13 +37,20 @@
 }
 
 <style>
-    .config-help-link { display: inline-flex; align-items: center; justify-content: center; width: .8rem; height: .8rem; flex-shrink: 0; font-size: .55rem; font-weight: 600; line-height: 1; text-decoration: none; border: 1px solid currentColor; border-radius: 50%; vertical-align: middle; }
+    .config-help-link { display: inline-flex; align-items: center; justify-content: center; width: .9rem; height: .9rem; flex-shrink: 0; font-size: .58rem; font-weight: 650; line-height: 1; text-decoration: none; border: 1px solid currentColor; border-radius: 50%; vertical-align: middle; transition: color 140ms ease, background-color 140ms ease, transform 140ms ease; }
+    .config-help-link:hover { background: rgba(0, 122, 255, .1); transform: scale(1.06); }
     .config-help-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
     .config-help { position: relative; display: inline-flex; flex-shrink: 0; }
-    .config-help-popover { position: absolute; left: 50%; top: calc(100% + .5rem); z-index: 1080; display: none; width: max-content; max-width: min(20rem, calc(100vw - 3rem)); padding: .65rem .75rem; border: 1px solid #ced4da; border-radius: 6px; background: #f5f8fc; box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15); color: #212529; font-size: .8rem; font-weight: 400; line-height: 1.4; text-align: left; text-transform: none; transform: translateX(-50%); white-space: normal; }
-    .config-help-popover > a { display: block; margin-top: .35rem; }
+    .config-help-popover { position: absolute; left: 50%; top: calc(100% + .55rem); z-index: 1080; display: none; width: max-content; max-width: min(20rem, calc(100vw - 3rem)); padding: .75rem .85rem; border: 1px solid rgba(255, 255, 255, .74); border-radius: 12px; background: rgba(250, 250, 252, .94); box-shadow: 0 16px 42px rgba(0, 0, 0, .2), 0 2px 8px rgba(0, 0, 0, .1), inset 0 1px 0 rgba(255, 255, 255, .84); backdrop-filter: saturate(160%) blur(20px); -webkit-backdrop-filter: saturate(160%) blur(20px); color: #1d1d1f; font-size: .8rem; font-weight: 400; line-height: 1.45; text-align: left; text-transform: none; transform: translateX(-50%); white-space: normal; }
+    .config-help-popover > a { display: block; margin-top: .45rem; color: #007aff; font-weight: 500; text-decoration: none; }
+    .config-help-popover > a:hover { text-decoration: underline; }
     .config-help-popover::before { content: ""; position: absolute; right: 0; bottom: 100%; left: 0; height: .5rem; }
     .config-help:hover .config-help-popover, .config-help:focus-within .config-help-popover { display: block; }
+
+    @@media (max-width: 575.98px) {
+        .config-help-popover { position: fixed; inset: auto 1rem calc(1rem + env(safe-area-inset-bottom)); width: auto; max-width: none; transform: none; }
+        .config-help-popover::before { display: none; }
+    }
 </style>
 
 @code {

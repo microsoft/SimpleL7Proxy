@@ -4,6 +4,9 @@ import { DeploymentSettings } from '../types.bicep'
 
 param settings DeploymentSettings
 param acaSubnetId string
+param existingEnvironmentId string
+param existingEnvironmentDomain string
+param existingEnvironmentStaticIp string
 
 var workspaceId = resourceId('Microsoft.OperationalInsights/workspaces', settings.LOG_ANALYTICS_WORKSPACE_NAME)
 var insightsId = resourceId('Microsoft.Insights/components', '${settings.CONTAINER_APP_NAME}-insights')
@@ -29,7 +32,7 @@ resource insights 'Microsoft.Insights/components@2020-02-02' = if (settings.ENAB
   }
 }
 
-resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = if (!settings.USE_EXISTING_ENVIRONMENT) {
   name: settings.ENVIRONMENT_NAME
   location: settings.LOCATION
   properties: union(
@@ -62,7 +65,7 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   ] : []
 }
 
-output environmentId string = environment.id
-output environmentDomain string = environment.properties.defaultDomain
-output environmentStaticIp string = environment.properties.staticIp
+output environmentId string = environment.?id ?? existingEnvironmentId
+output environmentDomain string = environment.?properties.defaultDomain ?? existingEnvironmentDomain
+output environmentStaticIp string = environment.?properties.staticIp ?? existingEnvironmentStaticIp
 output appInsightsConnectionString string = settings.ENABLE_APP_INSIGHTS ? reference(insightsId, '2020-02-02').ConnectionString : ''

@@ -4,13 +4,22 @@ using Proxy;
 // This class represents the request received from the upstream client.
 public class S7PRequeueException: Exception, IDisposable
 {
-    public ProxyData pr { get; set; }
+    //public ProxyData pr { get; set; }
     public int RetryAfter { get; set; } = 0;
-    public S7PRequeueException(string message, ProxyData pd, int retry_after) : base(message)
+    public bool now=false;
+    public S7PRequeueException(string message, int retry_after) : base(message)
     {
-        pr = pd;
         RetryAfter = retry_after;
     }
+
+    public S7PRequeueException(string message, bool now=true, int retry_after=0) : base(message)
+    {
+        //pr = pd;
+        this.now = now;
+        RetryAfter = retry_after;
+    }
+
+
 
     public void Dispose()
     {

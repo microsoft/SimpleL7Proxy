@@ -3,7 +3,7 @@
 <div class="config-newhost-grid">
     @foreach (var setting in Settings)
     {
-        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
             <div class="config-setting-heading">
                 <label class="form-label">@FieldLabel(setting.Name)</label>
                 <ConfigurationHelp Section="CircuitBreaker" Topic="@setting.Name" />
@@ -11,7 +11,7 @@
             <ConfigurationExplanation Section="CircuitBreaker" Topic="@setting.Name" />
             @if (IsBoolean(setting.LoadedValue))
             {
-                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValue(setting, args)">
+                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValueAsync(setting, args)">
                     <option value="true">true</option>
                     <option value="false">false</option>
                 </select>
@@ -19,7 +19,8 @@
             else
             {
                 <input class="form-control form-control-sm" type="@InputType(setting.LoadedValue)"
-                       value="@setting.DraftValue" @oninput="args => SetValue(setting, args)" />
+                       @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                       @bind:event="oninput" @onchange="NotifyChangedAsync" />
             }
             @if (setting.IsChanged)
             {
@@ -31,6 +32,7 @@
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
 
     // Compact one-line summary of the circuit-breaker values, shown on the section box and modal header.
     public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
@@ -44,8 +46,16 @@
         _ => name.ToLowerInvariant(),
     };
 
-    private static void SetValue(AppConfigurationScaffoldSetting setting, ChangeEventArgs args) =>
-        setting.DraftValue = args.Value?.ToString() ?? string.Empty;
+    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, string? value) =>
+        setting.DraftValue = value ?? string.Empty;
+
+    private async Task SetValueAsync(AppConfigurationScaffoldSetting setting, ChangeEventArgs args)
+    {
+        SetDraftValue(setting, args.Value?.ToString());
+        await OnChanged.InvokeAsync();
+    }
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
 
     private static bool IsBoolean(string value) => bool.TryParse(value, out _);
 

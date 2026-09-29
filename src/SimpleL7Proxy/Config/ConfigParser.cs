@@ -69,6 +69,9 @@ public static class ConfigParser
         ("Timeout", "Timeout"),
         ("TimeoutHeader", "TimeoutHeader"),
         ("TTLHeader", "TTLHeader"),
+        ("TokenomicsEnable", "TokenomicsEnable"),
+        ("TokenomicsOptions", "TokenomicsOptions"),
+        ("TokenomicsMetricsServer", "TokenomicsMetricsServer"),
         ("UniqueUserHeaders", "UniqueUserHeaders"),
         // ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
@@ -90,6 +93,7 @@ public static class ConfigParser
         ("ValidateAuthKey2", "ValidateAuthKey2"),
         ("Workers", "Workers"),
         // ("StorageDbEnabled", "StorageDbEnabled"),
+
 
         // ── Logging / Telemetry ──
         ("LOG_LEVEL", "LogLevel"),

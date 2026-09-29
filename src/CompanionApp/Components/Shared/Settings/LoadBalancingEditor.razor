@@ -3,7 +3,7 @@
 <div class="config-newhost-grid">
     @foreach (var setting in Settings)
     {
-        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting">
+        <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
             <div class="config-setting-heading">
                 <label class="form-label">@FieldLabel(setting.Name)</label>
                 <ConfigurationHelp Section="LoadBalancing" Topic="@setting.Name" />
@@ -11,7 +11,7 @@
             <ConfigurationExplanation Section="LoadBalancing" Topic="@setting.Name" />
             @if (ChoicesFor(setting.Name) is { } choices)
             {
-                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValue(setting, args)">
+                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValueAsync(setting, args)">
                     @if (!string.IsNullOrEmpty(setting.DraftValue) && !choices.Any(choice => string.Equals(choice.Value, setting.DraftValue, StringComparison.OrdinalIgnoreCase)))
                     {
                         <option value="@setting.DraftValue">@setting.DraftValue</option>
@@ -24,7 +24,7 @@
             }
             else if (IsBoolean(setting.LoadedValue))
             {
-                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValue(setting, args)">
+                <select class="form-select form-select-sm" value="@setting.DraftValue" @onchange="args => SetValueAsync(setting, args)">
                     <option value="true">true</option>
                     <option value="false">false</option>
                 </select>
@@ -32,7 +32,8 @@
             else
             {
                 <input class="form-control form-control-sm" type="@InputType(setting.LoadedValue)"
-                       value="@setting.DraftValue" @oninput="args => SetValue(setting, args)" />
+                       @bind:get="setting.DraftValue" @bind:set="@(value => SetDraftValue(setting, value))"
+                       @bind:event="oninput" @onchange="NotifyChangedAsync" />
             }
             @if (setting.IsChanged)
             {
@@ -41,7 +42,7 @@
                     <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button"
                             title="Discard this edit and restore the current loaded value"
                             aria-label="@($"Revert {setting.Name} to its loaded value")"
-                            @onclick="() => SetValue(setting, new ChangeEventArgs { Value = setting.LoadedValue })">
+                            @onclick="() => RevertAsync(setting)">
                         <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Revert
                     </button>
                 </div>
@@ -52,6 +53,7 @@
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
 
     // Allowable values match the proxy's stored config tokens; labels are display-only.
     private static readonly (string Value, string Label)[] ModeChoices =
@@ -88,8 +90,22 @@
         _ => name.ToLowerInvariant(),
     };
 
-    private static void SetValue(AppConfigurationScaffoldSetting setting, ChangeEventArgs args) =>
-        setting.DraftValue = args.Value?.ToString() ?? string.Empty;
+    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, string? value) =>
+        setting.DraftValue = value ?? string.Empty;
+
+    private async Task SetValueAsync(AppConfigurationScaffoldSetting setting, ChangeEventArgs args)
+    {
+        SetDraftValue(setting, args.Value?.ToString());
+        await OnChanged.InvokeAsync();
+    }
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+
+    private async Task RevertAsync(AppConfigurationScaffoldSetting setting)
+    {
+        setting.RevertDraft();
+        await OnChanged.InvokeAsync();
+    }
 
     private static bool IsBoolean(string value) => bool.TryParse(value, out _);
 

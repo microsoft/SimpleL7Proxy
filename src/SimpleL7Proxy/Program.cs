@@ -22,6 +22,8 @@ using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.User;
+using SimpleL7Proxy.Tokenomics;
+
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.BlobStorage;
@@ -286,6 +288,19 @@ public class Program
         services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
         services.AddSingleton<ProfileEnricher>();
+
+        // Register tokenomics-related services.
+        services.AddSingleton<TokenRollupCollector>();
+        services.AddHostedService<TokenRollupCollector>(sp => sp.GetRequiredService<TokenRollupCollector>());
+
+        services.AddSingleton<LiveMetrics>();
+        services.AddHostedService<LiveMetrics>(sp => sp.GetRequiredService<LiveMetrics>());
+
+        services.AddSingleton<TokenomicsSettings>();
+        services.AddSingleton<TokenMetricsCache>();
+        services.AddHostedService<TokenMetricsCache>(sp => sp.GetRequiredService<TokenMetricsCache>());
+        
+        services.AddSingleton<TokenomicsHandler>();
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
         services.AddSingleton<IShutdownParticipant>(sp => (IShutdownParticipant)sp.GetRequiredService<IRequeueWorker>());

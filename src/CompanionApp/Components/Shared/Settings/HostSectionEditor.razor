@@ -29,7 +29,7 @@ else
     <tbody>
         @foreach (var setting in Hosts)
         {
-            <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting"
+            <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting.Key"
                 @onclick="() => EditHost(setting)">
                 <th scope="row">
                     <button type="button" class="btn btn-link p-0 fw-semibold text-start" @onclick:stopPropagation="true" @onclick="() => EditHost(setting)">@setting.Name</button>
@@ -89,6 +89,7 @@ else
                         <input id="newHostName" @ref="_newHostNameInput" class="form-control form-control-sm" placeholder="Host_name"
                                disabled="@(_editingHost is not null)"
                                value="@_newHostName" @oninput="args => _newHostName = args.Value?.ToString() ?? string.Empty" />
+                        <small class="text-muted mt-1">Names without a Host prefix are saved as Host_&lt;name&gt;.</small>
                     </div>
                     @foreach (var field in DialogHostFields)
                     {
@@ -256,27 +257,28 @@ else
 
 <style>
     .config-single-host-dialog { border: 0; padding: 0; margin: 0; width: 100vw; height: 100dvh; background: transparent; max-width: none; max-height: none; overflow: visible; }
-    .config-single-host-dialog::backdrop { background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(8px); }
-    .config-single-host-dialog .config-modal-backdrop { position: fixed; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 1rem; background: transparent; }
-    .config-single-host-dialog .config-modal { width: min(70rem, 100%); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; min-height: 0; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    .config-single-host-dialog .config-modal h2 { font-weight: 600; }
+    .config-single-host-dialog::backdrop { background: rgba(28, 28, 30, 0.42); backdrop-filter: saturate(125%) blur(14px); -webkit-backdrop-filter: saturate(125%) blur(14px); }
+    .config-single-host-dialog .config-modal-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: clamp(.75rem, 3vw, 2rem); background: transparent; }
+    .config-single-host-dialog .config-modal { width: min(70rem, 100%); max-height: calc(100dvh - 1.5rem); display: flex; flex-direction: column; min-height: 0; border: 1px solid rgba(255, 255, 255, .72); background: rgba(250, 250, 252, .97); border-radius: 22px; box-shadow: 0 32px 90px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .14), inset 0 1px 0 rgba(255, 255, 255, .86); backdrop-filter: saturate(160%) blur(24px); -webkit-backdrop-filter: saturate(160%) blur(24px); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .config-single-host-dialog .config-modal h2 { font-weight: 650; letter-spacing: -.02em; }
     .config-single-host-dialog .config-setting-heading { display: flex; align-items: baseline; gap: .35rem; min-width: 0; }
     .config-single-host-dialog .config-setting-heading > label { min-width: 0; overflow-wrap: anywhere; }
-    .config-single-host-dialog .form-control:focus, .config-single-host-dialog .form-select:focus { border-color: #007aff; box-shadow: 0 0 0 3px rgba(0, 122, 255, .25); outline: none; }
+    .config-single-host-dialog .form-control:focus, .config-single-host-dialog .form-select:focus { border-color: #007aff; box-shadow: 0 0 0 4px rgba(0, 122, 255, .16); outline: none; }
     .config-single-host-dialog .form-control:disabled { background: #f5f5f7; color: #86868b; }
     .config-single-host-dialog .form-check-input { width: 1.15rem; height: 1.15rem; border-radius: 6px; border: 1px solid #c7c7cc; }
     .config-single-host-dialog .form-check-input:checked { background-color: #007aff; border-color: #007aff; }
-    .config-single-host-dialog .btn-primary { background: #007aff; border: none; border-radius: 8px; padding: .45rem 1.2rem; font-weight: 500; }
+    .config-single-host-dialog .btn-primary { background: #007aff; border: none; border-radius: 10px; padding: .45rem 1.2rem; font-weight: 500; }
     .config-single-host-dialog .btn-primary:hover:enabled { background: #0066d6; }
-    .config-single-host-dialog .btn-outline-secondary { background: #f0f0f2; border: none; color: #1d1d1f; border-radius: 8px; padding: .45rem 1.1rem; font-weight: 500; }
-    .config-single-host-dialog .btn-outline-secondary:hover { background: #e4e4e8; }
-    .config-single-host-dialog .config-modal-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid #f2f2f4; }
+    .config-single-host-dialog .btn-outline-secondary { background: #e9e9ee; border: none; color: #1d1d1f; border-radius: 10px; padding: .45rem 1.1rem; font-weight: 500; }
+    .config-single-host-dialog .btn-outline-secondary:hover { background: #dedee3; }
+    .config-single-host-dialog .btn-close { box-sizing: border-box; width: 2rem; height: 2rem; padding: .55rem; border-radius: 50%; background-color: rgba(120, 120, 128, .12); background-size: .7rem; opacity: .72; box-shadow: none; }
+    .config-single-host-dialog .config-modal-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.35rem; border-bottom: 1px solid rgba(60, 60, 67, .1); background: rgba(250, 250, 252, .88); backdrop-filter: saturate(160%) blur(20px); -webkit-backdrop-filter: saturate(160%) blur(20px); }
     .config-single-host-dialog .config-newhost-body { padding: 1.25rem 1.5rem; min-height: 0; overflow: auto; overscroll-behavior: contain; }
     .config-single-host-dialog .config-newhost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr)); gap: 1rem 1.25rem; }
-    .config-single-host-dialog .config-newhost-field { display: flex; flex-direction: column; min-width: 0; padding: .5rem; border-radius: 4px; background: #f5f6f8; }
-    .config-single-host-dialog .config-field-changed { background: #fff8dc; }
+    .config-single-host-dialog .config-newhost-field { display: flex; flex-direction: column; min-width: 0; padding: .65rem .75rem; border-radius: 12px; background: rgba(118, 118, 128, .08); box-shadow: inset 0 0 0 1px rgba(60, 60, 67, .04); }
+    .config-single-host-dialog .config-field-changed { background: rgba(255, 204, 0, .12); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, .18); }
     .config-single-host-dialog .form-label { margin-bottom: .3rem; font-weight: 500; font-size: .72rem; text-transform: uppercase; color: #6e6e73; }
-    .config-single-host-dialog .form-control, .config-single-host-dialog .form-select { min-width: 0; border: 1px solid #d2d2d7; border-radius: 8px; padding: .4rem .6rem; font-size: .9rem; }
+    .config-single-host-dialog .form-control, .config-single-host-dialog .form-select { min-width: 0; border: 1px solid rgba(60, 60, 67, .2); border-radius: 10px; padding: .4rem .6rem; background: rgba(255, 255, 255, .92); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .04); font-size: .9rem; }
     .config-single-host-dialog .config-field-break { grid-column-start: 1; }
     .config-single-host-dialog .config-priority-group { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding-top: .15rem; }
     .config-single-host-dialog .config-priority-item { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: .9rem; cursor: pointer; }
@@ -290,8 +292,10 @@ else
     .config-single-host-dialog .config-auth-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
     .config-single-host-dialog .config-auth-subheading { font-size: .72rem; font-weight: 600; text-transform: uppercase; color: #86868b; }
     .config-single-host-dialog .config-auth-dim { opacity: .4; }
-    .config-single-host-dialog .config-newhost-footer { flex-shrink: 0; display: flex; justify-content: flex-end; gap: .6rem; padding: 1rem 1.5rem; border-top: 1px solid #f2f2f4; }
+    .config-single-host-dialog .config-newhost-footer { flex-shrink: 0; display: flex; justify-content: flex-end; gap: .6rem; padding: 1rem 1.5rem; border-top: 1px solid rgba(60, 60, 67, .1); background: rgba(250, 250, 252, .9); backdrop-filter: saturate(160%) blur(20px); -webkit-backdrop-filter: saturate(160%) blur(20px); }
     @@media (max-width: 600px) {
+        .config-single-host-dialog .config-modal-backdrop { align-items: flex-end; padding: .5rem; }
+        .config-single-host-dialog .config-modal { max-height: calc(100dvh - 1rem); border-radius: 22px 22px 14px 14px; }
         .config-single-host-dialog .config-auth-columns, .config-single-host-dialog .config-auth-fields { grid-template-columns: minmax(0, 1fr); }
         .config-single-host-dialog .config-auth-col { padding: 0; }
         .config-single-host-dialog .config-auth-col:last-child { border-left: 0; margin-top: 1rem; }
@@ -592,6 +596,19 @@ else
         if (string.IsNullOrEmpty(name))
         {
             return;
+        }
+
+        var suffix = name.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+            ? name["Host".Length..]
+            : string.Empty;
+        var isNamedHost = suffix.Length > 1 && suffix[0] is '_' or '-';
+        var isIndexedHost = suffix.Length > 0
+            && suffix.All(char.IsDigit)
+            && int.TryParse(suffix, out var hostIndex)
+            && hostIndex > 0;
+        if (!isNamedHost && !isIndexedHost)
+        {
+            name = $"Host_{name}";
         }
 
         var value = BuildHostValue();

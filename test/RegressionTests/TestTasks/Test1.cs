@@ -394,6 +394,8 @@ public sealed class Test1 : IRegressionTestMetadata
         public (Dictionary<string, string> profile, bool isSoftDeleted, bool isStale) GetUserProfile(string userId)
             => (new Dictionary<string, string>(), false, false);
 
+        public Dictionary<string, bool> GetTokenomicsData(string userId) => new();
+
         public bool IsUserSuspended(string userId) => false;
 
         public bool IsAuthAppIDValid(string authAppId) => false;

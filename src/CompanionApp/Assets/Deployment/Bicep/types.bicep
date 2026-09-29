@@ -2,6 +2,9 @@
 type DeploymentSettings = {
   PRIVATE_NETWORK_DEPLOYMENT: bool
   ASYNC_DEPLOYMENT: bool
+  DEPLOY_COMPANION_APP: bool
+  DEPLOY_METRICS_SERVER: bool
+  MAKE_UNIQ_SUFFIX: string
   LOCATION: string
   RESOURCE_GROUPS: string[]
   NETWORK_RESOURCE_GROUP: string
@@ -11,21 +14,29 @@ type DeploymentSettings = {
   REQUESTAPI_RESOURCE_GROUP: string
   SERVICEBUS_RESOURCE_GROUP: string
   COSMOS_RESOURCE_GROUP: string
+  COMPANION_APP_RESOURCE_GROUP: string
   ACR_NAME: string
   ACR_SKU: 'Basic' | 'Standard' | 'Premium'
   PROXY_IMAGE_NAME: string
   HEALTH_IMAGE_NAME: string
+  COMPANION_IMAGE_NAME: string
   CONTAINER_APP_NAME: string
+  COMPANION_APP_NAME: string
+  METRICS_SERVER_NAME: string
   MIN_REPLICAS: int
   MAX_REPLICAS: int
   ENABLE_MANAGED_IDENTITY: bool
   ENABLE_APP_INSIGHTS: bool
   LOG_ANALYTICS_WORKSPACE_NAME: string
+  USE_EXISTING_ENVIRONMENT: bool
+  ENVIRONMENT_RESOURCE_GROUP: string
   ENVIRONMENT_NAME: string
   WEB_CPU: string
   WEB_MEMORY: string
   HEALTH_CPU: string
   HEALTH_MEMORY: string
+  METRICS_CPU: string
+  METRICS_MEMORY: string
   WEB_PORT: int
   HEALTH_PORT: int
   INGRESS_TYPE: 'external' | 'internal'

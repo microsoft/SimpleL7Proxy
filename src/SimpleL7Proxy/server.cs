@@ -21,6 +21,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Rules;
+using SimpleL7Proxy.Tokenomics;
 
 using Shared.HealthProbe;
 
@@ -54,7 +55,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
-
     private readonly IEventClient? _eventHubClient;
     private static ProxyEvent _staticEvent = new ProxyEvent();
     private static ProxyEvent _probe = new ProxyEvent();
@@ -181,7 +181,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
             .ToArray();
 
         _authValidator.Parse(_options.ValidateAuthConfig);
-
     }
 
     public Task OnConfigChangedAsync(
@@ -254,7 +253,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
             IncomingAuthModeEnum.None => "None",
             _ => "Unknown"
         };
-        if ( _options.ValidateAuthAppID )
+        if (_options.ValidateAuthAppID)
         {
 
             authStr += ", App ID";
@@ -346,9 +345,9 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     {
                         var (probeType, code) = probePath switch
                         {
-                            Constants.Liveness  => ("Liveness",  await _probeServer.LivenessResponseAsync(lc)),
+                            Constants.Liveness => ("Liveness", await _probeServer.LivenessResponseAsync(lc)),
                             Constants.Readiness => ("Readiness", await _probeServer.ReadinessResponseAsync(lc)),
-                            _                   => ("Startup",   await _probeServer.StartupResponseAsync(lc)),
+                            _ => ("Startup", await _probeServer.StartupResponseAsync(lc)),
                         };
                         _probe.Uri = lc.Request.Url!;
                         _probe["ProbeType"] = probeType;
@@ -373,7 +372,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     {
                         isprobe = true;
                     }
-                    
+
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -679,11 +678,11 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     rd.IsStatusCheck = true;
                                     ed["S7PType"] = "ResponseCheck";
 
-                                    Console.WriteLine($"[ASYNC] Received status check request for GUID {rd.Headers["Guid"]}"); 
+                                    Console.WriteLine($"[ASYNC] Received status check request for GUID {rd.Headers["Guid"]}");
                                 }
 
                                 // Determine priority boost based on the UserID
-                                _userPriority.addRequest(requestGuid, rd.UserID );
+                                _userPriority.addRequest(requestGuid, rd.UserID);
                                 bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                                 userPriorityBoost = shouldBoost ? 1 : 0;
 
@@ -737,16 +736,9 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 // Enqueue the request
                                 if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
                                 {
-                                    notEnqued = true;
-                                    notEnquedCode = 429;
-
-                                    retrymsg = ed["Message"] = "Failed to enqueue request";
-                                    logmsg = "Failed to enqueue request  => 429:";
-
-                                    if (rd.runAsync)
-                                    {
-                                        rd.SBStatus = ServiceBusMessageStatusEnum.Failed;
-                                    }
+                                    throw new ProxyErrorException(ProxyErrorException.ErrorType.NotEnqueued,  
+                                                                  (HttpStatusCode)429, 
+                                                                  "Failed to enqueue request");
                                 }
 
                             }
@@ -757,6 +749,11 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
                                 logmsg = ed["Message"] = e.Message;
                                 retrymsg = logmsg + "\n";
+
+                                if (rd.runAsync)
+                                {
+                                    rd.SBStatus = ServiceBusMessageStatusEnum.Failed;
+                                }
                             }
                             catch (Exception e)
                             {
@@ -922,7 +919,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
         if (!message.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            message = "Invalid Auth Key:  <REDACTED>" ;
+            message = "Invalid Auth Key:  <REDACTED>";
         }
 
         return (false, message);
