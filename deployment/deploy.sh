@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly default_make_uniq=false
+readonly default_make_uniq=true
 readonly usage='Usage: bash deploy.sh SUBSCRIPTION_ID [validate|what-if|create] [--MakeUniq]'
 
 if (( $# == 1 )) && [[ "$1" == '-h' || "$1" == '--help' ]]; then
@@ -178,11 +178,11 @@ if [[ "$operation" == 'create' ]]; then
 		--subscription "$subscription" \
 		--resource-group "$acr_resource_group" \
 		--name "$acr_name" \
-		--source 'publicnvmacr.azurecr.io/simplel7proxy@sha256:2ebaff3e90fc9162421f08f8095a030627c4aea7046b3da59a8ea7720e4c530f' \
+		--source 'publicnvmacr.azurecr.io/simplel7proxy:v2.3.0' \
 		--image 'simple-l7-proxy:v2.3.0' \
 		--force
 
-	az acr import --subscription "$subscription" --resource-group "$acr_resource_group" --name "$acr_name" --source 'publicnvmacr.azurecr.io/healthprobe@sha256:e28a0bd8555d97ec800f80cb37201785e4ceb9c783fbedf679de5145e3c689d1' --image 'healthprobe:v2.0.1' --force
+	
 
 	az acr import --subscription "$subscription" --resource-group "$acr_resource_group" --name "$acr_name" --source 'publicnvmacr.azurecr.io/companionapp:v2.3.0' --image 'companionapp:v2.3.0' --force
 

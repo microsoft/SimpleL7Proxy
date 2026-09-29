@@ -72,7 +72,7 @@ public sealed class TokenomicsCondition
         return this;
     }
 
-    public string ToString()
+    public override string ToString()
     {
         return $"AbuseDetected: {AbuseDetected}, DailyQuotaExceeded: {DailyQuotaExceeded}, MonthlyQuotaExceeded: {MonthlyQuotaExceeded}, " +
                $"CapacityConstrained: {CapacityConstrained}, CapacityAvailable: {CapacityAvailable}, QueueDepthHigh: {QueueDepthHigh}, " +

@@ -125,11 +125,6 @@ public class AppConfigService : BackgroundService
             _logger.LogInformation("[APP-CONFIG] Sentinel missing");
         _isInitialized = true;
 
-
-        Console.WriteLine("Warm settings: " + string.Join(", ", warm.Keys));
-        Console.WriteLine("Metrics Server: " + WarmSettings["TokenomicsMetricsServer"] + "|");
-
-
         return (WarmSettings, ColdSettings);
     }
 

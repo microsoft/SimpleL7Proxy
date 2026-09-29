@@ -19,6 +19,7 @@ public class LogTargetAttr
     public bool ProxyRequestEnqueued;
     public bool Authentication;
     public bool Metric;
+    public bool Tokenomics;
 
     /// <summary>
     /// Returns whether the given <see cref="EventType"/> is enabled for this destination.
@@ -40,6 +41,7 @@ public class LogTargetAttr
         EventType.ProxyRequestEnqueued                           => ProxyRequestEnqueued,
         EventType.Authentication                                 => Authentication,
         EventType.Metric                                         => Metric,
+        EventType.Tokenomics                                     => Tokenomics,
         _                                                        => true,
     };
 
@@ -90,6 +92,7 @@ public class LogTargetAttr
             ProxyRequestEnqueued = On("enqueued"),
             Authentication   = On("auth"),
             Metric           = On("metric"),
+            Tokenomics       = On("tokenomics"),
         };
     }
 

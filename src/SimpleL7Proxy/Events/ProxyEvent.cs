@@ -185,6 +185,7 @@ namespace SimpleL7Proxy.Events
             case EventType.ProxyRequest:
             case EventType.ProxyRequestExpired:
             case EventType.ProxyRequestRequeued:
+            case EventType.Tokenomics:
             case EventType.Probe:
               TrackRequest();
               break;

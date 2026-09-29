@@ -10,7 +10,7 @@ param appConfigurationEndpoint string
 param blobEndpoint string
 param requestApiHostName string
 
-var proxyImage = usePrivateRegistry ? '${registry.properties.loginServer}/${settings.PROXY_IMAGE_NAME}:v2.3.0' : 'publicnvmacr.azurecr.io/simplel7proxy@sha256:2ebaff3e90fc9162421f08f8095a030627c4aea7046b3da59a8ea7720e4c530f'
+var proxyImage = usePrivateRegistry ? '${registry.properties.loginServer}/${settings.PROXY_IMAGE_NAME}:v2.3.0' : 'publicnvmacr.azurecr.io/simplel7proxy:v2.3.0'
 var healthImage = usePrivateRegistry ? '${registry.properties.loginServer}/${settings.HEALTH_IMAGE_NAME}:v2.0.1' : 'publicnvmacr.azurecr.io/healthprobe@sha256:e28a0bd8555d97ec800f80cb37201785e4ceb9c783fbedf679de5145e3c689d1'
 var baseEnvironment = [
   {

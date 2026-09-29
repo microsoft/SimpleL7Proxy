@@ -5,10 +5,12 @@ using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.StreamProcessor;
+using SimpleL7Proxy.Tokenomics;
 
 var builder = WebApplication.CreateBuilder(args);
 var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
 var metricsServerOverride = Environment.GetEnvironmentVariable("MetricsServerOverride");
+var appInsightsConnectionStringOverride = Environment.GetEnvironmentVariable("AppInsightsConnectionStringOverride");
 builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
@@ -88,6 +90,11 @@ else
             {
                 drafts.Single(setting => setting.Key == "Warm:Tokenomics:MetricsServer").DraftValue = metricsServerOverride;
                 drafts.Single(setting => setting.Key == "Warm:Tokenomics:Enable").DraftValue = "true";
+                drafts.Single(setting => setting.Key == "Warm:Tokenomics:Options").DraftValue = new TokenomicsSettings().ToString();
+            }
+            if (appInsightsConnectionStringOverride is not null)
+            {
+                drafts.Single(setting => setting.Key == "Cold:Logging:AppInsightsConnectionString").DraftValue = appInsightsConnectionStringOverride;
             }
             if (sidecarOverride is not null)
             {

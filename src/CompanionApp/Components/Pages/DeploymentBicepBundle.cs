@@ -10,8 +10,8 @@ namespace CompanionApp.Components.Pages;
 public static class DeploymentBicepBundle {
     private const string AssetPrefix = "DeploymentBicepAsset/";
 
-    /// <summary>The anonymously pullable SimpleL7Proxy v2.3.0 release, pinned by digest.</summary>
-    public const string ProxyImage = "publicnvmacr.azurecr.io/simplel7proxy@sha256:2ebaff3e90fc9162421f08f8095a030627c4aea7046b3da59a8ea7720e4c530f";
+    /// <summary>The anonymously pullable SimpleL7Proxy v2.3.0 release.</summary>
+    public const string ProxyImage = "publicnvmacr.azurecr.io/simplel7proxy:v2.3.0";
 
     /// <summary>The anonymously pullable HealthProbe v2.0.1 release, pinned by digest.</summary>
     public const string HealthProbeImage = "publicnvmacr.azurecr.io/healthprobe@sha256:e28a0bd8555d97ec800f80cb37201785e4ceb9c783fbedf679de5145e3c689d1";

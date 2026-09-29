@@ -504,6 +504,25 @@ public class ProxyRequestHandler
                             incomingRequest.Guid);
                     }
                 }
+                catch (S7PRejectedException e)
+                {
+                    _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.Forbidden, e.Message);
+                    eventData.Status = HttpStatusCode.Forbidden;
+                    eventData["Error"] = "Request Rejected";
+                    eventData.Type = EventType.Tokenomics;
+
+                    if (lcontext != null)
+                    {
+                        await WriteErrorToClientAsync(
+                            lcontext,
+                            HttpStatusCode.Forbidden,
+                            e.Message,
+                            eventData,
+                            incomingRequest.Guid);
+                    }
+
+
+                }
                 catch (ProxyErrorException e)
                 {
                     _lifecycleManager.TransitionToFailed(incomingRequest, e.StatusCode, e.Message);

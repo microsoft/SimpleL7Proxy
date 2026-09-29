@@ -7,6 +7,7 @@ param settings DeploymentSettings
 param usePrivateRegistry bool
 param environmentId string
 param appConfigurationEndpoint string
+param appInsightsConnectionString string
 param sidecarUrl string
 param metricsServerUrl string
 
@@ -23,6 +24,12 @@ var metricsServerOverrideEnvironment = settings.DEPLOY_METRICS_SERVER ? [
     value: metricsServerUrl
   }
 ] : []
+var appInsightsOverrideEnvironment = settings.ENABLE_APP_INSIGHTS ? [
+  {
+    name: 'AppInsightsConnectionStringOverride'
+    value: appInsightsConnectionString
+  }
+] : []
 var companionEnvironment = concat([
   {
     name: 'CompanionApp__AppConfigurationEndpoint'
@@ -32,7 +39,7 @@ var companionEnvironment = concat([
     name: 'CompanionApp__AppConfigurationLabel'
     value: settings.APPCONFIG_LABEL
   }
-], sidecarOverrideEnvironment, metricsServerOverrideEnvironment)
+], sidecarOverrideEnvironment, metricsServerOverrideEnvironment, appInsightsOverrideEnvironment)
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: settings.ACR_NAME

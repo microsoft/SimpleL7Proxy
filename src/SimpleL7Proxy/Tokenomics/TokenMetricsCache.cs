@@ -169,7 +169,7 @@ Console.WriteLine("Recording request outcome for user: " + userId + ", model: " 
     }
 
     /// <summary>Releases resources used by the metrics cache.</summary>
-    public void Dispose()
+    public override void Dispose()
     {
         if (_disposed)
         {

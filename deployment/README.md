@@ -14,9 +14,9 @@ Deploy the selected proxy stack through static subscription-scoped Bicep templat
 Extract the complete ZIP downloaded from Deployment Setup. Use its included deploy.sh from the extracted directory; no repository checkout is required. Replace SUBSCRIPTION_ID with the target subscription ID:
 
 ```bash
-bash deploy.sh SUBSCRIPTION_ID validate
-bash deploy.sh SUBSCRIPTION_ID what-if
-bash deploy.sh SUBSCRIPTION_ID create
+./deploy.sh SUBSCRIPTION_ID validate
+./deploy.sh SUBSCRIPTION_ID what-if
+./deploy.sh SUBSCRIPTION_ID create
 ```
 
 Validation and what-if contact Azure without importing images. Create provisions the resource groups and registry, imports the proxy, optional HealthProbe, selected Companion App, and selected Metrics Server releases, and deploys the remaining infrastructure. The Metrics Server is a single-replica internal Container App in the same managed environment as the proxy. The application stage first creates each selected Container App with its public image to establish its system-assigned identity, grants that principal its runtime roles, and then updates the app to use the copy in ACR. The script defaults to validate when its second argument is omitted.
@@ -26,7 +26,7 @@ By default, the deployment creates the Container Apps environment in the proxy r
 To add a new four-digit suffix to every deployment-created resource name, use `--MakeUniq`. The script applies the suffix to a generated parameters file, prints its path, and leaves it available for reference. The original `parameters.json` remains unchanged.
 
 ```bash
-bash deploy.sh SUBSCRIPTION_ID validate --MakeUniq
+./deploy.sh SUBSCRIPTION_ID validate --MakeUniq
 ```
 
 The deployment creates the App Configuration store, grants the deployment principal App Configuration Data Owner, and grants the proxy managed identity App Configuration Data Reader. When Companion App deployment is selected, it also grants that app's managed identity App Configuration Data Owner and sets `CompanionApp__AppConfigurationEndpoint` to the created store endpoint. Selected HealthProbe and Metrics Server endpoints are resolved from their deployments and used automatically when the Companion App initializes a new label; no endpoint entry is required. It does not write configuration settings. After `create` succeeds, the script prints the proxy URL and the Companion App URL. Open **Proxy Configuration** in the Companion App and create or duplicate a configuration for the selected label.
@@ -73,7 +73,7 @@ az deployment sub list --subscription "$subscription" \
 
 A missing deployment record does not establish that no resources were created. In the Azure portal, open **Subscriptions > your subscription > Deployments**, select the original deployment, and inspect its operation details. Follow failed nested deployments into their resource groups when more detail is needed.
 
-**Retry only after a terminal failure and after resolving its cause.** Return to the original extracted ZIP directory, run `bash deploy.sh "$subscription" what-if`, review the changes, then run `bash deploy.sh "$subscription" create`. Keep the same subscription, resource names, and bundle. Do not regenerate a setup or delete partially created resources just to check status or reconnect. The retry reapplies the template; it does not resume the old shell process.
+**Retry only after a terminal failure and after resolving its cause.** Return to the original extracted ZIP directory, run `./deploy.sh "$subscription" what-if`, review the changes, then run `./deploy.sh "$subscription" create`. Keep the same subscription, resource names, and bundle. Do not regenerate a setup or delete partially created resources just to check status or reconnect. The retry reapplies the template; it does not resume the old shell process.
 
 ## Bundle Contents
 

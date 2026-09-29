@@ -82,7 +82,7 @@ public sealed class ReadinessRegistry
             _logger.LogInformation("[ GATE  ] \u2713 All participants ready");
         } else 
         {
-            _logger.LogInformation("[ GATE  ] \u2713 {Name} marked ready: Waiting on not ready participants[{list}]:", 
+            _logger.LogInformation("[ GATE  ] \u2713 {Name} marked ready: Waiting on not ready participants [{list}]:", 
                 p, 
                 string.Join(", ", Enum.GetValues<ReadinessParticipantEnum>().Where(x => _expected[(int)x] && Volatile.Read(ref _state[(int)x]) == 0).Select(x => _participantNames[(int)x])));
         }
