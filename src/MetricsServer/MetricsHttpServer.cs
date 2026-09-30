@@ -100,8 +100,8 @@ public sealed class MetricsHttpServer : BackgroundService
         {
             options.ListenAnyIP(_options.Port);
             options.AddServerHeader = false;
-            options.Limits.MaxConcurrentConnections = 5000;
-            options.Limits.MaxConcurrentUpgradedConnections = 5000;
+            options.Limits.MaxConcurrentConnections = 100000;  // Allow high concurrency for benchmarks
+            options.Limits.MaxConcurrentUpgradedConnections = 100000;
             options.Limits.MaxRequestBodySize = _options.MaxRequestBodyBytes;
             options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(30);
             options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10);
@@ -313,13 +313,11 @@ public sealed class MetricsHttpServer : BackgroundService
     {
         try
         {
-            Console.WriteLine("Reading replica payload from request body.");
             var rlr = new ReplicaPayloadReader(ctx.Request.BodyReader);
             var replicaPayload = await rlr.ReadAsync();
 
             foreach (KeyValuePair<string, string> batch in replicaPayload.Batches)
             {
-                Console.WriteLine($"Enqueuing batch {batch.Key} for replica {replicaPayload.ReplicaId}");
                 _tokenomicsRollupProcessor.Enqueue(replicaPayload.ReplicaId, batch.Key, batch.Value);
             }
 

@@ -40,6 +40,7 @@
     <PackageReference Include="Microsoft.ApplicationInsights.DependencyCollector" Version="2.23.0" />
     <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.23.0" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.22.0" />
   </ItemGroup>
 

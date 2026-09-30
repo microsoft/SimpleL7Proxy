@@ -20,6 +20,7 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
 
     private const int RecentBatchCapacity = 10;
     private static readonly TimeSpan s_processInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan s_diagnosticsInterval = TimeSpan.FromSeconds(60);
 
     private readonly ConcurrentQueue<QueueItem> _queue = new();
     private readonly TokenomicsMetricsStore _store;
@@ -27,6 +28,9 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
     /// <summary>Last processed batch ids per ACA replica, newest first, capped at 10 per replica.</summary>
     private readonly ConcurrentDictionary<string, List<string>> _recentBatchesByReplica =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Previous diagnostics state to avoid repeated logging when nothing changed.</summary>
+    private (long TotalRecordsProcessed, int UniqueUserModelCombinations, int UniqueUsers, int UniqueModels, long TotalTokens) _previousDiagnostics = (0, 0, 0, 0, 0);
 
     public TokenomicsRollupProcessor(TokenomicsMetricsStore store)
     {
@@ -37,7 +41,6 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
     public void Enqueue(string? replicaId, string batchId, string body)
     {
         _queue.Enqueue(new QueueItem(replicaId, batchId, body));
-        Console.WriteLine($"Enqueued batch {batchId} for replica {replicaId}");
     }
 
     /// <summary>
@@ -91,37 +94,67 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(s_processInterval);
+        using var diagnosticsTimer = new PeriodicTimer(s_diagnosticsInterval);
 
         try
         {
-            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-            {
-                Console.WriteLine("Getting items for processing");
-                while (_queue.TryDequeue(out var item))
-                {
-                    Console.WriteLine($"\n\nProcessing item from replica: {item.ReplicaId}, batch: {item.BatchId}");
-                    try
-                    {
-                        var entries = ParseCsvEntries(item.Body);
-                        foreach (var entry in entries)
-                        {
-                            _store.Record(entry);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex.StackTrace);
-                    }
+            var processingTask = ProcessQueueAsync(timer, stoppingToken);
+            var diagnosticsTask = LogDiagnosticsAsync(diagnosticsTimer, stoppingToken);
 
-                    RecordBatch(item.ReplicaId, item.BatchId);
-                }
-            }
+            await Task.WhenAll(processingTask, diagnosticsTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             // Expected during shutdown.
         }
     }
+
+    private async Task ProcessQueueAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+    {
+        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+        {
+            while (_queue.TryDequeue(out var item))
+            {
+                try
+                {
+                    var entries = ParseCsvEntries(item.Body);
+                    foreach (var entry in entries)
+                    {
+                        _store.Record(entry);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.StackTrace);
+                }
+
+                RecordBatch(item.ReplicaId, item.BatchId);
+            }
+        }
+    }
+
+    private async Task LogDiagnosticsAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+    {
+        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+        {
+            try
+            {
+                var currentDiagnostics = _store.GetDiagnostics();
+                
+                // Only log if something changed
+                if (currentDiagnostics != _previousDiagnostics)
+                {
+                    Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] Metrics Store: {currentDiagnostics.TotalRecordsProcessed} records | {currentDiagnostics.UniqueUserModelCombinations} unique combos | {currentDiagnostics.UniqueUsers} users | {currentDiagnostics.UniqueModels} models | {currentDiagnostics.TotalTokens:N0} total tokens");
+                    _previousDiagnostics = currentDiagnostics;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error logging diagnostics: {ex.Message}");
+            }
+        }
+    }
+
 
     /// <summary>
     /// Records a processed batch id in the sending replica's history, capped at 10 entries.
@@ -156,22 +189,25 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
     {
         var entries = new List<PendingMetric>();
         var lines = csv.Split('\n');
+        
         if (lines.Length == 0)
         {
             return entries;
         }
 
-        if (lines[0] != PendingMetric.CsvHeader)
+        var headerLine = lines[0].TrimEnd();
+        if (headerLine != PendingMetric.CsvHeader)
         {
             return entries;
         }
 
         foreach (var line in lines.Skip(1))
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
+            var trimmedLine = line.TrimEnd();
+            if (string.IsNullOrWhiteSpace(trimmedLine)) continue;
             try
             {
-                entries.Add(new PendingMetric(line));
+                entries.Add(new PendingMetric(trimmedLine));
             }
             catch
             {

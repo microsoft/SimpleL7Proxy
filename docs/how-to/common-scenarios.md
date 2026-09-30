@@ -77,7 +77,7 @@ MaxQueueLength=500
 
 **Purpose:** Reject requests missing mandatory headers and block Entra application IDs not in the allowlist before they consume queue capacity.
 
-> **Rule: The `ValidateAuthAppID` check is validation step 2, after optional inbound key/OAuth validation. Unknown app IDs return `403` before the request enters the queue.**
+> **Rule: The `ValidateAuthAppID` check is validation step 2, after configured inbound key/OAuth validation. Unknown app IDs return `403` before the request enters the queue.**
 
 ```bash
 DisallowedHeaders=X-Forwarded-For,X-Real-IP

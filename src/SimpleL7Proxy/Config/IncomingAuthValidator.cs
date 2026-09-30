@@ -1,4 +1,5 @@
-using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
 namespace SimpleL7Proxy.Config;
@@ -10,12 +11,13 @@ public sealed class IncomingAuthValidator
     public bool Enabled { get; set; }
     public string Header { get; set; } = "S7P-KEY";
     public string Issuer { get; set; } = string.Empty;
+    public string MetadataAddress { get; set; } = string.Empty;
     public string Mode { get; set; } = "key";
-    public bool RequireSignedTokens { get; set; } = false;
+    public bool RequireSignedTokens { get; set; } = true;
     public Dictionary<string, string> RequiredClaims { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool ValidateAudience { get; set; } = true;
     public bool ValidateIssuer { get; set; } = true;
-    public bool ValidateIssuerSigningKey { get; set; } = false;
+    public bool ValidateIssuerSigningKey { get; set; } = true;
     public bool ValidateLifetime { get; set; } = true;
     public IncomingAuthModeEnum ValidateAuthMode { get; set; } = IncomingAuthModeEnum.Key;
     public bool ValidateAuthViaKey { get; set; } = false;
@@ -29,8 +31,11 @@ public sealed class IncomingAuthValidator
 
         if (string.IsNullOrWhiteSpace(ValidateAuthConfig))
         {
+            Enabled = false;
+            ValidateAuthMode = IncomingAuthModeEnum.None;
             ValidateAuthViaKey = false;
             ValidateAuthViaOauthHeader = false;
+            validationParameters = ToTokenValidationParameters();
             return;
         }
 
@@ -48,11 +53,21 @@ public sealed class IncomingAuthValidator
                 "mixed" => IncomingAuthModeEnum.Mixed,
                 "none" => IncomingAuthModeEnum.None,
                 "oauth2" or "oauth" => IncomingAuthModeEnum.OAuth2,
-                _ => IncomingAuthModeEnum.None
+                _ => throw new InvalidOperationException($"Unsupported authentication mode: {Mode}")
             };
 
-            ValidateAuthViaKey = normalizedMode is "key" or "mixed";
-            ValidateAuthViaOauthHeader = normalizedMode is "oauth2" or "oauth" or "mixed";
+            if (Enabled && ValidateAuthMode == IncomingAuthModeEnum.None)
+            {
+                throw new InvalidOperationException("Authentication cannot be enabled with mode=none");
+            }
+
+            ValidateAuthViaKey = Enabled && (normalizedMode is "key" or "mixed");
+            ValidateAuthViaOauthHeader = Enabled && (normalizedMode is "oauth2" or "oauth" or "mixed");
+
+            if (ValidateAuthViaOauthHeader)
+            {
+                ValidateOAuthSettings();
+            }
 
             validationParameters = ToTokenValidationParameters();
         }
@@ -92,6 +107,9 @@ public sealed class IncomingAuthValidator
                     break;
                 case "issuer":
                     Issuer = value;
+                    break;
+                case "metadataaddress":
+                    MetadataAddress = value;
                     break;
                 case "audience":
                 case "audiences":
@@ -141,6 +159,7 @@ public sealed class IncomingAuthValidator
             Mode = Mode,
             Header = Header,
             Issuer = Issuer,
+            MetadataAddress = MetadataAddress,
             Audiences = (string[])Audiences.Clone(),
             RequiredClaims = new Dictionary<string, string>(RequiredClaims, StringComparer.OrdinalIgnoreCase),
             ValidateIssuer = ValidateIssuer,
@@ -164,10 +183,50 @@ public sealed class IncomingAuthValidator
             ClockSkew = TimeSpan.FromMinutes(ClockSkewMinutes),
             ValidateIssuerSigningKey = ValidateIssuerSigningKey,
             RequireSignedTokens = RequireSignedTokens,
-            SignatureValidator = RequireSignedTokens
-                ? null
-                : (token, _) => new JsonWebToken(token)
+            ValidAlgorithms = ValidateAuthViaOauthHeader ? [SecurityAlgorithms.RsaSha256] : null,
+            ConfigurationManager = ValidateAuthViaOauthHeader
+                ? new ConfigurationManager<OpenIdConnectConfiguration>(
+                    MetadataAddress,
+                    new OpenIdConnectConfigurationRetriever(),
+                    new HttpDocumentRetriever { RequireHttps = true })
+                : null
         };
+    }
+
+    private void ValidateOAuthSettings()
+    {
+        if (!RequireSignedTokens)
+        {
+            throw new InvalidOperationException("OAuth signature validation cannot be disabled");
+        }
+
+        if (!ValidateIssuer || string.IsNullOrWhiteSpace(Issuer))
+        {
+            throw new InvalidOperationException("OAuth authentication requires issuer validation and a non-empty issuer");
+        }
+
+        if (!ValidateAudience || Audiences.Length == 0)
+        {
+            throw new InvalidOperationException("OAuth authentication requires audience validation and at least one audience");
+        }
+
+        if (!ValidateLifetime)
+        {
+            throw new InvalidOperationException("OAuth lifetime validation cannot be disabled");
+        }
+
+        MetadataAddress = string.IsNullOrWhiteSpace(MetadataAddress)
+            ? $"{Issuer.TrimEnd('/')}/.well-known/openid-configuration"
+            : MetadataAddress;
+
+        if (!Uri.TryCreate(MetadataAddress, UriKind.Absolute, out var metadataUri) ||
+            metadataUri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new InvalidOperationException("OAuth metadataAddress must be an absolute HTTPS URL");
+        }
+
+        MetadataAddress = metadataUri.AbsoluteUri;
+        ValidateIssuerSigningKey = true;
     }
 
     private static string[] ParseList(string value)

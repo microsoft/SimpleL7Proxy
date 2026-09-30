@@ -1,8 +1,8 @@
 # Deploy SimpleL7Proxy
 
-The quickest way to deploy is to use Azure Cloud Shell to deploy the ZIP created by Deployment Setup. The zip file contains parameterized bicep files and deploys the following architecture:
+The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP created by Deployment Setup. The ZIP contains parameterized Bicep files for the following architecture:
 
-![alt text](arch.png)
+![SimpleL7Proxy deployment architecture](arch.png)
 
 ## Before you begin
 
@@ -21,10 +21,8 @@ You need:
 4. Extract it and open the extracted directory:
 
 ```bash
-zip='YOUR_DEPLOYMENT_ZIP.zip'
-
 mkdir simplel7proxy-deployment
-unzip "$zip" -d simplel7proxy-deployment
+unzip deploy.zip -d simplel7proxy-deployment
 cd simplel7proxy-deployment
 ```
 
@@ -35,29 +33,29 @@ sub='YOUR_SUBSCRIPTION_ID'
 ./deploy.sh "$sub" create
 ```
 
-This creates a uniq deployment by adding uique name to the end of the resources.
+This creates a unique deployment by appending a unique suffix to the resource names.
 
-![alt text](deployment.png)
+![Deployment output](deployment.png)
 
-When deployment succeeds, the script prints the available proxy and Companion App URLs. Make a note of these so that you can validate the proxy..
-
+When deployment succeeds, the script prints the available proxy and Companion App URLs. Make a note of these URLs so that you can validate the proxy.
 
 ## Configure the proxy
 
 Open the Companion App URL and select **Proxy Configuration**.
 
-Select Update and pick the deployment label: prod.
-![alt text](Config.png)
+Select **Update**, then choose the deployment label, `prod`.
 
-The deployment seeds the App Configuration store with default values during the deployment.  You can make updates in the Companion App; most settings will become active in 30 seconds but some will require a proxy restart.
+![Proxy configuration](Config.png)
+
+The deployment seeds the App Configuration store with default values. You can make updates in the Companion App. Most settings become active within 30 seconds, but some require a proxy restart.
 
 ## Verify the deployment
 
-- Open the Log Stream in the proxy container app to validate that everything comes up cleanly:
-![alt text](ready.png)
+Open **Log stream** in the proxy Container App and confirm that it starts without errors.
 
+![Proxy readiness logs](ready.png)
 
-The proxy doesn't know about your backend hosts yet, so you should now configure the host in the companion app to start using the proxy.
+The proxy does not know about your backend hosts yet. Configure a backend host in the Companion App before sending requests through the proxy.
 
 ## Check deployment status
 
@@ -222,22 +220,22 @@ Regenerate the ZIP when changing resource names, image names, topology, or Deplo
 
 **Image import fails**
 
-Confirm the deployment identity can import images into the selected Azure Container Registry and can reach the public source registry.
+Confirm that the deployment identity can import images into the selected Azure Container Registry and reach the public source registry.
 
 **A Container App cannot pull its image**
 
-Confirm the imported image tag exists and the Container App managed identity has `AcrPull` on the registry.
+Confirm that the imported image tag exists and the Container App managed identity has `AcrPull` on the registry.
 
 **Role assignment fails**
 
-Confirm the deployment identity can create role assignments at the required scopes.
+Confirm that the deployment identity can create role assignments at the required scopes.
 
 **The Companion App receives HTTP 403 from App Configuration**
 
-Confirm its managed identity has App Configuration Data Owner. Allow time for the role assignment to take effect, then retry.
+Confirm that its managed identity has App Configuration Data Owner. Allow time for the role assignment to take effect, then retry.
 
 **An async resource is missing**
 
-Confirm the configured Service Bus and Cosmos DB resources, resource groups, and data resources already exist.
+Confirm that the configured Service Bus and Cosmos DB resources, resource groups, and data resources already exist.
 
 Deployment generation does not check Azure permissions, quota, resource-name availability, or backend connectivity.

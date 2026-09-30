@@ -191,6 +191,20 @@ regression_finalize_execution() {
     local started_utc=$3
     local completed_utc=$4
 
+    # Display formatted test results from TRX file
+    if [[ -f "$REGRESSION_TRX_PATH" ]]; then
+        printf '\n%s\n' "$(printf '%0.s=' {1..90})"
+        printf 'TEST RESULTS\n'
+        printf '%s\n' "$(printf '%0.s=' {1..90})"
+        
+        local formatter_script="$_regression_script_dir/format-test-results.sh"
+        if [[ -f "$formatter_script" ]]; then
+            bash "$formatter_script" "$REGRESSION_TRX_PATH" 70 2>/dev/null || true
+        else
+            printf 'Note: Detailed test result formatter not found at %s\n' "$formatter_script"
+        fi
+    fi
+
     if [[ ! -f "$_regression_renderer_dll" ]]; then
         dotnet build "$_regression_renderer_project" >/dev/null
     fi

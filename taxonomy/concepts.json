@@ -752,9 +752,9 @@
       "name": "Inbound OAuth Validation",
       "code_file": "IncomingAuthValidator.cs",
       "domain_id": "d08",
-      "definition": "Validates inbound bearer tokens in oauth2 or mixed mode using configured issuer, audience, lifetime, signature, required claims, and clock-skew rules.",
+      "definition": "Validates inbound bearer tokens in oauth2 or mixed mode using mandatory issuer, audience, lifetime, and RS256 signature validation. Signing keys are loaded and rotated through the issuer's HTTPS OIDC metadata endpoint.",
       "key_settings": ["ValidateAuthConfig"],
-      "config_keys": ["enabled", "mode", "header", "issuer", "audience", "audiences", "claim", "requiredclaim", "validatelifetime", "validateissuer", "validateaudience", "validatesignature", "requiresignedtokens", "clockskewminutes"],
+      "config_keys": ["enabled", "mode", "header", "issuer", "metadataaddress", "audience", "audiences", "claim", "requiredclaim", "validatelifetime", "validateissuer", "validateaudience", "validatesignature", "requiresignedtokens", "clockskewminutes"],
       "allowed_modes": ["none", "key", "oauth", "oauth2", "mixed"],
       "related_concept_ids": ["c-inbound-key-validation", "c-validation-pipeline"],
       "docs": ["how-to/configure-security.md"]

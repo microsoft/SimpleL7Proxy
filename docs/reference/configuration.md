@@ -148,19 +148,27 @@ Profiles allow the proxy to apply per-user policy — such as routing priority o
 ---
 # Validation
 
-The proxy can be configured to reject unauthorized callers using either **OAuth** or **Keys**. Key authentication requires the caller to send a header with a recognized key. OAuth requires Entra ID integration. See [POC: Securing the proxy](../pocs/secure-the-proxy.md).
+The proxy can reject unauthorized callers using either **OAuth** or **Keys**. Key authentication requires a recognized value in the configured header. OAuth requires a signed RS256 bearer token, an exact issuer and audience match, lifetime validation, and signing keys from an HTTPS OIDC metadata endpoint. See [Configure Security](../how-to/configure-security.md#scenario-6-require-oauth2-bearer-tokens).
 
-Key authentication blocks callers that don't supply a recognized key in a designated header. Expand to configure the header name and the accepted key values.
+Inbound authentication blocks callers that do not satisfy the configured key or OAuth mode. Expand to configure the mode and accepted credentials.
 
 <details>
-<summary><strong>Key Authentication</strong></summary>
+<summary><strong>Inbound Key and OAuth Authentication</strong></summary>
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Profiles:Auth:Config`</small> | <small>`ValidateAuthConfig`</small> | <small>`enabled=false,mode=none,header=S7P-KEY`</small> | Defines inbound key or OAuth validation behavior (`enabled`, `mode`, `header`). |
+| <small>`Profiles:Auth:Config`</small> | <small>`ValidateAuthConfig`</small> | <small>`enabled=false,mode=none,header=S7P-KEY`</small> | Defines inbound mode and header. OAuth additionally REQUIRES `issuer`, `audience`, lifetime validation, signature validation, and optional HTTPS `metadataaddress`. |
 | <small>`Profiles:Auth:Key1`</small> | <small>`ValidateAuthKey1`</small> | <small>`""`</small> | First accepted inbound key. |
 | <small>`Profiles:Auth:Key2`</small> | <small>`ValidateAuthKey2`</small> | <small>`""`</small> | Second accepted inbound key for rotation support. |
 </details>
+
+Canonical OAuth configuration:
+
+```text
+enabled=true;mode=oauth2;header=Authorization;issuer=https://login.microsoftonline.com/<tenant-id>/v2.0;audience=api://<application-id>
+```
+
+`metadataaddress` defaults to `<issuer>/.well-known/openid-configuration`. It MUST be an absolute HTTPS URL when explicitly set. OAuth configuration MUST NOT disable issuer, audience, lifetime, or signature validation; invalid configuration is rejected instead of activating an insecure validator.
 
 When EasyAuth is enabled, the proxy can further restrict access to a specific list of application IDs. Expand to configure the allowlist source and the token field used to identify the caller's app ID.
 

@@ -1,12 +1,11 @@
 # Request Validation
 
-Reject or sanitize incoming requests before they enter the queue — return **417** if a required header is missing or fails a value rule, **403** if an App ID is not in the allowlist or if inbound auth key validation fails.
+Reject or sanitize incoming requests before they enter the queue — return **417** if a required header is missing or fails a value rule, **403** if an App ID is not in the allowlist or inbound key/OAuth authentication fails.
 
 **TL;DR**
-- Set `RequiredHeaders` to demand specific headers on every request; missing → 417.
-- Set `ValidateHeaders` to enforce per-user value allowlists; mismatch → 417.
+- Set `RequiredHeaders` for mandatory headers and `ValidateHeaders` for value allowlists; missing or invalid → 417.
+- Set `ValidateAuthConfig` to require either a shared key or a signed OAuth2 bearer token; missing or invalid → 403.
 - Set `ValidateAuthAppID=true` + `ValidateAuthAppIDUrl` to block unknown Entra app IDs; unknown → 403.
-- Set `ValidateAuthConfig="enabled=true, mode=key, header=<name>"` plus `ValidateAuthKey1`/`ValidateAuthKey2` to require an inbound key header; missing/invalid → 403.
 
 ## Reference Table
 
@@ -21,9 +20,26 @@ All settings are **Warm** — changes are hot-reloaded through Azure App Configu
 | `ValidateAuthAppIDUrl` | `string` | `""` | URL or `file:auth.json` for the App ID allowlist. Requires `UseProfiles=true`. |
 | `ValidateAuthAppIDHeader` | `string` | `X-MS-CLIENT-PRINCIPAL-ID` | Request header containing the caller's Entra App ID. |
 | `ValidateAuthAppFieldName` | `string` | `authAppID` | JSON field name in the allowlist file that holds the App ID value. |
-| `ValidateAuthConfig` | `string` | `enabled=false, mode=none, header=S7P-KEY` | Enables inbound key, OAuth, or mixed validation; `header` chooses the inbound header name. |
+| `ValidateAuthConfig` | `string` | `enabled=false, mode=none, header=S7P-KEY` | Enables inbound key, OAuth, or mixed validation; OAuth requires issuer, audience, lifetime, and RS256 signature validation. |
 | `ValidateAuthKey1` | `string` | `""` | First accepted inbound key value. |
 | `ValidateAuthKey2` | `string` | `""` | Second accepted inbound key value. |
+
+OAuth values inside `ValidateAuthConfig` use semicolon-separated `key=value` pairs. Units used below: `clockskewminutes` is in minutes.
+
+| OAuth config key | Default | Requirement |
+|---|---|---|
+| `enabled` | `false` | MUST be `true` to activate OAuth validation. |
+| `mode` | `none` | MUST be `oauth2`, `oauth`, or `mixed`. |
+| `header` | `S7P-KEY` | Header carrying `Bearer <token>`; use `Authorization` unless a trusted gateway requires another header. |
+| `issuer` | `""` | REQUIRED and MUST exactly match the token's `iss` claim. |
+| `audience` / `audiences` | `[]` | At least one value is REQUIRED and MUST match the token's `aud` claim. |
+| `metadataaddress` | `<issuer>/.well-known/openid-configuration` | Optional override; MUST be an absolute HTTPS URL. |
+| `validateissuer` | `true` | MUST remain `true`. |
+| `validateaudience` | `true` | MUST remain `true`. |
+| `validatelifetime` | `true` | MUST remain `true`. |
+| `validatesignature` / `requiresignedtokens` | `true` | MUST remain `true`; unsigned tokens are rejected. |
+| `clockskewminutes` | `1` | Allowed lifetime clock skew. |
+| `claim` / `requiredclaim` | none | Optional required claim in `name:value` form. |
 
 > [!NOTE]
 > **Auto-population side effect:** Setting `ValidateHeaders=SourceHeader=AllowlistHeader` automatically adds both headers to `RequiredHeaders` **and** adds `AllowlistHeader` to `DisallowedHeaders`. The allowlist header is injected by the user profile service and must not reach the backend.
@@ -159,7 +175,7 @@ The `admin` entry uses a wildcard: `gpt-4o`, `gpt-4o-mini`, and `gpt-4-turbo` al
 
 **Allowlist calling applications by their Entra App/Client ID — requests from any unlisted application receive 403.**
 
-This check executes at step 2, after optional inbound key/OAuth validation and before header stripping, user profile lookup, and header validation.
+This check executes at step 2, after configured inbound key/OAuth validation and before header stripping, user profile lookup, and header validation.
 
 ### Configuration
 
@@ -254,6 +270,35 @@ X-S7P-Error: Invalid Incoming Key: <value>
 
 ---
 
+## Scenario 6: Require OAuth2 Bearer Tokens
+
+**OAuth2 mode requires a signed RS256 bearer token with the configured issuer and audience.**
+
+```env
+ValidateAuthConfig="enabled=true;mode=oauth2;header=Authorization;\
+issuer=https://login.microsoftonline.com/<tenant-id>/v2.0;\
+audience=api://<application-id>"
+```
+
+The proxy derives the OIDC metadata URL as `<issuer>/.well-known/openid-configuration`. Add `metadataaddress=https://...` to the same value only when the issuer uses a different metadata endpoint. The metadata URL MUST use HTTPS. IdentityModel caches the issuer's signing keys and refreshes them when the token's `kid` is unknown.
+
+Request behavior:
+
+- Missing or non-Bearer `Authorization` header -> `403 Forbidden`.
+- Unsigned, attacker-signed, expired, wrong-issuer, or wrong-audience token -> `403 Forbidden`.
+- Valid signed token -> passes inbound OAuth validation.
+- `mode=mixed` -> accepts either a configured shared key or a valid signed bearer token.
+
+The accepted JWT signing algorithm is RS256. The proxy does not accept unsigned tokens, caller-provided signing keys, or symmetric secrets for inbound OAuth validation.
+
+> [!WARNING]
+> OAuth configuration fails during startup or warm reload when issuer, audience, lifetime validation, signature validation, or HTTPS metadata is missing or disabled. Metadata or JWKS retrieval failures reject the request; they do not bypass authentication. The previous validator remains active when a warm update is rejected.
+
+> [!TIP]
+> **A valid caller gets 403?** Confirm the header starts with `Bearer `, compare the token's `iss` and `aud` claims with the configured values, and verify the replica can reach the OIDC metadata and JWKS URLs over HTTPS.
+
+---
+
 ## Combining Multiple Rules
 
 All mechanisms compose independently. Enable any subset:
@@ -298,3 +343,4 @@ S7PAllowedModels         → stripped (auto DisallowedHeaders)
 | Allowlist header (`S7PAllowedModels`) appears in backend request | `ValidateHeaders` rule not set; strip is auto-applied only when the rule is active | Set the `ValidateHeaders` rule or add the header to `DisallowedHeaders` manually |
 | App ID validation blocks a valid caller after Entra cert rotation | The App/Client GUID changed | Update `auth.json` with the new GUID |
 | 403 "Invalid Incoming Key" | `ValidateAuthConfig` enabled key mode but inbound header missing or value mismatch | Send the configured header (for example `S7P-KEY`) and match `ValidateAuthKey1` or `ValidateAuthKey2` |
+| 403 "Invalid Auth" in OAuth2 mode | Bearer token is unsigned, has an untrusted signature, is expired, or has the wrong issuer or audience | Inspect `iss`, `aud`, `exp`, `alg`, and `kid`; verify OIDC metadata and JWKS connectivity |

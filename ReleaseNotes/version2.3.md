@@ -3,6 +3,7 @@
 2.3.0
 
 Proxy:
+* Implement Tokenomics
 * Added Request-Requeue-Delay to response with total amount of time a request was held for before retrying
 * Introduce Path_xxxx= which can list hosts to use on that path
 * Bug fix:  singlePass and MultiPass now work as expected
@@ -17,6 +18,11 @@ Proxy:
 * bug fix: acceptable codes was being obeyed in edge cases
 * Bug fix: inbound key auth did not honors the header configured in `ValidateAuthConfig`
 * Bug fix: users listed by `SuspendedUserConfigUrl` are now rejected with HTTP 403
+* Bug fix: Enable OAuth signature validation
+
+Metrics Server:
+* Add support for uploading metrics with daily and monthly rollups
+* Add support for querying current usage for a user
 
 Stream Parser:
 * Bug fix: `AllUsage` now skips OpenAI response chunks with `usage: null` and extracts token counts from the final usage record
@@ -25,6 +31,7 @@ CompanionApp:
 * Add ability to update app config
 * Update deployment pages
 * re-org navigation into hierarchy
+* Update deploy mechanism to pull from publicnvmacr registry for SimpleL7Proxy, metricsServer and companionApp images
 
 Package updates:
 
@@ -37,4 +44,5 @@ Package updates:
 * [Azure.Messaging.ServiceBus 7.20.1 to 7.20.2](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/servicebus/Azure.Messaging.ServiceBus/CHANGELOG.md)
 * [Azure.Storage.Blobs 12.28.0 to 12.29.2](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/storage/Azure.Storage.Blobs/CHANGELOG.md)
 * [Microsoft.IdentityModel.JsonWebTokens 8.19.1 to 8.22.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.22.0)
+* Microsoft.IdentityModel.Protocols.OpenIdConnect version 8.22.0
 * [Microsoft.IdentityModel.Tokens 8.19.1 to 8.22.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.22.0)
