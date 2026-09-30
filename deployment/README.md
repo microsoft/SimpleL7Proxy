@@ -21,10 +21,8 @@ You need:
 4. Extract it and open the extracted directory:
 
 ```bash
-zip='YOUR_DEPLOYMENT_ZIP.zip'
-
 mkdir simplel7proxy-deployment
-unzip "$zip" -d simplel7proxy-deployment
+unzip deploy.zip -d simplel7proxy-deployment
 cd simplel7proxy-deployment
 ```
 
