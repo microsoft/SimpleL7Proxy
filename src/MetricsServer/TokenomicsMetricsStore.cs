@@ -33,6 +33,7 @@ public sealed class TokenomicsMetricsStore
 
     private DateOnly _currentDay;
     private int _currentMonth;
+    private long _totalRecordsProcessed; // Track total records ever recorded (including duplicates)
 
     /// <summary>
     /// Updates the current-day and current-month user/model and model aggregates.
@@ -65,8 +66,7 @@ public sealed class TokenomicsMetricsStore
                 return;
             }
 
-Console.WriteLine($"\n\nRecording metric for user: {user}, model: {model}, day: {today}");
-Console.WriteLine($"Pre Data: DailyByUserModel Count: {_dailyByUserModel.Count}, DailyByModel Count: {_dailyByModel.Count}, MonthlyByUserModel Count: {_monthlyByUserModel.Count}, MonthlyByModel Count: {_monthlyByModel.Count}");
+            _totalRecordsProcessed++;
 
             Accumulate(
                 _dailyByUserModel.GetOrAdd(
@@ -80,8 +80,6 @@ Console.WriteLine($"Pre Data: DailyByUserModel Count: {_dailyByUserModel.Count},
                     _ => new InternalMetric()),
                 metric);
             Accumulate(_monthlyByModel.GetOrAdd(model, _ => new InternalMetric()), metric);
-
-Console.WriteLine($"Post Data: DailyByUserModel Count: {_dailyByUserModel.Count}, DailyByModel Count: {_dailyByModel.Count}, MonthlyByUserModel Count: {_monthlyByUserModel.Count}, MonthlyByModel Count: {_monthlyByModel.Count}");
         }
     }
 
@@ -143,6 +141,38 @@ Console.WriteLine($"Post Data: DailyByUserModel Count: {_dailyByUserModel.Count}
                     ? monthly.LatencyMsTotal / monthly.LatencySamples
                     : 0,
                 now);
+        }
+    }
+
+    /// <summary>
+    /// Gets diagnostic information about the metrics store: total records processed, unique user/model combinations,
+    /// unique users, unique models, and total tokens tracked (today's data).
+    /// </summary>
+    public (long TotalRecordsProcessed, int UniqueUserModelCombinations, int UniqueUsers, int UniqueModels, long TotalTokens) GetDiagnostics()
+    {
+        lock (_rollupLock)
+        {
+            // Count records and extract unique users
+            var uniqueUsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            long totalTokens = 0;
+
+            foreach (var entry in _dailyByUserModel)
+            {
+                // Extract user from the key (format: "user\0model\0date")
+                var keyParts = entry.Key.Split('\0');
+                if (keyParts.Length >= 1)
+                {
+                    uniqueUsers.Add(keyParts[0]);
+                }
+
+                var metric = entry.Value;
+                totalTokens += metric.InputTokens + metric.OutputTokens + metric.CachedTokens;
+            }
+
+            var uniqueUserModelCount = _dailyByUserModel.Count;
+            var uniqueModelCount = _dailyByModel.Count;
+
+            return (_totalRecordsProcessed, uniqueUserModelCount, uniqueUsers.Count, uniqueModelCount, totalTokens);
         }
     }
 

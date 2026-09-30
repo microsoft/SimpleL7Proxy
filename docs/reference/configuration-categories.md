@@ -172,7 +172,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
 | `OAuthAudience` | `OAuthAudience` | Cold | `""` | Legacy global OAuth audience. Prefer `audience=` in `HostN` connection strings. |
-| `ValidateAuthConfig` | `ValidateAuthConfig` | Warm | `enabled=false, mode=none, header=S7P-KEY` | Enable inbound key or OAuth validation and set the request header |
+| `ValidateAuthConfig` | `ValidateAuthConfig` | Warm | `enabled=false, mode=none, header=S7P-KEY` | Enable inbound key or OAuth validation. OAuth MUST specify issuer and audience and MUST validate lifetime and an RS256 signature using HTTPS OIDC signing keys. |
 | `ValidateAuthKey1` | `ValidateAuthKey1` | Warm | `""` | First allowed inbound key value |
 | `ValidateAuthKey2` | `ValidateAuthKey2` | Warm | `""` | Second allowed inbound key value |
 

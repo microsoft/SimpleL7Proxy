@@ -79,7 +79,7 @@
                                     <label class="form-label form-label-sm mb-1" for="visionModelFilter">Filter models</label>
                                     <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
                                            placeholder="filter (blank or * = all)"
-                                           value="@ModelFilter" @oninput="OnModelFilterChanged" />
+                                         @bind:get="ModelFilter" @bind:set="OnModelFilterChanged" @bind:event="oninput" />
                                 </div>
                                 <div class="vision-model-group">
                                     <label class="form-label form-label-sm mb-1" for="visionModelSelect">@ModelSelectLabel</label>
@@ -130,7 +130,9 @@
                                         {
                                             <span class="onboarding-orb" aria-hidden="true"></span>
                                         }
-                                        <input class="form-control form-control-sm" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" @onblur="ConfirmEndpointPathAsync" />
+                                             <input class="form-control form-control-sm" id="visionEndpointPath"
+                                                 @bind:get="EndpointPath" @bind:set="OnEndpointPathChanged" @bind:event="oninput"
+                                                 @onblur="ConfirmEndpointPathAsync" />
                                     </span>
                                 </div>
                                 <div class="col-12 col-lg-6">
@@ -164,7 +166,8 @@
                                                 {
                                                     <span class="onboarding-orb" aria-hidden="true"></span>
                                                 }
-                                                <textarea class="form-control form-control-sm" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
+                                                <textarea class="form-control form-control-sm" id="visionPrompt" rows="3"
+                                                          @bind:get="Prompt" @bind:set="OnPromptChanged" @bind:event="oninput"></textarea>
                                             </span>
                                         </div>
                                     </div>
@@ -216,12 +219,14 @@
                                         else if (ImageSource == DataUrlImageSource)
                                         {
                                             <label class="form-label form-label-sm mb-1" for="visionDataUrl">Image data URL</label>
-                                            <textarea class="form-control form-control-sm font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
+                                            <textarea class="form-control form-control-sm font-monospace" id="visionDataUrl" rows="3"
+                                                      @bind:get="ImageUrl" @bind:set="OnImageUrlChanged" @bind:event="oninput"></textarea>
                                         }
                                         else
                                         {
                                             <label class="form-label form-label-sm mb-1" for="visionImageUrl">Image URL</label>
-                                            <input class="form-control form-control-sm" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
+                                              <input class="form-control form-control-sm" id="visionImageUrl"
+                                                  @bind:get="ImageUrl" @bind:set="OnImageUrlChanged" @bind:event="oninput" />
                                         }
                                     </div>
 
@@ -235,7 +240,8 @@
                             {
                                 <div class="vision-json-area">
                                     <label class="form-label form-label-sm mb-1" for="visionRequestJson">@RequestBodyLabel</label>
-                                    <textarea class="form-control form-control-sm font-monospace vision-json-textarea" id="visionRequestJson" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
+                                    <textarea class="form-control form-control-sm font-monospace vision-json-textarea" id="visionRequestJson"
+                                              @bind:get="CustomRequestBody" @bind:set="OnCustomRequestBodyChanged" @bind:event="oninput"></textarea>
                                 </div>
                             }
                         </div>
@@ -2389,9 +2395,9 @@
             : StripManagedQueryParameters(VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi), FieldValues.Keys);
     }
 
-    private async Task OnModelFilterChanged(ChangeEventArgs args)
+    private async Task OnModelFilterChanged(string value)
     {
-        ModelFilter = args.Value?.ToString() ?? string.Empty;
+        ModelFilter = value;
         await PersistSelectionsAsync();
     }
 
@@ -2425,9 +2431,9 @@
         }
     }
 
-    private async Task OnPromptChanged(ChangeEventArgs args)
+    private async Task OnPromptChanged(string value)
     {
-        Prompt = args.Value?.ToString() ?? string.Empty;
+        Prompt = value;
         RefreshCustomRequestBodyIfNeeded();
         if (IsOnboardingPromptStep)
         {
@@ -2455,9 +2461,9 @@
         ImageFileName = string.Empty;
     }
 
-    private void OnImageUrlChanged(ChangeEventArgs args)
+    private void OnImageUrlChanged(string? value)
     {
-        ImageUrl = args.Value?.ToString() ?? string.Empty;
+        ImageUrl = value ?? string.Empty;
         ImageBase64 = string.Empty;
         ImageFileName = string.Empty;
         IsImagePreviewOpen = false;
@@ -2486,9 +2492,9 @@
         }
     }
 
-    private async Task OnEndpointPathChanged(ChangeEventArgs args)
+    private async Task OnEndpointPathChanged(string value)
     {
-        var endpointPath = args.Value?.ToString() ?? string.Empty;
+        var endpointPath = value;
         if (SimpleMode)
         {
             ApplyManagedQueryValues(endpointPath);
@@ -2753,9 +2759,9 @@
         OnFieldChanged("features", string.Join(',', normalized));
     }
 
-    private void OnCustomRequestBodyChanged(ChangeEventArgs args)
+    private void OnCustomRequestBodyChanged(string? value)
     {
-        CustomRequestBody = args.Value?.ToString() ?? string.Empty;
+        CustomRequestBody = value ?? string.Empty;
         CustomRequestBodyDirty = true;
     }
 

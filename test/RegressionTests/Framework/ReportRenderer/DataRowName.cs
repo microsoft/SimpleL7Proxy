@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 
 namespace RegressionReportRenderer;
@@ -12,7 +13,8 @@ internal sealed record DataRowName(string MethodName, string RawArguments, IRead
             return new DataRowName(displayName, string.Empty, []);
         }
 
-        var raw = displayName[(marker + 2)..^1];
+        // Decode HTML entities in the raw arguments (e.g., &quot; becomes ")
+        var raw = WebUtility.HtmlDecode(displayName[(marker + 2)..^1]);
         return new DataRowName(displayName[..marker], raw, ParseCsv(raw));
     }
 

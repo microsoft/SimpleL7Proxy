@@ -50,7 +50,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     private readonly IQueuedBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
 
-    IncomingAuthValidator _authValidator = new IncomingAuthValidator();
+    private volatile IncomingAuthValidator _authValidator = new();
     private static readonly JsonWebTokenHandler s_tokenHandler = new();
 
     private readonly string _priorityHeaderName;
@@ -180,7 +180,9 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                 kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
             .ToArray();
 
-        _authValidator.Parse(_options.ValidateAuthConfig);
+        var authValidator = new IncomingAuthValidator();
+        authValidator.Parse(_options.ValidateAuthConfig);
+        _authValidator = authValidator;
     }
 
     public Task OnConfigChangedAsync(
@@ -245,7 +247,8 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     // Method to start the server and begin processing requests.
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var authStr = _authValidator.ValidateAuthMode switch
+        var authValidator = _authValidator;
+        var authStr = !authValidator.Enabled ? "None" : authValidator.ValidateAuthMode switch
         {
             IncomingAuthModeEnum.Key => "Key",
             IncomingAuthModeEnum.OAuth2 => "OAuth2",
@@ -496,14 +499,15 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             {
                                 rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
                                 string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
+                                var authValidator = _authValidator;
 
-                                if (_authValidator.ValidateAuthViaKey)
+                                if (authValidator.Enabled && (authValidator.ValidateAuthViaKey || authValidator.ValidateAuthViaOauthHeader))
                                 {
                                     bool isValid = false;
-                                    string? incomingKey = rd.Headers[_authValidator.ValidateAuthViaKeyHeader]?.Trim();
+                                    string? incomingKey = rd.Headers[authValidator.ValidateAuthViaKeyHeader]?.Trim();
                                     bool isBearer = incomingKey != null && incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
                                     string message = string.Empty;
-                                    var authMode = _authValidator.ValidateAuthMode;
+                                    var authMode = authValidator.ValidateAuthMode;
 
                                     if (rd.Debug)
                                     {
@@ -517,7 +521,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     else if (isBearer && authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.OAuth2)
                                     {
                                         var token = incomingKey["Bearer ".Length..].Trim();
-                                        (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message);
+                                        (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message, authValidator);
                                     }
                                     else if (authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.Key)
                                     {
@@ -925,7 +929,10 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         return (false, message);
     }
 
-    private async Task<(bool isValid, string message, string appid)> ValidateBearerTokenAsync(string token, string message)
+    private async Task<(bool isValid, string message, string appid)> ValidateBearerTokenAsync(
+        string token,
+        string message,
+        IncomingAuthValidator authValidator)
     {
         var appid = string.Empty;
 
@@ -936,7 +943,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
         try
         {
-            var result = await s_tokenHandler.ValidateTokenAsync(token, _authValidator.validationParameters).ConfigureAwait(false);
+            var result = await s_tokenHandler.ValidateTokenAsync(token, authValidator.validationParameters).ConfigureAwait(false);
             if (!result.IsValid)
             {
                 var detail = result.Exception switch
@@ -963,7 +970,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                         ? appIdValue
                         : string.Empty;
 
-            foreach (var expectedClaim in _authValidator.RequiredClaims)
+            foreach (var expectedClaim in authValidator.RequiredClaims)
             {
                 if (!claimMap.TryGetValue(expectedClaim.Key, out var actualValue) ||
                     !string.Equals(actualValue, expectedClaim.Value, StringComparison.OrdinalIgnoreCase))

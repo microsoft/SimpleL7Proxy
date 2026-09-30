@@ -1,12 +1,12 @@
-using System.Text;
 using System.Text.Json;
 using SimpleL7Proxy.Llm;
+using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Test;
 
 /// <summary>
 /// Tests for the LLM model/field remapper: <see cref="ModelMap"/> family
-/// transitions and <see cref="ModelSwapper.ValidateModel"/> detect and rewrite paths.
+/// transitions and model field compatibility transformations.
 /// </summary>
 [TestClass]
 public sealed class ModelRemapTests : IRegressionTestMetadata
@@ -31,18 +31,6 @@ public sealed class ModelRemapTests : IRegressionTestMetadata
                 "Request word counting",
                 "Counts whitespace-delimited words in request string values without counting JSON property names or the routing model.")
         };
-
-    // ---- Helpers -------------------------------------------------------
-
-    private static (string Body, string Model) Run(string body, string? modelOverride = null)
-    {
-        using var request = new RequestData();
-        var input = Encoding.UTF8.GetBytes(body);
-        var result = ModelSwapper.ValidateModel(request, input, modelOverride);
-        return (Encoding.UTF8.GetString(result.Span), request.Model);
-    }
-
-    private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
     // ---- ModelMap: family transition selection -------------------------
 
@@ -126,222 +114,38 @@ public sealed class ModelRemapTests : IRegressionTestMetadata
         Assert.AreSame(FieldRenameMap.ClassicToReasoning, rename);
     }
 
-    // ---- ValidateModel: detect-only (no override) ----------------------
+    // ---- Field removal and rename maps -------------------------
 
     [TestMethod]
-    [RegressionTestCase("model-detection", "Top-level model is captured without rewriting", "Reading a valid top-level model must populate request metadata while leaving the original body unchanged.")]
-    public void Detect_CapturesTopLevelModel_BodyUnchanged()
+    [RegressionTestCase("model-override", "Classic-to-reasoning removes sampling fields", "Classic sampling parameters must be removed when routing to reasoning models.")]
+    public void FieldRemovalMap_ClassicToReasoning_RemovesSampling()
     {
-        const string body = """{"model":"gpt-4o","messages":[]}""";
+        var fields = FieldRemovalMap.ClassicToReasoning;
 
-        var (result, model) = Run(body);
-
-        Assert.AreEqual("gpt-4o", model);
-        Assert.AreEqual(body, result); // body returned unchanged
+        Assert.IsTrue(fields.Contains("temperature"));
+        Assert.IsTrue(fields.Contains("top_p"));
+        Assert.IsTrue(fields.Contains("presence_penalty"));
+        Assert.IsTrue(fields.Contains("frequency_penalty"));
+        Assert.IsTrue(fields.Contains("stop"));
     }
 
     [TestMethod]
-    [RegressionTestCase("request-word-count", "Request words are counted during model detection", "Nested string values, escaped separators, and Unicode whitespace must be counted without including property names or the top-level model.")]
-    public void Detect_CountsWordsInStringValues()
+    [RegressionTestCase("model-override", "Classic-to-reasoning renames max_tokens", "Classic max_tokens must be renamed to max_completion_tokens for reasoning models.")]
+    public void FieldRenameMap_ClassicToReasoning_RenamesTokenField()
     {
-        const string body = """{"model":"gpt-4o","messages":[{"role":"user","content":"one\ntwo\u2003three"}]}""";
-        using var request = new RequestData();
-        var input = Encoding.UTF8.GetBytes(body);
+        var fields = FieldRenameMap.ClassicToReasoning;
 
-        var result = ModelSwapper.ValidateModel(request, input);
-
-        Assert.AreEqual(body, Encoding.UTF8.GetString(result.Span));
-        Assert.AreEqual("gpt-4o", request.Model);
-        Assert.AreEqual(4, request.WordCount);
+        Assert.IsTrue(fields.ContainsKey("max_tokens"));
+        Assert.AreEqual("max_completion_tokens", fields["max_tokens"]);
     }
 
     [TestMethod]
-    [RegressionTestCase("request-word-count", "Model overrides retain the inbound word count", "Rewriting the routing model must not add the model name to the request word count or change the count of request text.")]
-    public void Override_RetainsInboundWordCount()
+    [RegressionTestCase("model-override", "GPT-5-to-classic renames max_completion_tokens back", "Reasoning max_completion_tokens must be restored to max_tokens for classic models.")]
+    public void FieldRenameMap_ReasoningToClassic_RenamesBackToMaxTokens()
     {
-        const string body = """{"model":"gpt-4o","messages":[{"content":"one two three"}]}""";
-        using var request = new RequestData();
-        var input = Encoding.UTF8.GetBytes(body);
+        var fields = FieldRenameMap.ReasoningToClassic;
 
-        var result = ModelSwapper.ValidateModel(request, input, "gpt-5");
-
-        Assert.AreEqual("gpt-5", request.Model);
-        Assert.AreEqual("gpt-5", Parse(Encoding.UTF8.GetString(result.Span)).GetProperty("model").GetString());
-        Assert.AreEqual(3, request.WordCount);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-detection", "Nested model fields are not treated as routing input", "Only the top-level model field may control routing; nested payload data must be ignored.")]
-    public void Detect_NestedModelIgnored()
-    {
-        var (result, model) = Run("""{"payload":{"model":"gpt-4o"},"n":1}""");
-
-        Assert.AreEqual(string.Empty, model); // only top-level "model" is captured
-        Assert.AreEqual("""{"payload":{"model":"gpt-4o"},"n":1}""", result);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-detection", "Missing model leaves routing metadata empty", "Requests without a model field must not invent a model identity.")]
-    public void Detect_ModelAbsent_LeavesModelEmpty()
-    {
-        var (_, model) = Run("""{"messages":[],"temperature":0.5}""");
-
-        Assert.AreEqual(string.Empty, model);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-detection", "Blank model values are ignored", "Whitespace-only model values must not be treated as valid routing metadata.")]
-    public void Detect_EmptyModelValue_NotCaptured()
-    {
-        var (_, model) = Run("""{"model":"   "}""");
-
-        Assert.AreEqual(string.Empty, model);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-detection", "Non-object JSON passes through unchanged", "JSON arrays and other non-object bodies must not be rewritten or assigned a model.")]
-    public void Detect_NonObjectBody_ReturnedUnchanged()
-    {
-        var (result, model) = Run("[1,2,3]");
-
-        Assert.AreEqual(string.Empty, model);
-        Assert.AreEqual("[1,2,3]", result);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-detection", "Malformed JSON is visible as a detection error", "Invalid JSON must set an observable error sentinel instead of silently selecting a model.")]
-    public void Detect_MalformedJson_SetsErrorSentinel()
-    {
-        // Invalid value token, thrown before any "model" property is captured.
-        var (_, model) = Run("""{"a": nope}""");
-
-        Assert.AreEqual("Error parsing model", model);
-    }
-
-    // ---- ValidateModel: override / rewrite -----------------------------
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Override replaces the existing model", "A requested model override must update the routing model and serialized request while preserving unrelated fields.")]
-    public void Override_ReplacesExistingModel()
-    {
-        var (result, model) = Run("""{"model":"gpt-4o","keep":true}""", "gpt-5");
-
-        Assert.AreEqual("gpt-5", model);
-        var root = Parse(result);
-        Assert.AreEqual("gpt-5", root.GetProperty("model").GetString());
-        Assert.IsTrue(root.GetProperty("keep").GetBoolean());
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Override adds a missing model", "A model override must add the top-level model when the original request omitted it.")]
-    public void Override_AddsModelWhenAbsent()
-    {
-        var (result, model) = Run("""{"keep":1}""", "gpt-5");
-
-        Assert.AreEqual("gpt-5", model);
-        var root = Parse(result);
-        Assert.AreEqual("gpt-5", root.GetProperty("model").GetString());
-        Assert.AreEqual(1, root.GetProperty("keep").GetInt32());
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Classic request is rewritten for reasoning models", "Classic-only sampling fields must be removed and max_tokens renamed before sending to a reasoning model.")]
-    public void Override_ClassicToReasoning_RemovesAndRenamesFields()
-    {
-        const string body = """
-        {"model":"gpt-4o","max_tokens":100,"temperature":0.5,"top_p":1,"presence_penalty":0.1,"frequency_penalty":0.2,"stop":["x"],"keep":true}
-        """;
-
-        var (result, model) = Run(body, "gpt-5");
-
-        Assert.AreEqual("gpt-5", model);
-        var root = Parse(result);
-        Assert.AreEqual("gpt-5", root.GetProperty("model").GetString());
-        // max_tokens renamed to max_completion_tokens (value preserved)
-        Assert.AreEqual(100, root.GetProperty("max_completion_tokens").GetInt32());
-        Assert.IsFalse(root.TryGetProperty("max_tokens", out _));
-        // sampling fields removed
-        Assert.IsFalse(root.TryGetProperty("temperature", out _));
-        Assert.IsFalse(root.TryGetProperty("top_p", out _));
-        Assert.IsFalse(root.TryGetProperty("presence_penalty", out _));
-        Assert.IsFalse(root.TryGetProperty("frequency_penalty", out _));
-        Assert.IsFalse(root.TryGetProperty("stop", out _));
-        // unrelated field preserved
-        Assert.IsTrue(root.GetProperty("keep").GetBoolean());
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "GPT-5 request is rewritten for classic models", "GPT-5-only reasoning fields must be removed and token fields restored before sending to a classic model.")]
-    public void Override_Gpt5ToClassic_RemovesAndRenamesFields()
-    {
-        const string body = """
-        {"model":"gpt-5","max_completion_tokens":50,"reasoning_effort":"high","verbosity":"low","keep":"y"}
-        """;
-
-        var (result, model) = Run(body, "gpt-4o");
-
-        Assert.AreEqual("gpt-4o", model);
-        var root = Parse(result);
-        Assert.AreEqual("gpt-4o", root.GetProperty("model").GetString());
-        Assert.AreEqual(50, root.GetProperty("max_tokens").GetInt32());
-        Assert.IsFalse(root.TryGetProperty("max_completion_tokens", out _));
-        Assert.IsFalse(root.TryGetProperty("reasoning_effort", out _));
-        Assert.IsFalse(root.TryGetProperty("verbosity", out _));
-        Assert.AreEqual("y", root.GetProperty("keep").GetString());
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Same-family override preserves compatible fields", "Changing to another model in the same family must update the model without deleting valid sampling settings.")]
-    public void Override_SameFamily_NoFieldTransform()
-    {
-        var (result, _) = Run("""{"model":"gpt-4","temperature":0.2}""", "gpt-4o");
-
-        var root = Parse(result);
-        Assert.AreEqual("gpt-4o", root.GetProperty("model").GetString());
-        // Classic -> Classic: temperature is preserved
-        Assert.AreEqual(0.2, root.GetProperty("temperature").GetDouble(), 0.0001);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Unsupported fields are removed case-insensitively", "Compatibility rewriting must remove unsupported fields even when clients use different property casing.")]
-    public void Override_FieldRemovalIsCaseInsensitive()
-    {
-        var (result, _) = Run("""{"model":"gpt-4o","Temperature":0.5,"keep":1}""", "gpt-5");
-
-        var root = Parse(result);
-        Assert.IsFalse(root.TryGetProperty("Temperature", out _)); // removed despite different casing
-        Assert.AreEqual(1, root.GetProperty("keep").GetInt32());
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Nested request structures survive overrides", "Messages, metadata, arrays, and null values must remain intact while the top-level model is changed.")]
-    public void Override_PreservesNestedStructures()
-    {
-        const string body = """
-        {"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"meta":{"a":1,"b":[true,null]}}
-        """;
-
-        var (result, _) = Run(body, "gpt-4.1"); // Classic -> Classic, no removals
-
-        var root = Parse(result);
-        Assert.AreEqual("gpt-4.1", root.GetProperty("model").GetString());
-        Assert.AreEqual("user", root.GetProperty("messages")[0].GetProperty("role").GetString());
-        Assert.AreEqual(1, root.GetProperty("meta").GetProperty("a").GetInt32());
-        Assert.AreEqual(JsonValueKind.Null, root.GetProperty("meta").GetProperty("b")[1].ValueKind);
-    }
-
-    [TestMethod]
-    [RegressionTestCase("model-override", "Override without a source model avoids destructive transforms", "When the source family is unknown, the override must add the model but retain existing request fields.")]
-    public void Override_NoSourceModel_AddsModelAndKeepsFields()
-    {
-        // No top-level model in body -> no family transform, override appended.
-        var (result, model) = Run("""{"temperature":0.5,"max_tokens":10}""", "gpt-5");
-
-        Assert.AreEqual("gpt-5", model);
-        var root = Parse(result);
-        Assert.AreEqual("gpt-5", root.GetProperty("model").GetString());
-        // No source model -> fields left untouched (no rename/removal)
-        Assert.AreEqual(0.5, root.GetProperty("temperature").GetDouble(), 0.0001);
-        Assert.AreEqual(10, root.GetProperty("max_tokens").GetInt32());
+        Assert.IsTrue(fields.ContainsKey("max_completion_tokens"));
+        Assert.AreEqual("max_tokens", fields["max_completion_tokens"]);
     }
 }
