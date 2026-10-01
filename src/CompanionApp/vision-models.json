@@ -85,6 +85,48 @@
         "inputModes": [ "text", "image" ]
       },
       {
+        "id": "gpt-5",
+        "provider": "OpenAI",
+        "displayName": "GPT-5",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-5-mini",
+        "provider": "OpenAI",
+        "displayName": "GPT-5 mini",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-5-nano",
+        "provider": "OpenAI",
+        "displayName": "GPT-5 nano",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-opus-4-1-20250805",
+        "provider": "Anthropic",
+        "displayName": "Claude Opus 4.1",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-sonnet-4-5-20250929",
+        "provider": "Anthropic",
+        "displayName": "Claude Sonnet 4.5",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "provider": "Anthropic",
+        "displayName": "Claude Haiku 4.5",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
         "id": "claude-sonnet-4-20250514",
         "provider": "Anthropic",
         "displayName": "Claude Sonnet 4",
@@ -109,6 +151,20 @@
         "id": "gemini-2.5-pro",
         "provider": "Google Gemini",
         "displayName": "Gemini 2.5 Pro",
+        "apis": [ "gemini-generate-content-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gemini-2.5-flash",
+        "provider": "Google Gemini",
+        "displayName": "Gemini 2.5 Flash",
+        "apis": [ "gemini-generate-content-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gemini-2.5-flash-lite",
+        "provider": "Google Gemini",
+        "displayName": "Gemini 2.5 Flash-Lite",
         "apis": [ "gemini-generate-content-vision" ],
         "inputModes": [ "text", "image" ]
       },
