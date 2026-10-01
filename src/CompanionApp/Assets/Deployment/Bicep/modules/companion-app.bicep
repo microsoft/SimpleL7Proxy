@@ -6,6 +6,7 @@ import { DeploymentSettings } from '../types.bicep'
 param settings DeploymentSettings
 param usePrivateRegistry bool
 param environmentId string
+param serverBaseUrl string
 param appConfigurationEndpoint string
 param appInsightsConnectionString string
 param sidecarUrl string
@@ -31,6 +32,10 @@ var appInsightsOverrideEnvironment = settings.ENABLE_APP_INSIGHTS ? [
   }
 ] : []
 var companionEnvironment = concat([
+  {
+    name: 'CompanionApp__ServerBaseUrl'
+    value: serverBaseUrl
+  }
   {
     name: 'CompanionApp__AppConfigurationEndpoint'
     value: appConfigurationEndpoint

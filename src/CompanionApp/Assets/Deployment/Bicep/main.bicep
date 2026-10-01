@@ -41,6 +41,7 @@ module companionAppBootstrap 'modules/companion-app.bicep' = if (settings.DEPLOY
     settings: settings
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
+    serverBaseUrl: 'https://${containerAppBootstrap.outputs.proxyFqdn}'
     appConfigurationEndpoint: ''
     appInsightsConnectionString: foundation.outputs.appInsightsConnectionString
     sidecarUrl: containerAppBootstrap.outputs.healthProbeSidecarUrl
@@ -54,6 +55,7 @@ module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPL
     settings: settings
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
+    appConfigurationEndpoint: ''
   }
 }
 
@@ -119,6 +121,8 @@ module configurationAccess 'modules/configuration-access.bicep' = {
     containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
     companionAppId: companionAppBootstrap.?outputs.appId ?? ''
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
+    metricsServerId: metricsServerBootstrap.?outputs.appId ?? ''
+    metricsServerPrincipalId: metricsServerBootstrap.?outputs.identityPrincipalId ?? ''
   }
 }
 
@@ -128,6 +132,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     settings: settings
     usePrivateRegistry: true
     environmentId: foundation.outputs.environmentId
+    serverBaseUrl: 'https://${containerAppBootstrap.outputs.proxyFqdn}'
     appConfigurationEndpoint: configuration.outputs.endpoint
     appInsightsConnectionString: foundation.outputs.appInsightsConnectionString
     sidecarUrl: containerAppBootstrap.outputs.healthProbeSidecarUrl
@@ -145,9 +150,11 @@ module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRIC
     settings: settings
     usePrivateRegistry: true
     environmentId: foundation.outputs.environmentId
+    appConfigurationEndpoint: configuration.outputs.endpoint
   }
   dependsOn: [
     registryAccess
+    configurationAccess
   ]
 }
 

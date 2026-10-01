@@ -634,6 +634,7 @@ bash deploy.sh</code></pre>
             var value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
             if (value == "yes|no") value = "no";
             if (key == "DEPLOY_COMPANION_APP") value = "true";
+            if (key == "DEPLOY_METRICS_SERVER") value = "true";
             if (key == "REQUESTAPI_LOCATION") value = "";
             if (key == "UPDATE_CONTAINER_APP_ENV") value = "true";
             if (key is "ACR_NAME" or "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT")
@@ -674,7 +675,7 @@ bash deploy.sh</code></pre>
                     _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(key.Replace('_', ' ').ToLowerInvariant())
                 }, value, hint));
         }
-        _fields.Add(new ParameterField("HEALTHPROBE_TYPE", "app", "Enable sidecar", "sidecar", ""));
+            _fields.Add(new ParameterField("HEALTHPROBE_TYPE", "app", "Enable sidecar", "internal", ""));
     }
 
     private static bool IsHealthField(string key) => key.StartsWith("HEALTH_", StringComparison.Ordinal)
