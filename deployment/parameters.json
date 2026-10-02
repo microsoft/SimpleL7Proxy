@@ -11,7 +11,9 @@
         "MAKE_UNIQ_SUFFIX": "",
         "LOCATION": "eastus2",
         "RESOURCE_GROUPS": [
-          "rg-simplel7proxy-v2_30-demo",
+          "rg-simplel7proxy-v2_30-demo"
+        ],
+        "NETWORK_RESOURCE_GROUP": "rg-simplel7proxy-v2_30-demo",
         "CONTAINER_APP_RESOURCE_GROUP": "rg-simplel7proxy-v2_30-demo",
         "STORAGE_RESOURCE_GROUP": "rg-simplel7proxy-v2_30-demo",
         "APPCONFIG_RESOURCE_GROUP": "rg-simplel7proxy-v2_30-demo",
