@@ -11,7 +11,7 @@ param metricsServerId string
 param metricsServerPrincipalId string
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-var acrPushRoleId = '8311e382-0749-4cb8-b61a-753f48b9d0b4'
+var acrPushRoleId = '8311e382-0749-4cb8-b61a-304f252e45ec'
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: settings.ACR_NAME

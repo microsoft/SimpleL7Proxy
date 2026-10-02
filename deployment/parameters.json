@@ -21,7 +21,7 @@
         "COMPANION_APP_RESOURCE_GROUP": "rg-simplel7proxy-v2_30-demo",
         "ACR_NAME": "acrsimplel7proxydemo",
         "ACR_SKU": "Basic",
-        "PROXY_IMAGE_NAME": "simple-l7-proxy",
+        "PROXY_IMAGE_NAME": "simplel7proxy",
         "HEALTH_IMAGE_NAME": "healthprobe",
         "COMPANION_IMAGE_NAME": "companionapp",
         "CONTAINER_APP_NAME": "ca-simplel7proxy-proxy-demo",

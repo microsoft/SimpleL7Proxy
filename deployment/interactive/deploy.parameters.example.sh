@@ -48,7 +48,7 @@ export ENVIRONMENT_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 # -----------------------------------------------------------------------------
 export ACR_NAME="acrsimplel7proxy"
 export ACR_SKU="Basic"                   # Basic | Standard | Premium
-export PROXY_IMAGE_NAME="simple-l7-proxy"
+export PROXY_IMAGE_NAME="simplel7proxy"
 export HEALTH_IMAGE_NAME="healthprobe"
 export COMPANION_IMAGE_NAME="companionapp"
 

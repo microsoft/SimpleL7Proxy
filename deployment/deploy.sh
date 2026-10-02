@@ -179,7 +179,7 @@ if [[ "$operation" == 'create' ]]; then
 		--resource-group "$acr_resource_group" \
 		--name "$acr_name" \
 		--source 'publicnvmacr.azurecr.io/simplel7proxy:v2.3.0' \
-		--image 'simple-l7-proxy:v2.3.0' \
+		--image 'simplel7proxy:v2.3.0' \
 		--force
 
 	

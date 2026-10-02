@@ -245,6 +245,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicep.Contains("scope: resourceGroup(settings.ENVIRONMENT_RESOURCE_GROUP)", StringComparison.Ordinal), "Bicep can reference an existing environment in its selected resource group");
     Check(DeploymentBicepBundle.ProxyImage == "publicnvmacr.azurecr.io/simplel7proxy:v2.3.0", "proxy release source uses the v2.3.0 tag");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.ProxyImage, StringComparison.Ordinal), "Bicep deployment imports the version-tagged public proxy image");
+    Check(bicepFiles["deploy.sh"].Contains("--image 'simplel7proxy:v2.3.0'", StringComparison.Ordinal), "Bicep deployment preserves the public proxy repository name");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.HealthProbeImage, StringComparison.Ordinal) == sidecar, "Bicep deployment imports the pinned public sidecar digest only when selected");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.CompanionImage, StringComparison.Ordinal) == companion, "Bicep deployment imports the public Companion image only when selected");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.MetricsServerImage, StringComparison.Ordinal) == metricsServer, "Bicep deployment imports the public Metrics Server image only when selected");
@@ -272,6 +273,8 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Reader to the Metrics Server system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Companion App system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Metrics Server system principal");
+    Check(bicepFiles["modules/registry-access.bicep"].Contains("8311e382-0749-4cb8-b61a-304f252e45ec", StringComparison.Ordinal), "static Bicep uses the built-in AcrPush role definition");
+    Check(!bicepFiles["modules/registry-access.bicep"].Contains("8311e382-0749-4cb8-b61a-753f48b9d0b4", StringComparison.Ordinal), "static Bicep omits the invalid AcrPush role definition");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("publicnvmacr.azurecr.io/metricsserver:v1.0.0", StringComparison.Ordinal), "Metrics Server bootstrap uses the public release");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("/metricsserver:v1.0.0", StringComparison.Ordinal), "Metrics Server final deployment uses the imported ACR release");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("managedEnvironmentId: environmentId", StringComparison.Ordinal), "Metrics Server uses the shared Container Apps environment");
@@ -326,6 +329,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterSettings["ASYNC_DEPLOYMENT"]!.GetValue<bool>() == asyncMode, "parameters preserve the async toggle as Boolean");
     Check(parameterSettings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == companion, "parameters preserve the Companion App toggle as Boolean");
     Check(parameterSettings["DEPLOY_METRICS_SERVER"]!.GetValue<bool>() == metricsServer, "parameters preserve the Metrics Server toggle as Boolean");
+    Check(parameterSettings["PROXY_IMAGE_NAME"]!.GetValue<string>() == "simplel7proxy", "parameters preserve the public proxy repository name");
     Check(parameterSettings["MAKE_UNIQ_SUFFIX"]!.GetValue<string>() == string.Empty, "generated parameters reserve an empty persisted MakeUniq suffix");
     Check(parameterSettings["COMPANION_APP_RESOURCE_GROUP"]!.GetValue<string>() == values["COMPANION_APP_RESOURCE_GROUP"], "parameters preserve the Companion App resource group");
     Check(parameterSettings["COMPANION_IMAGE_NAME"]!.GetValue<string>() == values["COMPANION_IMAGE_NAME"], "parameters preserve the Companion image name");
