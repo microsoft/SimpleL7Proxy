@@ -156,9 +156,17 @@ public sealed class ImageSyncService
             return;
         }
 
+        // Stage the layer in a seekable temporary file. Uploading straight from the network stream makes the
+        // SDK send one PATCH per partial read and leaves the source connection idle until it times out.
+        await using var staged = new FileStream(Path.GetTempFileName(), FileMode.Create, FileAccess.ReadWrite, FileShare.None,
+            81920, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
         var download = (await source.DownloadBlobStreamingAsync(digest, cancellationToken)).Value;
-        await using var content = download.Content;
-        var upload = (await target.UploadBlobAsync(content, cancellationToken)).Value;
+        await using (var content = download.Content)
+        {
+            await content.CopyToAsync(staged, cancellationToken);
+        }
+        staged.Position = 0;
+        var upload = (await target.UploadBlobAsync(staged, cancellationToken)).Value;
         if (!string.Equals(upload.Digest, digest, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Uploaded layer digest {upload.Digest} does not match source digest {digest}.");
