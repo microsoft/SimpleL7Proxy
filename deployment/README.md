@@ -203,9 +203,6 @@ The deployment grants:
 - App Configuration Data Owner to the deployment principal.
 - App Configuration Data Reader to the proxy managed identity.
 - App Configuration Data Owner to the Companion App managed identity when selected.
-- AcrPull and AcrPush on the deployed registry to the Companion App managed identity when selected.
-
-The Companion App receives `CompanionApp__proxyacr` set to the deployed registry name. **Admin > Image Synchronization** uses it to copy newer releases from `publicnvmacr` into that registry.
 
 ## What the ZIP contains
 
@@ -228,10 +225,6 @@ Confirm that the deployment identity can import images into the selected Azure C
 **A Container App cannot pull its image**
 
 Confirm that the imported image tag exists and the Container App managed identity has `AcrPull` on the registry.
-
-**Image Synchronization reports HTTP 401 or 403 from the deployed registry**
-
-Confirm that the Companion App managed identity has `AcrPush` on the registry named by `CompanionApp__proxyacr`. Allow time for the role assignment to take effect, then retry.
 
 **Role assignment fails**
 
