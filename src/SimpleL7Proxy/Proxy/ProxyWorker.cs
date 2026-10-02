@@ -424,10 +424,9 @@ public class ProxyWorker : IConfigChangeSubscriber
                     // Parse the request... get word Count and model
                     var parseResult = ModelSwapper.ParseModel(bodyBytes);
                     request.WordCount = parseResult.WordCount;
-                    request.Model = parseResult.SourceModel ?? "unknown";
+                    request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
+
                     request.S7PInputTokens = (int)((double)request.WordCount * .75);
-                    if ( request.Model == String.Empty)
-                        request.Model = request.Headers["S7P-Model-Override"] ?? String.Empty;
 
                     // Check what Tokenomics wants to do before working on the request.
                     ModelOverrideEnum actionOverride = await _wrkCntxt.TokenomicsHandler.ProcessRequestAsync(request);
@@ -1502,6 +1501,9 @@ public class ProxyWorker : IConfigChangeSubscriber
                             && int.TryParse(inputTokensStr, out var inputTokensValue) ? inputTokensValue : 0;
                         var outputTokens = request.EventData.TryGetValue("Usage.Completion_Tokens", out var outputTokensStr)
                             && int.TryParse(outputTokensStr, out var outputTokensValue) ? outputTokensValue : 0;
+
+                        Console.WriteLine("Submitting Tokenomics metrics for request {0}: inputTokens={1}, outputTokens={2}, cachedTokens={3}, isJailbreakDetected={4}, isContentFiltered={5}",
+                            request.Guid, inputTokens, outputTokens, cachedTokens, isJailbreakDetected, isContentFiltered);
 
                         _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
                             request.UserID,

@@ -14,9 +14,9 @@ Once deployed, you can follow the quick guides below for your scenario.
 </thead>
 <tbody>
 <tr>
-<td valign="top"><a href="image-1.png"><img src="image-1.png" alt="Deployment Setup review with resource summary and deployment methods" width="100%"></a></td>
-<td valign="top"><a href="image-2.png"><img src="image-2.png" alt="Proxy Configuration editor showing staged changes" width="100%"></a></td>
-<td valign="top"><a href="image.png"><img src="image.png" alt="Investigator request editor with model selection" width="100%"></a></td>
+<td valign="top"><a href="img/image-1.png"><img src="img/image-1.png" alt="Deployment Setup review with resource summary and deployment methods" width="100%"></a></td>
+<td valign="top"><a href="img/image-2.png"><img src="img/image-2.png" alt="Proxy Configuration editor showing staged changes" width="100%"></a></td>
+<td valign="top"><a href="img/image.png"><img src="img/image.png" alt="Investigator request editor with model selection" width="100%"></a></td>
 </tr>
 <tr><td><a href="delpoyment.md#deployment-prerequisites">Prepare and deploy SimpleL7Proxy</a></td>
 <td><a href="configuration.md#configuration-prerequisites">Change an existing proxy's settings</a></td>

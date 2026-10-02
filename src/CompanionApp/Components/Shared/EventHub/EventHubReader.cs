@@ -115,6 +115,11 @@ public sealed class EventHubReader : BackgroundService
 
         settings = EnsureNamespace(settings);
 
+        _logger.LogInformation(
+            "Eventhub is configured: {EventHubName} in namespace {EventHubNamespace}.",
+            settings.EventHubName,
+            settings.EventHubNamespace);
+
         // Validate settings before attempting to create client
         if (string.IsNullOrWhiteSpace(settings.EventHubName))
         {
@@ -1238,6 +1243,8 @@ public sealed class EventHubReader : BackgroundService
         {
             eventHubNamespace = $"{eventHubNamespace}.servicebus.windows.net";
         }
+
+
 
         return new ReaderSettings(
             _options.EventHubEnabled,

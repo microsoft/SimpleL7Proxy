@@ -1,6 +1,7 @@
 using System.Reflection;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
+using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Config;
 
@@ -143,7 +144,7 @@ public class ProxyConfig
     [ConfigOption("Tokenomics:Enable")]
     public bool TokenomicsEnable { get; set; } = true;
     [ConfigOption("Tokenomics:Options")]
-    public string TokenomicsOptions { get; set; } = "";
+    public string TokenomicsOptions { get; set; } = new TokenomicsSettings().ToString();
     [ConfigOption("Tokenomics:MetricsServer")]
     public string TokenomicsMetricsServer { get; set; } = "";
 

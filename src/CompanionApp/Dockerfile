@@ -31,7 +31,8 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
 COPY --from=build /app/publish .
 
 RUN mkdir -p /app/data /app/.keys \
-    && chown app:app /app/data /app/.keys
+    && touch /app/incomplete.json \
+    && chown app:app /app/data /app/.keys /app/incomplete.json
 
 USER $APP_UID
 EXPOSE 8080
