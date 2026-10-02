@@ -106,6 +106,34 @@
         "inputModes": [ "text", "image" ]
       },
       {
+        "id": "gpt-6-astra",
+        "provider": "OpenAI",
+        "displayName": "GPT-6 Astra",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-6-luna",
+        "provider": "OpenAI",
+        "displayName": "GPT-6 Luna",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-6.1-sol",
+        "provider": "OpenAI",
+        "displayName": "GPT-6.1 Sol",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-opus-4-8",
+        "provider": "Anthropic",
+        "displayName": "Claude Opus 4.8",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
         "id": "claude-opus-4-1-20250805",
         "provider": "Anthropic",
         "displayName": "Claude Opus 4.1",
