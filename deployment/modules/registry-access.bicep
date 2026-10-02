@@ -11,6 +11,7 @@ param metricsServerId string
 param metricsServerPrincipalId string
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var acrPushRoleId = '8311e382-0749-4cb8-b61a-753f48b9d0b4'
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: settings.ACR_NAME
@@ -31,6 +32,16 @@ resource companionAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   scope: registry
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: companionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource companionAcrPush 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_COMPANION_APP) {
+  name: guid(registry.id, companionAppId, acrPushRoleId)
+  scope: registry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPushRoleId)
     principalId: companionAppPrincipalId
     principalType: 'ServicePrincipal'
   }
