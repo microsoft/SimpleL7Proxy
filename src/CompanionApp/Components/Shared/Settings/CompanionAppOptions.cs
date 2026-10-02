@@ -17,6 +17,9 @@ public class CompanionAppOptions
 
     public string AppConfigurationLabel { get; set; } = string.Empty;
 
+    /// <summary>Name or login server of the deployment's Azure Container Registry (<c>CompanionApp__proxyacr</c>); target for image synchronization.</summary>
+    public string ProxyAcr { get; set; } = string.Empty;
+
     /// <summary>Dev-only: read/write the App Configuration snapshot from disk to skip the live download.</summary>
     public bool BypassConfig { get; set; }
 

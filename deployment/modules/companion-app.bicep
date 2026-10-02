@@ -44,6 +44,10 @@ var companionEnvironment = concat([
     name: 'CompanionApp__AppConfigurationLabel'
     value: settings.APPCONFIG_LABEL
   }
+  {
+    name: 'CompanionApp__proxyacr'
+    value: settings.ACR_NAME
+  }
 ], sidecarOverrideEnvironment, metricsServerOverrideEnvironment, appInsightsOverrideEnvironment)
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {

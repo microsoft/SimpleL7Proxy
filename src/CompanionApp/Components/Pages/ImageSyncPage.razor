@@ -1,0 +1,351 @@
+@page "/admin/images"
+@namespace CompanionApp.Components.Pages
+@rendermode InteractiveServer
+@implements IDisposable
+@using CompanionApp.Components.Shared
+@inject ImageSyncService ImageSync
+
+<PageTitle>Image Synchronization</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <h1 class="h4 mb-0">Image Synchronization</h1>
+</SectionContent>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
+        <span class="fw-semibold">Registries</span>
+    </div>
+    <div class="card-body">
+        <p class="mb-1">Source (public): <code>@ImageSyncService.SourceLoginServer</code></p>
+        <p class="mb-3">
+            Target (deployment):
+            @if (ImageSync.HasTarget)
+            {
+                <code>@ImageSync.TargetLoginServer</code>
+            }
+            else
+            {
+                <span class="text-danger">not configured</span>
+            }
+        </p>
+        @if (!ImageSync.HasTarget)
+        {
+            <div class="alert alert-warning" role="alert">
+                Set <code>CompanionApp__proxyacr</code> to the deployment registry name to synchronize images. The Bicep deployment sets it automatically and grants this app's managed identity <code>AcrPush</code> on that registry.
+            </div>
+        }
+        <button type="button" class="btn btn-primary" disabled="@(!RendererInfo.IsInteractive || _busy)" @onclick="LoadAsync">
+            @(_repositories.Count == 0 ? "Check public images" : "Refresh")
+        </button>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger" role="alert">@_error</div>
+}
+
+@if (_repositories.Count > 0)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
+            <span class="fw-semibold">Public images</span>
+            <span class="small">Select the tags to copy into the deployment registry.</span>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Repository</th>
+                        <th scope="col">Target repository</th>
+                        <th scope="col">Tags</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var repository in _repositories)
+                    {
+                        <tr @key="repository.Name">
+                            <td><code>@repository.Name</code></td>
+                            <td>
+                                <input class="form-control form-control-sm" aria-label="@($"Target repository for {repository.Name}")"
+                                       value="@repository.TargetName" disabled="@(_busy || !ImageSync.HasTarget)"
+                                       @onchange="@(args => ChangeTargetAsync(repository, args.Value?.ToString()))" />
+                                @if (!ImageSyncService.IsValidRepositoryName(repository.TargetName))
+                                {
+                                    <div class="small text-danger">Use lowercase letters, digits, and '.', '_', '-', or '/' separators.</div>
+                                }
+                            </td>
+                            <td>
+                                @if (repository.Error is not null)
+                                {
+                                    <span class="text-danger small">@repository.Error</span>
+                                }
+                                else if (repository.SourceTags.Count == 0)
+                                {
+                                    <span class="text-muted small">No tags</span>
+                                }
+                                @foreach (var tag in repository.SourceTags)
+                                {
+                                    var present = repository.TargetTags.Contains(tag);
+                                    var id = $"sync-{repository.Name}-{tag}";
+                                    <div class="form-check form-check-inline" @key="tag">
+                                        <input class="form-check-input" type="checkbox" id="@id"
+                                               checked="@repository.Selected.Contains(tag)" disabled="@(_busy || !ImageSync.HasTarget)"
+                                               @onchange="@(args => ToggleTag(repository, tag, args.Value is true))" />
+                                        <label class="form-check-label" for="@id">
+                                            @tag
+                                            @if (ImageSync.HasTarget && present)
+                                            {
+                                                <span class="badge text-bg-success ms-1">in local</span>
+                                            }
+                                            else if (ImageSync.HasTarget)
+                                            {
+                                                <span class="badge text-bg-warning ms-1">missing</span>
+                                            }
+                                        </label>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (_confirming)
+            {
+                <div class="alert alert-info" role="alertdialog" aria-label="Confirm image synchronization">
+                    <p class="mb-2">Copy @SelectedCount image(s) from <code>@ImageSyncService.SourceLoginServer</code> to <code>@ImageSync.TargetLoginServer</code>? Existing tags with the same name are overwritten.</p>
+                    <ul class="mb-2">
+                        @foreach (var item in SelectedImages)
+                        {
+                            <li><code>@item.Repository.Name:@item.Tag</code> &rarr; <code>@item.Repository.TargetName:@item.Tag</code></li>
+                        }
+                    </ul>
+                    <button type="button" class="btn btn-primary me-2" @onclick="SynchronizeAsync">Synchronize</button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _confirming = false">Cancel</button>
+                </div>
+            }
+            else
+            {
+                <button type="button" class="btn btn-outline-secondary me-2" disabled="@(_busy || !ImageSync.HasTarget)" @onclick="SelectMissing">Select missing</button>
+                <button type="button" class="btn btn-primary me-2" disabled="@(_busy || !CanSynchronize)" @onclick="() => _confirming = true">
+                    Synchronize selected (@SelectedCount)
+                </button>
+                @if (_busy && _cancellation is not null)
+                {
+                    <button type="button" class="btn btn-outline-danger" @onclick="() => _cancellation.Cancel()">Cancel</button>
+                }
+            }
+        </div>
+    </div>
+}
+
+@if (_log.Count > 0)
+{
+    <div class="card shadow-sm">
+        <div class="card-header bg-secondary text-white">
+            <span class="fw-semibold">Activity</span>
+        </div>
+        <div class="card-body">
+            <ul class="list-unstyled small mb-0" aria-live="polite">
+                @foreach (var line in _log)
+                {
+                    <li>@line</li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<RepositoryState> _repositories = new();
+    private readonly List<string> _log = new();
+    private CancellationTokenSource? _cancellation;
+    private string? _error;
+    private bool _busy;
+    private bool _confirming;
+
+    private IEnumerable<(RepositoryState Repository, string Tag)> SelectedImages =>
+        _repositories.SelectMany(repository => repository.SourceTags
+            .Where(repository.Selected.Contains)
+            .Select(tag => (repository, tag)));
+
+    private int SelectedCount => SelectedImages.Count();
+
+    private bool CanSynchronize => ImageSync.HasTarget && SelectedCount > 0 &&
+        _repositories.Where(repository => repository.Selected.Count > 0).All(repository => ImageSyncService.IsValidRepositoryName(repository.TargetName));
+
+    private async Task LoadAsync()
+    {
+        using var cancellation = StartOperation();
+        _repositories.Clear();
+        try
+        {
+            foreach (var name in await ImageSync.GetSourceRepositoriesAsync(cancellation.Token))
+            {
+                var repository = new RepositoryState(name);
+                _repositories.Add(repository);
+                await LoadTagsAsync(repository, cancellation.Token);
+                StateHasChanged();
+            }
+            if (_repositories.Count == 0)
+            {
+                _error = $"No repositories were found in {ImageSyncService.SourceLoginServer}.";
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _error = $"Unable to list repositories in {ImageSyncService.SourceLoginServer}: {ex.Message}";
+        }
+        catch (OperationCanceledException)
+        {
+            AddLog("Cancelled.");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    private async Task LoadTagsAsync(RepositoryState repository, CancellationToken cancellationToken)
+    {
+        repository.Error = null;
+        try
+        {
+            repository.SourceTags = await ImageSync.GetSourceTagsAsync(repository.Name, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            repository.Error = $"Unable to list public tags: {ex.Message}";
+            return;
+        }
+        await LoadTargetTagsAsync(repository, cancellationToken);
+    }
+
+    private async Task LoadTargetTagsAsync(RepositoryState repository, CancellationToken cancellationToken)
+    {
+        repository.TargetTags = new HashSet<string>(StringComparer.Ordinal);
+        if (!ImageSync.HasTarget || !ImageSyncService.IsValidRepositoryName(repository.TargetName))
+        {
+            return;
+        }
+        try
+        {
+            repository.TargetTags = (await ImageSync.GetTargetTagsAsync(repository.TargetName, cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            repository.Error = $"Unable to list tags in {ImageSync.TargetLoginServer}: {ex.Message}";
+        }
+    }
+
+    private async Task ChangeTargetAsync(RepositoryState repository, string? targetName)
+    {
+        repository.TargetName = (targetName ?? string.Empty).Trim();
+        using var cancellation = StartOperation();
+        try
+        {
+            await LoadTargetTagsAsync(repository, cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            AddLog("Cancelled.");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    private static void ToggleTag(RepositoryState repository, string tag, bool selected)
+    {
+        if (selected)
+        {
+            repository.Selected.Add(tag);
+        }
+        else
+        {
+            repository.Selected.Remove(tag);
+        }
+    }
+
+    private void SelectMissing()
+    {
+        foreach (var repository in _repositories)
+        {
+            repository.Selected.Clear();
+            repository.Selected.UnionWith(repository.SourceTags.Where(tag => !repository.TargetTags.Contains(tag)));
+        }
+    }
+
+    private async Task SynchronizeAsync()
+    {
+        _confirming = false;
+        var images = SelectedImages.ToList();
+        using var cancellation = StartOperation();
+        var progress = new Progress<string>(message =>
+        {
+            AddLog(message);
+            _ = InvokeAsync(StateHasChanged);
+        });
+        var completed = 0;
+        try
+        {
+            foreach (var (repository, tag) in images)
+            {
+                AddLog($"Copying {ImageSyncService.SourceLoginServer}/{repository.Name}:{tag} to {ImageSync.TargetLoginServer}/{repository.TargetName}:{tag}");
+                StateHasChanged();
+                try
+                {
+                    await ImageSync.CopyImageAsync(repository.Name, tag, repository.TargetName, progress, cancellation.Token);
+                    repository.TargetTags.Add(tag);
+                    repository.Selected.Remove(tag);
+                    completed++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    AddLog($"Failed {repository.Name}:{tag}: {ex.Message}");
+                }
+                StateHasChanged();
+            }
+            AddLog($"Synchronized {completed} of {images.Count} image(s).");
+        }
+        catch (OperationCanceledException)
+        {
+            AddLog($"Cancelled after {completed} of {images.Count} image(s).");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    private CancellationTokenSource StartOperation()
+    {
+        _error = null;
+        _busy = true;
+        _cancellation = new CancellationTokenSource();
+        return _cancellation;
+    }
+
+    private void EndOperation()
+    {
+        _busy = false;
+        _cancellation = null;
+    }
+
+    private void AddLog(string message) =>
+        _log.Add($"{DateTimeOffset.Now:HH:mm:ss} {message}");
+
+    public void Dispose() => _cancellation?.Cancel();
+
+    private sealed class RepositoryState(string name)
+    {
+        public string Name { get; } = name;
+        public string TargetName { get; set; } = name;
+        public IReadOnlyList<string> SourceTags { get; set; } = Array.Empty<string>();
+        public HashSet<string> TargetTags { get; set; } = new(StringComparer.Ordinal);
+        public HashSet<string> Selected { get; } = new(StringComparer.Ordinal);
+        public string? Error { get; set; }
+    }
+}

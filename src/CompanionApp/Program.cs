@@ -41,6 +41,7 @@ builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<VisionModelCatalog>();
 builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
 builder.Services.AddSingleton<AppConfigurationScaffoldService>();
+builder.Services.AddSingleton<ImageSyncService>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.AddSingleton<EventHubMonitorStore>();
