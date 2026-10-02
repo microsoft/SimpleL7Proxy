@@ -14,8 +14,14 @@ This guide starts the proxy and verifies that it is accepting HTTP requests.
 
 **Run commands from the repository root and choose one local runtime.**
 
+- [Clone of the repo](https://github.com/microsoft/SimpleL7Proxy/)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for running from source.
 - [Docker](https://docs.docker.com/get-docker/) for running the container image.
+
+## Clone the repo
+```bash
+git clone https://github.com/microsoft/SimpleL7Proxy.git
+```
 
 ## Run from Source
 
@@ -27,21 +33,22 @@ dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 
 ## Run in Docker
 
-**Build the image with `src` as the Docker context, then publish the default port.**
+For docker you can use the published image from `publicnvmacr`:
 
 ```bash
-docker build --tag simplel7proxy:latest \
-	--file src/SimpleL7Proxy/Dockerfile src
 
-docker run --publish 8000:8000 simplel7proxy:latest
-```
+## Run in Docker
 
-To use a different proxy port, pass the same value to the container:
+**Run the published image from the public Azure Container Registry.**
 
 ```bash
-export Port=8080
-docker run --env Port="${Port}" --publish "${Port}:${Port}" simplel7proxy:latest
+export Port=8000
+
+docker run --env Port="${Port}" --publish ${Port}:${Port} \
+  publicnvmacr.azurecr.io/simplel7proxy:v2.3.0
+
 ```
+
 
 ## Verify the Listener
 
