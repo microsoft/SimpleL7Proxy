@@ -17,7 +17,17 @@
 <div class="deployment-setup">
     <div class="deployment-toolbar">
         <h2>Deployment parameters</h2>
-        <span class="text-muted">Local preparation only</span>
+        <div class="deployment-toolbar-options">
+            <span class="text-muted">Local preparation only</span>
+            <div class="deployment-mode-selector" role="group" aria-label="Deployment experience">
+                <button type="button" class="deployment-mode-option @(_simpleMode ? "is-selected" : "")"
+                        aria-pressed="@(_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
+                        @onclick='() => { _simpleMode = true; SetValue(_fields.First(field => field.Key == "ACR_SKU"), "Basic"); SetValue(_fields.First(field => field.Key == "USE_EXISTING_ENVIRONMENT"), "false"); SelectTab("mode", true); }'>Simple deployment</button>
+                <button type="button" class="deployment-mode-option @(!_simpleMode ? "is-selected" : "")"
+                        aria-pressed="@(!_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
+                        @onclick='() => { _simpleMode = false; SelectTab("mode", true); }'>Advanced</button>
+            </div>
+        </div>
     </div>
     @if (_loadError is not null)
     {
@@ -26,7 +36,7 @@
     else
     {
         <div @ref="_tabList" class="deployment-tabs" role="tablist" aria-label="Deployment setup steps">
-            @foreach (var group in Groups.Where(IsGroupVisible)
+            @foreach (var group in (_simpleMode ? Groups.Take(1) : Groups.AsEnumerable()).Where(IsGroupVisible)
                 .Append((Id: "review", Title: "Review"))
                 .Append((Id: "deploy", Title: "Deployment")))
             {
@@ -34,7 +44,7 @@
                         aria-selected="@(_selectedGroup == group.Id ? "true" : "false")" aria-controls="@($"panel-{group.Id}")"
                         tabindex="@(_selectedGroup == group.Id ? 0 : -1)" disabled="@(!RendererInfo.IsInteractive || _downloading)"
                         @onclick="() => SelectTab(group.Id)">
-                    @(group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "environment" => "Environment", "app" => "Proxy", "companion" => "Companion App", "metrics" => "Metrics Server", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
+                    @(_simpleMode && group.Id == "mode" ? "Questions" : group.Id switch { "mode" => "Mode", "common" => "Resources", "images" => "Images", "environment" => "Environment", "app" => "Proxy", "companion" => "Companion App", "metrics" => "Metrics Server", "config" => "App Configuration", "private" => "Networking", "async" => "Async services", "review" => "Review", _ => "Deployment" })
                     @if (_completedGroups.Contains(group.Id))
                     {
                         <span class="deployment-complete">Complete</span>
@@ -49,7 +59,37 @@
                 @foreach (var group in Groups.Where(group => IsGroupVisible(group) && group.Id == _selectedGroup))
                 {
                     <section id="@($"panel-{group.Id}")" class="deployment-section" role="tabpanel" aria-labelledby="@($"tab-{group.Id}")">
-                        <h2 @ref="_panelHeading" tabindex="-1" id="@($"heading-{group.Id}")" class="@(group.Id == "app" ? "visually-hidden" : null)">@(group.Id == "app" ? "SimpleL7Proxy" : group.Title)</h2>
+                        <h2 @ref="_panelHeading" tabindex="-1" id="@($"heading-{group.Id}")" class="@(group.Id == "app" ? "visually-hidden" : null)">@(group.Id == "app" ? "SimpleL7Proxy" : _simpleMode ? "Deployment questions" : group.Title)</h2>
+                        @if (_simpleMode)
+                        {
+                            var resourceGroupField = _fields.First(field => field.Key == "CONTAINER_APP_RESOURCE_GROUP");
+                            var resourceGroupError = _errors.GetValueOrDefault(resourceGroupField.Key);
+                            var acrSkuField = _fields.First(field => field.Key == "ACR_SKU");
+                            <p class="text-muted">All deployment resources will use the same resource group. The container registry uses the Basic SKU.</p>
+                            <div class="deployment-fields deployment-simple-fields">
+                                <div class="deployment-field">
+                                    <label for="@resourceGroupField.Key">Resource group name</label>
+                                    <input id="@resourceGroupField.Key" class="form-control @(resourceGroupError is null ? "" : "is-invalid")" type="text"
+                                           value="@resourceGroupField.Value" @oninput="@(args => SetValue(resourceGroupField, args.Value?.ToString() ?? ""))"
+                                           aria-invalid="@(resourceGroupError is not null ? "true" : "false")"
+                                           aria-describedby="@($"hint-{resourceGroupField.Key} error-{resourceGroupField.Key}")" spellcheck="false" />
+                                    <small id="@($"hint-{resourceGroupField.Key}")" class="text-muted">Used for the Container Apps environment, proxy, Companion App, registry, and supporting resources.</small>
+                                    @if (resourceGroupError is not null)
+                                    {
+                                        <span id="@($"error-{resourceGroupField.Key}")" class="text-danger">@resourceGroupError</span>
+                                    }
+                                </div>
+                                <div class="deployment-field">
+                                    <label for="@acrSkuField.Key">Azure Container Registry SKU</label>
+                                    <select id="@acrSkuField.Key" class="form-select" value="@acrSkuField.Value" @onchange="@(args => SetValue(acrSkuField, args.Value?.ToString() ?? ""))">
+                                        <option value="Basic">Basic</option>
+                                    </select>
+                                    <small class="text-muted">Basic SKU</small>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
                         @if (group.Id == "images")
                         {
                             <p class="text-muted">A cached copy of the SimpleL7Proxy container image will be preloaded into this registry.</p>
@@ -167,6 +207,7 @@
                         </div>
                         }
                         }
+                        }
                     </section>
                 }
                 @if (_errors.Count > 0)
@@ -175,7 +216,7 @@
                 }
                 <div class="deployment-actions">
                     <button type="button" class="btn btn-outline-secondary" disabled="@(_selectedGroup == "mode")" @onclick="Previous">Back</button>
-                    <span class="deployment-progress">Step @(Array.FindIndex(Groups.Where(IsGroupVisible).ToArray(), group => group.Id == _selectedGroup) + 1) of @(Groups.Count(IsGroupVisible) + 2)</span>
+                    <span class="deployment-progress">Step @(Array.FindIndex((_simpleMode ? Groups.Take(1) : Groups.AsEnumerable()).Where(IsGroupVisible).ToArray(), group => group.Id == _selectedGroup) + 1) of @((_simpleMode ? 1 : Groups.Count(IsGroupVisible)) + 2)</span>
                     <button type="submit" class="btn btn-primary">@(_selectedGroup == Groups.Last(IsGroupVisible).Id ? "Review parameters" : "Next")</button>
                 </div>
             </fieldset>
@@ -196,7 +237,7 @@
                         <ul class="mb-0">
                             @foreach (var error in _errors)
                             {
-                                <li><button type="button" class="btn btn-link p-0 text-start" @onclick="() => SelectTab(_fields.First(field => field.Key == error.Key).Group, true)">@error.Key: @error.Value</button></li>
+                                <li><button type="button" class="btn btn-link p-0 text-start" @onclick='() => SelectTab(_simpleMode ? "mode" : _fields.First(field => field.Key == error.Key).Group, true)'>@error.Key: @error.Value</button></li>
                             }
                         </ul>
                     </div>
@@ -207,7 +248,7 @@
                     if (Value("DEPLOY_COMPANION_APP") == "true") reviewGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
                     if (Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes") reviewGroupKeys.Add("NETWORK_RESOURCE_GROUP");
                     if (Value("ASYNC_DEPLOYMENT") == "yes") reviewGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
-                    var reviewGroups = reviewGroupKeys.Select(key => _sameResourceGroup ? Value("CONTAINER_APP_RESOURCE_GROUP") : Value(key)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    var reviewGroups = reviewGroupKeys.Select(key => _simpleMode || _sameResourceGroup ? Value("CONTAINER_APP_RESOURCE_GROUP") : Value(key)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                     <div class="review-layout">
                     @if (_selectedGroup == "review")
                     {
@@ -233,7 +274,7 @@
                                 }
                             </ul>
                         </div>
-                        <button type="button" class="review-edit" disabled="@_downloading" @onclick='() => SelectTab("app", true)'>Edit configuration</button>
+                        <button type="button" class="review-edit" disabled="@_downloading" @onclick='() => SelectTab(_simpleMode ? "mode" : "app", true)'>Edit configuration</button>
                     </header>
                     <dl class="review-specs">
                         <div><dt>Proxy compute</dt><dd>@Value("WEB_CPU") vCPU <span>/ @Value("WEB_MEMORY") GiB</span></dd></div>
@@ -241,6 +282,67 @@
                         <div><dt>Health probe</dt><dd>@(Value("HEALTHPROBE_TYPE") == "sidecar" ? "Sidecar" : "Built in")</dd></div>
                         <div><dt>Ingress port</dt><dd>@Value("WEB_PORT")</dd></div>
                     </dl>
+                    @if (_simpleMode)
+                    {
+                    <figure class="review-architecture review-simple-architecture" aria-labelledby="review-architecture-heading">
+                        <figcaption id="review-architecture-heading">Azure deployment architecture</figcaption>
+                        <div class="review-azure-frame">
+                            <span class="review-azure-wordmark">Azure</span>
+                            <div class="review-resource-group">
+                                <header class="review-resource-group-heading">
+                                    <h4>Resource Group</h4>
+                                    <p>@Value("CONTAINER_APP_RESOURCE_GROUP")</p>
+                                </header>
+                                <div class="review-diagram-layout">
+                                    <section class="review-environment-box" aria-label="Container Apps environment">
+                                        <header class="review-environment-heading">
+                                            <h4>Container App Environment</h4>
+                                            <p>@Value("ENVIRONMENT_NAME")</p>
+                                        </header>
+                                        <div class="review-app-list">
+                                            <div class="review-app-row review-endpoint-row">
+                                                <span class="review-endpoint-label">Companion App Endpoint</span>
+                                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
+                                                <div><h5>Companion App</h5><p>@Value("COMPANION_APP_NAME")</p></div>
+                                            </div>
+                                            <div class="review-app-row">
+                                                <span class="review-endpoint-spacer" aria-hidden="true"></span>
+                                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
+                                                <div><h5>Metrics Server</h5><p>@Value("METRICS_SERVER_NAME")</p></div>
+                                            </div>
+                                            <div class="review-app-row review-endpoint-row">
+                                                <span class="review-endpoint-label">Proxy Endpoint</span>
+                                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
+                                                <div><h5>Simple L7 Proxy</h5><p>@Value("CONTAINER_APP_NAME")</p><p class="review-app-scale"><strong>Scale:</strong> @Value("MIN_REPLICAS")–@Value("MAX_REPLICAS")</p></div>
+                                            </div>
+                                        </div>
+                                    </section>
+                                    <div class="review-diagram-services" aria-label="Supporting Azure services">
+                                        <article class="review-diagram-service">
+                                            <span class="review-eventhub-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                                            <div><h5>Event Hub</h5><p>@Value("COMPANION_EVENTHUB_NAMESPACE")</p><small>@Value("COMPANION_EVENTHUB_NAME")</small></div>
+                                        </article>
+                                        <article class="review-diagram-service">
+                                            <img src="images/azure/10105-icon-service-Container-Registries.svg" width="48" height="48" alt="" />
+                                            <div><h5>Azure Container Registry</h5><p>@Value("ACR_NAME")</p><small>@Value("ACR_SKU") SKU</small></div>
+                                        </article>
+                                        <article class="review-diagram-service">
+                                            <img src="images/azure/00012-icon-service-Application-Insights.svg" width="48" height="48" alt="" />
+                                            <div><h5>Application Insights</h5><p>@(Value("CONTAINER_APP_NAME") + "-insights")</p></div>
+                                        </article>
+                                        <article class="review-diagram-service">
+                                            <img src="images/azure/10219-icon-service-App-Configuration.svg" width="48" height="48" alt="" />
+                                            <div><h5>App Configuration</h5><p>@Value("APPCONFIG_NAME")</p></div>
+                                        </article>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="review-entra-id"><span class="review-entra-glyph" aria-hidden="true"></span><strong>Entra ID</strong></div>
+                        </div>
+                    </figure>
+                    }
+                    else
+                    {
                     <figure class="review-architecture" aria-labelledby="review-architecture-heading">
                         <figcaption id="review-architecture-heading">Azure resources</figcaption>
                         <div class="review-topology">
@@ -396,6 +498,7 @@
                             </dl>
                         </details>
                     </figure>
+                    }
                     <p class="review-validation">Not validated in Azure</p>
                     <p class="review-attribution"><a href="https://learn.microsoft.com/en-us/azure/architecture/icons/" target="_blank" rel="noopener noreferrer">Azure architecture icons</a><span aria-hidden="true"> / </span><a href="images/azure/Microsoft_Terms_of_Use.pdf" target="_blank" rel="noopener noreferrer">Microsoft terms</a></p>
                     </div>
@@ -543,7 +646,7 @@ bash deploy.sh</code></pre>
                 }
                 <div class="deployment-actions">
                     <button type="button" class="btn btn-outline-secondary" disabled="@_downloading" @onclick="Previous">Back</button>
-                    <span class="deployment-progress">Step @(Groups.Count(IsGroupVisible) + (_selectedGroup == "review" ? 1 : 2)) of @(Groups.Count(IsGroupVisible) + 2)</span>
+                    <span class="deployment-progress">Step @((_simpleMode ? 1 : Groups.Count(IsGroupVisible)) + (_selectedGroup == "review" ? 1 : 2)) of @((_simpleMode ? 1 : Groups.Count(IsGroupVisible)) + 2)</span>
                     @if (_selectedGroup == "review" && _errors.Count == 0)
                     {
                         <button type="button" class="btn btn-primary" disabled="@_downloading" @onclick='() => SelectTab("deploy", true)'>Next</button>
@@ -560,6 +663,7 @@ bash deploy.sh</code></pre>
     private bool _reviewed;
     private bool _showPreview;
     private bool _downloading;
+    private bool _simpleMode = true;
     private string? _loadError;
     private string? _downloadError;
     private string _deploymentMethod = "bicep";
@@ -716,7 +820,8 @@ bash deploy.sh</code></pre>
         else
         {
             _reviewed = false;
-            foreach (var key in _errors.Keys.Where(key => _fields.First(field => field.Key == key).Group != groupId).ToArray())
+            foreach (var key in _errors.Keys.Where(key => !(_simpleMode && groupId == "mode" && key is "CONTAINER_APP_RESOURCE_GROUP" or "ACR_SKU")
+                && _fields.First(field => field.Key == key).Group != groupId).ToArray())
                 _errors.Remove(key);
         }
     }
@@ -726,13 +831,13 @@ bash deploy.sh</code></pre>
         Review(_selectedGroup);
         if (_errors.Count > 0) return;
         _completedGroups.Add(_selectedGroup);
-        var groups = Groups.Where(IsGroupVisible).Select(group => group.Id).Append("review").Append("deploy").ToArray();
+        var groups = (_simpleMode ? Groups.Take(1) : Groups.AsEnumerable()).Where(IsGroupVisible).Select(group => group.Id).Append("review").Append("deploy").ToArray();
         SelectTab(groups[Array.IndexOf(groups, _selectedGroup) + 1], true);
     }
 
     private void Previous()
     {
-        var groups = Groups.Where(IsGroupVisible).Select(group => group.Id).Append("review").Append("deploy").ToArray();
+        var groups = (_simpleMode ? Groups.Take(1) : Groups.AsEnumerable()).Where(IsGroupVisible).Select(group => group.Id).Append("review").Append("deploy").ToArray();
         var index = Array.IndexOf(groups, _selectedGroup);
         if (index > 0) SelectTab(groups[index - 1], true);
     }
@@ -748,6 +853,7 @@ bash deploy.sh</code></pre>
     {
         field.Value = value;
         _completedGroups.Remove(field.Group);
+        if (_simpleMode) _completedGroups.Remove("mode");
         _reviewed = false;
         _showPreview = false;
         _errors.Clear();
@@ -773,7 +879,9 @@ bash deploy.sh</code></pre>
     private void Review(string? groupId = null)
     {
         _errors.Clear();
-        foreach (var field in _fields.Where(field => IsGroupVisible((field.Group, "")) && (groupId is null || field.Group == groupId)
+        foreach (var field in _fields.Where(field => _simpleMode
+            ? field.Key is "CONTAINER_APP_RESOURCE_GROUP" or "ACR_SKU"
+            : IsGroupVisible((field.Group, "")) && (groupId is null || field.Group == groupId)
             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP"
                 || field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true")
             && field.Key is not ("ACA_ENVIRONMENT_NAME" or "INGRESS_VISIBILITY" or "INGRESS_PORT" or "CPU" or "MEMORY" or "HOST1")
@@ -817,9 +925,9 @@ bash deploy.sh</code></pre>
                 _errors[field.Key] = "Enter an IPv4 address or leave blank.";
             if (field.Key == "PROXY_VERSION_OVERRIDE") _errors[field.Key] = "The existing image builder does not honor this override. Leave it blank to keep build and deployment tags aligned.";
         }
-        if ((groupId is null or "app") && int.TryParse(Value("MIN_REPLICAS"), out var min) && int.TryParse(Value("MAX_REPLICAS"), out var max) && min > max)
+        if (!_simpleMode && (groupId is null or "app") && int.TryParse(Value("MIN_REPLICAS"), out var min) && int.TryParse(Value("MAX_REPLICAS"), out var max) && min > max)
             _errors["MAX_REPLICAS"] = "Maximum replicas cannot be less than minimum replicas.";
-        if (groupId is null or "app" or "metrics")
+        if (!_simpleMode && (groupId is null or "app" or "metrics"))
         {
             foreach (var key in new[] { "WEB_CPU", "HEALTH_CPU", "METRICS_CPU" })
             {
@@ -850,7 +958,7 @@ bash deploy.sh</code></pre>
         var output = new StringBuilder("#!/bin/bash\n\n# Deployment parameters for deployment/deploy.sh.\n# Keep this file out of source control.\n");
         foreach (var field in _fields.Where(field => field.Key != "HOST1"))
         {
-            var value = _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)
+            var value = (_simpleMode || _sameResourceGroup) && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)
                     && !(field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true") ? Value("CONTAINER_APP_RESOURCE_GROUP")
                 : field.Key == "ACA_ENVIRONMENT_NAME" ? Value("ENVIRONMENT_NAME")
                 : field.Key == "INGRESS_PORT" ? Value("WEB_PORT")
@@ -893,7 +1001,7 @@ bash deploy.sh</code></pre>
         try
         {
             var values = _fields.ToDictionary(field => field.Key, field =>
-                _sameResourceGroup && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)
+                (_simpleMode || _sameResourceGroup) && field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)
                     && !(field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true") ? Value("CONTAINER_APP_RESOURCE_GROUP")
                 : field.Key == "REQUESTAPI_LOCATION" && string.IsNullOrWhiteSpace(field.Value) ? Value("LOCATION") : field.Value,
                 StringComparer.Ordinal);
