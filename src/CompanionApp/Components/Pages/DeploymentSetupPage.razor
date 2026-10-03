@@ -94,6 +94,10 @@
                         {
                             <p class="text-muted">A cached copy of the SimpleL7Proxy container image will be preloaded into this registry.</p>
                         }
+                        @if (group.Id == "mode")
+                        {
+                            <p class="text-muted">Select the applications to deploy. The Container Apps environment and Azure Container Registry are always deployed.</p>
+                        }
                         @if (group.Id == "config")
                         {
                             <p class="text-muted">Deploying App Configuration sets <code>AZURE_APPCONFIG_ENDPOINT</code> from the store name and writes the label and refresh interval to the Container App as environment variables. Without this deployment, the existing environment variables remain unchanged.</p>
@@ -122,9 +126,12 @@
                         {
                         var healthSection = section == "health";
                         var sectionFields = _fields.Where(field => field.Group == group.Id
+                            && (!_simpleMode || field.Key is not ("DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER"))
                             && field.Key is not ("HEALTHPROBE_TYPE" or "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" or "COMPANION_IMAGE_NAME")
+                            && (group.Id != "app" || field.Key == "DEPLOY_PROXY" || Value("DEPLOY_PROXY") == "true")
                             && (group.Id != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
                             && (group.Id != "metrics" || field.Key == "DEPLOY_METRICS_SERVER" || Value("DEPLOY_METRICS_SERVER") == "true")
+                            && (field.Key != "APPCONFIG_RESOURCE_GROUP" || Value("DEPLOY_COMPANION_APP") == "true")
                             && (field.Key != "ENVIRONMENT_RESOURCE_GROUP" || Value("USE_EXISTING_ENVIRONMENT") == "true")
                             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP"
                                 || field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true")
@@ -244,8 +251,8 @@
                 }
                 else
                 {
-                    var reviewGroupKeys = new List<string> { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" };
-                    if (Value("DEPLOY_COMPANION_APP") == "true") reviewGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
+                    var reviewGroupKeys = new List<string> { "CONTAINER_APP_RESOURCE_GROUP" };
+                    if (Value("DEPLOY_COMPANION_APP") == "true") reviewGroupKeys.AddRange(["COMPANION_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP"]);
                     if (Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes") reviewGroupKeys.Add("NETWORK_RESOURCE_GROUP");
                     if (Value("ASYNC_DEPLOYMENT") == "yes") reviewGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
                     var reviewGroups = reviewGroupKeys.Select(key => _simpleMode || _sameResourceGroup ? Value("CONTAINER_APP_RESOURCE_GROUP") : Value(key)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -274,7 +281,7 @@
                                 }
                             </ul>
                         </div>
-                        <button type="button" class="review-edit" disabled="@_downloading" @onclick='() => SelectTab(_simpleMode ? "mode" : "app", true)'>Edit configuration</button>
+                        <button type="button" class="review-edit" disabled="@_downloading" @onclick='() => SelectTab(_simpleMode || Value("DEPLOY_PROXY") != "true" ? "mode" : "app", true)'>Edit configuration</button>
                     </header>
                     <dl class="review-specs">
                         <div><dt>Proxy compute</dt><dd>@Value("WEB_CPU") vCPU <span>/ @Value("WEB_MEMORY") GiB</span></dd></div>
@@ -303,12 +310,12 @@
                                             <div class="review-app-row review-endpoint-row">
                                                 <span class="review-endpoint-label">Companion App Endpoint</span>
                                                 <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
-                                                <div><h5>Companion App</h5><p>@Value("COMPANION_APP_NAME")</p></div>
+                                                <div><h5>Companion App</h5><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_APP_NAME") : "Not deployed")</p></div>
                                             </div>
                                             <div class="review-app-row">
                                                 <span class="review-endpoint-spacer" aria-hidden="true"></span>
                                                 <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
-                                                <div><h5>Metrics Server</h5><p>@Value("METRICS_SERVER_NAME")</p></div>
+                                                <div><h5>Metrics Server</h5><p>@(Value("DEPLOY_METRICS_SERVER") == "true" ? Value("METRICS_SERVER_NAME") : "Not deployed")</p></div>
                                             </div>
                                             <div class="review-app-row review-endpoint-row">
                                                 <span class="review-endpoint-label">Proxy Endpoint</span>
@@ -320,7 +327,7 @@
                                     <div class="review-diagram-services" aria-label="Supporting Azure services">
                                         <article class="review-diagram-service">
                                             <span class="review-eventhub-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-                                            <div><h5>Event Hub</h5><p>@Value("COMPANION_EVENTHUB_NAMESPACE")</p><small>@Value("COMPANION_EVENTHUB_NAME")</small></div>
+                                            <div><h5>Event Hub</h5><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_EVENTHUB_NAMESPACE") : "Not deployed")</p>@if (Value("DEPLOY_COMPANION_APP") == "true") { <small>@Value("COMPANION_EVENTHUB_NAME")</small> }</div>
                                         </article>
                                         <article class="review-diagram-service">
                                             <img src="images/azure/10105-icon-service-Container-Registries.svg" width="48" height="48" alt="" />
@@ -332,7 +339,7 @@
                                         </article>
                                         <article class="review-diagram-service">
                                             <img src="images/azure/10219-icon-service-App-Configuration.svg" width="48" height="48" alt="" />
-                                            <div><h5>App Configuration</h5><p>@Value("APPCONFIG_NAME")</p></div>
+                                            <div><h5>App Configuration</h5><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("APPCONFIG_NAME") : "Not deployed")</p></div>
                                         </article>
                                     </div>
                                 </div>
@@ -356,11 +363,14 @@
                             <div class="review-resource review-resource-primary" data-service="container-app">
                                 <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="48" height="48" alt="" />
                                 <h4>Container Apps</h4>
-                                <p>@Value("CONTAINER_APP_NAME")</p>
-                                <small>Proxy release v2.3.0</small>
-                                @if (Value("HEALTHPROBE_TYPE") == "sidecar")
+                                <p>@(Value("DEPLOY_PROXY") == "true" ? Value("CONTAINER_APP_NAME") : "Not deployed")</p>
+                                @if (Value("DEPLOY_PROXY") == "true")
                                 {
-                                    <small>+ @(Value("HEALTH_IMAGE_NAME") + ":v2.0.1")</small>
+                                    <small>Proxy release v2.3.0</small>
+                                    @if (Value("HEALTHPROBE_TYPE") == "sidecar")
+                                    {
+                                        <small>+ @(Value("HEALTH_IMAGE_NAME") + ":v2.0.1")</small>
+                                    }
                                 }
                             </div>
                             @if (Value("UPDATE_CONTAINER_APP_ENV") == "true")
@@ -374,8 +384,11 @@
                             <div class="review-resource" data-service="configuration">
                                 <img src="images/azure/10219-icon-service-App-Configuration.svg" width="48" height="48" alt="" />
                                 <h4>App Configuration</h4>
-                                <p>@Value("APPCONFIG_NAME")</p>
-                                <small>Label: @Value("APPCONFIG_LABEL")</small>
+                                <p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("APPCONFIG_NAME") : "Not deployed")</p>
+                                @if (Value("DEPLOY_COMPANION_APP") == "true")
+                                {
+                                    <small>Label: @Value("APPCONFIG_LABEL")</small>
+                                }
                             </div>
                         </div>
                         <ul class="review-inventory" aria-label="Supporting Azure resources">
@@ -390,6 +403,14 @@
                             <li data-service="container-app">
                                 <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="28" height="28" alt="" />
                                 <div><h4>Metrics Server</h4><p>@(Value("DEPLOY_METRICS_SERVER") == "true" ? Value("METRICS_SERVER_NAME") : "Not deployed")</p>@if (Value("DEPLOY_METRICS_SERVER") == "true") { <small>Release v1.0.0</small> }</div>
+                            </li>
+                            <li data-service="configuration">
+                                <img src="images/azure/10219-icon-service-App-Configuration.svg" width="28" height="28" alt="" />
+                                <div><h4>App Configuration</h4><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("APPCONFIG_NAME") : "Not deployed")</p></div>
+                            </li>
+                            <li data-service="event-hub">
+                                <span class="review-eventhub-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                                <div><h4>Event Hub</h4><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_EVENTHUB_NAMESPACE") : "Not deployed")</p></div>
                             </li>
                             @if (Value("ENABLE_MANAGED_IDENTITY") == "true")
                             {
@@ -731,7 +752,7 @@ bash deploy.sh</code></pre>
             };
             var value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
             if (value == "yes|no") value = "no";
-            if (key == "DEPLOY_COMPANION_APP") value = "true";
+            if (key is "DEPLOY_PROXY" or "DEPLOY_COMPANION_APP") value = "true";
             if (key == "DEPLOY_METRICS_SERVER") value = "true";
             if (key == "REQUESTAPI_LOCATION") value = "";
             if (key == "UPDATE_CONTAINER_APP_ENV") value = "true";
@@ -761,12 +782,13 @@ bash deploy.sh</code></pre>
                 "TERMINATION_GRACE_PERIOD_SECONDS" => "Shutdown grace period in seconds.",
                 _ => match.Groups[4].Value
             };
-            _fields.Add(new ParameterField(key, key == "DEPLOY_COMPANION_APP" || key == "DEPLOY_METRICS_SERVER" ? "mode"
+            _fields.Add(new ParameterField(key, key is "DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER" ? "mode"
                 : key.StartsWith("COMPANION_EVENTHUB_", StringComparison.Ordinal) || key is "COMPANION_APP_RESOURCE_GROUP" or "COMPANION_IMAGE_NAME" or "COMPANION_APP_NAME" ? "companion"
                 : key is "METRICS_SERVER_NAME" or "METRICS_CPU" or "METRICS_MEMORY" ? "metrics"
                 : key is "USE_EXISTING_ENVIRONMENT" or "ENVIRONMENT_RESOURCE_GROUP" or "ENVIRONMENT_NAME" or "ACA_ENVIRONMENT_NAME" ? "environment"
                 : Legacy.Contains(key) || IsHealthField(key) || key is "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" ? "app" : group,
                 key switch {
+                    "DEPLOY_PROXY" => "Deploy SimpleL7Proxy",
                     "DEPLOY_COMPANION_APP" => "Deploy Companion App",
                     "DEPLOY_METRICS_SERVER" => "Deploy Metrics Server",
                     "COMPANION_EVENTHUB_NAMESPACE" => "Event Hub namespace",
@@ -790,6 +812,8 @@ bash deploy.sh</code></pre>
     private bool IsGroupVisible((string Id, string Title) group) => group.Id switch {
         "private" => Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes",
         "async" => Value("ASYNC_DEPLOYMENT") == "yes",
+        "app" => Value("DEPLOY_PROXY") == "true",
+        "config" => Value("DEPLOY_COMPANION_APP") == "true",
         "companion" => Value("DEPLOY_COMPANION_APP") == "true",
         "metrics" => Value("DEPLOY_METRICS_SERVER") == "true",
         _ => true
@@ -884,6 +908,7 @@ bash deploy.sh</code></pre>
             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP"
                 || field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true")
             && field.Key is not ("ACA_ENVIRONMENT_NAME" or "INGRESS_VISIBILITY" or "INGRESS_PORT" or "CPU" or "MEMORY" or "HOST1")
+            && (field.Group != "app" || field.Key == "DEPLOY_PROXY" || Value("DEPLOY_PROXY") == "true")
             && (field.Group != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
             && (field.Group != "metrics" || field.Key == "DEPLOY_METRICS_SERVER" || Value("DEPLOY_METRICS_SERVER") == "true")
             && (field.Key != "ENVIRONMENT_RESOURCE_GROUP" || Value("USE_EXISTING_ENVIRONMENT") == "true")

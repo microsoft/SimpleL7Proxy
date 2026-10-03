@@ -42,7 +42,7 @@ var asyncEnvironment = settings.ASYNC_DEPLOYMENT ? [
     value: 'https://${requestApiHostName}/api/'
   }
 ] : []
-var appConfigurationEnvironment = settings.UPDATE_CONTAINER_APP_ENV ? [
+var appConfigurationEnvironment = settings.UPDATE_CONTAINER_APP_ENV && !empty(appConfigurationEndpoint) ? [
   {
     name: 'AZURE_APPCONFIG_ENDPOINT'
     value: appConfigurationEndpoint

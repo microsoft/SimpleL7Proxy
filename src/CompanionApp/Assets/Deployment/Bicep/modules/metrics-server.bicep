@@ -5,8 +5,6 @@ import { DeploymentSettings } from '../types.bicep'
 param settings DeploymentSettings
 param usePrivateRegistry bool
 param environmentId string
-param appConfigurationEndpoint string
-
 var metricsImage = usePrivateRegistry ? '${registry.properties.loginServer}/metricsserver:v1.0.0' : 'publicnvmacr.azurecr.io/metricsserver:v1.0.0'
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -50,14 +48,6 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'metrics'
           image: metricsImage
           env: [
-            {
-              name: 'AppConfigurationEndpoint'
-              value: appConfigurationEndpoint
-            }
-            {
-              name: 'AppConfigurationLabel'
-              value: settings.APPCONFIG_LABEL
-            }
           ]
           resources: {
             cpu: json(settings.METRICS_CPU)

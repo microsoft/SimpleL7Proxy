@@ -133,7 +133,6 @@ if [[ "$make_uniq" == true ]]; then
 			| .ACR_NAME |= compact(50)
 			| .CONTAINER_APP_NAME |= with_hyphen(32)
 			| .COMPANION_APP_NAME |= with_hyphen(32)
-			| .COMPANION_EVENTHUB_NAMESPACE |= with_hyphen(50)
 			| .METRICS_SERVER_NAME |= with_hyphen(32)
 			| .LOG_ANALYTICS_WORKSPACE_NAME |= with_hyphen(63)
 			| .ENVIRONMENT_NAME |= (if $use_existing_environment then . else with_hyphen(60) end)
@@ -175,13 +174,7 @@ if [[ "$operation" == 'create' ]]; then
 		--template-file "$script_dir/bootstrap.bicep" \
 		--parameters @"$deployment_parameters_file"
 
-	az acr import \
-		--subscription "$subscription" \
-		--resource-group "$acr_resource_group" \
-		--name "$acr_name" \
-		--source {{PROXY_SOURCE_IMAGE}} \
-		--image {{PROXY_TARGET_IMAGE}} \
-		--force
+	{{PROXY_IMAGE_IMPORT}}
 
 	{{HEALTH_IMAGE_IMPORT}}
 
@@ -201,12 +194,13 @@ if [[ "$operation" == 'create' ]]; then
 	deployment_outputs="$(az deployment sub show \
 		--subscription "$subscription" \
 		--name "$deployment_name" \
-		--query 'properties.outputs.{proxyUrl:proxyUrl.value,companionAppUrl:companionAppUrl.value}' \
+		--query 'properties.outputs.{proxyUrl:proxyUrl.value,companionAppUrl:companionAppUrl.value,metricsServerUrl:metricsServerUrl.value}' \
 		--output json)"
 	proxy_url="$(jq -r '.proxyUrl // empty' <<< "$deployment_outputs")"
 	companion_app_url="$(jq -r '.companionAppUrl // empty' <<< "$deployment_outputs")"
-	readonly deployment_outputs proxy_url companion_app_url
-	if [[ -z "$proxy_url" ]]; then
+	metrics_server_url="$(jq -r '.metricsServerUrl // empty' <<< "$deployment_outputs")"
+	readonly deployment_outputs proxy_url companion_app_url metrics_server_url
+	if jq -e '.parameters.settings.value.DEPLOY_PROXY == true' "$deployment_parameters_file" >/dev/null && [[ -z "$proxy_url" ]]; then
 		printf '%s\n' 'Error: the deployment did not return a proxy URL.' >&2
 		exit 1
 	fi
@@ -214,10 +208,19 @@ if [[ "$operation" == 'create' ]]; then
 		printf '%s\n' 'Error: the deployment did not return a Companion App URL.' >&2
 		exit 1
 	fi
-	printf '\nProxy URL: %s\n' "$proxy_url"
+	if [[ -n "$proxy_url" ]]; then
+		printf '\nProxy URL: %s\n' "$proxy_url"
+	else
+		printf '\nProxy: not deployed\n'
+	fi
 	if [[ -n "$companion_app_url" ]]; then
 		printf 'Companion App URL: %s\n' "$companion_app_url"
 	else
 		printf '%s\n' 'Companion App URL: not deployed'
+	fi
+	if [[ -n "$metrics_server_url" ]]; then
+		printf 'Metrics Server URL: %s\n' "$metrics_server_url"
+	else
+		printf '%s\n' 'Metrics Server: not deployed'
 	fi
 fi
