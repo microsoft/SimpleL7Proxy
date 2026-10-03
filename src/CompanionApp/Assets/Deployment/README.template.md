@@ -39,6 +39,16 @@ This creates a unique deployment by appending a unique suffix to the resource na
 
 When deployment succeeds, the script prints the available proxy and Companion App URLs. Make a note of these URLs so that you can validate the proxy.
 
+When the Companion App is selected, the Bicep deployment also creates its Event Hubs namespace, hub, and consumer group in the Companion App resource group. The namespace uses Standard tier with one throughput unit; the hub uses two partitions and one-day retention. Deployment Setup supplies the three names, and `--MakeUniq` also suffixes the namespace name.
+
+The Companion App monitor is disabled in the bootstrap revision. After its managed identity receives **Azure Event Hubs Data Receiver** access scoped to the hub, the final revision enables the monitor and sets `CompanionApp__EventHubMonitor__EventHubNamespace`, `CompanionApp__EventHubMonitor__EventHubName`, and `CompanionApp__EventHubMonitor__ConsumerGroup`.
+
+> [!NOTE]
+> Provisioning the hub does not configure the proxy to publish events. Configure the proxy's event destination and grant its publishing identity Event Hubs Data Sender access separately. Verify the Companion App Log stream reports that the Event Hub reader started; an empty monitor does not prove that publishing is configured. Portal ARM and standalone exports do not deploy the Companion App or its Event Hub resources.
+
+> [!WARNING]
+> A completed role assignment does not guarantee that Event Hubs authorization has propagated. If a fresh Companion App revision logs an authorization failure followed by `Event Hub reader stopped unexpectedly.`, verify its managed identity has Azure Event Hubs Data Receiver on the selected hub, allow the assignment to propagate, then open **Container App > Revisions and replicas** in the Azure portal and restart the active Companion App revision. Confirm the reader-started message in Log stream; the existing reader does not automatically restart after startup authorization fails.
+
 ## Configure the proxy
 
 Open the Companion App URL and select **Proxy Configuration**.

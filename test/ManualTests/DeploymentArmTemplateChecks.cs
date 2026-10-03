@@ -19,7 +19,7 @@ string[] compactResourceKeys = ["ACR_NAME", "STORAGE_ACCOUNT_NAME", "REQUESTAPI_
 string[] hyphenatedResourceKeys = [
     "NETWORK_RESOURCE_GROUP", "CONTAINER_APP_RESOURCE_GROUP", "STORAGE_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP",
     "COMPANION_APP_RESOURCE_GROUP", "ENVIRONMENT_RESOURCE_GROUP", "ACA_ENVIRONMENT_NAME", "CONTAINER_APP_NAME", "COMPANION_APP_NAME", "METRICS_SERVER_NAME", "ENVIRONMENT_NAME",
-    "LOG_ANALYTICS_WORKSPACE_NAME", "APPCONFIG_NAME", "VNET_NAME",
+    "LOG_ANALYTICS_WORKSPACE_NAME", "APPCONFIG_NAME", "VNET_NAME", "COMPANION_EVENTHUB_NAMESPACE",
     "REQUESTAPI_FUNCTION_APP", "REQUESTAPI_APPINSIGHTS_NAME", "ACA_RECORD_NAME"
 ];
 var resourceNameKeys = compactResourceKeys.Concat(hyphenatedResourceKeys).ToHashSet(StringComparer.Ordinal);
@@ -211,7 +211,7 @@ foreach (var metricsServer in new[] { false, true }) {
         "bootstrap.bicep", "main.bicep", "types.bicep", "modules/registry.bicep", "modules/network.bicep",
         "modules/foundation.bicep", "modules/configuration.bicep", "modules/configuration-access.bicep",
         "modules/blob-storage.bicep", "modules/blob-access.bicep", "modules/request-api.bicep",
-        "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/companion-app.bicep", "modules/metrics-server.bicep", "modules/container-app.bicep",
+        "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/companion-app.bicep", "modules/event-hub.bicep", "modules/event-hub-access.bicep", "modules/metrics-server.bicep", "modules/container-app.bicep",
         "modules/registry-access.bicep", "modules/private-dns.bicep"
     ];
     Check(templateAssets.All(bicepFiles.ContainsKey), "Bicep bundle includes every static template asset");
@@ -251,7 +251,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.MetricsServerImage, StringComparison.Ordinal) == metricsServer, "Bicep deployment imports the public Metrics Server image only when selected");
     Check(!bicepFiles.ContainsKey("modules/configuration-values.bicep"), "Bicep export omits App Configuration values module");
     Check(!string.Join("\n", bicepFiles.Values).Contains("Microsoft.AppConfiguration/configurationStores/keyValues", StringComparison.Ordinal), "Bicep export omits App Configuration data-plane writes");
-    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 15, "Bicep bundle includes fifteen reusable resource modules");
+    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 17, "Bicep bundle includes seventeen reusable resource modules");
     Check(string.Join("\n", bicepFiles.Values).Contains("Microsoft.ContainerRegistry/registries", StringComparison.Ordinal), "Bicep bundle provisions and references ACR");
     Check(bicepFiles["modules/container-app.bicep"].Contains(":v2.3.0", StringComparison.Ordinal), "Bicep Container App uses the imported proxy tag");
     Check(!string.Join("\n", bicepFiles.Values).Contains("simplel7proxy@sha256", StringComparison.Ordinal), "Bicep deployment does not pin the proxy image by digest");
@@ -291,6 +291,24 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__AppConfigurationEndpoint'", StringComparison.Ordinal), "static Bicep configures the Companion App endpoint environment variable");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("value: appConfigurationEndpoint", StringComparison.Ordinal), "static Bicep sources the Companion App endpoint from App Configuration");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__AppConfigurationLabel'", StringComparison.Ordinal), "static Bicep configures the Companion App label environment variable");
+    foreach (var setting in new[] { "eventhub_enabled", "EventHubNamespace", "EventHubName", "ConsumerGroup" })
+        Check(bicepFiles["modules/companion-app.bicep"].Contains($"name: 'CompanionApp__EventHubMonitor__{setting}'", StringComparison.Ordinal), "Companion App configures EventHubMonitor " + setting);
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("param eventHubMonitorEnabled bool = false", StringComparison.Ordinal), "bootstrap monitor is disabled until receiver RBAC exists");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("value: string(eventHubMonitorEnabled)", StringComparison.Ordinal), "monitor enablement uses the revision's setting");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("value: '${settings.COMPANION_EVENTHUB_NAMESPACE}.servicebus.windows.net'", StringComparison.Ordinal), "monitor receives the namespace endpoint");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("value: settings.COMPANION_EVENTHUB_NAME", StringComparison.Ordinal), "monitor receives the selected hub");
+    Check(bicepFiles["modules/companion-app.bicep"].Contains("value: settings.COMPANION_EVENTHUB_CONSUMER_GROUP", StringComparison.Ordinal), "monitor receives the selected consumer group");
+    Check(bicepFiles["main.bicep"].Contains("module eventHub 'modules/event-hub.bicep' = if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "Event Hub deployment follows Companion App selection");
+    Check(bicepFiles["main.bicep"].Contains("module eventHubAccess 'modules/event-hub-access.bicep' = if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "receiver RBAC follows Companion App selection");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "eventHubMonitorEnabled: true").Count == 1, "only the final Companion App revision enables its monitor");
+    Check(bicepFiles["main.bicep"].Contains("    eventHubAccess\n", StringComparison.Ordinal), "final revision waits for receiver access");
+    foreach (var type in new[] { "namespaces", "namespaces/eventhubs", "namespaces/eventhubs/consumergroups" })
+        Check(bicepFiles["modules/event-hub.bicep"].Contains($"'Microsoft.EventHub/{type}@2024-01-01'", StringComparison.Ordinal), "Bicep provisions Event Hub " + type);
+    Check(bicepFiles["modules/event-hub.bicep"].Contains("disableLocalAuth: true", StringComparison.Ordinal), "Event Hub uses managed identity rather than shared keys");
+    Check(bicepFiles["modules/event-hub-access.bicep"].Contains("a638d3c7-ab3a-418d-83e6-5f17a39d4fde", StringComparison.Ordinal), "Companion App receives the built-in Event Hubs Data Receiver role");
+    Check(bicepFiles["modules/event-hub-access.bicep"].Contains("scope: eventHub", StringComparison.Ordinal), "receiver access is limited to the selected hub");
+    Check(bicepFiles["modules/event-hub-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "receiver role uses the Companion App system identity");
+    Check(bicepFiles["deploy.sh"].Contains(".COMPANION_EVENTHUB_NAMESPACE |= with_hyphen(50)", StringComparison.Ordinal), "MakeUniq suffixes the new namespace within Azure length limits");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("param appInsightsConnectionString string", StringComparison.Ordinal), "Companion App accepts the deployed App Insights connection string");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("var appInsightsOverrideEnvironment = settings.ENABLE_APP_INSIGHTS ? [", StringComparison.Ordinal), "Companion App App Insights override follows the deployment selection");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'AppInsightsConnectionStringOverride'", StringComparison.Ordinal), "Companion App receives the App Insights override variable");
@@ -334,6 +352,8 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterSettings["COMPANION_APP_RESOURCE_GROUP"]!.GetValue<string>() == values["COMPANION_APP_RESOURCE_GROUP"], "parameters preserve the Companion App resource group");
     Check(parameterSettings["COMPANION_IMAGE_NAME"]!.GetValue<string>() == values["COMPANION_IMAGE_NAME"], "parameters preserve the Companion image name");
     Check(parameterSettings["COMPANION_APP_NAME"]!.GetValue<string>() == values["COMPANION_APP_NAME"], "parameters preserve the Companion App name");
+    foreach (var key in new[] { "COMPANION_EVENTHUB_NAMESPACE", "COMPANION_EVENTHUB_NAME", "COMPANION_EVENTHUB_CONSUMER_GROUP" })
+        Check(parameterSettings[key]!.GetValue<string>() == values[key], "parameters preserve " + key);
     Check(parameterSettings["METRICS_SERVER_NAME"]!.GetValue<string>() == values["METRICS_SERVER_NAME"], "parameters preserve the Metrics Server name");
     Check(parameterSettings["METRICS_CPU"]!.GetValue<string>() == values["METRICS_CPU"], "parameters preserve Metrics Server CPU");
     Check(parameterSettings["METRICS_MEMORY"]!.GetValue<string>() == values["METRICS_MEMORY"], "parameters preserve Metrics Server memory");
