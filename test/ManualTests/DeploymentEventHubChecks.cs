@@ -14,6 +14,7 @@ var values = File.ReadLines(Path.Combine(root, "deployment/interactive/deploy.pa
 var flags = BindingFlags.Instance | BindingFlags.NonPublic;
 var setup = new DeploymentSetupPage();
 typeof(DeploymentSetupPage).GetMethod("OnInitialized", flags)!.Invoke(setup, null);
+typeof(DeploymentSetupPage).GetField("_simpleMode", flags)!.SetValue(setup, false);
 var fields = ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", flags)!.GetValue(setup)!)
     .Cast<object>().ToDictionary(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)!);
 var errors = (Dictionary<string, string>)typeof(DeploymentSetupPage).GetField("_errors", flags)!.GetValue(setup)!;

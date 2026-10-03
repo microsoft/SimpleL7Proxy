@@ -15,6 +15,8 @@ var initializeSetup = typeof(DeploymentSetupPage).GetMethod("OnInitialized", set
 var readSetupValue = typeof(DeploymentSetupPage).GetMethod("Value", setupFlags)!;
 var exportSetupScript = typeof(DeploymentSetupPage).GetMethod("GenerateScript", setupFlags)!;
 var selectSetupTab = typeof(DeploymentSetupPage).GetMethod("SelectTab", setupFlags)!;
+var validateSetup = typeof(DeploymentSetupPage).GetMethod("Review", setupFlags)!;
+var setSetupValue = typeof(DeploymentSetupPage).GetMethod("SetValue", setupFlags)!;
 string[] compactResourceKeys = ["ACR_NAME", "STORAGE_ACCOUNT_NAME", "REQUESTAPI_STORAGE_ACCOUNT"];
 string[] hyphenatedResourceKeys = [
     "NETWORK_RESOURCE_GROUP", "CONTAINER_APP_RESOURCE_GROUP", "STORAGE_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP",
@@ -40,12 +42,25 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
     }
     Check((string)readSetupValue.Invoke(setup, ["HEALTHPROBE_TYPE"])! == "internal", "Deployment Setup disables the HealthProbe sidecar by default");
     Check(defaults["DEPLOY_METRICS_SERVER"] == "true", "Deployment Setup enables Metrics Server by default");
+    Check((bool)typeof(DeploymentSetupPage).GetField("_simpleMode", setupFlags)!.GetValue(setup)!, "Deployment Setup starts in Simple mode");
+    Check(defaults["ACR_SKU"] == "Basic", "Simple deployment selects the Basic registry SKU");
+    var setupErrors = (Dictionary<string, string>)typeof(DeploymentSetupPage).GetField("_errors", setupFlags)!.GetValue(setup)!;
+    var resourceGroupField = ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", setupFlags)!.GetValue(setup)!)
+        .Cast<object>().Single(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)! == "CONTAINER_APP_RESOURCE_GROUP");
+    setSetupValue.Invoke(setup, [resourceGroupField, "invalid/name"]);
+    validateSetup.Invoke(setup, [null]);
+    Check(setupErrors.ContainsKey("CONTAINER_APP_RESOURCE_GROUP"), "Simple deployment validates its resource group name");
+    setSetupValue.Invoke(setup, [resourceGroupField, defaults["CONTAINER_APP_RESOURCE_GROUP"]]);
+    validateSetup.Invoke(setup, [null]);
+    Check(setupErrors.Count == 0, "Simple deployment validates only its resource group and registry SKU");
     Check(Regex.IsMatch(defaults["ACR_NAME"], "^[a-z0-9]{5,50}$"), "default registry name satisfies Azure limits");
     foreach (var key in new[] { "STORAGE_ACCOUNT_NAME", "REQUESTAPI_STORAGE_ACCOUNT" })
         Check(Regex.IsMatch(defaults[key], "^[a-z0-9]{3,24}$"), key + " satisfies Azure storage limits");
     Check(Regex.IsMatch(defaults["CONTAINER_APP_NAME"], "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") && !defaults["CONTAINER_APP_NAME"].Contains("--"), "default Container App name satisfies Azure limits");
     Check(defaults["ACA_RECORD_NAME"] == defaults["CONTAINER_APP_NAME"], "default DNS record stays aligned with Container App");
     var script = (string)exportSetupScript.Invoke(setup, null)!;
+    foreach (var key in baseline.Keys.Where(key => key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal)))
+        Check(script.Contains($"export {key}='{defaults["CONTAINER_APP_RESOURCE_GROUP"]}'", StringComparison.Ordinal), key + " uses the Simple deployment resource group");
     foreach (var tab in new[] { "images", "app", "companion", "config", "review" }) selectSetupTab.Invoke(setup, [tab, false]);
     Check(script == (string)exportSetupScript.Invoke(setup, null)!, "tab changes and repeat downloads preserve generated names");
     Check(script.Contains($"export ACA_ENVIRONMENT_NAME='{defaults["ENVIRONMENT_NAME"]}'", StringComparison.Ordinal), "standalone environment alias uses the suffixed name");
