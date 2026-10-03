@@ -133,6 +133,7 @@ if [[ "$make_uniq" == true ]]; then
 			| .ACR_NAME |= compact(50)
 			| .CONTAINER_APP_NAME |= with_hyphen(32)
 			| .COMPANION_APP_NAME |= with_hyphen(32)
+			| .COMPANION_EVENTHUB_NAMESPACE |= with_hyphen(50)
 			| .METRICS_SERVER_NAME |= with_hyphen(32)
 			| .LOG_ANALYTICS_WORKSPACE_NAME |= with_hyphen(63)
 			| .ENVIRONMENT_NAME |= (if $use_existing_environment then . else with_hyphen(60) end)

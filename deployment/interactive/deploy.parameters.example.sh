@@ -68,6 +68,9 @@ export ACA_ENVIRONMENT_NAME="simplel7proxy-env"
 export USE_EXISTING_ENVIRONMENT="false"
 export CONTAINER_APP_NAME="ca-simplel7proxy-proxy"
 export COMPANION_APP_NAME="ca-simplel7proxy-companion"
+export COMPANION_EVENTHUB_NAMESPACE="simplel7proxy-events" # Bicep creates a Standard namespace in the Companion App resource group.
+export COMPANION_EVENTHUB_NAME="proxy-events"
+export COMPANION_EVENTHUB_CONSUMER_GROUP="companion"
 export METRICS_SERVER_NAME="ca-simplel7proxy-metrics"
 
 export CPU="0.5"

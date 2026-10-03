@@ -641,7 +641,7 @@ bash deploy.sh</code></pre>
                 value += nameSuffix;
             else if (key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" or "METRICS_SERVER_NAME" or "ACA_ENVIRONMENT_NAME"
                 or "ENVIRONMENT_NAME" or "APPCONFIG_NAME" or "LOG_ANALYTICS_WORKSPACE_NAME" or "VNET_NAME"
-                or "REQUESTAPI_FUNCTION_APP" or "REQUESTAPI_APPINSIGHTS_NAME" or "ACA_RECORD_NAME")
+                or "REQUESTAPI_FUNCTION_APP" or "REQUESTAPI_APPINSIGHTS_NAME" or "ACA_RECORD_NAME" or "COMPANION_EVENTHUB_NAMESPACE")
                 value += "-" + nameSuffix;
             var hint = key switch {
                 "APPCONFIG_NAME" => "Sets AZURE_APPCONFIG_ENDPOINT to this store's endpoint.",
@@ -650,6 +650,9 @@ bash deploy.sh</code></pre>
                 "HEALTHPROBE_VERSION_OVERRIDE" => "Optional. Blank uses the version in HealthProbe/Constants.cs.",
                 "REQUESTAPI_LOCATION" => "Optional. Blank uses the common location at export time.",
                 "ENVIRONMENT_NAME" => "",
+                "COMPANION_EVENTHUB_NAMESPACE" => "Bicep creates a Standard Event Hubs namespace in the Companion App resource group. Enter the namespace name, not its endpoint.",
+                "COMPANION_EVENTHUB_NAME" => "Bicep creates this Event Hub with two partitions and one-day retention.",
+                "COMPANION_EVENTHUB_CONSUMER_GROUP" => "Bicep creates this consumer group and grants the Companion App managed identity Event Hubs Data Receiver access.",
                 "WEB_PORT" => "Must match the proxy's listening port; the script does not change that runtime setting.",
                 "WEB_CPU" or "HEALTH_CPU" or "CPU" => "CPU cores. Azure validates the combined CPU and memory allocation.",
                 "METRICS_CPU" => "CPU cores for the Metrics Server Container App.",
@@ -660,12 +663,15 @@ bash deploy.sh</code></pre>
                 "TERMINATION_GRACE_PERIOD_SECONDS" => "Shutdown grace period in seconds.",
                 _ => match.Groups[4].Value
             };
-            _fields.Add(new ParameterField(key, key is "DEPLOY_COMPANION_APP" or "COMPANION_APP_RESOURCE_GROUP" or "COMPANION_IMAGE_NAME" or "COMPANION_APP_NAME" ? "companion"
+            _fields.Add(new ParameterField(key, key.StartsWith("COMPANION_EVENTHUB_", StringComparison.Ordinal) || key is "DEPLOY_COMPANION_APP" or "COMPANION_APP_RESOURCE_GROUP" or "COMPANION_IMAGE_NAME" or "COMPANION_APP_NAME" ? "companion"
                 : key is "DEPLOY_METRICS_SERVER" or "METRICS_SERVER_NAME" or "METRICS_CPU" or "METRICS_MEMORY" ? "metrics"
                 : key is "USE_EXISTING_ENVIRONMENT" or "ENVIRONMENT_RESOURCE_GROUP" or "ENVIRONMENT_NAME" or "ACA_ENVIRONMENT_NAME" ? "environment"
                 : Legacy.Contains(key) || IsHealthField(key) || key is "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" ? "app" : group,
                 key switch {
                     "DEPLOY_METRICS_SERVER" => "Enabled",
+                    "COMPANION_EVENTHUB_NAMESPACE" => "Event Hub namespace",
+                    "COMPANION_EVENTHUB_NAME" => "Event Hub name",
+                    "COMPANION_EVENTHUB_CONSUMER_GROUP" => "Event Hub consumer group",
                     "METRICS_SERVER_NAME" => "Container App name",
                     "USE_EXISTING_ENVIRONMENT" => "Use existing Container Apps environment",
                     "ENVIRONMENT_RESOURCE_GROUP" => "Environment resource group",
@@ -793,6 +799,12 @@ bash deploy.sh</code></pre>
                 else if (field.Key.EndsWith("_REPLICAS") && number > 999) _errors[field.Key] = "Replicas cannot exceed 999.";
             }
             if (field.Key == "ACR_NAME" && !Regex.IsMatch(value, "^[a-zA-Z0-9]{5,50}$")) _errors[field.Key] = "Use 5-50 letters and numbers.";
+            if (field.Key == "COMPANION_EVENTHUB_NAMESPACE" && !Regex.IsMatch(value, "^[a-zA-Z][a-zA-Z0-9-]{4,48}[a-zA-Z0-9]$"))
+                _errors[field.Key] = "Use 6-50 letters, numbers, or hyphens; start with a letter and end with a letter or number.";
+            if (field.Key == "COMPANION_EVENTHUB_NAME" && !Regex.IsMatch(value, "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}$"))
+                _errors[field.Key] = "Use 1-256 letters, numbers, periods, underscores, or hyphens; start with a letter or number.";
+            if (field.Key == "COMPANION_EVENTHUB_CONSUMER_GROUP" && value != "$Default" && !Regex.IsMatch(value, "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,49}$"))
+                _errors[field.Key] = "Use $Default or 1-50 letters, numbers, periods, underscores, or hyphens; start with a letter or number.";
             if (field.Key is "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT" && !Regex.IsMatch(value, "^[a-z0-9]{3,24}$"))
                 _errors[field.Key] = "Use 3-24 lowercase letters and numbers.";
             if (field.Key is "CONTAINER_APP_NAME" or "COMPANION_APP_NAME" or "METRICS_SERVER_NAME" && (!Regex.IsMatch(value, "^[a-z][a-z0-9-]{0,30}[a-z0-9]$") || value.Contains("--")))

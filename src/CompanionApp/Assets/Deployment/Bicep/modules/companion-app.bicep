@@ -11,6 +11,7 @@ param appConfigurationEndpoint string
 param appInsightsConnectionString string
 param sidecarUrl string
 param metricsServerUrl string
+param eventHubMonitorEnabled bool = false
 
 var companionImage = usePrivateRegistry ? '${registry.properties.loginServer}/${settings.COMPANION_IMAGE_NAME}:v2.3.0' : 'publicnvmacr.azurecr.io/companionapp:v2.3.0'
 var sidecarOverrideEnvironment = !empty(sidecarUrl) ? [
@@ -47,6 +48,22 @@ var companionEnvironment = concat([
   {
     name: 'CompanionApp__proxyacr'
     value: settings.ACR_NAME
+  }
+  {
+    name: 'CompanionApp__EventHubMonitor__eventhub_enabled'
+    value: string(eventHubMonitorEnabled)
+  }
+  {
+    name: 'CompanionApp__EventHubMonitor__EventHubNamespace'
+    value: '${settings.COMPANION_EVENTHUB_NAMESPACE}.servicebus.windows.net'
+  }
+  {
+    name: 'CompanionApp__EventHubMonitor__EventHubName'
+    value: settings.COMPANION_EVENTHUB_NAME
+  }
+  {
+    name: 'CompanionApp__EventHubMonitor__ConsumerGroup'
+    value: settings.COMPANION_EVENTHUB_CONSUMER_GROUP
   }
 ], sidecarOverrideEnvironment, metricsServerOverrideEnvironment, appInsightsOverrideEnvironment)
 
