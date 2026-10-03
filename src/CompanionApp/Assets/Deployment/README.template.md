@@ -46,6 +46,9 @@ The Companion App monitor is disabled in the bootstrap revision. After its manag
 > [!NOTE]
 > Provisioning the hub does not configure the proxy to publish events. Configure the proxy's event destination and grant its publishing identity Event Hubs Data Sender access separately. Verify the Companion App Log stream reports that the Event Hub reader started; an empty monitor does not prove that publishing is configured. Portal ARM and standalone exports do not deploy the Companion App or its Event Hub resources.
 
+> [!WARNING]
+> A completed role assignment does not guarantee that Event Hubs authorization has propagated. If a fresh Companion App revision logs an authorization failure followed by `Event Hub reader stopped unexpectedly.`, verify its managed identity has Azure Event Hubs Data Receiver on the selected hub, allow the assignment to propagate, then open **Container App > Revisions and replicas** in the Azure portal and restart the active Companion App revision. Confirm the reader-started message in Log stream; the existing reader does not automatically restart after startup authorization fails.
+
 ## Configure the proxy
 
 Open the Companion App URL and select **Proxy Configuration**.
