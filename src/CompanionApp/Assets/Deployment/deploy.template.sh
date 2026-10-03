@@ -128,6 +128,7 @@ if [[ "$make_uniq" == true ]]; then
 			| .APPCONFIG_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
 			| .REQUESTAPI_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
 			| .COMPANION_APP_RESOURCE_GROUP |= (if $use_existing_environment and . == $environment_group then . else with_hyphen(90) end)
+			| .COMPANION_EVENTHUB_NAMESPACE |= with_hyphen(50)
 			| .SERVICEBUS_RESOURCE_GROUP |= (if contains($placeholder) then gsub($placeholder; $suffix) else . end)
 			| .COSMOS_RESOURCE_GROUP |= (if contains($placeholder) then gsub($placeholder; $suffix) else . end)
 			| .ACR_NAME |= compact(50)

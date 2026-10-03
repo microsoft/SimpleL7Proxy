@@ -37,7 +37,7 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
     foreach (var key in hyphenatedResourceKeys) Check(defaults[key] == baseline[key] + "-" + suffix, key + " shares suffix with a separator");
     foreach (var key in baseline.Keys.Where(key => !resourceNameKeys.Contains(key))) {
         var expected = key is "PRIVATE_NETWORK_DEPLOYMENT" or "ASYNC_DEPLOYMENT" ? "no"
-            : key is "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER" ? "true" : key == "REQUESTAPI_LOCATION" ? "" : baseline[key];
+            : key is "DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER" ? "true" : key == "REQUESTAPI_LOCATION" ? "" : baseline[key];
         Check(defaults[key] == expected, key + " remains unchanged by resource naming");
     }
     Check((string)readSetupValue.Invoke(setup, ["HEALTHPROBE_TYPE"])! == "internal", "Deployment Setup disables the HealthProbe sidecar by default");
@@ -87,11 +87,13 @@ foreach (var shared in new[] { false, true })
 foreach (var network in new[] { false, true })
 foreach (var asyncMode in new[] { false, true })
 foreach (var sidecar in new[] { false, true })
+foreach (var proxy in new[] { false, true })
 foreach (var companion in new[] { false, true })
 foreach (var metricsServer in new[] { false, true }) {
     var values = new Dictionary<string, string>(baseline);
     values["PRIVATE_NETWORK_DEPLOYMENT"] = network ? "yes" : "no";
     values["ASYNC_DEPLOYMENT"] = asyncMode ? "yes" : "no";
+    values["DEPLOY_PROXY"] = proxy ? "true" : "false";
     values["DEPLOY_COMPANION_APP"] = companion ? "true" : "false";
     values["DEPLOY_METRICS_SERVER"] = metricsServer ? "true" : "false";
     values["HEALTHPROBE_TYPE"] = sidecar ? "sidecar" : "internal";
@@ -234,9 +236,9 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(templateAssets.All(file => bicepFiles[file].EndsWith('\n')), "static Bicep assets preserve their final newline");
     Check(bicepFiles.ContainsKey("parameters.json"), "Bicep bundle includes generated deployment parameters");
     Check(bicepFiles["README.md"].EndsWith('\n') && bicepFiles["deploy.sh"].EndsWith('\n'), "bundle text assets preserve their final newline");
-    Check(bicepFiles["README.md"].Contains("\n## Check after leaving the terminal\n", StringComparison.Ordinal), "bundle README recovery heading is not indented as code");
-    Check(Regex.Matches(bicepFiles["README.md"], "^```bash$", RegexOptions.Multiline).Count == 6, "bundle README exposes deployment, uniqueness, and recovery command blocks");
-    Check(bicepFiles["README.md"].Contains("deployment='DEPLOYMENT_NAME'", StringComparison.Ordinal), "bundle README directs recovery to the deployment name printed by the script");
+    Check(bicepFiles["README.md"].Contains("\n## Check deployment status\n", StringComparison.Ordinal), "bundle README recovery heading is not indented as code");
+    Check(Regex.Matches(bicepFiles["README.md"], "^```bash$", RegexOptions.Multiline).Count == 12, "bundle README exposes deployment, uniqueness, and recovery command blocks");
+    Check(bicepFiles["README.md"].Contains("deployment='YOUR_DEPLOYMENT_NAME'", StringComparison.Ordinal), "bundle README directs recovery to the printed deployment name");
     Check(bicepFiles["deploy.sh"].Contains("deployment_name=\"${container_app_name}-bicep\"", StringComparison.Ordinal), "deployment script derives its deployment name from effective parameters");
     Check(bicepFiles["deploy.sh"].Contains("--name \"$deployment_name\"", StringComparison.Ordinal), "deployment script uses its effective deployment name");
     Check(bicepFiles["deploy.sh"].Contains("--location \"$location\"", StringComparison.Ordinal), "deployment script uses the effective parameter location");
@@ -245,9 +247,9 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(!bicepFiles["deploy.sh"].Contains("mv \"$temporary_parameters\" \"$parameters_file\"", StringComparison.Ordinal), "MakeUniq does not replace the original parameters file");
     Check(!bicepFiles["README.md"].Contains("{{DEPLOYMENT_NAME}}", StringComparison.Ordinal), "README asset deployment token is resolved");
     Check(!Regex.IsMatch(bicepFiles["deploy.sh"], "\\{\\{[A-Z_]+\\}\\}"), "deployment script asset tokens are resolved");
-    Check(bicepFiles["README.md"].Contains("az deployment sub show --subscription \"$subscription\" --name \"$deployment\"", StringComparison.Ordinal), "bundle README scopes status checks to the original subscription and deployment");
-    Check(bicepFiles["README.md"].Contains("az deployment sub list --subscription \"$subscription\"", StringComparison.Ordinal), "bundle README documents deployment name discovery");
-    foreach (var query in new[] { "properties.provisioningState", "properties.timestamp", "properties.error", "properties.outputs.proxyUrl.value", "properties.outputs.companionAppUrl.value" })
+    Check(bicepFiles["README.md"].Contains("az deployment sub show \\", StringComparison.Ordinal) && bicepFiles["README.md"].Contains("--name \"$deployment\"", StringComparison.Ordinal), "bundle README scopes status checks to the original subscription and deployment");
+    Check(bicepFiles["README.md"].Contains("az deployment sub list \\", StringComparison.Ordinal), "bundle README documents deployment name discovery");
+    foreach (var query in new[] { "properties.provisioningState", "properties.timestamp", "properties.error", "properties.outputs.proxyUrl.value", "properties.outputs.companionAppUrl.value", "properties.outputs.metricsServerUrl.value" })
         Check(bicepFiles["README.md"].Contains(query, StringComparison.Ordinal), "bundle README documents " + query);
     Check(bicep.StartsWith("targetScope = 'subscription'", StringComparison.Ordinal), "Bicep entry point has subscription scope");
     staticBicepEntryPoint ??= bicep;
@@ -255,12 +257,13 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicep.Contains("param settings DeploymentSettings", StringComparison.Ordinal), "Bicep entry point consumes the typed settings parameter");
     Check(bicep.Contains("if (settings.PRIVATE_NETWORK_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls private networking from parameters");
     Check(bicep.Contains("if (settings.ASYNC_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls async resources from parameters");
+    Check(bicep.Contains("if (settings.DEPLOY_PROXY)", StringComparison.Ordinal), "Bicep entry point controls the proxy from parameters");
     Check(bicep.Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "Bicep entry point controls Companion App resources from parameters");
     Check(bicep.Contains("if (settings.DEPLOY_METRICS_SERVER)", StringComparison.Ordinal), "Bicep entry point controls Metrics Server resources from parameters");
     Check(bicep.Contains("scope: resourceGroup(settings.ENVIRONMENT_RESOURCE_GROUP)", StringComparison.Ordinal), "Bicep can reference an existing environment in its selected resource group");
     Check(DeploymentBicepBundle.ProxyImage == "publicnvmacr.azurecr.io/simplel7proxy:v2.3.0", "proxy release source uses the v2.3.0 tag");
-    Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.ProxyImage, StringComparison.Ordinal), "Bicep deployment imports the version-tagged public proxy image");
-    Check(bicepFiles["deploy.sh"].Contains("--image 'simplel7proxy:v2.3.0'", StringComparison.Ordinal), "Bicep deployment preserves the public proxy repository name");
+    Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.ProxyImage, StringComparison.Ordinal) == proxy, "Bicep deployment imports the proxy image only when selected");
+    Check(bicepFiles["deploy.sh"].Contains("--image 'simplel7proxy:v2.3.0'", StringComparison.Ordinal) == proxy, "Bicep deployment preserves the selected proxy repository name");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.HealthProbeImage, StringComparison.Ordinal) == sidecar, "Bicep deployment imports the pinned public sidecar digest only when selected");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.CompanionImage, StringComparison.Ordinal) == companion, "Bicep deployment imports the public Companion image only when selected");
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.MetricsServerImage, StringComparison.Ordinal) == metricsServer, "Bicep deployment imports the public Metrics Server image only when selected");
@@ -278,14 +281,9 @@ foreach (var metricsServer in new[] { false, true }) {
     foreach (var removedSetting in new[] { "name: 'Host1'", "name: 'Port'", "name: 'AZURE_CLIENT_ID'" })
         Check(!bicepFiles["modules/container-app.bicep"].Contains(removedSetting, StringComparison.Ordinal), "static Bicep omits " + removedSetting);
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("scope: configurationStore", StringComparison.Ordinal), "static Bicep scopes App Configuration RBAC to the store");
-    Check(bicepFiles["modules/configuration-access.bicep"].Contains("516239f1-63e1-4d78-a4de-a74fb236a071", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Reader");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("5ae67dd6-50cb-40e7-96ff-dc2bfa4b606b", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Owner to the Companion App");
-    Check(bicepFiles["modules/configuration-access.bicep"].Contains("var deploymentPrincipal = deployer()", StringComparison.Ordinal), "static Bicep resolves the deployment principal");
-    Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: deploymentPrincipal.objectId", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Owner to the deployment principal");
-    Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalType: empty(deploymentPrincipal.userPrincipalName) ? 'ServicePrincipal' : 'User'", StringComparison.Ordinal), "static Bicep supports user and workload deployment principals");
-    Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: containerAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Reader to the Container App system principal");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Owner to the Companion App system principal");
-    Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Reader to the Metrics Server system principal");
+    Check(!bicepFiles["modules/configuration-access.bicep"].Contains("516239f1-63e1-4d78-a4de-a74fb236a071", StringComparison.Ordinal), "static Bicep grants no App Configuration roles to proxy or Metrics Server");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Companion App system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Metrics Server system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("8311e382-0749-4cb8-b61a-304f252e45ec", StringComparison.Ordinal), "static Bicep uses the built-in AcrPush role definition");
@@ -295,10 +293,8 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("managedEnvironmentId: environmentId", StringComparison.Ordinal), "Metrics Server uses the shared Container Apps environment");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("external: false", StringComparison.Ordinal), "Metrics Server ingress is internal");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("maxReplicas: 1", StringComparison.Ordinal), "Metrics Server remains single-replica for in-memory metrics");
-    Check(bicepFiles["modules/metrics-server.bicep"].Contains("name: 'AppConfigurationEndpoint'", StringComparison.Ordinal), "Metrics Server receives the App Configuration endpoint environment variable");
-    Check(bicepFiles["modules/metrics-server.bicep"].Contains("value: appConfigurationEndpoint", StringComparison.Ordinal), "Metrics Server endpoint uses the deployed App Configuration store");
-    Check(bicepFiles["modules/metrics-server.bicep"].Contains("name: 'AppConfigurationLabel'", StringComparison.Ordinal), "Metrics Server receives the App Configuration label environment variable");
-    Check(bicepFiles["modules/metrics-server.bicep"].Contains("value: settings.APPCONFIG_LABEL", StringComparison.Ordinal), "Metrics Server label uses the selected deployment label");
+    Check(!bicepFiles["modules/metrics-server.bicep"].Contains("AppConfigurationEndpoint", StringComparison.Ordinal), "Metrics Server does not require App Configuration access");
+    Check(!bicepFiles["modules/metrics-server.bicep"].Contains("AppConfigurationLabel", StringComparison.Ordinal), "Metrics Server does not receive App Configuration settings");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("output url string = 'https://${app.properties.configuration.ingress.fqdn}'", StringComparison.Ordinal), "Metrics Server exposes its internal HTTPS URL");
     Check(bicepFiles["modules/foundation.bicep"].Contains("if (!settings.USE_EXISTING_ENVIRONMENT)", StringComparison.Ordinal), "foundation skips environment creation when an existing environment is selected");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__ServerBaseUrl'", StringComparison.Ordinal), "static Bicep configures the Companion App proxy URL environment variable");
@@ -335,17 +331,19 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/companion-app.bicep"].Contains("var metricsServerOverrideEnvironment = settings.DEPLOY_METRICS_SERVER ? [", StringComparison.Ordinal), "Companion App metrics override follows the Metrics Server selection");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'MetricsServerOverride'", StringComparison.Ordinal), "Companion App receives the Metrics Server override variable");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("value: metricsServerUrl", StringComparison.Ordinal), "Metrics Server override uses the deployed internal URL");
-    Check(bicepFiles["main.bicep"].Contains("containerAppBootstrap.outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Container App system principal output");
+    Check(bicepFiles["main.bicep"].Contains("containerAppBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules safely consume the optional proxy system principal output");
     Check(bicepFiles["main.bicep"].Contains("companionAppBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Companion App system principal output");
     Check(bicepFiles["main.bicep"].Contains("metricsServerBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Metrics Server system principal output");
-    Check(Regex.Matches(bicepFiles["main.bicep"], "serverBaseUrl: 'https://\\$\\{containerAppBootstrap\\.outputs\\.proxyFqdn\\}'").Count == 2, "Bicep passes the deployed proxy URL to both Companion App revisions");
-    Check(Regex.Matches(bicepFiles["main.bicep"], "sidecarUrl: containerAppBootstrap\\.outputs\\.healthProbeSidecarUrl").Count == 2, "Bicep passes the resolved sidecar URL to both Companion App revisions");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "serverBaseUrl: 'https://\\$\\{containerAppBootstrap\\.\\?outputs\\.proxyFqdn").Count == 2, "Bicep safely passes the optional proxy URL to both Companion App revisions");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "sidecarUrl: containerAppBootstrap\\.\\?outputs\\.healthProbeSidecarUrl").Count == 2, "Bicep safely passes the optional sidecar URL to both Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "metricsServerUrl: metricsServerBootstrap\\.\\?outputs\\.url \\?\\? ''").Count == 2, "Bicep passes the Metrics Server URL to both Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "appInsightsConnectionString: foundation\\.outputs\\.appInsightsConnectionString").Count == 4, "Bicep passes the App Insights connection string to both proxy and Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: ''").Count == 3, "Bicep withholds the App Configuration endpoint from bootstrap revisions until RBAC exists");
-    Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: configuration.outputs.endpoint").Count == 3, "Bicep passes the App Configuration endpoint to the final proxy, Companion App, and Metrics Server revisions");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: configuration\\.\\?outputs\\.endpoint").Count == 1, "Bicep passes the App Configuration endpoint only to the Companion App");
+    Check(bicepFiles["main.bicep"].Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "App Configuration and Event Hub follow Companion App selection");
     Check(bicepFiles["main.bicep"].Contains("output proxyUrl string", StringComparison.Ordinal), "Bicep exposes the proxy URL");
     Check(bicepFiles["main.bicep"].Contains("output companionAppUrl string", StringComparison.Ordinal), "Bicep exposes the Companion App URL");
+    Check(bicepFiles["main.bicep"].Contains("output metricsServerUrl string", StringComparison.Ordinal), "Bicep exposes the Metrics Server URL");
     Check(bicepFiles["main.bicep"].Contains("usePrivateRegistry: false", StringComparison.Ordinal), "Bicep creates the system identity with public images first");
     Check(bicepFiles["main.bicep"].Contains("usePrivateRegistry: true", StringComparison.Ordinal), "Bicep updates the Container App to ACR images after role assignment");
     foreach (var accessModule in new[] { "registryAccess", "configurationAccess", "blobAccess", "serviceBusAccess" })
@@ -360,6 +358,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterDocument["parameters"]!["host1"] is null, "parameters omit Host1");
     Check(parameterSettings["PRIVATE_NETWORK_DEPLOYMENT"]!.GetValue<bool>() == network, "parameters preserve the private-network toggle as Boolean");
     Check(parameterSettings["ASYNC_DEPLOYMENT"]!.GetValue<bool>() == asyncMode, "parameters preserve the async toggle as Boolean");
+    Check(parameterSettings["DEPLOY_PROXY"]!.GetValue<bool>() == proxy, "parameters preserve the proxy toggle as Boolean");
     Check(parameterSettings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == companion, "parameters preserve the Companion App toggle as Boolean");
     Check(parameterSettings["DEPLOY_METRICS_SERVER"]!.GetValue<bool>() == metricsServer, "parameters preserve the Metrics Server toggle as Boolean");
     Check(parameterSettings["PROXY_IMAGE_NAME"]!.GetValue<string>() == "simplel7proxy", "parameters preserve the public proxy repository name");
@@ -377,8 +376,10 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterSettings["HEALTHPROBE_TYPE"]!.GetValue<string>() == (sidecar ? "sidecar" : "internal"), "parameters preserve the health mode");
     Check(parameterSettings["WEB_PORT"]!.GetValue<int>() == 8123, "parameters preserve numeric ingress values");
     Check(parameterSettings["MAX_REPLICAS"]!.GetValue<int>() == 7, "parameters preserve numeric scaling values");
-    var bicepGroupKeys = selectedGroupKeys.ToList();
-    if (companion) bicepGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
+    var bicepGroupKeys = new List<string> { "CONTAINER_APP_RESOURCE_GROUP" };
+    if (companion) bicepGroupKeys.AddRange(["COMPANION_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP"]);
+    if (network) bicepGroupKeys.Add("NETWORK_RESOURCE_GROUP");
+    if (asyncMode) bicepGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
     var expectedBicepGroupCount = bicepGroupKeys.Select(key => values[key]).Distinct(StringComparer.OrdinalIgnoreCase).Count();
     Check(parameterSettings["RESOURCE_GROUPS"]!.AsArray().Count == expectedBicepGroupCount, "parameters contain deduplicated selected resource groups");
     Check(parameterSettings["SERVICEBUS_RESOURCE_GROUP"]!.GetValue<string>() == values["REQUESTAPI_RESOURCE_GROUP"], "parameters default the Service Bus resource group explicitly");

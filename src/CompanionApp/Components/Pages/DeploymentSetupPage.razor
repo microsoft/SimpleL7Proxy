@@ -104,7 +104,7 @@
                         }
                         @if (group.Id == "environment")
                         {
-                            <p class="text-muted">The proxy, Companion App, and Metrics Server use this Container Apps environment. Select an existing environment to reuse it without deploying or modifying it.</p>
+                            <p class="text-muted">Selected apps use this Container Apps environment. A new environment is created unless you select an existing one.</p>
                         }
                         @if (group.Id == "private")
                         {
@@ -263,7 +263,7 @@
                     <header class="review-overview">
                         <div>
                             <p class="review-eyebrow">SimpleL7Proxy</p>
-                            <h3>@Value("CONTAINER_APP_NAME")</h3>
+                            <h3>@(Value("DEPLOY_PROXY") == "true" ? Value("CONTAINER_APP_NAME") : "Selected components")</h3>
                             <ul class="review-context" aria-label="Deployment context">
                                 <li>@Value("LOCATION")</li>
                                 <li>@(Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes" ? "Private network" : "Public network")</li>
@@ -283,12 +283,15 @@
                         </div>
                         <button type="button" class="review-edit" disabled="@_downloading" @onclick='() => SelectTab(_simpleMode || Value("DEPLOY_PROXY") != "true" ? "mode" : "app", true)'>Edit configuration</button>
                     </header>
+                    @if (Value("DEPLOY_PROXY") == "true")
+                    {
                     <dl class="review-specs">
                         <div><dt>Proxy compute</dt><dd>@Value("WEB_CPU") vCPU <span>/ @Value("WEB_MEMORY") GiB</span></dd></div>
                         <div><dt>Replicas</dt><dd>@Value("MIN_REPLICAS") <span>to</span> @Value("MAX_REPLICAS")</dd></div>
                         <div><dt>Health probe</dt><dd>@(Value("HEALTHPROBE_TYPE") == "sidecar" ? "Sidecar" : "Built in")</dd></div>
                         <div><dt>Ingress port</dt><dd>@Value("WEB_PORT")</dd></div>
                     </dl>
+                    }
                     @if (_simpleMode)
                     {
                     <figure class="review-architecture review-simple-architecture" aria-labelledby="review-architecture-heading">
@@ -373,7 +376,7 @@
                                     }
                                 }
                             </div>
-                            @if (Value("UPDATE_CONTAINER_APP_ENV") == "true")
+                            @if (Value("DEPLOY_COMPANION_APP") == "true")
                             {
                                 <span class="review-connector review-connector-reverse" role="img" aria-label="Settings from App Configuration to Container Apps"></span>
                             }
@@ -529,12 +532,16 @@
                                         disabled="@_downloading" @onclick='() => _deploymentMethod = "bicep"'>Bicep</button>
                                 <button id="deployment-method-portal" type="button" role="tab" class="review-method-tab"
                                         aria-selected="@(_deploymentMethod == "portal" ? "true" : "false")" aria-controls="deployment-panel-portal"
-                                        disabled="@_downloading" @onclick='() => _deploymentMethod = "portal"'>Portal</button>
+                                        disabled="@(_downloading || BicepFeaturesSelected)" @onclick='() => _deploymentMethod = "portal"'>Portal</button>
                                 <button id="deployment-method-standalone" type="button" role="tab" class="review-method-tab"
                                         aria-selected="@(_deploymentMethod == "standalone" ? "true" : "false")" aria-controls="deployment-panel-standalone"
-                                        disabled="@_downloading" @onclick='() => _deploymentMethod = "standalone"'>Standalone</button>
+                                        disabled="@(_downloading || BicepFeaturesSelected)" @onclick='() => _deploymentMethod = "standalone"'>Standalone</button>
                             </div>
                         </div>
+                        @if (BicepFeaturesSelected)
+                        {
+                            <p class="text-muted">The selected components and their supporting resources are available in the Bicep deployment bundle.</p>
+                        }
                         @if (_deploymentMethod == "bicep")
                         {
                         <section id="deployment-panel-bicep" class="review-workflow review-workflow-primary" role="tabpanel" aria-labelledby="deployment-method-bicep">
@@ -552,7 +559,7 @@
 cd simplel7proxy-bicep
 ./deploy.sh "$(az account show --query id --output tsv)" create</code></pre>
                                     </li>
-                                    <li>After deployment completes, the script shows the Proxy URL and Companion App URL. 
+                                    <li>After deployment completes, the script shows URLs for the selected apps and marks unselected apps as not deployed.
                                         All resources will be deployed to <strong>@Value("CONTAINER_APP_RESOURCE_GROUP")</strong> resource group in the Azure portal.</li>
                                 </ol>
                             </div>
@@ -866,6 +873,8 @@ bash deploy.sh</code></pre>
     }
 
     private string Value(string key) => _fields.First(field => field.Key == key).Value;
+    private bool BicepFeaturesSelected => Value("DEPLOY_PROXY") != "true"
+        || Value("DEPLOY_COMPANION_APP") == "true" || Value("DEPLOY_METRICS_SERVER") == "true";
 
     private static bool IsNumeric(string key) => key.EndsWith("CPU") || key is "WEB_MEMORY" or "HEALTH_MEMORY"
         || key == "METRICS_MEMORY"
@@ -875,6 +884,7 @@ bash deploy.sh</code></pre>
     private void SetValue(ParameterField field, string value)
     {
         field.Value = value;
+        if (BicepFeaturesSelected) _deploymentMethod = "bicep";
         _completedGroups.Remove(field.Group);
         if (_simpleMode) _completedGroups.Remove("mode");
         _reviewed = false;
@@ -949,12 +959,13 @@ bash deploy.sh</code></pre>
                 _errors[field.Key] = "Enter an IPv4 address or leave blank.";
             if (field.Key == "PROXY_VERSION_OVERRIDE") _errors[field.Key] = "The existing image builder does not honor this override. Leave it blank to keep build and deployment tags aligned.";
         }
-        if (!_simpleMode && (groupId is null or "app") && int.TryParse(Value("MIN_REPLICAS"), out var min) && int.TryParse(Value("MAX_REPLICAS"), out var max) && min > max)
+        if (!_simpleMode && Value("DEPLOY_PROXY") == "true" && (groupId is null or "app") && int.TryParse(Value("MIN_REPLICAS"), out var min) && int.TryParse(Value("MAX_REPLICAS"), out var max) && min > max)
             _errors["MAX_REPLICAS"] = "Maximum replicas cannot be less than minimum replicas.";
         if (!_simpleMode && (groupId is null or "app" or "metrics"))
         {
             foreach (var key in new[] { "WEB_CPU", "HEALTH_CPU", "METRICS_CPU" })
             {
+                if (key == "WEB_CPU" && Value("DEPLOY_PROXY") != "true") continue;
                 if (key == "HEALTH_CPU" && Value("HEALTHPROBE_TYPE") != "sidecar") continue;
                 if (key == "METRICS_CPU" && Value("DEPLOY_METRICS_SERVER") != "true") continue;
                 var memoryKey = key == "CPU" ? "MEMORY" : key.Replace("CPU", "MEMORY", StringComparison.Ordinal);

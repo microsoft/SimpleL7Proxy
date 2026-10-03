@@ -1,6 +1,6 @@
 # Deploy SimpleL7Proxy
 
-The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP created by Deployment Setup. The ZIP contains parameterized Bicep files for the following architecture:
+The Bicep bundle deploys the selected proxy, Metrics Server, and Companion App; it always creates the Azure Container Registry and creates or reuses the selected Container Apps environment.
 
 ![SimpleL7Proxy deployment architecture](arch.png)
 
@@ -37,9 +37,11 @@ This creates a unique deployment by appending a unique suffix to the resource na
 
 ![Deployment output](deployment.png)
 
-When deployment succeeds, the script prints the available proxy and Companion App URLs. Make a note of these URLs so that you can validate the proxy.
+The script prints a URL for each selected app and reports unselected apps as `not deployed`.
 
 When the Companion App is selected, the Bicep deployment also creates its Event Hubs namespace, hub, and consumer group in the Companion App resource group. The namespace uses Standard tier with one throughput unit; the hub uses two partitions and one-day retention. Deployment Setup supplies the three names, and `--MakeUniq` also suffixes the namespace name.
+
+The Companion App and its App Configuration store, Event Hubs namespace, hub, and consumer group deploy only when selected. Its managed identity receives App Configuration Data Owner, Event Hubs Data Receiver scoped to the hub, and ACR pull/push access. Other selected apps receive ACR pull access.
 
 The Companion App monitor is disabled in the bootstrap revision. After its managed identity receives **Azure Event Hubs Data Receiver** access scoped to the hub, the final revision enables the monitor and sets `CompanionApp__EventHubMonitor__EventHubNamespace`, `CompanionApp__EventHubMonitor__EventHubName`, and `CompanionApp__EventHubMonitor__ConsumerGroup`.
 
@@ -106,7 +108,7 @@ Retrieve the application URLs:
 az deployment sub show \
     --subscription "$sub" \
     --name "$deployment" \
-    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value}' \
+    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value,MetricsServer:properties.outputs.metricsServerUrl.value}' \
     --output table
 ```
 
@@ -200,19 +202,14 @@ The same Azure permissions and recovery steps apply.
 The deployment:
 
 - Creates the selected resource groups and Azure Container Registry.
+- Creates or reuses the selected Container Apps environment.
 - Imports the selected proxy, HealthProbe, Companion App, and Metrics Server images.
 - Creates the selected infrastructure.
 - Enables system-assigned identities on the Container Apps.
-- Grants the required ACR and App Configuration roles.
+- Grants ACR pull access to each selected app; grants the Companion App ACR push, App Configuration Data Owner, and Event Hubs Data Receiver access when selected.
 - Updates the Container Apps to use the imported ACR images.
 - Creates the Metrics Server as a single-replica internal Container App when selected.
 - Prints the deployment name and available application URLs.
-
-The deployment grants:
-
-- App Configuration Data Owner to the deployment principal.
-- App Configuration Data Reader to the proxy managed identity.
-- App Configuration Data Owner to the Companion App managed identity when selected.
 
 ## What the ZIP contains
 
@@ -232,7 +229,7 @@ Regenerate the ZIP when changing resource names, image names, topology, or Deplo
 
 Confirm that the deployment identity can import images into the selected Azure Container Registry and reach the public source registry.
 
-**A Container App cannot pull its image**
+**A selected Container App cannot pull its image**
 
 Confirm that the imported image tag exists and the Container App managed identity has `AcrPull` on the registry.
 
