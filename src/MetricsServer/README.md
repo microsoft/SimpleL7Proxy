@@ -48,6 +48,9 @@ The cached settings do not change startup options or HTTP responses. HTTP servin
 
 **`Warm:Tokenomics:Options` is parsed with the existing `TokenomicsSettings.TryParse` parser after each successful download.** The last valid typed value is available through `AppConfigurationReader.TokenomicsSettings`; parser defaults apply before the first valid value. Missing keys retain the last valid typed settings.
 
+> [!TIP]
+> After each successful parse, the reader logs one `Tokenomics model cost per token` line per model with its `Input`, `CachedInput`, and `Output` prices, or `no models configured` when `ModelCostPerToken` is empty.
+
 > [!WARNING]
 > If parsing fails, the reader retains the last valid typed settings and logs the offending string. Correct the value in App Configuration using the parser's comma- or semicolon-separated `key=value` format; the next successful refresh retries parsing.
 
