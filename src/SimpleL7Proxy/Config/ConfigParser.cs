@@ -4,6 +4,7 @@ using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Events;
 using System.Reflection;
 
+using SimpleL7Proxy.Extensions;
 using SimpleL7Proxy.Plugin;
 
 namespace SimpleL7Proxy.Config;
@@ -177,10 +178,14 @@ public static class ConfigParser
 
         // Seed from ProxyConfig defaults, then let incoming "PriorityWorkers" override if present.
         var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkerDict.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-        opts.PriorityWorkerDict = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)));
+        opts.PriorityWorkerDict = ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)
+            .ToListOfString()
+            .KVIntPairs();
 
         var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders)));
+        opts.ValidateHeaders = ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders)
+            .ToListOfString()
+            .KVStringPairs();
 
         ApplyAsyncServiceBusOverrides(incoming, opts, defaults);
         ApplyAsyncBlobStorageOverrides(incoming, opts, defaults);
@@ -629,78 +634,6 @@ public static class ConfigParser
         }
 
         return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static Dictionary<int, int> KVIntPairs(List<string> list)
-    {
-        Dictionary<int, int> keyValuePairs = [];
-
-        foreach (var item in list)
-        {
-            var kvp = item.Split(':');
-            if (kvp.Length == 2 && int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
-            {
-                keyValuePairs[key] = value;
-            }
-        }
-
-        return keyValuePairs;
-    }
-
-    public static Dictionary<string, string> KVStringPairs(List<string> list, char delimiter = '=')
-    {
-        char fallback = delimiter == '=' ? ':' : '=';
-        Dictionary<string, string> keyValuePairs = [];
-
-        foreach (var item in list)
-        {
-            var kvp = item.Split(delimiter, 2);
-            if (kvp.Length == 2)
-            {
-                keyValuePairs[kvp[0].Trim()] = kvp[1].Trim();
-                continue;
-            }
-
-            kvp = item.Split(fallback, 2);
-            if (kvp.Length == 2)
-            {
-                keyValuePairs[kvp[0].Trim()] = kvp[1].Trim();
-            }
-        }
-
-        return keyValuePairs;
-    }
-
-    public static List<string> ToListOfString(string s)
-    {
-        if (string.IsNullOrEmpty(s))
-        {
-            return [];
-        }
-
-        var trimmed = s.Trim();
-        if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-        {
-            trimmed = trimmed[1..^1];
-        }
-
-        return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"')).Where(p => p.Length > 0)];
-    }
-
-    public static List<int> ToListOfInt(string s)
-    {
-        if (string.IsNullOrEmpty(s))
-        {
-            return [];
-        }
-
-        var trimmed = s.Trim();
-        if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-        {
-            trimmed = trimmed[1..^1];
-        }
-
-        return trimmed.Split(',').Select(p => int.Parse(p.Trim().Trim('"'))).ToList();
     }
 
     private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases)
