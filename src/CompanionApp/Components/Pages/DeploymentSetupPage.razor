@@ -27,6 +27,10 @@
     }
     else
     {
+        @if (_modeReset)
+        {
+            <div class="alert alert-info" role="status">Deployment fields were reset because you switched modes.</div>
+        }
         <div @ref="_tabList" class="deployment-tabs" role="tablist" aria-label="Deployment setup steps">
             @foreach (var group in (_simpleMode ? Groups.Take(1) : Groups.AsEnumerable()).Where(IsGroupVisible)
                 .Append((Id: "review", Title: "Review"))
@@ -57,10 +61,10 @@
                             <div class="deployment-mode-selector mb-3" role="group" aria-label="Deployment experience">
                                 <button type="button" class="deployment-mode-option @(_simpleMode ? "is-selected" : "")"
                                         aria-pressed="@(_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
-                                        @onclick='() => { _simpleMode = true; SetValue(_fields.First(field => field.Key == "ACR_SKU"), "Basic"); SetValue(_fields.First(field => field.Key == "USE_EXISTING_ENVIRONMENT"), "false"); SelectTab("mode", true); }'>Simple deployment</button>
+                                        @onclick="() => ResetMode(true)">Simple deployment</button>
                                 <button type="button" class="deployment-mode-option @(!_simpleMode ? "is-selected" : "")"
                                         aria-pressed="@(!_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
-                                        @onclick='() => { _simpleMode = false; SelectTab("mode", true); }'>Advanced</button>
+                                        @onclick="() => ResetMode(false)">Advanced</button>
                             </div>
                         }
                         @if (_simpleMode)
@@ -235,8 +239,22 @@
 
         @if (_selectedGroup is "review" or "deploy" && _reviewed)
         {
+            var incompleteGroups = Groups.Where(group => !_simpleMode && IsGroupVisible(group) && !_completedGroups.Contains(group.Id)).ToArray();
             <section id="@($"panel-{_selectedGroup}")" class="deployment-review" role="tabpanel" aria-labelledby="@($"tab-{_selectedGroup}")">
-                @if (_errors.Count > 0)
+                @if (incompleteGroups.Length > 0)
+                {
+                    <div class="alert alert-warning" role="alert" @ref="_panelHeading" tabindex="-1">
+                        <strong>Complete all deployment questions before Review or Deployment.</strong>
+                        <p>The following steps have not been completed. Open each step and select Next after answering its questions.</p>
+                        <ul class="mb-0">
+                            @foreach (var group in incompleteGroups)
+                            {
+                                <li><button type="button" class="btn btn-link p-0 text-start" @onclick="() => SelectTab(group.Id, true)">@group.Title</button></li>
+                            }
+                        </ul>
+                    </div>
+                }
+                else if (_errors.Count > 0)
                 {
                     <div class="alert alert-danger" role="alert" @ref="_panelHeading" tabindex="-1">
                         <strong>@_errors.Count field(s) need attention.</strong>
@@ -476,7 +494,7 @@ bash deploy.sh</code></pre>
                 <div class="deployment-actions">
                     <button type="button" class="btn btn-outline-secondary" disabled="@_downloading" @onclick="Previous">Back</button>
                     <span class="deployment-progress">Step @((_simpleMode ? 1 : Groups.Count(IsGroupVisible)) + (_selectedGroup == "review" ? 1 : 2)) of @((_simpleMode ? 1 : Groups.Count(IsGroupVisible)) + 2)</span>
-                    @if (_selectedGroup == "review" && _errors.Count == 0)
+                    @if (_selectedGroup == "review" && _errors.Count == 0 && incompleteGroups.Length == 0)
                     {
                         <button type="button" class="btn btn-primary" disabled="@_downloading" @onclick='() => SelectTab("deploy", true)'>Next</button>
                     }
@@ -493,6 +511,7 @@ bash deploy.sh</code></pre>
     private bool _showPreview;
     private bool _downloading;
     private bool _simpleMode = true;
+    private bool _modeReset;
     private string? _loadError;
     private string? _downloadError;
     private string _deploymentMethod = "bicep";
@@ -645,6 +664,30 @@ bash deploy.sh</code></pre>
             _focusPanel = false;
             await _panelHeading.FocusAsync();
         }
+    }
+
+    private void ResetMode(bool simpleMode)
+    {
+        if (_simpleMode == simpleMode) return;
+        _simpleMode = simpleMode;
+        _fields.Clear();
+        _errors.Clear();
+        _completedGroups.Clear();
+        _reviewed = false;
+        _showPreview = false;
+        _downloadError = null;
+        _loadError = null;
+        _deploymentMethod = "bicep";
+        _sameResourceGroup = false;
+        OnInitialized();
+        if (_loadError is not null) return;
+        if (_simpleMode)
+        {
+            SetValue(_fields.First(field => field.Key == "ACR_SKU"), "Basic");
+            SetValue(_fields.First(field => field.Key == "USE_EXISTING_ENVIRONMENT"), "false");
+        }
+        _modeReset = true;
+        SelectTab("mode", true);
     }
 
     private void SelectTab(string groupId, bool focusPanel = false)
@@ -816,7 +859,7 @@ bash deploy.sh</code></pre>
     private async Task DownloadAsync()
     {
         Review();
-        if (_errors.Count > 0) return;
+        if (_errors.Count > 0 || (!_simpleMode && Groups.Any(group => IsGroupVisible(group) && !_completedGroups.Contains(group.Id)))) return;
         _downloading = true;
         _downloadError = null;
         try
@@ -837,7 +880,7 @@ bash deploy.sh</code></pre>
     private async Task DownloadArmAsync(string stage)
     {
         Review();
-        if (_errors.Count > 0) return;
+        if (_errors.Count > 0 || (!_simpleMode && Groups.Any(group => IsGroupVisible(group) && !_completedGroups.Contains(group.Id)))) return;
         _downloading = true;
         _downloadError = null;
         try
