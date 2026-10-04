@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <Compile Remove="Logging\**" />
+    <Compile Remove="Tokenomics\TokenomicsSettings.cs" />
     <EmbeddedResource Remove="Logging\**" />
     <None Remove="Logging\**" />
   </ItemGroup>
