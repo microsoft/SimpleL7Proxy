@@ -77,7 +77,7 @@ public sealed class AppConfigurationReader : BackgroundService
                                 Volatile.Write(ref _tokenomicsSettings, parsedSettings);
                                 if (parsedSettings.ModelCostPerToken.Count == 0)
                                 {
-                                    _logger.LogInformation("Tokenomics model costs per token: no models configured");
+                                    _logger.LogInformation("Tokenomics model cost per token: no models configured");
                                 }
 
                                 foreach (var (model, pricing) in parsedSettings.ModelCostPerToken
