@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO.Pipelines;
 using System.Text;
 using System.Text.Json;
-using Azure.Data.AppConfiguration;
 using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -42,11 +41,6 @@ public sealed class MetricsHttpServer : BackgroundService
     public readonly FrozenDictionary<string, (Func<HttpContext, RequestIdentity, Task> Dispatch, bool AllowHead)> getMap;
     private readonly FrozenDictionary<string, Func<HttpContext, RequestIdentity, Task>> _postRoutes;
     private WebApplication? _app;
-    private readonly ConfigurationClient? _appConfigurationClient;
-    private FrozenDictionary<string, string?> _appConfigurationSettings = FrozenDictionary<string, string?>.Empty;
-
-    /// <summary>Last complete, successful App Configuration snapshot, keyed by setting name.</summary>
-    public IReadOnlyDictionary<string, string?> AppConfigurationSettings => Volatile.Read(ref _appConfigurationSettings);
 
     public MetricsHttpServer(
         ILogger<MetricsHttpServer> logger,
@@ -54,8 +48,7 @@ public sealed class MetricsHttpServer : BackgroundService
         MetricsStore store,
         TokenomicsRollupProcessor tokenomicsRollupProcessor,
         TokenomicsMetricsStore tokenomicsMetricsStore,
-        TelemetryClient? telemetryClient = null,
-        ConfigurationClient? appConfigurationClient = null)
+        TelemetryClient? telemetryClient = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -63,7 +56,6 @@ public sealed class MetricsHttpServer : BackgroundService
         _tokenomicsRollupProcessor = tokenomicsRollupProcessor ?? throw new ArgumentNullException(nameof(tokenomicsRollupProcessor));
         _tokenomicsMetricsStore = tokenomicsMetricsStore ?? throw new ArgumentNullException(nameof(tokenomicsMetricsStore));
         _telemetryClient = telemetryClient;
-        _appConfigurationClient = appConfigurationClient;
 
         getMap = new Dictionary<string, (Func<HttpContext, RequestIdentity, Task> Dispatch, bool AllowHead)>(StringComparer.OrdinalIgnoreCase)
         {
@@ -139,62 +131,7 @@ public sealed class MetricsHttpServer : BackgroundService
 
         await Task.WhenAll(
             _app.RunAsync(cancellationToken),
-            MaintenanceLoopAsync(cancellationToken),
-            AppConfigurationLoopAsync(cancellationToken)).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Downloads settings at startup and every 15 minutes without blocking HTTP serving.
-    /// Only complete downloads replace the last successful snapshot.
-    /// </summary>
-    private async Task AppConfigurationLoopAsync(CancellationToken cancellationToken)
-    {
-        if (_appConfigurationClient is null)
-        {
-            return;
-        }
-
-        var label = _options.AppConfigurationLabel;
-        var selector = new SettingSelector
-        {
-            KeyFilter = "*",
-            LabelFilter = string.IsNullOrEmpty(label) || label == "\\0" || label == "\0"
-                ? "\0"
-                : label.Replace("\\", "\\\\").Replace("*", "\\*").Replace(",", "\\,")
-        };
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(15));
-
-        try
-        {
-            do
-            {
-                try
-                {
-                    var settings = new Dictionary<string, string?>(StringComparer.Ordinal);
-                    await foreach (var setting in _appConfigurationClient
-                        .GetConfigurationSettingsAsync(selector, cancellationToken).ConfigureAwait(false))
-                    {
-                        settings[setting.Key] = setting.Value;
-                    }
-
-                    Volatile.Write(ref _appConfigurationSettings, settings.ToFrozenDictionary(StringComparer.Ordinal));
-                    _logger.LogInformation("App Configuration refreshed: {SettingCount} settings", settings.Count);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "App Configuration refresh failed; retaining last successful settings");
-                }
-            }
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Expected during shutdown.
-        }
+            MaintenanceLoopAsync(cancellationToken)).ConfigureAwait(false);
     }
 
     /// <summary>

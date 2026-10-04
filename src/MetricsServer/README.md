@@ -42,7 +42,9 @@ dotnet run --project src/MetricsServer
 
 Authentication uses one shared `DefaultAzureCredential` and `ConfigurationClient`. Grant the service identity **App Configuration Data Reader** access to the store. For local development, sign in with an identity that has the same access.
 
-Successful downloads atomically replace the in-memory `MetricsHttpServer.AppConfigurationSettings` snapshot, including removing deleted keys. The cached settings do not change startup options or HTTP responses. HTTP serving continues while downloads run, and shutdown cancels outstanding requests.
+The standalone `AppConfigurationReader` hosted service owns polling and caching independently of `MetricsHttpServer`. Successful downloads atomically replace its in-memory `AppConfigurationSettings` snapshot, including removing deleted keys. The same reader instance is available through dependency injection.
+
+The cached settings do not change startup options or HTTP responses. HTTP serving continues while downloads run, and shutdown cancels outstanding requests.
 
 > [!NOTE]
 > A failed download retains the last successful snapshot (empty until the first success) and is retried on the next 15-minute tick. Check the `App Configuration refreshed` log for the fetched key count.

@@ -40,6 +40,8 @@ public class Program
                         }));
                 }
 
+                services.AddSingleton<AppConfigurationReader>();
+                services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AppConfigurationReader>());
                 services.AddSingleton<MetricsStore>();
                 services.AddSingleton<TokenomicsMetricsStore>();
                 services.AddSingleton<TokenomicsRollupProcessor>();
