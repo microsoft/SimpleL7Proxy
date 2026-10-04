@@ -1,3 +1,5 @@
+using Azure.Data.AppConfiguration;
+using Azure.Identity;
 using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -19,6 +21,27 @@ public class Program
             .ConfigureServices((context, services) =>
             {
                 services.AddSingleton(options);
+                if (!string.IsNullOrEmpty(options.AppConfigurationEndpoint))
+                {
+                    services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions
+                    {
+                        ExcludeInteractiveBrowserCredential = true
+                    }));
+                    services.AddSingleton(sp => new ConfigurationClient(
+                        new Uri(options.AppConfigurationEndpoint),
+                        sp.GetRequiredService<DefaultAzureCredential>(),
+                        new ConfigurationClientOptions
+                        {
+                            Diagnostics =
+                            {
+                                IsDistributedTracingEnabled = false,
+                                IsLoggingEnabled = false
+                            }
+                        }));
+                }
+
+                services.AddSingleton<AppConfigurationReader>();
+                services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AppConfigurationReader>());
                 services.AddSingleton<MetricsStore>();
                 services.AddSingleton<TokenomicsMetricsStore>();
                 services.AddSingleton<TokenomicsRollupProcessor>();
