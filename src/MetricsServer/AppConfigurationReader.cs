@@ -75,6 +75,21 @@ public sealed class AppConfigurationReader : BackgroundService
                             if (parsedSettings.TryParse(value!))
                             {
                                 Volatile.Write(ref _tokenomicsSettings, parsedSettings);
+                                if (parsedSettings.ModelCostPerToken.Count == 0)
+                                {
+                                    _logger.LogInformation("Tokenomics model costs per token: no models configured");
+                                }
+
+                                foreach (var (model, pricing) in parsedSettings.ModelCostPerToken
+                                    .OrderBy(entry => entry.Key, StringComparer.Ordinal))
+                                {
+                                    _logger.LogInformation(
+                                        "Tokenomics model cost per token: Model={Model} Input={Input} CachedInput={CachedInput} Output={Output}",
+                                        model,
+                                        pricing.Input,
+                                        pricing.CachedInput,
+                                        pricing.Output);
+                                }
                             }
                             else
                             {
