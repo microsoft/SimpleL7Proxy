@@ -19,14 +19,6 @@
         <h2>Deployment parameters</h2>
         <div class="deployment-toolbar-options">
             <span class="text-muted">Local preparation only</span>
-            <div class="deployment-mode-selector" role="group" aria-label="Deployment experience">
-                <button type="button" class="deployment-mode-option @(_simpleMode ? "is-selected" : "")"
-                        aria-pressed="@(_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
-                        @onclick='() => { _simpleMode = true; SetValue(_fields.First(field => field.Key == "ACR_SKU"), "Basic"); SetValue(_fields.First(field => field.Key == "USE_EXISTING_ENVIRONMENT"), "false"); SelectTab("mode", true); }'>Simple deployment</button>
-                <button type="button" class="deployment-mode-option @(!_simpleMode ? "is-selected" : "")"
-                        aria-pressed="@(!_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
-                        @onclick='() => { _simpleMode = false; SelectTab("mode", true); }'>Advanced</button>
-            </div>
         </div>
     </div>
     @if (_loadError is not null)
@@ -60,6 +52,17 @@
                 {
                     <section id="@($"panel-{group.Id}")" class="deployment-section" role="tabpanel" aria-labelledby="@($"tab-{group.Id}")">
                         <h2 @ref="_panelHeading" tabindex="-1" id="@($"heading-{group.Id}")" class="@(group.Id == "app" ? "visually-hidden" : null)">@(group.Id == "app" ? "SimpleL7Proxy" : _simpleMode ? "Deployment questions" : group.Title)</h2>
+                        @if (group.Id == "mode")
+                        {
+                            <div class="deployment-mode-selector mb-3" role="group" aria-label="Deployment experience">
+                                <button type="button" class="deployment-mode-option @(_simpleMode ? "is-selected" : "")"
+                                        aria-pressed="@(_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
+                                        @onclick='() => { _simpleMode = true; SetValue(_fields.First(field => field.Key == "ACR_SKU"), "Basic"); SetValue(_fields.First(field => field.Key == "USE_EXISTING_ENVIRONMENT"), "false"); SelectTab("mode", true); }'>Simple deployment</button>
+                                <button type="button" class="deployment-mode-option @(!_simpleMode ? "is-selected" : "")"
+                                        aria-pressed="@(!_simpleMode ? "true" : "false")" disabled="@(!RendererInfo.IsInteractive || _downloading)"
+                                        @onclick='() => { _simpleMode = false; SelectTab("mode", true); }'>Advanced</button>
+                            </div>
+                        }
                         @if (_simpleMode)
                         {
                             var resourceGroupField = _fields.First(field => field.Key == "CONTAINER_APP_RESOURCE_GROUP");
@@ -292,8 +295,6 @@
                         <div><dt>Ingress port</dt><dd>@Value("WEB_PORT")</dd></div>
                     </dl>
                     }
-                    @if (_simpleMode)
-                    {
                     <figure class="review-architecture review-simple-architecture" aria-labelledby="review-architecture-heading">
                         <figcaption id="review-architecture-heading">Azure deployment architecture</figcaption>
                         <div class="review-azure-frame">
@@ -312,146 +313,112 @@
                                         <div class="review-app-list">
                                             <div class="review-app-row review-endpoint-row">
                                                 <span class="review-endpoint-label">Companion App Endpoint</span>
-                                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
+                                                <img src="images/azure/02884-icon-service-Worker-Container-App.png" width="40" height="40" alt="" />
                                                 <div><h5>Companion App</h5><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_APP_NAME") : "Not deployed")</p></div>
                                             </div>
                                             <div class="review-app-row">
                                                 <span class="review-endpoint-spacer" aria-hidden="true"></span>
-                                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
+                                                <img src="images/azure/02884-icon-service-Worker-Container-App.png" width="40" height="40" alt="" />
                                                 <div><h5>Metrics Server</h5><p>@(Value("DEPLOY_METRICS_SERVER") == "true" ? Value("METRICS_SERVER_NAME") : "Not deployed")</p></div>
                                             </div>
                                             <div class="review-app-row review-endpoint-row">
                                                 <span class="review-endpoint-label">Proxy Endpoint</span>
-                                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="40" height="40" alt="" />
-                                                <div><h5>Simple L7 Proxy</h5><p>@Value("CONTAINER_APP_NAME")</p><p class="review-app-scale"><strong>Scale:</strong> @Value("MIN_REPLICAS")–@Value("MAX_REPLICAS")</p></div>
+                                                <img src="images/azure/02884-icon-service-Worker-Container-App.png" width="40" height="40" alt="" />
+                                                <div>
+                                                    <h5>Simple L7 Proxy</h5><p>@(Value("DEPLOY_PROXY") == "true" ? Value("CONTAINER_APP_NAME") : "Not deployed")</p>
+                                                    @if (Value("DEPLOY_PROXY") == "true")
+                                                    {
+                                                        <p class="review-app-scale"><strong>Scale:</strong> @Value("MIN_REPLICAS")–@Value("MAX_REPLICAS")</p>
+                                                    }
+                                                </div>
                                             </div>
                                         </div>
                                     </section>
                                     <div class="review-diagram-services" aria-label="Supporting Azure services">
                                         <article class="review-diagram-service">
-                                            <span class="review-eventhub-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                                            <img src="images/azure/event-hub.png" width="48" height="48" alt="" />
                                             <div><h5>Event Hub</h5><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_EVENTHUB_NAMESPACE") : "Not deployed")</p>@if (Value("DEPLOY_COMPANION_APP") == "true") { <small>@Value("COMPANION_EVENTHUB_NAME")</small> }</div>
                                         </article>
                                         <article class="review-diagram-service">
-                                            <img src="images/azure/10105-icon-service-Container-Registries.svg" width="48" height="48" alt="" />
+                                            <img src="images/azure/10105-icon-service-Container-Registries.png" width="48" height="48" alt="" />
                                             <div><h5>Azure Container Registry</h5><p>@Value("ACR_NAME")</p><small>@Value("ACR_SKU") SKU</small></div>
                                         </article>
                                         <article class="review-diagram-service">
-                                            <img src="images/azure/00012-icon-service-Application-Insights.svg" width="48" height="48" alt="" />
-                                            <div><h5>Application Insights</h5><p>@(Value("CONTAINER_APP_NAME") + "-insights")</p></div>
+                                            <img src="images/azure/00012-icon-service-Application-Insights.png" width="48" height="48" alt="" />
+                                            <div><h5>Application Insights</h5><p>@(Value("ENABLE_APP_INSIGHTS") == "true" ? Value("CONTAINER_APP_NAME") + "-insights" : "Not deployed")</p></div>
                                         </article>
                                         <article class="review-diagram-service">
-                                            <img src="images/azure/10219-icon-service-App-Configuration.svg" width="48" height="48" alt="" />
+                                            <img src="images/azure/10219-icon-service-App-Configuration.png" width="48" height="48" alt="" />
                                             <div><h5>App Configuration</h5><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("APPCONFIG_NAME") : "Not deployed")</p></div>
                                         </article>
                                     </div>
                                 </div>
                             </div>
-                            <div class="review-entra-id"><span class="review-entra-glyph" aria-hidden="true"></span><strong>Entra ID</strong></div>
+                            @if (Value("ENABLE_MANAGED_IDENTITY") == "true")
+                            {
+                                <div class="review-entra-id"><img src="images/azure/entra-id.png" width="40" height="40" alt="" /><strong>Entra ID</strong></div>
+                            }
                         </div>
-                    </figure>
-                    }
-                    else
+                    @if (!_simpleMode)
                     {
-                    <figure class="review-architecture" aria-labelledby="review-architecture-heading">
-                        <figcaption id="review-architecture-heading">Azure resources</figcaption>
-                        <div class="review-topology">
-                            <div class="review-resource" data-service="registry">
-                                <img src="images/azure/10105-icon-service-Container-Registries.svg" width="48" height="48" alt="" />
-                                <h4>Container Registry</h4>
-                                <p>@Value("ACR_NAME")</p>
-                                <small>@Value("ACR_SKU") tier</small>
-                            </div>
-                            <span class="review-connector" role="img" aria-label="Container images from registry to Container Apps"></span>
-                            <div class="review-resource review-resource-primary" data-service="container-app">
-                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="48" height="48" alt="" />
-                                <h4>Container Apps</h4>
-                                <p>@(Value("DEPLOY_PROXY") == "true" ? Value("CONTAINER_APP_NAME") : "Not deployed")</p>
-                                @if (Value("DEPLOY_PROXY") == "true")
-                                {
-                                    <small>Proxy release v2.3.0</small>
-                                    @if (Value("HEALTHPROBE_TYPE") == "sidecar")
-                                    {
-                                        <small>+ @(Value("HEALTH_IMAGE_NAME") + ":v2.0.1")</small>
-                                    }
-                                }
-                            </div>
-                            @if (Value("DEPLOY_COMPANION_APP") == "true")
-                            {
-                                <span class="review-connector review-connector-reverse" role="img" aria-label="Settings from App Configuration to Container Apps"></span>
-                            }
-                            else
-                            {
-                                <span class="review-connection-note">Not linked</span>
-                            }
-                            <div class="review-resource" data-service="configuration">
-                                <img src="images/azure/10219-icon-service-App-Configuration.svg" width="48" height="48" alt="" />
-                                <h4>App Configuration</h4>
-                                <p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("APPCONFIG_NAME") : "Not deployed")</p>
-                                @if (Value("DEPLOY_COMPANION_APP") == "true")
-                                {
-                                    <small>Label: @Value("APPCONFIG_LABEL")</small>
-                                }
-                            </div>
-                        </div>
                         <ul class="review-inventory" aria-label="Supporting Azure resources">
                             <li data-service="environment">
-                                <img src="images/azure/02989-icon-service-Container-Apps-Environments.svg" width="28" height="28" alt="" />
+                                <img src="images/azure/02989-icon-service-Container-Apps-Environments.png" width="28" height="28" alt="" />
                                 <div><h4>Container Apps environment</h4><p>@Value("ENVIRONMENT_NAME")</p><small>@(Value("USE_EXISTING_ENVIRONMENT") == "true" ? "Existing / " + Value("ENVIRONMENT_RESOURCE_GROUP") : "Created")</small></div>
                             </li>
                             <li data-service="container-app">
-                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="28" height="28" alt="" />
+                                <img src="images/azure/02884-icon-service-Worker-Container-App.png" width="28" height="28" alt="" />
                                 <div><h4>Companion App</h4><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_APP_NAME") : "Not deployed")</p>@if (Value("DEPLOY_COMPANION_APP") == "true") { <small>Release v2.3.0</small> }</div>
                             </li>
                             <li data-service="container-app">
-                                <img src="images/azure/02884-icon-service-Worker-Container-App.svg" width="28" height="28" alt="" />
+                                <img src="images/azure/02884-icon-service-Worker-Container-App.png" width="28" height="28" alt="" />
                                 <div><h4>Metrics Server</h4><p>@(Value("DEPLOY_METRICS_SERVER") == "true" ? Value("METRICS_SERVER_NAME") : "Not deployed")</p>@if (Value("DEPLOY_METRICS_SERVER") == "true") { <small>Release v1.0.0</small> }</div>
                             </li>
                             <li data-service="configuration">
-                                <img src="images/azure/10219-icon-service-App-Configuration.svg" width="28" height="28" alt="" />
+                                <img src="images/azure/10219-icon-service-App-Configuration.png" width="28" height="28" alt="" />
                                 <div><h4>App Configuration</h4><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("APPCONFIG_NAME") : "Not deployed")</p></div>
                             </li>
                             <li data-service="event-hub">
-                                <span class="review-eventhub-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                                <img src="images/azure/event-hub.png" width="48" height="48" alt="" />
                                 <div><h4>Event Hub</h4><p>@(Value("DEPLOY_COMPANION_APP") == "true" ? Value("COMPANION_EVENTHUB_NAMESPACE") : "Not deployed")</p></div>
                             </li>
                             @if (Value("ENABLE_MANAGED_IDENTITY") == "true")
                             {
                                 <li data-service="identity">
-                                    <img src="images/azure/10227-icon-service-Managed-Identities.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/10227-icon-service-Managed-Identities.png" width="28" height="28" alt="" />
                                     <div><h4>Managed identity</h4><p>System assigned</p></div>
                                 </li>
                             }
                             @if (Value("ENABLE_APP_INSIGHTS") == "true")
                             {
                                 <li data-service="insights">
-                                    <img src="images/azure/00012-icon-service-Application-Insights.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/00012-icon-service-Application-Insights.png" width="28" height="28" alt="" />
                                     <div><h4>Application Insights</h4><p>@(Value("CONTAINER_APP_NAME") + "-insights")</p></div>
                                 </li>
                                 <li data-service="logs">
-                                    <img src="images/azure/00009-icon-service-Log-Analytics-Workspaces.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/00009-icon-service-Log-Analytics-Workspaces.png" width="28" height="28" alt="" />
                                     <div><h4>Log Analytics</h4><p>@Value("LOG_ANALYTICS_WORKSPACE_NAME")</p></div>
                                 </li>
                             }
                             @if (Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes")
                             {
                                 <li data-service="network">
-                                    <img src="images/azure/10061-icon-service-Virtual-Networks.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/10061-icon-service-Virtual-Networks.png" width="28" height="28" alt="" />
                                     <div><h4>Virtual Network</h4><p>@Value("VNET_NAME")</p></div>
                                 </li>
                                 <li data-service="dns">
-                                    <img src="images/azure/10064-icon-service-DNS-Zones.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/10064-icon-service-DNS-Zones.png" width="28" height="28" alt="" />
                                     <div><h4>Private DNS</h4><p>@Value("DNS_ZONE_NAME")</p><small>+ Container Apps environment zone</small></div>
                                 </li>
                             }
                             @if (Value("ASYNC_DEPLOYMENT") == "yes")
                             {
                                 <li data-service="storage">
-                                    <img src="images/azure/10086-icon-service-Storage-Accounts.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/10086-icon-service-Storage-Accounts.png" width="28" height="28" alt="" />
                                     <div><h4>Blob Storage</h4><p>@Value("STORAGE_ACCOUNT_NAME")</p></div>
                                 </li>
                                 <li data-service="request-api">
-                                    <img src="images/azure/10029-icon-service-Function-Apps.svg" width="28" height="28" alt="" />
+                                    <img src="images/azure/10029-icon-service-Function-Apps.png" width="28" height="28" alt="" />
                                     <div><h4>Azure Functions</h4><p>@Value("REQUESTAPI_FUNCTION_APP")</p><small>RequestAPI infrastructure</small></div>
                                 </li>
                             }
@@ -462,11 +429,11 @@
                                 <h4 id="review-dependencies-heading">Existing dependencies</h4>
                                 <ul class="review-inventory">
                                     <li data-service="service-bus">
-                                        <img src="images/azure/10836-icon-service-Azure-Service-Bus.svg" width="28" height="28" alt="" />
+                                        <img src="images/azure/10836-icon-service-Azure-Service-Bus.png" width="28" height="28" alt="" />
                                         <div><h4>Service Bus</h4><p>@Value("REQUESTAPI_SERVICEBUS_NAMESPACE")</p></div>
                                     </li>
                                     <li data-service="cosmos">
-                                        <img src="images/azure/10121-icon-service-Azure-Cosmos-DB.svg" width="28" height="28" alt="" />
+                                        <img src="images/azure/10121-icon-service-Azure-Cosmos-DB.png" width="28" height="28" alt="" />
                                         <div><h4>Cosmos DB</h4><p>@Value("REQUESTAPI_COSMOS_ACCOUNT")</p></div>
                                     </li>
                                 </ul>
@@ -484,7 +451,7 @@
                             </details>
                         }
                         <details class="review-groups">
-                            <summary><img src="images/azure/10007-icon-service-Resource-Groups.svg" width="20" height="20" alt="" /><span>@reviewGroups.Length resource @(reviewGroups.Length == 1 ? "group" : "groups")</span><span class="review-group-name">@Value("CONTAINER_APP_RESOURCE_GROUP")</span></summary>
+                            <summary><img src="images/azure/10007-icon-service-Resource-Groups.png" width="20" height="20" alt="" /><span>@reviewGroups.Length resource @(reviewGroups.Length == 1 ? "group" : "groups")</span><span class="review-group-name">@Value("CONTAINER_APP_RESOURCE_GROUP")</span></summary>
                             <ul>
                                 @foreach (var group in reviewGroups)
                                 {
@@ -515,8 +482,8 @@
                                 <dt>App Configuration tier</dt><dd>@Value("APPCONFIG_SKU")</dd>
                             </dl>
                         </details>
-                    </figure>
                     }
+                    </figure>
                     <p class="review-validation">Not validated in Azure</p>
                     <p class="review-attribution"><a href="https://learn.microsoft.com/en-us/azure/architecture/icons/" target="_blank" rel="noopener noreferrer">Azure architecture icons</a><span aria-hidden="true"> / </span><a href="images/azure/Microsoft_Terms_of_Use.pdf" target="_blank" rel="noopener noreferrer">Microsoft terms</a></p>
                     </div>
