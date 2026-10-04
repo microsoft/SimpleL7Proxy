@@ -22,11 +22,13 @@
 # These settings control which optional resources are enabled.
 #   PRIVATE_NETWORK_DEPLOYMENT=yes  enables step 2 (Virtual Network) and step 6 (Private DNS)
 #   ASYNC_DEPLOYMENT=yes            enables step 8 (Blob Storage) and steps 9-10 (RequestAPI)
+#   DEPLOY_PROXY=true               includes the proxy Container App
 #   DEPLOY_COMPANION_APP=true       includes the Companion App in Bicep downloads
 #   DEPLOY_METRICS_SERVER=true      includes the Metrics Server in Bicep downloads
 # -----------------------------------------------------------------------------
 export PRIVATE_NETWORK_DEPLOYMENT="yes|no"
 export ASYNC_DEPLOYMENT="yes|no"
+export DEPLOY_PROXY="true"
 export DEPLOY_COMPANION_APP="false"
 export DEPLOY_METRICS_SERVER="false"
 

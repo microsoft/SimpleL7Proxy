@@ -2,6 +2,7 @@
 type DeploymentSettings = {
   PRIVATE_NETWORK_DEPLOYMENT: bool
   ASYNC_DEPLOYMENT: bool
+  DEPLOY_PROXY: bool
   DEPLOY_COMPANION_APP: bool
   DEPLOY_METRICS_SERVER: bool
   MAKE_UNIQ_SUFFIX: string

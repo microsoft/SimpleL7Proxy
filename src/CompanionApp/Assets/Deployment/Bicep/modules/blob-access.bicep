@@ -17,7 +17,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing 
   name: settings.STORAGE_ACCOUNT_NAME
 }
 
-resource proxyBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource proxyBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_PROXY) {
   name: guid(storageAccount.id, containerAppId, blobRoleId)
   scope: storageAccount
   properties: {

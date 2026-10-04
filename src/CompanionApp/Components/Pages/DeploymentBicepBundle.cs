@@ -54,8 +54,8 @@ public static class DeploymentBicepBundle {
     }
 
     private static string GenerateParameters(IReadOnlyDictionary<string, string> values) {
-        var resourceGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
-        if (Enabled(values, "DEPLOY_COMPANION_APP")) resourceGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
+        var resourceGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP" }.ToList();
+        if (Enabled(values, "DEPLOY_COMPANION_APP")) resourceGroupKeys.AddRange(["COMPANION_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP"]);
         if (Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT")) resourceGroupKeys.Add("NETWORK_RESOURCE_GROUP");
         if (Enabled(values, "ASYNC_DEPLOYMENT")) resourceGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
         var resourceGroups = new JsonArray();
@@ -66,6 +66,7 @@ public static class DeploymentBicepBundle {
         var settings = new JsonObject {
             ["PRIVATE_NETWORK_DEPLOYMENT"] = Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT"),
             ["ASYNC_DEPLOYMENT"] = Enabled(values, "ASYNC_DEPLOYMENT"),
+            ["DEPLOY_PROXY"] = Enabled(values, "DEPLOY_PROXY"),
             ["DEPLOY_COMPANION_APP"] = Enabled(values, "DEPLOY_COMPANION_APP"),
             ["DEPLOY_METRICS_SERVER"] = Enabled(values, "DEPLOY_METRICS_SERVER"),
             ["MAKE_UNIQ_SUFFIX"] = "",
@@ -206,6 +207,9 @@ public static class DeploymentBicepBundle {
             .Replace("{{LOCATION}}", ShellString(values["LOCATION"]), StringComparison.Ordinal)
             .Replace("{{ACR_NAME}}", ShellString(values["ACR_NAME"]), StringComparison.Ordinal)
             .Replace("{{ACR_RESOURCE_GROUP}}", ShellString(values["CONTAINER_APP_RESOURCE_GROUP"]), StringComparison.Ordinal)
+            .Replace("{{PROXY_IMAGE_IMPORT}}", Enabled(values, "DEPLOY_PROXY")
+                ? $"az acr import --subscription \"$subscription\" --resource-group \"$acr_resource_group\" --name \"$acr_name\" --source {ShellString(ProxyImage)} --image {ShellString(values["PROXY_IMAGE_NAME"] + ":v2.3.0")} --force"
+                : string.Empty, StringComparison.Ordinal)
             .Replace("{{PROXY_SOURCE_IMAGE}}", ShellString(ProxyImage), StringComparison.Ordinal)
             .Replace("{{PROXY_TARGET_IMAGE}}", ShellString(values["PROXY_IMAGE_NAME"] + ":v2.3.0"), StringComparison.Ordinal)
             .Replace("{{HEALTH_IMAGE_IMPORT}}", values["HEALTHPROBE_TYPE"] == "sidecar"
