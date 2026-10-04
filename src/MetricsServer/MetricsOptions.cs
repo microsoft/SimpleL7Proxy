@@ -29,6 +29,12 @@ public sealed class MetricsOptions
     /// <summary>How often server counters are published to Application Insights, in seconds.</summary>
     public int TelemetryIntervalSeconds { get; init; } = Constants.DefaultTelemetryIntervalSeconds;
 
+    /// <summary>Azure App Configuration endpoint. Polling is disabled when empty.</summary>
+    public string AppConfigurationEndpoint { get; init; } = string.Empty;
+
+    /// <summary>Exact App Configuration label. Empty selects settings without a label.</summary>
+    public string AppConfigurationLabel { get; init; } = string.Empty;
+
     /// <summary>Total retention window, in seconds.</summary>
     public int RetentionSeconds => BucketSeconds * BucketCount;
 
@@ -54,7 +60,9 @@ public sealed class MetricsOptions
                 Constants.TelemetryIntervalEnvironmentVariable,
                 Constants.DefaultTelemetryIntervalSeconds,
                 5,
-                3600)
+                3600),
+            AppConfigurationEndpoint = Environment.GetEnvironmentVariable("AppConfigurationEndpoint")?.Trim() ?? string.Empty,
+            AppConfigurationLabel = Environment.GetEnvironmentVariable("AppConfigurationLabel") ?? string.Empty
         };
     }
 
