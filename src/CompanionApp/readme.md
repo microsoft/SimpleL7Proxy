@@ -104,6 +104,10 @@ dotnet restore
 dotnet run
 ```
 
+To start the UI without App Configuration startup access or the Event Hub reader, run `dotnet run -- --uionly`. This skips App Configuration loading and label creation, live Event Hub consumption, and Event Hub local-file import even when they are configured. The startup log confirms that UI-only mode is active.
+
+This flag does not block Azure actions you explicitly initiate in the UI or change the configured history and conversation storage modes. Keep those modes set to `Disk` when you do not want cloud storage access.
+
 Open the URL shown in the terminal. The included launch profiles use:
 
 - http://localhost:5259
