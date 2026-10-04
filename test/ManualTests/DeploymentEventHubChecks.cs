@@ -39,6 +39,63 @@ setValue.Invoke(setup, [fields["COMPANION_EVENTHUB_NAMESPACE"], ""]);
 review.Invoke(setup, ["companion"]);
 Check(errors.Count == 0, "disabled Companion App skips Event Hub validation");
 
+var interview = new DeploymentSetupPage();
+typeof(DeploymentSetupPage).GetMethod("OnInitialized", flags)!.Invoke(interview, null);
+var resetMode = typeof(DeploymentSetupPage).GetMethod("ResetMode", flags)!;
+var selectTab = typeof(DeploymentSetupPage).GetMethod("SelectTab", flags)!;
+var next = typeof(DeploymentSetupPage).GetMethod("Next", flags)!;
+var completed = (HashSet<string>)typeof(DeploymentSetupPage).GetField("_completedGroups", flags)!.GetValue(interview)!;
+var interviewErrors = (Dictionary<string, string>)typeof(DeploymentSetupPage).GetField("_errors", flags)!.GetValue(interview)!;
+foreach (var simpleMode in new[] { false, true, false }) {
+    var priorFields = ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", flags)!.GetValue(interview)!)
+        .Cast<object>().ToDictionary(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)!);
+    foreach (var key in new[] { "CONTAINER_APP_RESOURCE_GROUP", "ACR_SKU", "USE_EXISTING_ENVIRONMENT", "DEPLOY_PROXY", "PRIVATE_NETWORK_DEPLOYMENT", "ASYNC_DEPLOYMENT", "WEB_CPU" })
+        setValue.Invoke(interview, [priorFields[key], "changed-in-prior-mode"]);
+    completed.Add("common");
+    interviewErrors["ACR_SKU"] = "stale error";
+    foreach (var key in new[] { "_reviewed", "_showPreview", "_sameResourceGroup" })
+        typeof(DeploymentSetupPage).GetField(key, flags)!.SetValue(interview, true);
+    typeof(DeploymentSetupPage).GetField("_downloadError", flags)!.SetValue(interview, "stale download error");
+    typeof(DeploymentSetupPage).GetField("_deploymentMethod", flags)!.SetValue(interview, "standalone");
+    resetMode.Invoke(interview, [simpleMode]);
+    var resetFields = ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", flags)!.GetValue(interview)!)
+        .Cast<object>().ToDictionary(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)!);
+    Check(resetFields.Count == priorFields.Count, "mode reset does not duplicate fields");
+    Check(resetFields.Values.All(field => (string)field.GetType().GetProperty("Value")!.GetValue(field)! != "changed-in-prior-mode"), "mode reset discards all prior field edits");
+    Check(completed.Count == 0 && interviewErrors.Count == 0, "mode reset clears completion and validation");
+    foreach (var key in new[] { "_reviewed", "_showPreview", "_sameResourceGroup" })
+        Check(!(bool)typeof(DeploymentSetupPage).GetField(key, flags)!.GetValue(interview)!, "mode reset clears " + key);
+    Check(typeof(DeploymentSetupPage).GetField("_downloadError", flags)!.GetValue(interview) is null, "mode reset clears download errors");
+    Check((string)typeof(DeploymentSetupPage).GetField("_deploymentMethod", flags)!.GetValue(interview)! == "bicep", "mode reset restores export method");
+    Check((bool)typeof(DeploymentSetupPage).GetField("_modeReset", flags)!.GetValue(interview)!, "mode reset enables user notice");
+    Check((string)typeof(DeploymentSetupPage).GetField("_selectedGroup", flags)!.GetValue(interview)! == "mode", "mode reset returns to questions");
+    if (simpleMode) {
+        Check((string)resetFields["ACR_SKU"].GetType().GetProperty("Value")!.GetValue(resetFields["ACR_SKU"])! == "Basic", "simple mode restores Basic SKU");
+        Check((string)resetFields["USE_EXISTING_ENVIRONMENT"].GetType().GetProperty("Value")!.GetValue(resetFields["USE_EXISTING_ENVIRONMENT"])! == "false", "simple mode creates a new environment");
+    }
+    resetMode.Invoke(interview, [simpleMode]);
+    Check(ReferenceEquals(resetFields["ACR_SKU"], ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", flags)!.GetValue(interview)!).Cast<object>().Single(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)! == "ACR_SKU")), "selecting the current mode does not reset fields");
+}
+foreach (var destination in new[] { "review", "deploy" }) {
+    selectTab.Invoke(interview, [destination, true]);
+    Check(completed.Count == 0, "jumping to " + destination + " does not complete questions");
+    Check(interviewErrors.Count == 0, "valid defaults alone do not satisfy interview completion");
+    await (Task)typeof(DeploymentSetupPage).GetMethod("DownloadAsync", flags)!.Invoke(interview, null)!;
+    await (Task)typeof(DeploymentSetupPage).GetMethod("DownloadArmAsync", flags)!.Invoke(interview, ["bicep"])!;
+    Check(typeof(DeploymentSetupPage).GetField("_downloadError", flags)!.GetValue(interview) is null, "incomplete advanced questions block both export paths before browser access");
+}
+selectTab.Invoke(interview, ["mode", true]);
+next.Invoke(interview, null);
+Check(completed.SetEquals(["mode"]), "Next completes the answered step only");
+Check((string)typeof(DeploymentSetupPage).GetField("_selectedGroup", flags)!.GetValue(interview)! == "common", "Next continues to the remaining questions");
+for (var step = 0; step < 10 && (string)typeof(DeploymentSetupPage).GetField("_selectedGroup", flags)!.GetValue(interview)! != "review"; step++) {
+    next.Invoke(interview, null);
+    Check(interviewErrors.Count == 0, "default answers pass step validation");
+}
+Check((string)typeof(DeploymentSetupPage).GetField("_selectedGroup", flags)!.GetValue(interview)! == "review", "answering every visible step reaches Review");
+Check(completed.SetEquals(["mode", "common", "images", "environment", "app", "companion", "metrics", "config"]), "only visible steps require completion");
+Console.WriteLine("PASS: mode switching resets fields and workflow state; incomplete advanced steps block exports; Next continues the interview.");
+
 values["PRIVATE_NETWORK_DEPLOYMENT"] = "no";
 values["ASYNC_DEPLOYMENT"] = "no";
 values["HEALTHPROBE_TYPE"] = "internal";

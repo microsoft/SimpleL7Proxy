@@ -7,7 +7,10 @@ using Microsoft.Extensions.Options;
 using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.Tokenomics;
 
-var builder = WebApplication.CreateBuilder(args);
+var uiOnly = args.Contains("--uionly", StringComparer.OrdinalIgnoreCase);
+var builder = WebApplication.CreateBuilder(args
+    .Where(arg => !string.Equals(arg, "--uionly", StringComparison.OrdinalIgnoreCase))
+    .ToArray());
 var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
 var metricsServerOverride = Environment.GetEnvironmentVariable("MetricsServerOverride");
 var appInsightsConnectionStringOverride = Environment.GetEnvironmentVariable("AppInsightsConnectionStringOverride");
@@ -46,7 +49,7 @@ builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.AddSingleton<EventHubMonitorStore>();
 builder.Services.AddSingleton<ProxyMetricsCatalog>();
-if (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath))
+if (!uiOnly && (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath)))
 {
     builder.Services.AddHostedService<EventHubReader>();
 }
@@ -71,7 +74,11 @@ var app = builder.Build();
 var companionAppOptions = app.Services.GetRequiredService<IOptions<CompanionAppOptions>>().Value;
 var appConfiguration = app.Services.GetRequiredService<AppConfigurationScaffoldService>();
 var appConfigurationLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CompanionApp.Startup");
-if (string.IsNullOrWhiteSpace(appConfiguration.DefaultEndpoint))
+if (uiOnly)
+{
+    appConfigurationLogger.LogInformation("UI-only mode: App Configuration startup access and Event Hub reader are disabled");
+}
+else if (string.IsNullOrWhiteSpace(appConfiguration.DefaultEndpoint))
 {
     appConfigurationLogger.LogWarning("App Configuration startup check skipped because CompanionApp:AppConfigurationEndpoint is empty");
 }
