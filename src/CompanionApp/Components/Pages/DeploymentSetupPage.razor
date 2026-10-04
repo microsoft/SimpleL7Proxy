@@ -238,7 +238,7 @@
             <section id="@($"panel-{_selectedGroup}")" class="deployment-review" role="tabpanel" aria-labelledby="@($"tab-{_selectedGroup}")">
                 @if (_errors.Count > 0)
                 {
-                    <div class="alert alert-danger" role="alert">
+                    <div class="alert alert-danger" role="alert" @ref="_panelHeading" tabindex="-1">
                         <strong>@_errors.Count field(s) need attention.</strong>
                         <ul class="mb-0">
                             @foreach (var error in _errors)
@@ -255,7 +255,7 @@
                     {
                     <div class="review-plan">
                     <figure class="review-architecture review-simple-architecture" aria-labelledby="review-architecture-heading">
-                        <figcaption id="review-architecture-heading">Azure deployment architecture</figcaption>
+                        <figcaption @ref="_panelHeading" tabindex="-1" id="review-architecture-heading">Azure deployment architecture</figcaption>
                         <div class="review-azure-frame">
                             <span class="review-azure-wordmark">Azure</span>
                             <div class="review-resource-group">
