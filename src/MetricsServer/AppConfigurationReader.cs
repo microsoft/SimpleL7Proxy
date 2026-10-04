@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using Azure.Data.AppConfiguration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Tokenomics;
 
 namespace MetricsServer;
 
@@ -15,9 +16,13 @@ public sealed class AppConfigurationReader : BackgroundService
     private readonly MetricsOptions _options;
     private readonly ConfigurationClient? _appConfigurationClient;
     private FrozenDictionary<string, string?> _appConfigurationSettings = FrozenDictionary<string, string?>.Empty;
+    private TokenomicsSettings _tokenomicsSettings = new();
 
     /// <summary>Last complete, successful App Configuration snapshot, keyed by setting name.</summary>
     public IReadOnlyDictionary<string, string?> AppConfigurationSettings => Volatile.Read(ref _appConfigurationSettings);
+
+    /// <summary>Last successfully parsed Tokenomics options; defaults apply until the first success.</summary>
+    public TokenomicsSettings TokenomicsSettings => Volatile.Read(ref _tokenomicsSettings);
 
     /// <summary>Creates a reader using the shared configuration client, when configured.</summary>
     public AppConfigurationReader(
@@ -62,6 +67,30 @@ public sealed class AppConfigurationReader : BackgroundService
                     }
 
                     Volatile.Write(ref _appConfigurationSettings, settings.ToFrozenDictionary(StringComparer.Ordinal));
+                    if (settings.TryGetValue("Warm:Tokenomics:Options", out var value))
+                    {
+                        try
+                        {
+                            var parsedSettings = new TokenomicsSettings();
+                            if (parsedSettings.TryParse(value!))
+                            {
+                                Volatile.Write(ref _tokenomicsSettings, parsedSettings);
+                            }
+                            else
+                            {
+                                _logger.LogWarning(
+                                    "Failed to parse Warm:Tokenomics:Options; retaining last valid settings. Offending value: {Value}",
+                                    value);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex,
+                                "Failed to parse Warm:Tokenomics:Options; retaining last valid settings. Offending value: {Value}",
+                                value);
+                        }
+                    }
+
                     _logger.LogInformation("App Configuration refreshed: {SettingCount} settings", settings.Count);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -46,11 +46,16 @@ The standalone `AppConfigurationReader` hosted service owns polling and caching 
 
 The cached settings do not change startup options or HTTP responses. HTTP serving continues while downloads run, and shutdown cancels outstanding requests.
 
+**`Warm:Tokenomics:Options` is parsed with the existing `TokenomicsSettings.TryParse` parser after each successful download.** The last valid typed value is available through `AppConfigurationReader.TokenomicsSettings`; parser defaults apply before the first valid value. Missing keys retain the last valid typed settings.
+
+> [!WARNING]
+> If parsing fails, the reader retains the last valid typed settings and logs the offending string. Correct the value in App Configuration using the parser's comma- or semicolon-separated `key=value` format; the next successful refresh retries parsing.
+
 > [!NOTE]
 > A failed download retains the last successful snapshot (empty until the first success) and is retried on the next 15-minute tick. Check the `App Configuration refreshed` log for the fetched key count.
 
 > [!WARNING]
-> If refresh fails, check endpoint connectivity, the selected label, and the credential's data-plane role. Configuration values are not logged.
+> If refresh fails, check endpoint connectivity, the selected label, and the credential's data-plane role. Only invalid `Warm:Tokenomics:Options` values are logged; do not put secrets in that setting.
 
 ## Endpoints
 
