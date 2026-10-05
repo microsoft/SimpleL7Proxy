@@ -71,9 +71,23 @@
                         {
                             var resourceGroupField = _fields.First(field => field.Key == "CONTAINER_APP_RESOURCE_GROUP");
                             var resourceGroupError = _errors.GetValueOrDefault(resourceGroupField.Key);
+                            var locationField = _fields.First(field => field.Key == "LOCATION");
+                            var locationError = _errors.GetValueOrDefault(locationField.Key);
                             var acrSkuField = _fields.First(field => field.Key == "ACR_SKU");
                             <p class="text-muted">All deployment resources will use the same resource group. The container registry uses the Basic SKU.</p>
                             <div class="deployment-fields deployment-simple-fields">
+                                <div class="deployment-field">
+                                    <label for="@locationField.Key">Azure region</label>
+                                    <input id="@locationField.Key" class="form-control @(locationError is null ? "" : "is-invalid")" type="text"
+                                           value="@locationField.Value" @oninput="@(args => SetValue(locationField, args.Value?.ToString() ?? ""))"
+                                           aria-invalid="@(locationError is not null ? "true" : "false")"
+                                           aria-describedby="@($"hint-{locationField.Key} error-{locationField.Key}")" spellcheck="false" />
+                                    <small id="@($"hint-{locationField.Key}")" class="text-muted">Enter the Azure region identifier, such as eastus.</small>
+                                    @if (locationError is not null)
+                                    {
+                                        <span id="@($"error-{locationField.Key}")" class="text-danger">@locationError</span>
+                                    }
+                                </div>
                                 <div class="deployment-field">
                                     <label for="@resourceGroupField.Key">Resource group name</label>
                                     <input id="@resourceGroupField.Key" class="form-control @(resourceGroupError is null ? "" : "is-invalid")" type="text"
@@ -637,6 +651,7 @@ bash deploy.sh</code></pre>
                 }, value, hint));
         }
             _fields.Add(new ParameterField("HEALTHPROBE_TYPE", "app", "Enable sidecar", "internal", ""));
+            if (_simpleMode) _fields.First(field => field.Key == "LOCATION").Value = "";
     }
 
     private static bool IsHealthField(string key) => key.StartsWith("HEALTH_", StringComparison.Ordinal)
@@ -700,7 +715,7 @@ bash deploy.sh</code></pre>
         else
         {
             _reviewed = false;
-            foreach (var key in _errors.Keys.Where(key => !(_simpleMode && groupId == "mode" && key is "CONTAINER_APP_RESOURCE_GROUP" or "ACR_SKU")
+            foreach (var key in _errors.Keys.Where(key => !(_simpleMode && groupId == "mode" && key is "CONTAINER_APP_RESOURCE_GROUP" or "ACR_SKU" or "LOCATION")
                 && _fields.First(field => field.Key == key).Group != groupId).ToArray())
                 _errors.Remove(key);
         }
@@ -763,7 +778,7 @@ bash deploy.sh</code></pre>
     {
         _errors.Clear();
         foreach (var field in _fields.Where(field => _simpleMode
-            ? field.Key is "CONTAINER_APP_RESOURCE_GROUP" or "ACR_SKU"
+            ? field.Key is "CONTAINER_APP_RESOURCE_GROUP" or "ACR_SKU" or "LOCATION"
             : IsGroupVisible((field.Group, "")) && (groupId is null || field.Group == groupId)
             && (!_sameResourceGroup || !field.Key.EndsWith("RESOURCE_GROUP", StringComparison.Ordinal) || field.Key == "CONTAINER_APP_RESOURCE_GROUP"
                 || field.Key == "ENVIRONMENT_RESOURCE_GROUP" && Value("USE_EXISTING_ENVIRONMENT") == "true")
