@@ -73,6 +73,7 @@ module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPL
     settings: settings
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
+    appConfigurationEndpoint: ''
   }
 }
 
@@ -136,6 +137,8 @@ module configurationAccess 'modules/configuration-access.bicep' = if (settings.D
     configurationStoreId: configuration.?outputs.configurationStoreId ?? ''
     companionAppId: companionAppBootstrap.?outputs.appId ?? ''
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
+    metricsServerId: metricsServerBootstrap.?outputs.appId ?? ''
+    metricsServerPrincipalId: metricsServerBootstrap.?outputs.identityPrincipalId ?? ''
   }
 }
 
@@ -165,9 +168,11 @@ module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRIC
     settings: settings
     usePrivateRegistry: true
     environmentId: foundation.outputs.environmentId
+    appConfigurationEndpoint: settings.DEPLOY_COMPANION_APP ? configuration.?outputs.endpoint ?? '' : ''
   }
   dependsOn: [
     registryAccess
+    configurationAccess
   ]
 }
 

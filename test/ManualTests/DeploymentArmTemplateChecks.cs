@@ -283,7 +283,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("scope: configurationStore", StringComparison.Ordinal), "static Bicep scopes App Configuration RBAC to the store");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("5ae67dd6-50cb-40e7-96ff-dc2bfa4b606b", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Owner to the Companion App");
     Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns Data Owner to the Companion App system principal");
-    Check(!bicepFiles["modules/configuration-access.bicep"].Contains("516239f1-63e1-4d78-a4de-a74fb236a071", StringComparison.Ordinal), "static Bicep grants no App Configuration roles to proxy or Metrics Server");
+    Check(bicepFiles["modules/configuration-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns App Configuration Data Reader to the Metrics Server system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Companion App system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "static Bicep assigns AcrPull to the Metrics Server system principal");
     Check(bicepFiles["modules/registry-access.bicep"].Contains("8311e382-0749-4cb8-b61a-304f252e45ec", StringComparison.Ordinal), "static Bicep uses the built-in AcrPush role definition");
@@ -293,8 +293,8 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("managedEnvironmentId: environmentId", StringComparison.Ordinal), "Metrics Server uses the shared Container Apps environment");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("external: false", StringComparison.Ordinal), "Metrics Server ingress is internal");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("maxReplicas: 1", StringComparison.Ordinal), "Metrics Server remains single-replica for in-memory metrics");
-    Check(!bicepFiles["modules/metrics-server.bicep"].Contains("AppConfigurationEndpoint", StringComparison.Ordinal), "Metrics Server does not require App Configuration access");
-    Check(!bicepFiles["modules/metrics-server.bicep"].Contains("AppConfigurationLabel", StringComparison.Ordinal), "Metrics Server does not receive App Configuration settings");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("name: 'AppConfigurationEndpoint'", StringComparison.Ordinal), "Metrics Server receives the App Configuration endpoint");
+    Check(bicepFiles["modules/metrics-server.bicep"].Contains("name: 'AppConfigurationLabel'", StringComparison.Ordinal), "Metrics Server receives the App Configuration label");
     Check(bicepFiles["modules/metrics-server.bicep"].Contains("output url string = 'https://${app.properties.configuration.ingress.fqdn}'", StringComparison.Ordinal), "Metrics Server exposes its internal HTTPS URL");
     Check(bicepFiles["modules/foundation.bicep"].Contains("if (!settings.USE_EXISTING_ENVIRONMENT)", StringComparison.Ordinal), "foundation skips environment creation when an existing environment is selected");
     Check(bicepFiles["modules/companion-app.bicep"].Contains("name: 'CompanionApp__ServerBaseUrl'", StringComparison.Ordinal), "static Bicep configures the Companion App proxy URL environment variable");
@@ -340,6 +340,8 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(Regex.Matches(bicepFiles["main.bicep"], "appInsightsConnectionString: foundation\\.outputs\\.appInsightsConnectionString").Count == 4, "Bicep passes the App Insights connection string to both proxy and Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: ''").Count == 3, "Bicep withholds the App Configuration endpoint from bootstrap revisions until RBAC exists");
     Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: configuration\\.\\?outputs\\.endpoint").Count == 1, "Bicep passes the App Configuration endpoint only to the Companion App");
+    Check(bicepFiles["main.bicep"].Contains("appConfigurationEndpoint: settings.DEPLOY_COMPANION_APP ? configuration.?outputs.endpoint ?? '' : ''", StringComparison.Ordinal), "Bicep passes the App Configuration endpoint to the final Metrics Server only when the store is deployed");
+    Check(bicepFiles["main.bicep"].Contains("metricsServerPrincipalId: metricsServerBootstrap.?outputs.identityPrincipalId ?? ''", StringComparison.Ordinal), "Bicep passes the Metrics Server principal to App Configuration access");
     Check(bicepFiles["main.bicep"].Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "App Configuration and Event Hub follow Companion App selection");
     Check(bicepFiles["main.bicep"].Contains("output proxyUrl string", StringComparison.Ordinal), "Bicep exposes the proxy URL");
     Check(bicepFiles["main.bicep"].Contains("output companionAppUrl string", StringComparison.Ordinal), "Bicep exposes the Companion App URL");
