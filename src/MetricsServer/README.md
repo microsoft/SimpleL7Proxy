@@ -44,7 +44,7 @@ Authentication uses one shared `DefaultAzureCredential` and `ConfigurationClient
 
 The standalone `AppConfigurationReader` hosted service owns polling and caching independently of `MetricsHttpServer`. Successful downloads atomically replace its in-memory `AppConfigurationSettings` snapshot, including removing deleted keys. The same reader instance is available through dependency injection.
 
-The cached settings do not change startup options or HTTP responses. HTTP serving continues while downloads run, and shutdown cancels outstanding requests.
+The cached settings do not change startup options. Tokenomics lookup budgets use the latest parsed model pricing. HTTP serving continues while downloads run, and shutdown cancels outstanding requests.
 
 **`Warm:Tokenomics:Options` is parsed with the existing `TokenomicsSettings.TryParse` parser after each successful download.** The last valid typed value is available through `AppConfigurationReader.TokenomicsSettings`; parser defaults apply before the first valid value. Missing keys retain the last valid typed settings.
 
@@ -79,6 +79,13 @@ The cached settings do not change startup options or HTTP responses. HTTP servin
 Query parameters for `/metrics/status` and `/metrics/series`: `user`, `model`, and `window` (seconds). Omit `user` or `model` to aggregate across all values. `window` defaults to, and is capped at, the retention window, and is rounded up to whole buckets.
 
 The tokenomics lookup requires both `u` (user identifier) and `m` (model identifier).
+
+The response includes `HourlyUserBudget`, `DailyUserBudget`, `MonthlyUserBudget`, `HourlyModelBudget`, `DailyModelBudget`, and `MonthlyModelBudget`, expressed as consumed USD rather than remaining limits. User budgets cover the requested user/model pair; model budgets cover that model across all users.
+
+Daily/monthly budgets use existing token totals: `(InputTokens - CachedTokens) × Input + CachedTokens × CachedInput + OutputTokens × Output`, with non-cached input clamped to zero. Prices come from `Warm:Tokenomics:Options` for the requested model (case-insensitive); missing model pricing or totals return `0`.
+
+> [!NOTE]
+> Hourly token counts, detection flags, 429 counts, average latency, and budgets are present but remain `0`/`false`. No hourly aggregation is implemented.
 
 ## Sending rollups
 

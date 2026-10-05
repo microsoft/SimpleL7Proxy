@@ -84,13 +84,15 @@ public sealed class TokenomicsMetricsStore
     }
 
     /// <summary>Gets all available metrics for a user and model combination.</summary>
-    public ResponseMetric GetMetrics(string? userId, string? model)
+    public ResponseMetric GetMetrics(string? userId, string? model, TokenomicsSettings? settings = null)
     {
         var user = Normalize(userId);
         var normalizedModel = Normalize(model);
         var now = DateTime.UtcNow;
         var today = DateOnly.FromDateTime(now);
         var month = (today.Year * 100) + today.Month;
+        var pricing = settings?.ModelCostPerToken
+            .FirstOrDefault(entry => string.Equals(entry.Key, normalizedModel, StringComparison.OrdinalIgnoreCase)).Value;
 
         lock (_rollupLock)
         {
@@ -140,7 +142,23 @@ public sealed class TokenomicsMetricsStore
                 monthly is { LatencySamples: > 0 }
                     ? monthly.LatencyMsTotal / monthly.LatencySamples
                     : 0,
-                now);
+                now,
+                dailyUserBudget: daily is not null && pricing is not null
+                    ? Math.Max(0L, daily.InputTokens - daily.CachedTokens) * pricing.Input
+                        + daily.CachedTokens * pricing.CachedInput + daily.OutputTokens * pricing.Output
+                    : 0,
+                monthlyUserBudget: monthly is not null && pricing is not null
+                    ? Math.Max(0L, monthly.InputTokens - monthly.CachedTokens) * pricing.Input
+                        + monthly.CachedTokens * pricing.CachedInput + monthly.OutputTokens * pricing.Output
+                    : 0,
+                dailyModelBudget: dailyModel is not null && pricing is not null
+                    ? Math.Max(0L, dailyModel.InputTokens - dailyModel.CachedTokens) * pricing.Input
+                        + dailyModel.CachedTokens * pricing.CachedInput + dailyModel.OutputTokens * pricing.Output
+                    : 0,
+                monthlyModelBudget: monthlyModel is not null && pricing is not null
+                    ? Math.Max(0L, monthlyModel.InputTokens - monthlyModel.CachedTokens) * pricing.Input
+                        + monthlyModel.CachedTokens * pricing.CachedInput + monthlyModel.OutputTokens * pricing.Output
+                    : 0);
         }
     }
 

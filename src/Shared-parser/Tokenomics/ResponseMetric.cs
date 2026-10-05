@@ -6,6 +6,26 @@ public readonly struct ResponseMetric
 {
     public string UserId { get; }
     public string Model { get; }
+    public int HourlyInputTokens { get; }
+    public int HourlyOutputTokens { get; }
+    public int HourlyCachedTokens { get; }
+    public bool IsHourlyJailbreakDetected { get; }
+    public bool IsHourlyContentFiltered { get; }
+    public int HourlyModel429 { get; }
+    public int HourlyUser429 { get; }
+    public double HourlyAvgLatencyMs { get; }
+    /// <summary>Consumed USD for the requested user/model pair in the hour.</summary>
+    public decimal HourlyUserBudget { get; }
+    /// <summary>Consumed USD for the requested user/model pair in the day.</summary>
+    public decimal DailyUserBudget { get; }
+    /// <summary>Consumed USD for the requested user/model pair in the month.</summary>
+    public decimal MonthlyUserBudget { get; }
+    /// <summary>Consumed USD across all users of the requested model in the hour.</summary>
+    public decimal HourlyModelBudget { get; }
+    /// <summary>Consumed USD across all users of the requested model in the day.</summary>
+    public decimal DailyModelBudget { get; }
+    /// <summary>Consumed USD across all users of the requested model in the month.</summary>
+    public decimal MonthlyModelBudget { get; }
     public int DailyInputTokens { get; }
     public int DailyOutputTokens { get; }
     public int DailyCachedTokens { get; }
@@ -44,10 +64,38 @@ public readonly struct ResponseMetric
         int monthlyUser429,
         double dailyAvgLatencyMs,
         double monthlyAvgLatencyMs,
-        DateTime responseTimeUtc)
+        DateTime responseTimeUtc,
+        int hourlyInputTokens = 0,
+        int hourlyOutputTokens = 0,
+        int hourlyCachedTokens = 0,
+        bool isHourlyJailbreakDetected = false,
+        bool isHourlyContentFiltered = false,
+        int hourlyModel429 = 0,
+        int hourlyUser429 = 0,
+        double hourlyAvgLatencyMs = 0,
+        decimal hourlyUserBudget = 0,
+        decimal dailyUserBudget = 0,
+        decimal monthlyUserBudget = 0,
+        decimal hourlyModelBudget = 0,
+        decimal dailyModelBudget = 0,
+        decimal monthlyModelBudget = 0)
     {
         UserId = userId;
         Model = model;
+        HourlyInputTokens = hourlyInputTokens;
+        HourlyOutputTokens = hourlyOutputTokens;
+        HourlyCachedTokens = hourlyCachedTokens;
+        IsHourlyJailbreakDetected = isHourlyJailbreakDetected;
+        IsHourlyContentFiltered = isHourlyContentFiltered;
+        HourlyModel429 = hourlyModel429;
+        HourlyUser429 = hourlyUser429;
+        HourlyAvgLatencyMs = hourlyAvgLatencyMs;
+        HourlyUserBudget = hourlyUserBudget;
+        DailyUserBudget = dailyUserBudget;
+        MonthlyUserBudget = monthlyUserBudget;
+        HourlyModelBudget = hourlyModelBudget;
+        DailyModelBudget = dailyModelBudget;
+        MonthlyModelBudget = monthlyModelBudget;
         DailyInputTokens = dailyInputTokens;
         DailyOutputTokens = dailyOutputTokens;
         DailyCachedTokens = dailyCachedTokens;
@@ -69,6 +117,6 @@ public readonly struct ResponseMetric
 
     public string ToString()
     {
-        return $"UserId: {UserId}, Model: {Model}, DailyInputTokens: {DailyInputTokens}, DailyOutputTokens: {DailyOutputTokens}, DailyCachedTokens: {DailyCachedTokens}, IsDailyJailbreakDetected: {IsDailyJailbreakDetected}, IsDailyContentFiltered: {IsDailyContentFiltered}, DailyModel429: {DailyModel429}, DailyUser429: {DailyUser429}, MonthlyInputTokens: {MonthlyInputTokens}, MonthlyOutputTokens: {MonthlyOutputTokens}, MonthlyCachedTokens: {MonthlyCachedTokens}, IsMonthlyJailbreakDetected: {IsMonthlyJailbreakDetected}, IsMonthlyContentFiltered: {IsMonthlyContentFiltered}, MonthlyModel429: {MonthlyModel429}, MonthlyUser429: {MonthlyUser429}, DailyAvgLatencyMs: {DailyAvgLatencyMs}, MonthlyAvgLatencyMs: {MonthlyAvgLatencyMs}, ResponseTimeUtc: {ResponseTimeUtc}";
+        return $"UserId: {UserId}, Model: {Model}, DailyInputTokens: {DailyInputTokens}, DailyOutputTokens: {DailyOutputTokens}, DailyCachedTokens: {DailyCachedTokens}, IsDailyJailbreakDetected: {IsDailyJailbreakDetected}, IsDailyContentFiltered: {IsDailyContentFiltered}, DailyModel429: {DailyModel429}, DailyUser429: {DailyUser429}, MonthlyInputTokens: {MonthlyInputTokens}, MonthlyOutputTokens: {MonthlyOutputTokens}, MonthlyCachedTokens: {MonthlyCachedTokens}, IsMonthlyJailbreakDetected: {IsMonthlyJailbreakDetected}, IsMonthlyContentFiltered: {IsMonthlyContentFiltered}, MonthlyModel429: {MonthlyModel429}, MonthlyUser429: {MonthlyUser429}, DailyAvgLatencyMs: {DailyAvgLatencyMs}, MonthlyAvgLatencyMs: {MonthlyAvgLatencyMs}, ResponseTimeUtc: {ResponseTimeUtc}, HourlyInputTokens: {HourlyInputTokens}, HourlyOutputTokens: {HourlyOutputTokens}, HourlyCachedTokens: {HourlyCachedTokens}, IsHourlyJailbreakDetected: {IsHourlyJailbreakDetected}, IsHourlyContentFiltered: {IsHourlyContentFiltered}, HourlyModel429: {HourlyModel429}, HourlyUser429: {HourlyUser429}, HourlyAvgLatencyMs: {HourlyAvgLatencyMs}, HourlyUserBudget: {HourlyUserBudget}, DailyUserBudget: {DailyUserBudget}, MonthlyUserBudget: {MonthlyUserBudget}, HourlyModelBudget: {HourlyModelBudget}, DailyModelBudget: {DailyModelBudget}, MonthlyModelBudget: {MonthlyModelBudget}";
     }
 }
