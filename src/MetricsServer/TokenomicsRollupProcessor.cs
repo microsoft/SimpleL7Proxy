@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text;
 using SimpleL7Proxy.Tokenomics;
 
 namespace MetricsServer;
@@ -7,7 +6,7 @@ namespace MetricsServer;
 /// <summary>
 /// Atomically admits, deduplicates, and processes tokenomics rollup uploads. One upload carries a
 /// manifest of batch ids plus the raw body; admission registers each batch, and the rollup
-/// iterator parses the CSV sections for only the batches this upload admitted.
+/// iterator parses the CSV sections in a single forward pass for only the admitted batches.
 /// </summary>
 public sealed class TokenomicsRollupProcessor : BackgroundService
 {
@@ -261,15 +260,98 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Walks the upload body once: for each <c>BatchId:</c> section that this upload admitted,
+    /// validates the header and records each CSV row parsed straight from the character span.
+    /// </summary>
     private void Process(QueueItem item)
     {
-        Dictionary<string, string>? sections = null;
         var history = GetHistory(item.ReplicaId);
 
+        var claims = new Dictionary<string, BatchEntry>(item.Batches.Count, StringComparer.OrdinalIgnoreCase);
         foreach (var (batchId, entry) in item.Batches)
         {
-            var key = new BatchKey(item.ReplicaId, batchId);
+            claims[batchId] = entry;
+        }
 
+        var handled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        ReadOnlySpan<char> body = item.Body;
+        string? sectionId = null;
+        BatchEntry? sectionEntry = null;
+        var headerSeen = false;
+        var headerValid = false;
+        var sectionFailed = false;
+
+        var pos = 0;
+        while (pos < body.Length)
+        {
+            var rel = body.Slice(pos).IndexOf('\n');
+            var lineEnd = rel < 0 ? body.Length : pos + rel;
+            var line = body.Slice(pos, lineEnd - pos).TrimEnd('\r');
+            pos = rel < 0 ? body.Length : lineEnd + 1;
+
+            if (line.StartsWith("BatchId:", StringComparison.OrdinalIgnoreCase))
+            {
+                CloseSection(item, history, sectionId, sectionEntry, sectionFailed, handled);
+
+                sectionId = line["BatchId:".Length..].Trim().ToString();
+                sectionEntry = ClaimSection(item.ReplicaId, sectionId, claims);
+                headerSeen = false;
+                headerValid = false;
+                sectionFailed = false;
+                continue;
+            }
+
+            if (sectionEntry is null || sectionFailed)
+            {
+                continue;
+            }
+
+            if (!headerSeen)
+            {
+                headerSeen = true;
+                headerValid = line.TrimEnd().SequenceEqual(PendingMetric.CsvHeader);
+                continue;
+            }
+
+            if (!headerValid)
+            {
+                continue;
+            }
+
+            var row = line.TrimEnd();
+            if (row.IsWhiteSpace())
+            {
+                continue;
+            }
+
+            try
+            {
+                if (PendingMetric.TryParse(row, out var metric))
+                {
+                    _store.Record(metric);
+                }
+                // Malformed rows are skipped.
+            }
+            catch (Exception ex)
+            {
+                sectionFailed = true;
+                Console.WriteLine($"Tokenomics batch {sectionId} failed: {ex.Message}");
+            }
+        }
+
+        CloseSection(item, history, sectionId, sectionEntry, sectionFailed, handled);
+
+        // Admitted batches with no section in the body: record nothing, mark processed.
+        foreach (var (batchId, entry) in item.Batches)
+        {
+            if (handled.Contains(batchId))
+            {
+                continue;
+            }
+
+            var key = new BatchKey(item.ReplicaId, batchId);
             if (!_activeBatches.TryGetValue(key, out var current) || !ReferenceEquals(current, entry))
             {
                 continue;
@@ -283,31 +365,64 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
                 continue;
             }
 
-            try
-            {
-                // Split the shared body once, on first use.
-                sections ??= SplitSections(item.Body);
-
-                if (sections.TryGetValue(batchId, out var csv))
-                {
-                    foreach (var metric in ParseCsvEntries(csv))
-                    {
-                        _store.Record(metric);
-                    }
-                }
-
-                // Publish processed state before clearing pending so the batch is never unknown.
-                history.MarkProcessed(batchId);
-                _activeBatches.TryRemove(new KeyValuePair<BatchKey, BatchEntry>(key, entry));
-            }
-            catch (Exception ex)
-            {
-                // Re-enqueue only this batch so siblings are not applied twice.
-                Volatile.Write(ref entry.State, (int)BatchState.Pending);
-                _queue.Enqueue(new QueueItem(item.ReplicaId, new[] { (batchId, entry) }, item.Body));
-                Console.WriteLine($"Tokenomics batch {batchId} failed: {ex.Message}");
-            }
+            history.MarkProcessed(batchId);
+            _activeBatches.TryRemove(new KeyValuePair<BatchKey, BatchEntry>(key, entry));
         }
+    }
+
+    /// <summary>Claims a section for processing if this upload admitted it and it is still pending.</summary>
+    private BatchEntry? ClaimSection(string replicaId, string batchId, Dictionary<string, BatchEntry> claims)
+    {
+        if (!claims.TryGetValue(batchId, out var entry))
+        {
+            return null;
+        }
+
+        var key = new BatchKey(replicaId, batchId);
+        if (!_activeBatches.TryGetValue(key, out var current) || !ReferenceEquals(current, entry))
+        {
+            return null;
+        }
+
+        if (Interlocked.CompareExchange(
+                ref entry.State,
+                (int)BatchState.Processing,
+                (int)BatchState.Pending) != (int)BatchState.Pending)
+        {
+            return null;
+        }
+
+        return entry;
+    }
+
+    /// <summary>Finalizes a claimed section: re-enqueue only this batch on failure, else mark processed.</summary>
+    private void CloseSection(
+        QueueItem item,
+        ProcessedHistory history,
+        string? sectionId,
+        BatchEntry? sectionEntry,
+        bool sectionFailed,
+        HashSet<string> handled)
+    {
+        if (sectionEntry is null || sectionId is null)
+        {
+            return;
+        }
+
+        handled.Add(sectionId);
+        var key = new BatchKey(item.ReplicaId, sectionId);
+
+        if (sectionFailed)
+        {
+            // Re-enqueue only this batch so siblings are not applied twice.
+            Volatile.Write(ref sectionEntry.State, (int)BatchState.Pending);
+            _queue.Enqueue(new QueueItem(item.ReplicaId, new[] { (sectionId, sectionEntry) }, item.Body));
+            return;
+        }
+
+        // Publish processed state before clearing pending so the batch is never unknown.
+        history.MarkProcessed(sectionId);
+        _activeBatches.TryRemove(new KeyValuePair<BatchKey, BatchEntry>(key, sectionEntry));
     }
 
     private async Task LogDiagnosticsAsync(PeriodicTimer timer, CancellationToken cancellationToken)
@@ -337,78 +452,4 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
 
     private static string NormalizeReplica(string? replicaId) =>
         string.IsNullOrWhiteSpace(replicaId) ? "unknown" : replicaId.Trim();
-
-    /// <summary>
-    /// Splits a full upload body into batchId → CSV section. Lines before the first
-    /// <c>BatchId:</c> (version and manifest) are ignored.
-    /// </summary>
-    private static Dictionary<string, string> SplitSections(string body)
-    {
-        var sections = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var lines = body.Split('\n');
-        string? currentId = null;
-        StringBuilder? current = null;
-
-        foreach (var rawLine in lines)
-        {
-            var line = rawLine.TrimEnd('\r');
-
-            if (line.StartsWith("BatchId:", StringComparison.OrdinalIgnoreCase))
-            {
-                if (currentId is not null)
-                {
-                    sections[currentId] = current!.ToString();
-                }
-
-                currentId = line["BatchId:".Length..].Trim();
-                current = new StringBuilder();
-                continue;
-            }
-
-            if (currentId is null)
-            {
-                continue;
-            }
-
-            current!.Append(line).Append('\n');
-        }
-
-        if (currentId is not null)
-        {
-            sections[currentId] = current!.ToString();
-        }
-
-        return sections;
-    }
-
-    private static List<PendingMetric> ParseCsvEntries(string csv)
-    {
-        var entries = new List<PendingMetric>();
-        var lines = csv.Split('\n');
-
-        if (lines.Length == 0 || lines[0].TrimEnd() != PendingMetric.CsvHeader)
-        {
-            return entries;
-        }
-
-        foreach (var line in lines.Skip(1))
-        {
-            var value = line.TrimEnd();
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            try
-            {
-                entries.Add(new PendingMetric(value));
-            }
-            catch
-            {
-                // Skip malformed records.
-            }
-        }
-
-        return entries;
-    }
 }
