@@ -38,6 +38,7 @@ public sealed class MetricsHttpServer : BackgroundService
     private readonly TelemetryClient? _telemetryClient;
     private readonly TokenomicsRollupProcessor _tokenomicsRollupProcessor;
     private readonly TokenomicsMetricsStore _tokenomicsMetricsStore;
+    private readonly AppConfigurationReader? _appConfigurationReader;
     public readonly FrozenDictionary<string, (Func<HttpContext, RequestIdentity, Task> Dispatch, bool AllowHead)> getMap;
     private readonly FrozenDictionary<string, Func<HttpContext, RequestIdentity, Task>> _postRoutes;
     private WebApplication? _app;
@@ -48,7 +49,8 @@ public sealed class MetricsHttpServer : BackgroundService
         MetricsStore store,
         TokenomicsRollupProcessor tokenomicsRollupProcessor,
         TokenomicsMetricsStore tokenomicsMetricsStore,
-        TelemetryClient? telemetryClient = null)
+        TelemetryClient? telemetryClient = null,
+        AppConfigurationReader? appConfigurationReader = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -56,6 +58,7 @@ public sealed class MetricsHttpServer : BackgroundService
         _tokenomicsRollupProcessor = tokenomicsRollupProcessor ?? throw new ArgumentNullException(nameof(tokenomicsRollupProcessor));
         _tokenomicsMetricsStore = tokenomicsMetricsStore ?? throw new ArgumentNullException(nameof(tokenomicsMetricsStore));
         _telemetryClient = telemetryClient;
+        _appConfigurationReader = appConfigurationReader;
 
         getMap = new Dictionary<string, (Func<HttpContext, RequestIdentity, Task> Dispatch, bool AllowHead)>(StringComparer.OrdinalIgnoreCase)
         {
@@ -273,7 +276,7 @@ public sealed class MetricsHttpServer : BackgroundService
             return WriteErrorAsync(ctx.Response, StatusCodes.Status400BadRequest, "Missing required 'm' query parameter.");
         }
 
-        var response = _tokenomicsMetricsStore.GetMetrics(identity.UserId, model);
+        var response = _tokenomicsMetricsStore.GetMetrics(identity.UserId, model, _appConfigurationReader?.TokenomicsSettings);
         return WriteJsonAsync(
             ctx.Response,
             response,
