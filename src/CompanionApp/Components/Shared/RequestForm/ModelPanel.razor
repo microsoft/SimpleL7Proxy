@@ -22,6 +22,16 @@
                 </div>
             }
 
+            @if (_fieldValues.TryGetValue("include_usage", out var includeUsage))
+            {
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" id="modelPanelIncludeUsageCheck"
+                           checked="@string.Equals(includeUsage, "true", StringComparison.OrdinalIgnoreCase)"
+                           @onchange="@(args => OnFieldChanged("include_usage", args.Value is bool selected && selected ? "true" : "false"))" />
+                    <label class="form-check-label" for="modelPanelIncludeUsageCheck">include_usage</label>
+                </div>
+            }
+
             <div class="form-check mb-0">
                 <input class="form-check-input" type="checkbox" id="modelPanelDebugCheck"
                        checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
@@ -249,7 +259,8 @@
     private IReadOnlyList<ApiInfo> AvailableApis => ModelDefaults.ApisForModel(SelectedModel);
 
     private IReadOnlyList<KeyValuePair<string, string>> FieldsForDisplay => _fieldValues
-        .Where(parameter => !IsStreamField(parameter.Key))
+        .Where(parameter => !IsStreamField(parameter.Key)
+            && !string.Equals(parameter.Key, "include_usage", StringComparison.OrdinalIgnoreCase))
         .ToList();
 
     private bool SupportsStreaming => _fieldValues.ContainsKey("stream");
@@ -400,6 +411,11 @@
         foreach (var (name, value) in ModelDefaults.GetDefaults(SelectedModel, SelectedApi))
         {
             _fieldValues[name] = value;
+        }
+
+        if (_fieldValues.ContainsKey("include_usage"))
+        {
+            _fieldValues["include_usage"] = "true";
         }
 
         _lastDefaultsKey = $"{SelectedModel}|{SelectedApi}";
