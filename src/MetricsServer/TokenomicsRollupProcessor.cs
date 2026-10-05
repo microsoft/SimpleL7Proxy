@@ -1,10 +1,13 @@
 using System.Collections.Concurrent;
+using System.Text;
 using SimpleL7Proxy.Tokenomics;
 
 namespace MetricsServer;
 
 /// <summary>
-/// Atomically admits, deduplicates, and processes tokenomics rollup batches.
+/// Atomically admits, deduplicates, and processes tokenomics rollup uploads. One upload carries a
+/// manifest of batch ids plus the raw body; admission registers each batch, and the rollup
+/// iterator parses the CSV sections for only the batches this upload admitted.
 /// </summary>
 public sealed class TokenomicsRollupProcessor : BackgroundService
 {
@@ -19,8 +22,8 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
         string BatchId);
 
     private sealed record QueueItem(
-        BatchKey Key,
-        BatchEntry Entry,
+        string ReplicaId,
+        IReadOnlyList<(string BatchId, BatchEntry Entry)> Batches,
         string Body);
 
     private sealed record RecentItem(
@@ -44,12 +47,8 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
         public static BatchKeyComparer Instance { get; } = new();
 
         public bool Equals(BatchKey left, BatchKey right) =>
-            StringComparer.OrdinalIgnoreCase.Equals(
-                left.ReplicaId,
-                right.ReplicaId)
-            && StringComparer.OrdinalIgnoreCase.Equals(
-                left.BatchId,
-                right.BatchId);
+            StringComparer.OrdinalIgnoreCase.Equals(left.ReplicaId, right.ReplicaId)
+            && StringComparer.OrdinalIgnoreCase.Equals(left.BatchId, right.BatchId);
 
         public int GetHashCode(BatchKey key) =>
             HashCode.Combine(
@@ -66,12 +65,12 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
         private readonly ConcurrentDictionary<string, byte> _processed =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentQueue<string> _processedOrder = new();
-        private readonly RecentItem?[] _recent =
-            new RecentItem?[RecentSignalCapacity];
+        private readonly RecentItem?[] _recent = new RecentItem?[RecentSignalCapacity];
 
         private int _processedCount;
         private long _recentOrder;
 
+        /// <summary>True when the batch was already processed; refreshes its recent signal.</summary>
         public bool TryReportProcessed(string batchId)
         {
             if (!_processed.ContainsKey(batchId))
@@ -120,16 +119,12 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
         {
             var order = Interlocked.Increment(ref _recentOrder);
             var index = (int)((order - 1) % _recent.Length);
-
-            Volatile.Write(
-                ref _recent[index],
-                new RecentItem(batchId, order));
+            Volatile.Write(ref _recent[index], new RecentItem(batchId, order));
         }
 
         private void Trim()
         {
-            while (Volatile.Read(ref _processedCount)
-                > DeduplicationCapacity
+            while (Volatile.Read(ref _processedCount) > DeduplicationCapacity
                 && _processedOrder.TryDequeue(out var expiredBatchId))
             {
                 if (_processed.TryRemove(expiredBatchId, out _))
@@ -140,17 +135,13 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
         }
     }
 
-    private static readonly TimeSpan s_processInterval =
-        TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan s_diagnosticsInterval =
-        TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan s_processInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan s_diagnosticsInterval = TimeSpan.FromSeconds(60);
 
     private readonly ConcurrentQueue<QueueItem> _queue = new();
-    private readonly ConcurrentDictionary<BatchKey, BatchEntry>
-        _activeBatches = new(BatchKeyComparer.Instance);
-    private readonly ConcurrentDictionary<string, ProcessedHistory>
-        _processedByReplica =
-            new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<BatchKey, BatchEntry> _activeBatches = new(BatchKeyComparer.Instance);
+    private readonly ConcurrentDictionary<string, ProcessedHistory> _processedByReplica =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly TokenomicsMetricsStore _store;
 
     private long _receivedOrder;
@@ -167,113 +158,101 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
     }
 
     /// <summary>
-    /// Atomically registers and enqueues a batch unless it is pending or processed.
+    /// Atomically admits each manifest batch id unless it is already pending or processed, then
+    /// enqueues one work item carrying the admitted batches and the shared raw body.
     /// </summary>
-    public void Enqueue(
-        string? replicaId,
-        string batchId,
-        string body)
+    public void Enqueue(string? replicaId, IReadOnlyList<string> batchIds, string body)
     {
-        if (string.IsNullOrWhiteSpace(batchId))
+        if (batchIds is null || batchIds.Count == 0)
         {
             return;
         }
 
         var replicaKey = NormalizeReplica(replicaId);
-        var normalizedBatchId = batchId.Trim();
-        var key = new BatchKey(replicaKey, normalizedBatchId);
         var history = GetHistory(replicaKey);
+        List<(string BatchId, BatchEntry Entry)>? admitted = null;
 
-        while (true)
+        foreach (var rawId in batchIds)
         {
-            if (history.TryReportProcessed(normalizedBatchId))
+            if (string.IsNullOrWhiteSpace(rawId))
             {
-                return;
+                continue;
             }
 
-            if (_activeBatches.ContainsKey(key))
+            var batchId = rawId.Trim();
+
+            // Already processed: report it, do not re-admit.
+            if (history.TryReportProcessed(batchId))
             {
-                return;
+                continue;
             }
 
-            var entry = new BatchEntry(
-                Interlocked.Increment(ref _receivedOrder));
+            var key = new BatchKey(replicaKey, batchId);
+            var entry = new BatchEntry(Interlocked.Increment(ref _receivedOrder));
 
+            // Already pending/processing: do not admit a second copy.
             if (!_activeBatches.TryAdd(key, entry))
             {
                 continue;
             }
 
-            // Close the race with processing completion of an older admission.
-            if (history.TryReportProcessed(normalizedBatchId))
+            // Close the race with an older admission that just finished.
+            if (history.TryReportProcessed(batchId))
             {
-                _activeBatches.TryRemove(
-                    new KeyValuePair<BatchKey, BatchEntry>(key, entry));
-                return;
+                _activeBatches.TryRemove(new KeyValuePair<BatchKey, BatchEntry>(key, entry));
+                continue;
             }
 
-            _queue.Enqueue(new QueueItem(key, entry, body));
-            return;
+            (admitted ??= new List<(string, BatchEntry)>()).Add((batchId, entry));
+        }
+
+        if (admitted is { Count: > 0 })
+        {
+            _queue.Enqueue(new QueueItem(replicaKey, admitted, body));
         }
     }
 
-    /// <summary>
-    /// Returns pending and currently processing IDs, oldest first.
-    /// </summary>
+    /// <summary>Returns pending and currently processing ids for a replica, oldest first.</summary>
     public List<string> GetPendingBatches(string? replicaId)
     {
         var replicaKey = NormalizeReplica(replicaId);
 
         return _activeBatches
-            .Where(pair => StringComparer.OrdinalIgnoreCase.Equals(
-                pair.Key.ReplicaId,
-                replicaKey))
+            .Where(pair => StringComparer.OrdinalIgnoreCase.Equals(pair.Key.ReplicaId, replicaKey))
             .OrderBy(pair => pair.Value.ReceivedOrder)
             .Select(pair => pair.Key.BatchId)
             .ToList();
     }
 
-    /// <summary>
-    /// Returns recently processed IDs, newest first.
-    /// </summary>
+    /// <summary>Returns recently processed ids for a replica, newest first.</summary>
     public List<string> PeekRecentBatches(string? replicaId)
     {
         var replicaKey = NormalizeReplica(replicaId);
 
-        return _processedByReplica.TryGetValue(
-            replicaKey,
-            out var history)
+        return _processedByReplica.TryGetValue(replicaKey, out var history)
             ? history.GetRecent()
             : new List<string>();
     }
 
-    protected override async Task ExecuteAsync(
-        CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var processTimer =
-            new PeriodicTimer(s_processInterval);
-        using var diagnosticsTimer =
-            new PeriodicTimer(s_diagnosticsInterval);
+        using var processTimer = new PeriodicTimer(s_processInterval);
+        using var diagnosticsTimer = new PeriodicTimer(s_diagnosticsInterval);
 
         try
         {
             await Task.WhenAll(
                 ProcessQueueAsync(processTimer, stoppingToken),
-                LogDiagnosticsAsync(diagnosticsTimer, stoppingToken))
-                .ConfigureAwait(false);
+                LogDiagnosticsAsync(diagnosticsTimer, stoppingToken)).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
-            when (stoppingToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
     }
 
-    private async Task ProcessQueueAsync(
-        PeriodicTimer timer,
-        CancellationToken cancellationToken)
+    private async Task ProcessQueueAsync(PeriodicTimer timer, CancellationToken cancellationToken)
     {
-        while (await timer.WaitForNextTickAsync(cancellationToken)
-            .ConfigureAwait(false))
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
             while (_queue.TryDequeue(out var item))
             {
@@ -284,60 +263,56 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
 
     private void Process(QueueItem item)
     {
-        if (!_activeBatches.TryGetValue(
-                item.Key,
-                out var currentEntry)
-            || !ReferenceEquals(currentEntry, item.Entry))
-        {
-            return;
-        }
+        Dictionary<string, string>? sections = null;
+        var history = GetHistory(item.ReplicaId);
 
-        if (Interlocked.CompareExchange(
-                ref item.Entry.State,
-                (int)BatchState.Processing,
-                (int)BatchState.Pending)
-            != (int)BatchState.Pending)
+        foreach (var (batchId, entry) in item.Batches)
         {
-            return;
-        }
+            var key = new BatchKey(item.ReplicaId, batchId);
 
-        try
-        {
-            var entries = ParseCsvEntries(item.Body);
-
-            foreach (var entry in entries)
+            if (!_activeBatches.TryGetValue(key, out var current) || !ReferenceEquals(current, entry))
             {
-                _store.Record(entry);
+                continue;
             }
 
-            // Publish processed state before removing pending state. An upload
-            // can therefore never observe the batch as completely unknown.
-            GetHistory(item.Key.ReplicaId)
-                .MarkProcessed(item.Key.BatchId);
+            if (Interlocked.CompareExchange(
+                    ref entry.State,
+                    (int)BatchState.Processing,
+                    (int)BatchState.Pending) != (int)BatchState.Pending)
+            {
+                continue;
+            }
 
-            _activeBatches.TryRemove(
-                new KeyValuePair<BatchKey, BatchEntry>(
-                    item.Key,
-                    item.Entry));
-        }
-        catch (Exception ex)
-        {
-            Volatile.Write(
-                ref item.Entry.State,
-                (int)BatchState.Pending);
-            _queue.Enqueue(item);
+            try
+            {
+                // Split the shared body once, on first use.
+                sections ??= SplitSections(item.Body);
 
-            Console.WriteLine(
-                $"Tokenomics batch {item.Key.BatchId} failed: {ex.Message}");
+                if (sections.TryGetValue(batchId, out var csv))
+                {
+                    foreach (var metric in ParseCsvEntries(csv))
+                    {
+                        _store.Record(metric);
+                    }
+                }
+
+                // Publish processed state before clearing pending so the batch is never unknown.
+                history.MarkProcessed(batchId);
+                _activeBatches.TryRemove(new KeyValuePair<BatchKey, BatchEntry>(key, entry));
+            }
+            catch (Exception ex)
+            {
+                // Re-enqueue only this batch so siblings are not applied twice.
+                Volatile.Write(ref entry.State, (int)BatchState.Pending);
+                _queue.Enqueue(new QueueItem(item.ReplicaId, new[] { (batchId, entry) }, item.Body));
+                Console.WriteLine($"Tokenomics batch {batchId} failed: {ex.Message}");
+            }
         }
     }
 
-    private async Task LogDiagnosticsAsync(
-        PeriodicTimer timer,
-        CancellationToken cancellationToken)
+    private async Task LogDiagnosticsAsync(PeriodicTimer timer, CancellationToken cancellationToken)
     {
-        while (await timer.WaitForNextTickAsync(cancellationToken)
-            .ConfigureAwait(false))
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
             var current = _store.GetDiagnostics();
             if (current == _previousDiagnostics)
@@ -358,22 +333,60 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
     }
 
     private ProcessedHistory GetHistory(string replicaId) =>
-        _processedByReplica.GetOrAdd(
-            replicaId,
-            static _ => new ProcessedHistory());
+        _processedByReplica.GetOrAdd(replicaId, static _ => new ProcessedHistory());
 
     private static string NormalizeReplica(string? replicaId) =>
-        string.IsNullOrWhiteSpace(replicaId)
-            ? "unknown"
-            : replicaId.Trim();
+        string.IsNullOrWhiteSpace(replicaId) ? "unknown" : replicaId.Trim();
+
+    /// <summary>
+    /// Splits a full upload body into batchId → CSV section. Lines before the first
+    /// <c>BatchId:</c> (version and manifest) are ignored.
+    /// </summary>
+    private static Dictionary<string, string> SplitSections(string body)
+    {
+        var sections = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var lines = body.Split('\n');
+        string? currentId = null;
+        StringBuilder? current = null;
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.TrimEnd('\r');
+
+            if (line.StartsWith("BatchId:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (currentId is not null)
+                {
+                    sections[currentId] = current!.ToString();
+                }
+
+                currentId = line["BatchId:".Length..].Trim();
+                current = new StringBuilder();
+                continue;
+            }
+
+            if (currentId is null)
+            {
+                continue;
+            }
+
+            current!.Append(line).Append('\n');
+        }
+
+        if (currentId is not null)
+        {
+            sections[currentId] = current!.ToString();
+        }
+
+        return sections;
+    }
 
     private static List<PendingMetric> ParseCsvEntries(string csv)
     {
         var entries = new List<PendingMetric>();
         var lines = csv.Split('\n');
 
-        if (lines.Length == 0
-            || lines[0].TrimEnd() != PendingMetric.CsvHeader)
+        if (lines.Length == 0 || lines[0].TrimEnd() != PendingMetric.CsvHeader)
         {
             return entries;
         }
@@ -392,7 +405,7 @@ public sealed class TokenomicsRollupProcessor : BackgroundService
             }
             catch
             {
-                // Preserve existing behavior by skipping malformed records.
+                // Skip malformed records.
             }
         }
 

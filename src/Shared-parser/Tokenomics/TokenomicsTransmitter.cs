@@ -23,15 +23,19 @@ public sealed class TokenomicsTransmitter
     private readonly CancellationTokenSource _transmissionLoopCts = new();
 
     private Task? _transmissionLoopTask;
+    private int _started;
 
     public TokenomicsTransmitter(
         Uri metricsServerUri,
         string replicaId,
         HttpClient httpClient)
     {
-        _metricsServerUri = metricsServerUri
-            ?? throw new ArgumentNullException(nameof(metricsServerUri));
-        _replicaId = string.IsNullOrWhiteSpace(replicaId) ? "DEV" : replicaId;
+        ArgumentNullException.ThrowIfNull(metricsServerUri);
+
+        _replicaId = string.IsNullOrWhiteSpace(replicaId)
+            ? "DEV"
+            : replicaId;
+        _metricsServerUri = AddReplicaId(metricsServerUri, _replicaId);
         _httpClient = httpClient
             ?? throw new ArgumentNullException(nameof(httpClient));
     }
@@ -51,11 +55,13 @@ public sealed class TokenomicsTransmitter
     /// <summary>Starts the transmission loop.</summary>
     public void Start()
     {
-        if (_transmissionLoopTask is null)
+        if (Interlocked.Exchange(ref _started, 1) != 0)
         {
-            _transmissionLoopTask =
-                RunTransmissionLoopAsync(_transmissionLoopCts.Token);
+            return;
         }
+
+        _transmissionLoopTask =
+            RunTransmissionLoopAsync(_transmissionLoopCts.Token);
     }
 
     private async Task RunTransmissionLoopAsync(
@@ -116,7 +122,8 @@ public sealed class TokenomicsTransmitter
 
             if (_queuedBatches.TryGetValue(batchId, out var csv))
             {
-                batches.Add(new KeyValuePair<string, string>(batchId, csv));
+                batches.Add(
+                    new KeyValuePair<string, string>(batchId, csv));
             }
             else
             {
@@ -131,8 +138,9 @@ public sealed class TokenomicsTransmitter
         List<KeyValuePair<string, string>> batches,
         CancellationToken cancellationToken)
     {
-        // An empty batch collection is a status-only poll for server-pending IDs.
-        var payload = ReplicaPayloadMaker.Make(_replicaId, batches);
+        // An empty manifest is a status-only poll for server-pending IDs.
+        var payload = ReplicaPayloadMaker.Make(batches);
+
         using var content = new StringContent(
             payload,
             Encoding.UTF8,
@@ -178,25 +186,26 @@ public sealed class TokenomicsTransmitter
 
         foreach (var batchId in pending)
         {
-            if (!processed.Contains(batchId)
-                && _queuedBatches.ContainsKey(batchId))
+            if (processed.Contains(batchId)
+                || !_queuedBatches.ContainsKey(batchId))
             {
-                _pendingAcknowledgment.TryRemove(batchId, out _);
-                _serverProcessing.TryAdd(batchId, 0);
+                continue;
             }
+
+            _pendingAcknowledgment.TryRemove(batchId, out _);
+            _serverProcessing.TryAdd(batchId, 0);
         }
 
         foreach (var batchId in _serverProcessing.Keys)
         {
-            if (pending.Contains(batchId) || processed.Contains(batchId))
+            if (pending.Contains(batchId)
+                || processed.Contains(batchId))
             {
                 continue;
             }
 
             _serverProcessing.TryRemove(batchId, out _);
 
-            // The server no longer recognizes this ID. Retry it, for example
-            // after a receiver restart or an acknowledgement-window miss.
             if (_queuedBatches.ContainsKey(batchId))
             {
                 _pendingAcknowledgment.TryAdd(batchId, 0);
@@ -208,7 +217,8 @@ public sealed class TokenomicsTransmitter
     public async Task StopAsync(
         CancellationToken cancellationToken = default)
     {
-        if (_transmissionLoopTask is null)
+        var transmissionTask = Volatile.Read(ref _transmissionLoopTask);
+        if (transmissionTask is null)
         {
             return;
         }
@@ -217,7 +227,7 @@ public sealed class TokenomicsTransmitter
 
         try
         {
-            await _transmissionLoopTask
+            await transmissionTask
                 .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -228,4 +238,17 @@ public sealed class TokenomicsTransmitter
 
     /// <summary>Returns the number of unprocessed batches retained locally.</summary>
     public int GetPendingBatchCount() => _queuedBatches.Count;
+
+    private static Uri AddReplicaId(Uri endpoint, string replicaId)
+    {
+        var builder = new UriBuilder(endpoint);
+        var existingQuery = builder.Query.TrimStart('?');
+        var replicaQuery = $"r={Uri.EscapeDataString(replicaId)}";
+
+        builder.Query = string.IsNullOrEmpty(existingQuery)
+            ? replicaQuery
+            : $"{existingQuery}&{replicaQuery}";
+
+        return builder.Uri;
+    }
 }

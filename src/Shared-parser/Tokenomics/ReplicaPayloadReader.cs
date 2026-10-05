@@ -1,10 +1,13 @@
 using System.Buffers;
-using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Text;
 
 namespace SimpleL7Proxy.Tokenomics;
 
+/// <summary>
+/// Reads the complete upload body once and parses only the <c>BatchIds:</c> manifest line.
+/// CSV sections are left in <see cref="ReplicaPayload.Body"/> for the rollup iterator.
+/// </summary>
 public sealed class ReplicaPayloadReader
 {
     private readonly PipeReader _reader;
@@ -16,116 +19,73 @@ public sealed class ReplicaPayloadReader
 
     public async Task<ReplicaPayload> ReadAsync(CancellationToken cancellationToken = default)
     {
-        string? replicaId = null;
-        var batches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        string? currentBatchId = null;
-        StringBuilder? currentBatch = null;
-
+        // Buffer the whole content-length body, then decode once.
         while (true)
         {
             ReadResult result = await _reader.ReadAsync(cancellationToken).ConfigureAwait(false);
             ReadOnlySequence<byte> buffer = result.Buffer;
 
-            while (TryReadLine(ref buffer, out var lineBytes))
-            {
-                ProcessLine(
-                GetLine(lineBytes),
-                ref replicaId,
-                ref currentBatchId,
-                ref currentBatch,
-                batches);
-            }
-
-            if (result.IsCompleted && !buffer.IsEmpty)
-            {
-                ProcessLine(
-                    GetLine(buffer),
-                    ref replicaId,
-                    ref currentBatchId,
-                    ref currentBatch,
-                    batches);
-
-                buffer = buffer.Slice(buffer.End);
-            }
-
-            _reader.AdvanceTo(buffer.Start, buffer.End);
-
             if (result.IsCompleted)
+            {
+                var body = Decode(buffer);
+                _reader.AdvanceTo(buffer.End);
+                await _reader.CompleteAsync().ConfigureAwait(false);
+                return new ReplicaPayload { BatchIds = ExtractBatchIds(body), Body = body };
+            }
+
+            // Keep the whole buffer until the body completes.
+            _reader.AdvanceTo(buffer.Start, buffer.End);
+        }
+    }
+
+    private static string Decode(ReadOnlySequence<byte> buffer) =>
+        buffer.IsSingleSegment
+            ? Encoding.UTF8.GetString(buffer.FirstSpan)
+            : Encoding.UTF8.GetString(buffer.ToArray());
+
+    private static IReadOnlyList<string> ExtractBatchIds(string body)
+    {
+        var start = 0;
+        while (start < body.Length)
+        {
+            var newline = body.IndexOf('\n', start);
+            var end = newline < 0 ? body.Length : newline;
+            var line = body.AsSpan(start, end - start).Trim();
+
+            if (line.StartsWith("BatchIds:", StringComparison.OrdinalIgnoreCase))
+            {
+                return ParseIds(line["BatchIds:".Length..]);
+            }
+
+            // Reached the batch sections without a manifest line.
+            if (line.StartsWith("BatchId:", StringComparison.OrdinalIgnoreCase))
             {
                 break;
             }
-        }
 
-        if (currentBatchId is not null)
-        {
-            batches[currentBatchId] = currentBatch?.ToString() ?? string.Empty;
-        }
-
-        await _reader.CompleteAsync().ConfigureAwait(false);
-
-        return new ReplicaPayload
-        {
-            ReplicaId = replicaId ?? string.Empty,
-            Batches = batches
-        };
-    }
-
-    private static bool TryReadLine(ref ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> lineBytes)
-    {
-        SequencePosition? position = buffer.PositionOf((byte)'\n');
-
-        if (position is null)
-        {
-            lineBytes = default;
-            return false;
-        }
-
-        lineBytes = buffer.Slice(0, position.Value);
-        buffer = buffer.Slice(buffer.GetPosition(1, position.Value));
-
-        return true;
-    }
-
-    private static string GetLine(ReadOnlySequence<byte> sequence)
-    {
-        return Encoding.UTF8.GetString(sequence.ToArray()).TrimEnd('\r');
-    }
-
-    private static void ProcessLine(
-        string line,
-        ref string? replicaId,
-        ref string? currentBatchId,
-        ref StringBuilder? currentBatch,
-        Dictionary<string, string> batches)
-    {
-        line = line.TrimStart('\uFEFF');
-
-        if (string.IsNullOrWhiteSpace(line))
-        {
-            return;
-        }
-
-        if (replicaId is null &&
-            line.StartsWith("ReplicaId:", StringComparison.OrdinalIgnoreCase))
-        {
-            replicaId = line["ReplicaId:".Length..].Trim();
-            return;
-        }
-
-        if (line.StartsWith("BatchId:", StringComparison.OrdinalIgnoreCase))
-        {
-            // Save the previous batch before starting the next one.
-            if (currentBatchId is not null)
+            if (newline < 0)
             {
-                batches[currentBatchId] =
-                    currentBatch?.ToString() ?? string.Empty;
+                break;
             }
 
-            currentBatchId = line["BatchId:".Length..].Trim();
-            currentBatch = new StringBuilder();
-            return;
+            start = newline + 1;
         }
 
-        currentBatch?.AppendLine(line);
+        return Array.Empty<string>();
+    }
+
+    private static List<string> ParseIds(ReadOnlySpan<char> manifest)
+    {
+        var ids = new List<string>();
+        foreach (var range in manifest.Split(','))
+        {
+            var id = manifest[range].Trim();
+            if (!id.IsEmpty)
+            {
+                ids.Add(id.ToString());
+            }
+        }
+
+        return ids;
     }
 }

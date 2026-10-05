@@ -47,7 +47,8 @@ public class Program
                 services.AddSingleton<TokenomicsRollupProcessor>();
                 services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TokenomicsRollupProcessor>());
                 ConfigureAppInsights(services, options);
-                services.AddHostedService<MetricsHttpServer>();
+                services.AddSingleton<MetricsHttpServer>();
+                services.AddHostedService<MetricsWebServer>();
             })
             .ConfigureLogging(logging =>
             {
