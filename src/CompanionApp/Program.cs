@@ -91,9 +91,30 @@ else
         var settings = await appConfiguration.LoadAsync(appConfiguration.DefaultEndpoint);
         var labelExists = appConfiguration.CachedLabels?.Contains(configuredLabel, StringComparer.Ordinal) == true;
         var labelSettingCount = settings.Count(setting => string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
+        var eventHubOptions = app.Services.GetRequiredService<IOptions<EventHubMonitorOptions>>().Value;
+        var eventHubDefaults = new Dictionary<string, string>
+        {
+            ["Cold:Logging:EventHub:Name"] = Environment.GetEnvironmentVariable("EVENTHUB_NAME") is { Length: > 0 } hubName
+                && !string.IsNullOrWhiteSpace(hubName) ? hubName : eventHubOptions.EventHubName,
+            ["Cold:Logging:EventHub:Namespace"] = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE") is { Length: > 0 } hubNamespace
+                && !string.IsNullOrWhiteSpace(hubNamespace) ? hubNamespace : eventHubOptions.EventHubNamespace,
+            ["Cold:Logging:EventHub:ConnectionString"] = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") is { Length: > 0 } hubConnectionString
+                && !string.IsNullOrWhiteSpace(hubConnectionString) ? hubConnectionString : eventHubOptions.ConnectionString
+        };
+        var hasEventHubDefaults = eventHubOptions.EventHubEnabled
+            && !string.IsNullOrWhiteSpace(eventHubDefaults["Cold:Logging:EventHub:Name"])
+            && (!string.IsNullOrWhiteSpace(eventHubDefaults["Cold:Logging:EventHub:Namespace"])
+                || !string.IsNullOrWhiteSpace(eventHubDefaults["Cold:Logging:EventHub:ConnectionString"]));
         if (!labelExists)
         {
             var drafts = appConfiguration.CreateLabelDraft(configuredLabel);
+            if (hasEventHubDefaults)
+            {
+                foreach (var entry in eventHubDefaults.Where(entry => !string.IsNullOrWhiteSpace(entry.Value)))
+                {
+                    drafts.Single(setting => setting.Key == entry.Key).DraftValue = entry.Value;
+                }
+            }
             if (metricsServerOverride is not null)
             {
                 drafts.Single(setting => setting.Key == "Warm:Tokenomics:MetricsServer").DraftValue = metricsServerOverride;

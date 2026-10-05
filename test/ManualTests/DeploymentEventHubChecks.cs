@@ -162,6 +162,25 @@ foreach (var consumerGroup in new[] { "monitor-reader", "$Default" }) {
 }
 Console.WriteLine("PASS: Event Hub inputs, validation, parameters, conditional provisioning, monitor settings, RBAC ordering, and ZIP exports (8 cases).");
 
+var startup = File.ReadAllText(Path.Combine(root, "src/CompanionApp/Program.cs"));
+foreach (var key in new[] { "Name", "Namespace", "ConnectionString" })
+    Check(startup.Contains($"[\"Cold:Logging:EventHub:{key}\"] = Environment.GetEnvironmentVariable(\"EVENTHUB_{(key == "ConnectionString" ? "CONNECTIONSTRING" : key.ToUpperInvariant())}\")", StringComparison.Ordinal),
+        "startup maps monitor " + key + " to the proxy setting with environment precedence");
+Check(startup.Contains("var hasEventHubDefaults = eventHubOptions.EventHubEnabled", StringComparison.Ordinal),
+    "disabled monitor configuration does not seed the proxy destination");
+var newLabelStartup = startup.Split("if (!labelExists)", StringSplitOptions.None)[1]
+    .Split("else if (labelSettingCount == 0)", StringSplitOptions.None)[0];
+Check(newLabelStartup.Contains("drafts.Single(setting => setting.Key == entry.Key).DraftValue = entry.Value;", StringComparison.Ordinal),
+    "new labels receive configured Event Hub defaults before saving");
+var existingLabelStartup = startup.Split("else if (labelSettingCount == 0)", StringSplitOptions.None)[1];
+Check(!existingLabelStartup.Contains("appConfiguration.UpdateAsync(", StringComparison.Ordinal)
+    && !existingLabelStartup.Contains("appConfiguration.CreateLabelDraft(", StringComparison.Ordinal)
+    && !existingLabelStartup.Contains(".DraftValue =", StringComparison.Ordinal),
+    "startup does not create drafts or write settings for existing labels, including blank destinations");
+Check(newLabelStartup.Contains("createLabel: true", StringComparison.Ordinal),
+    "startup writes defaults only through label creation");
+Console.WriteLine("PASS: startup Event Hub default mapping and creation-only initialization source checks.");
+
 static void Check(bool result, string description) {
     if (!result) throw new InvalidOperationException("Failed: " + description);
 }
