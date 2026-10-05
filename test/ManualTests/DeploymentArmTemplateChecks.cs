@@ -378,8 +378,8 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterSettings["HEALTHPROBE_TYPE"]!.GetValue<string>() == (sidecar ? "sidecar" : "internal"), "parameters preserve the health mode");
     Check(parameterSettings["WEB_PORT"]!.GetValue<int>() == 8123, "parameters preserve numeric ingress values");
     Check(parameterSettings["MAX_REPLICAS"]!.GetValue<int>() == 7, "parameters preserve numeric scaling values");
-    var bicepGroupKeys = new List<string> { "CONTAINER_APP_RESOURCE_GROUP" };
-    if (companion) bicepGroupKeys.AddRange(["COMPANION_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP"]);
+    var bicepGroupKeys = new List<string> { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" };
+    if (companion) bicepGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
     if (network) bicepGroupKeys.Add("NETWORK_RESOURCE_GROUP");
     if (asyncMode) bicepGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
     var expectedBicepGroupCount = bicepGroupKeys.Select(key => values[key]).Distinct(StringComparer.OrdinalIgnoreCase).Count();

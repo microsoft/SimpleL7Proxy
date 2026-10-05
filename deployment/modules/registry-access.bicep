@@ -17,7 +17,7 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing =
   name: settings.ACR_NAME
 }
 
-resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_PROXY) {
   name: guid(registry.id, containerAppId, acrPullRoleId)
   scope: registry
   properties: {

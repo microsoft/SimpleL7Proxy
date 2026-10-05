@@ -7,7 +7,8 @@ param settings DeploymentSettings
 
 var resourceGroupNames = union(
   settings.RESOURCE_GROUPS,
-  settings.DEPLOY_COMPANION_APP ? [settings.COMPANION_APP_RESOURCE_GROUP, settings.APPCONFIG_RESOURCE_GROUP] : []
+  [settings.APPCONFIG_RESOURCE_GROUP],
+  settings.DEPLOY_COMPANION_APP ? [settings.COMPANION_APP_RESOURCE_GROUP] : []
 )
 
 resource resourceGroups 'Microsoft.Resources/resourceGroups@2022-09-01' = [for groupName in resourceGroupNames: {

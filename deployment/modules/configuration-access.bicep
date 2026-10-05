@@ -19,7 +19,7 @@ resource configurationStore 'Microsoft.AppConfiguration/configurationStores@2024
   name: settings.APPCONFIG_NAME
 }
 
-resource dataReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource dataReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_PROXY) {
   name: guid(configurationStoreId, containerAppId, appConfigurationDataReaderRoleId)
   scope: configurationStore
   properties: {
