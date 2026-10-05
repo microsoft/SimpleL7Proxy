@@ -721,7 +721,7 @@ else
         string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
 
-    // A column is boolean if every host that sets it uses true/false; empty cells then render as unchecked.
+    // Schema-defined booleans retain their defaults when omitted; other columns are inferred from populated values.
     private bool IsBooleanColumn(string column)
     {
         var hasBooleanValue = false;
@@ -741,7 +741,10 @@ else
             hasBooleanValue = true;
         }
 
-        return hasBooleanValue;
+        return hasBooleanValue
+            || HostFieldSchema.Any(field =>
+                string.Equals(field.Name, column, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(field.Kind, "bool", StringComparison.OrdinalIgnoreCase));
     }
 
     // List checkbox state honours the schema default when the field is absent (e.g. enabled defaults true).
