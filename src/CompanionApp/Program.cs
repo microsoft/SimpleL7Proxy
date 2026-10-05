@@ -91,9 +91,30 @@ else
         var settings = await appConfiguration.LoadAsync(appConfiguration.DefaultEndpoint);
         var labelExists = appConfiguration.CachedLabels?.Contains(configuredLabel, StringComparer.Ordinal) == true;
         var labelSettingCount = settings.Count(setting => string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
+        var eventHubOptions = app.Services.GetRequiredService<IOptions<EventHubMonitorOptions>>().Value;
+        var eventHubDefaults = new Dictionary<string, string>
+        {
+            ["Cold:Logging:EventHub:Name"] = Environment.GetEnvironmentVariable("EVENTHUB_NAME") is { Length: > 0 } hubName
+                && !string.IsNullOrWhiteSpace(hubName) ? hubName : eventHubOptions.EventHubName,
+            ["Cold:Logging:EventHub:Namespace"] = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE") is { Length: > 0 } hubNamespace
+                && !string.IsNullOrWhiteSpace(hubNamespace) ? hubNamespace : eventHubOptions.EventHubNamespace,
+            ["Cold:Logging:EventHub:ConnectionString"] = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") is { Length: > 0 } hubConnectionString
+                && !string.IsNullOrWhiteSpace(hubConnectionString) ? hubConnectionString : eventHubOptions.ConnectionString
+        };
+        var hasEventHubDefaults = eventHubOptions.EventHubEnabled
+            && !string.IsNullOrWhiteSpace(eventHubDefaults["Cold:Logging:EventHub:Name"])
+            && (!string.IsNullOrWhiteSpace(eventHubDefaults["Cold:Logging:EventHub:Namespace"])
+                || !string.IsNullOrWhiteSpace(eventHubDefaults["Cold:Logging:EventHub:ConnectionString"]));
         if (!labelExists)
         {
             var drafts = appConfiguration.CreateLabelDraft(configuredLabel);
+            if (hasEventHubDefaults)
+            {
+                foreach (var entry in eventHubDefaults.Where(entry => !string.IsNullOrWhiteSpace(entry.Value)))
+                {
+                    drafts.Single(setting => setting.Key == entry.Key).DraftValue = entry.Value;
+                }
+            }
             if (metricsServerOverride is not null)
             {
                 drafts.Single(setting => setting.Key == "Warm:Tokenomics:MetricsServer").DraftValue = metricsServerOverride;
@@ -132,6 +153,35 @@ else
         }
         else
         {
+            var labelSettings = settings.Where(setting =>
+                string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal)).ToList();
+            if (hasEventHubDefaults && !labelSettings.Any(setting =>
+                eventHubDefaults.ContainsKey(setting.Key) && !string.IsNullOrWhiteSpace(setting.LoadedValue)))
+            {
+                var defaultDrafts = appConfiguration.CreateLabelDraft(configuredLabel);
+                foreach (var entry in eventHubDefaults.Where(entry => !string.IsNullOrWhiteSpace(entry.Value)))
+                {
+                    var setting = labelSettings.FirstOrDefault(setting => setting.Key == entry.Key);
+                    if (setting is null)
+                    {
+                        setting = defaultDrafts.Single(setting => setting.Key == entry.Key);
+                        labelSettings.Add(setting);
+                    }
+                    setting.DraftValue = entry.Value;
+                }
+                if (!labelSettings.Any(setting => setting.Key == "Warm:Sentinel"))
+                {
+                    labelSettings.Add(defaultDrafts.Single(setting => setting.Key == "Warm:Sentinel"));
+                }
+                var result = await appConfiguration.UpdateAsync(
+                    appConfiguration.DefaultEndpoint, configuredLabel, labelSettings);
+                labelSettingCount = result.Settings.Count(setting =>
+                    string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
+                appConfigurationLogger.LogInformation(
+                    "App Configuration startup initialized blank Event Hub destination for label {Label} at {Endpoint}",
+                    labelDisplay,
+                    appConfiguration.DefaultEndpoint);
+            }
             appConfiguration.CachedLabel = configuredLabel;
             appConfigurationLogger.LogInformation(
                 "App Configuration startup check succeeded: label {Label} contains {SettingCount} published proxy settings at {Endpoint}",

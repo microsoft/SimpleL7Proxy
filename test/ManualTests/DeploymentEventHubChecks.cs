@@ -162,6 +162,28 @@ foreach (var consumerGroup in new[] { "monitor-reader", "$Default" }) {
 }
 Console.WriteLine("PASS: Event Hub inputs, validation, parameters, conditional provisioning, monitor settings, RBAC ordering, and ZIP exports (8 cases).");
 
+var startup = File.ReadAllText(Path.Combine(root, "src/CompanionApp/Program.cs"));
+foreach (var key in new[] { "Name", "Namespace", "ConnectionString" })
+    Check(startup.Contains($"[\"Cold:Logging:EventHub:{key}\"] = Environment.GetEnvironmentVariable(\"EVENTHUB_{(key == "ConnectionString" ? "CONNECTIONSTRING" : key.ToUpperInvariant())}\")", StringComparison.Ordinal),
+        "startup maps monitor " + key + " to the proxy setting with environment precedence");
+Check(startup.Contains("var hasEventHubDefaults = eventHubOptions.EventHubEnabled", StringComparison.Ordinal),
+    "disabled monitor configuration does not seed the proxy destination");
+var newLabelStartup = startup.Split("if (!labelExists)", StringSplitOptions.None)[1]
+    .Split("else if (labelSettingCount == 0)", StringSplitOptions.None)[0];
+Check(newLabelStartup.Contains("drafts.Single(setting => setting.Key == entry.Key).DraftValue = entry.Value;", StringComparison.Ordinal),
+    "new labels receive configured Event Hub defaults before saving");
+var existingLabelStartup = startup.Split("else if (labelSettingCount == 0)", StringSplitOptions.None)[1];
+Check(existingLabelStartup.Contains("string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal)", StringComparison.Ordinal),
+    "existing-label repair is scoped to the selected label");
+Check(existingLabelStartup.Contains("eventHubDefaults.ContainsKey(setting.Key) && !string.IsNullOrWhiteSpace(setting.LoadedValue)", StringComparison.Ordinal),
+    "existing destinations, including connection-string destinations, are preserved");
+Check(existingLabelStartup.Contains("labelSettings.Add(setting);", StringComparison.Ordinal)
+    && existingLabelStartup.Contains("labelSettings.Add(defaultDrafts.Single(setting => setting.Key == \"Warm:Sentinel\"));", StringComparison.Ordinal),
+    "repair supports missing destination keys and a missing sentinel");
+Check(existingLabelStartup.Contains("appConfiguration.DefaultEndpoint, configuredLabel, labelSettings", StringComparison.Ordinal),
+    "blank existing destinations are persisted through the verified sentinel update path");
+Console.WriteLine("PASS: startup Event Hub default mapping and guarded existing-label repair source checks.");
+
 static void Check(bool result, string description) {
     if (!result) throw new InvalidOperationException("Failed: " + description);
 }

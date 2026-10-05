@@ -146,3 +146,4 @@
 - TokenomicsSettings and ModelTokenPricing are compiled by Shared-parser. Exclude the identical legacy TokenomicsSettings.cs from SimpleL7Proxy compilation; compiling both copies causes CS0436 warnings in the proxy and CS0433 errors in CompanionApp.
 - CompanionApp-generated Bicep bundles embed `deployment/*.bicep` and `deployment/modules/*.bicep` directly; keep `/deployment` as the sole Bicep template source and do not recreate mirrored templates under `src/CompanionApp/Assets`.
 - Host summary columns must recognize schema-defined booleans even when every host omits the key; render the configured default so hosts with implicit `enabled=true` remain toggleable.
+- CompanionApp monitor settings and proxy Event Hub settings are separate. Startup must seed `Cold:Logging:EventHub:*` from the enabled monitor configuration; repair an existing label only when its whole destination is blank, preserving configured destinations and unrelated labels.
