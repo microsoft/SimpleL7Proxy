@@ -6,9 +6,9 @@ public readonly struct ResponseMetric
 {
     public string UserId { get; }
     public string Model { get; }
-    public int HourlyInputTokens { get; }
-    public int HourlyOutputTokens { get; }
-    public int HourlyCachedTokens { get; }
+    public long HourlyInputTokens { get; }
+    public long HourlyOutputTokens { get; }
+    public long HourlyCachedTokens { get; }
     public bool IsHourlyJailbreakDetected { get; }
     public bool IsHourlyContentFiltered { get; }
     public int HourlyModel429 { get; }
@@ -26,16 +26,16 @@ public readonly struct ResponseMetric
     public decimal DailyModelBudget { get; }
     /// <summary>Consumed USD across all users of the requested model in the month.</summary>
     public decimal MonthlyModelBudget { get; }
-    public int DailyInputTokens { get; }
-    public int DailyOutputTokens { get; }
-    public int DailyCachedTokens { get; }
+    public long DailyInputTokens { get; }
+    public long DailyOutputTokens { get; }
+    public long DailyCachedTokens { get; }
     public bool IsDailyJailbreakDetected { get; }
     public bool IsDailyContentFiltered { get; }
     public int DailyModel429 { get; }
     public int DailyUser429 { get; }
-    public int MonthlyInputTokens { get; }
-    public int MonthlyOutputTokens { get; }
-    public int MonthlyCachedTokens { get; }
+    public long MonthlyInputTokens { get; }
+    public long MonthlyOutputTokens { get; }
+    public long MonthlyCachedTokens { get; }
     public bool IsMonthlyJailbreakDetected { get; }
     public bool IsMonthlyContentFiltered { get; }
     public int MonthlyModel429 { get; }
@@ -48,16 +48,16 @@ public readonly struct ResponseMetric
     public ResponseMetric(
         string userId,
         string model,
-        int dailyInputTokens,
-        int dailyOutputTokens,
-        int dailyCachedTokens,
+        long dailyInputTokens,
+        long dailyOutputTokens,
+        long dailyCachedTokens,
         bool isDailyJailbreakDetected,
         bool isDailyContentFiltered,
         int dailyModel429,
         int dailyUser429,
-        int monthlyInputTokens,
-        int monthlyOutputTokens,
-        int monthlyCachedTokens,
+        long monthlyInputTokens,
+        long monthlyOutputTokens,
+        long monthlyCachedTokens,
         bool isMonthlyJailbreakDetected,
         bool isMonthlyContentFiltered,
         int monthlyModel429,
@@ -65,9 +65,9 @@ public readonly struct ResponseMetric
         double dailyAvgLatencyMs,
         double monthlyAvgLatencyMs,
         DateTime responseTimeUtc,
-        int hourlyInputTokens = 0,
-        int hourlyOutputTokens = 0,
-        int hourlyCachedTokens = 0,
+        long hourlyInputTokens = 0,
+        long hourlyOutputTokens = 0,
+        long hourlyCachedTokens = 0,
         bool isHourlyJailbreakDetected = false,
         bool isHourlyContentFiltered = false,
         int hourlyModel429 = 0,

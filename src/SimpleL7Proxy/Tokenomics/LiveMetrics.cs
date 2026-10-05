@@ -132,7 +132,7 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
 
     // LOOKATME
     /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
-    public async Task<int> GetDailyTokenBalanceAsync(string UserId, string Model)
+    public async Task<long> GetDailyTokenBalanceAsync(string UserId, string Model)
     {
         var pm = await GetMetric(UserId, Model);
 
@@ -144,7 +144,7 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
 
     // LOOKATME
     /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
-    public async Task<int> GetMonthlyTokenBalanceAsync(string UserId, string Model)
+    public async Task<long> GetMonthlyTokenBalanceAsync(string UserId, string Model)
     {
         var pm = await GetMetric(UserId, Model);
 
