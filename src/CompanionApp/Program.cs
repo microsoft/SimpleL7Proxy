@@ -153,35 +153,6 @@ else
         }
         else
         {
-            var labelSettings = settings.Where(setting =>
-                string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal)).ToList();
-            if (hasEventHubDefaults && !labelSettings.Any(setting =>
-                eventHubDefaults.ContainsKey(setting.Key) && !string.IsNullOrWhiteSpace(setting.LoadedValue)))
-            {
-                var defaultDrafts = appConfiguration.CreateLabelDraft(configuredLabel);
-                foreach (var entry in eventHubDefaults.Where(entry => !string.IsNullOrWhiteSpace(entry.Value)))
-                {
-                    var setting = labelSettings.FirstOrDefault(setting => setting.Key == entry.Key);
-                    if (setting is null)
-                    {
-                        setting = defaultDrafts.Single(setting => setting.Key == entry.Key);
-                        labelSettings.Add(setting);
-                    }
-                    setting.DraftValue = entry.Value;
-                }
-                if (!labelSettings.Any(setting => setting.Key == "Warm:Sentinel"))
-                {
-                    labelSettings.Add(defaultDrafts.Single(setting => setting.Key == "Warm:Sentinel"));
-                }
-                var result = await appConfiguration.UpdateAsync(
-                    appConfiguration.DefaultEndpoint, configuredLabel, labelSettings);
-                labelSettingCount = result.Settings.Count(setting =>
-                    string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
-                appConfigurationLogger.LogInformation(
-                    "App Configuration startup initialized blank Event Hub destination for label {Label} at {Endpoint}",
-                    labelDisplay,
-                    appConfiguration.DefaultEndpoint);
-            }
             appConfiguration.CachedLabel = configuredLabel;
             appConfigurationLogger.LogInformation(
                 "App Configuration startup check succeeded: label {Label} contains {SettingCount} published proxy settings at {Endpoint}",

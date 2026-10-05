@@ -173,16 +173,13 @@ var newLabelStartup = startup.Split("if (!labelExists)", StringSplitOptions.None
 Check(newLabelStartup.Contains("drafts.Single(setting => setting.Key == entry.Key).DraftValue = entry.Value;", StringComparison.Ordinal),
     "new labels receive configured Event Hub defaults before saving");
 var existingLabelStartup = startup.Split("else if (labelSettingCount == 0)", StringSplitOptions.None)[1];
-Check(existingLabelStartup.Contains("string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal)", StringComparison.Ordinal),
-    "existing-label repair is scoped to the selected label");
-Check(existingLabelStartup.Contains("eventHubDefaults.ContainsKey(setting.Key) && !string.IsNullOrWhiteSpace(setting.LoadedValue)", StringComparison.Ordinal),
-    "existing destinations, including connection-string destinations, are preserved");
-Check(existingLabelStartup.Contains("labelSettings.Add(setting);", StringComparison.Ordinal)
-    && existingLabelStartup.Contains("labelSettings.Add(defaultDrafts.Single(setting => setting.Key == \"Warm:Sentinel\"));", StringComparison.Ordinal),
-    "repair supports missing destination keys and a missing sentinel");
-Check(existingLabelStartup.Contains("appConfiguration.DefaultEndpoint, configuredLabel, labelSettings", StringComparison.Ordinal),
-    "blank existing destinations are persisted through the verified sentinel update path");
-Console.WriteLine("PASS: startup Event Hub default mapping and guarded existing-label repair source checks.");
+Check(!existingLabelStartup.Contains("appConfiguration.UpdateAsync(", StringComparison.Ordinal)
+    && !existingLabelStartup.Contains("appConfiguration.CreateLabelDraft(", StringComparison.Ordinal)
+    && !existingLabelStartup.Contains(".DraftValue =", StringComparison.Ordinal),
+    "startup does not create drafts or write settings for existing labels, including blank destinations");
+Check(newLabelStartup.Contains("createLabel: true", StringComparison.Ordinal),
+    "startup writes defaults only through label creation");
+Console.WriteLine("PASS: startup Event Hub default mapping and creation-only initialization source checks.");
 
 static void Check(bool result, string description) {
     if (!result) throw new InvalidOperationException("Failed: " + description);
