@@ -41,12 +41,30 @@ module companionAppBootstrap 'modules/companion-app.bicep' = if (settings.DEPLOY
     settings: settings
     usePrivateRegistry: false
     environmentId: foundation.outputs.environmentId
-    serverBaseUrl: 'https://${containerAppBootstrap.outputs.proxyFqdn}'
+    serverBaseUrl: 'https://${containerAppBootstrap.?outputs.proxyFqdn ?? ''}'
     appConfigurationEndpoint: ''
     appInsightsConnectionString: foundation.outputs.appInsightsConnectionString
-    sidecarUrl: containerAppBootstrap.outputs.healthProbeSidecarUrl
+    sidecarUrl: containerAppBootstrap.?outputs.healthProbeSidecarUrl ?? ''
     metricsServerUrl: metricsServerBootstrap.?outputs.url ?? ''
   }
+}
+
+module eventHub 'modules/event-hub.bicep' = if (settings.DEPLOY_COMPANION_APP) {
+  scope: resourceGroup(settings.COMPANION_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+  }
+}
+
+module eventHubAccess 'modules/event-hub-access.bicep' = if (settings.DEPLOY_COMPANION_APP) {
+  scope: resourceGroup(settings.COMPANION_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
+  }
+  dependsOn: [
+    eventHub
+  ]
 }
 
 module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRICS_SERVER) {
@@ -86,7 +104,7 @@ module cosmosAccess 'modules/cosmos-access.bicep' = if (settings.ASYNC_DEPLOYMEN
   }
 }
 
-module containerAppBootstrap 'modules/container-app.bicep' = {
+module containerAppBootstrap 'modules/container-app.bicep' = if (settings.DEPLOY_PROXY) {
   scope: resourceGroup(settings.CONTAINER_APP_RESOURCE_GROUP)
   params: {
     settings: settings
@@ -103,8 +121,8 @@ module registryAccess 'modules/registry-access.bicep' = {
   scope: resourceGroup(settings.CONTAINER_APP_RESOURCE_GROUP)
   params: {
     settings: settings
-    containerAppId: containerAppBootstrap.outputs.containerAppId
-    containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
+    containerAppId: containerAppBootstrap.?outputs.containerAppId ?? ''
+    containerAppPrincipalId: containerAppBootstrap.?outputs.identityPrincipalId ?? ''
     companionAppId: companionAppBootstrap.?outputs.appId ?? ''
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
     metricsServerId: metricsServerBootstrap.?outputs.appId ?? ''
@@ -117,8 +135,8 @@ module configurationAccess 'modules/configuration-access.bicep' = {
   params: {
     settings: settings
     configurationStoreId: configuration.outputs.configurationStoreId
-    containerAppId: containerAppBootstrap.outputs.containerAppId
-    containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
+    containerAppId: containerAppBootstrap.?outputs.containerAppId ?? ''
+    containerAppPrincipalId: containerAppBootstrap.?outputs.identityPrincipalId ?? ''
     companionAppId: companionAppBootstrap.?outputs.appId ?? ''
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
     metricsServerId: metricsServerBootstrap.?outputs.appId ?? ''
@@ -132,15 +150,17 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     settings: settings
     usePrivateRegistry: true
     environmentId: foundation.outputs.environmentId
-    serverBaseUrl: 'https://${containerAppBootstrap.outputs.proxyFqdn}'
+    serverBaseUrl: 'https://${containerAppBootstrap.?outputs.proxyFqdn ?? ''}'
+    eventHubMonitorEnabled: true
     appConfigurationEndpoint: configuration.outputs.endpoint
     appInsightsConnectionString: foundation.outputs.appInsightsConnectionString
-    sidecarUrl: containerAppBootstrap.outputs.healthProbeSidecarUrl
+    sidecarUrl: containerAppBootstrap.?outputs.healthProbeSidecarUrl ?? ''
     metricsServerUrl: metricsServerBootstrap.?outputs.url ?? ''
   }
   dependsOn: [
     registryAccess
     configurationAccess
+    eventHubAccess
   ]
 }
 
@@ -158,12 +178,12 @@ module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRIC
   ]
 }
 
-module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT) {
+module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT && settings.DEPLOY_PROXY) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
     settings: settings
-    containerAppId: containerAppBootstrap.outputs.containerAppId
-    containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
+    containerAppId: containerAppBootstrap.?outputs.containerAppId ?? ''
+    containerAppPrincipalId: containerAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
 }
 
@@ -173,12 +193,12 @@ module serviceBusAccess 'modules/service-bus-access.bicep' = if (settings.ASYNC_
     settings: settings
     requestIdentityId: requestApi.?outputs.identityId ?? ''
     requestIdentityPrincipalId: requestApi.?outputs.identityPrincipalId ?? ''
-    containerAppId: containerAppBootstrap.outputs.containerAppId
-    containerAppPrincipalId: containerAppBootstrap.outputs.identityPrincipalId
+    containerAppId: containerAppBootstrap.?outputs.containerAppId ?? ''
+    containerAppPrincipalId: containerAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
 }
 
-module containerApp 'modules/container-app.bicep' = {
+module containerApp 'modules/container-app.bicep' = if (settings.DEPLOY_PROXY) {
   scope: resourceGroup(settings.CONTAINER_APP_RESOURCE_GROUP)
   params: {
     settings: settings
@@ -197,15 +217,16 @@ module containerApp 'modules/container-app.bicep' = {
   ]
 }
 
-module privateDns 'modules/private-dns.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT) {
+module privateDns 'modules/private-dns.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT && settings.DEPLOY_PROXY) {
   scope: resourceGroup(settings.NETWORK_RESOURCE_GROUP)
   params: {
     settings: settings
     environmentDomain: foundation.outputs.environmentDomain
     environmentStaticIp: foundation.outputs.environmentStaticIp
-    proxyFqdn: containerApp.outputs.proxyFqdn
+    proxyFqdn: containerApp.?outputs.proxyFqdn ?? ''
   }
 }
 
-output proxyUrl string = 'https://${containerApp.outputs.proxyFqdn}'
+output proxyUrl string = settings.DEPLOY_PROXY ? 'https://${containerApp.?outputs.proxyFqdn ?? ''}' : ''
 output companionAppUrl string = companionApp.?outputs.url ?? ''
+output metricsServerUrl string = metricsServer.?outputs.url ?? ''

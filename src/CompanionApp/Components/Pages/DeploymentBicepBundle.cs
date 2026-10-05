@@ -54,8 +54,8 @@ public static class DeploymentBicepBundle {
     }
 
     private static string GenerateParameters(IReadOnlyDictionary<string, string> values) {
-        var resourceGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP" }.ToList();
-        if (Enabled(values, "DEPLOY_COMPANION_APP")) resourceGroupKeys.AddRange(["COMPANION_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP"]);
+        var resourceGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
+        if (Enabled(values, "DEPLOY_COMPANION_APP")) resourceGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
         if (Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT")) resourceGroupKeys.Add("NETWORK_RESOURCE_GROUP");
         if (Enabled(values, "ASYNC_DEPLOYMENT")) resourceGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
         var resourceGroups = new JsonArray();

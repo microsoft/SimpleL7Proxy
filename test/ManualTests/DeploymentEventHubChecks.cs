@@ -108,7 +108,12 @@ foreach (var consumerGroup in new[] { "monitor-reader", "$Default" }) {
     values["COMPANION_EVENTHUB_NAME"] = "request.events";
     values["COMPANION_EVENTHUB_CONSUMER_GROUP"] = consumerGroup;
     var files = DeploymentBicepBundle.Generate(values);
+    foreach (var file in files.Keys.Where(file => file.EndsWith(".bicep", StringComparison.Ordinal)))
+        Check(files[file] == File.ReadAllText(Path.Combine(root, "deployment", file)).Replace("\r\n", "\n", StringComparison.Ordinal), file + " is embedded from the canonical deployment source");
     var settings = JsonNode.Parse(files["parameters.json"])!["parameters"]!["settings"]!["value"]!;
+    var declaredSettings = Regex.Matches(files["types.bicep"], "^  ([A-Z][A-Z0-9_]+):", RegexOptions.Multiline)
+        .Select(match => match.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+    Check(declaredSettings.SetEquals(settings.AsObject().Select(setting => setting.Key)), "generated settings match the canonical Bicep type");
     foreach (var key in keys) Check(settings[key]!.GetValue<string>() == values[key], key + " survives parameter export");
     Check(settings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == enabled, "Companion App selection survives export");
     Check(settings["RESOURCE_GROUPS"]!.AsArray().Any(group => group!.GetValue<string>() == values["COMPANION_APP_RESOURCE_GROUP"]) == (enabled || shared), "Event Hub uses the selected Companion App resource group");
@@ -133,6 +138,13 @@ foreach (var consumerGroup in new[] { "monitor-reader", "$Default" }) {
     foreach (var type in new[] { "namespaces", "namespaces/eventhubs", "namespaces/eventhubs/consumergroups" })
         Check(files["modules/event-hub.bicep"].Contains($"'Microsoft.EventHub/{type}@2024-01-01'", StringComparison.Ordinal), "resources include " + type);
     Check(files["modules/event-hub.bicep"].Contains("disableLocalAuth: true", StringComparison.Ordinal), "namespace disables shared-key authentication");
+    var metricsServer = files["modules/metrics-server.bicep"];
+    Check(metricsServer.Contains("name: 'AppConfigurationEndpoint'", StringComparison.Ordinal), "Metrics Server receives its App Configuration endpoint");
+    Check(metricsServer.Contains("name: 'AppConfigurationLabel'", StringComparison.Ordinal), "Metrics Server receives its App Configuration label");
+    Check(files["main.bicep"].Contains("appConfigurationEndpoint: configuration.outputs.endpoint", StringComparison.Ordinal), "deployment passes the App Configuration endpoint to Metrics Server");
+    var metricsModule = files["main.bicep"].Split("module metricsServer '", StringSplitOptions.None)[1];
+    Check(metricsModule.Contains("    configurationAccess\n", StringComparison.Ordinal), "Metrics Server waits for App Configuration reader RBAC");
+    Check(files["modules/configuration-access.bicep"].Contains("principalId: metricsServerPrincipalId", StringComparison.Ordinal), "Metrics Server identity receives App Configuration Data Reader");
     Check(files["deploy.sh"].Contains(".COMPANION_EVENTHUB_NAMESPACE |= with_hyphen(50)", StringComparison.Ordinal), "MakeUniq preserves namespace length limits");
     using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(DeploymentBicepBundle.CreateArchive(files)));
     foreach (var file in new[] { "modules/event-hub.bicep", "modules/event-hub-access.bicep" }) {

@@ -28,7 +28,7 @@ resource requestAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = [f
   }
 }]
 
-resource proxySender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource proxySender 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_PROXY) {
   name: guid(serviceBus.id, containerAppId, senderRoleId)
   scope: serviceBus
   properties: {

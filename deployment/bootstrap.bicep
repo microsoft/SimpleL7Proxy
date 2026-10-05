@@ -7,6 +7,7 @@ param settings DeploymentSettings
 
 var resourceGroupNames = union(
   settings.RESOURCE_GROUPS,
+  [settings.APPCONFIG_RESOURCE_GROUP],
   settings.DEPLOY_COMPANION_APP ? [settings.COMPANION_APP_RESOURCE_GROUP] : []
 )
 
