@@ -234,6 +234,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(templateAssets.All(bicepFiles.ContainsKey), "Bicep bundle includes every static template asset");
     Check(bicepFiles.Keys.Count(file => file.EndsWith(".bicep", StringComparison.Ordinal)) == templateAssets.Length, "Bicep bundle contains only the expected template assets");
     Check(templateAssets.All(file => bicepFiles[file].EndsWith('\n')), "static Bicep assets preserve their final newline");
+    Check(templateAssets.All(file => bicepFiles[file] == File.ReadAllText(Path.Combine(root, "deployment", file)).Replace("\r\n", "\n", StringComparison.Ordinal)), "Bicep bundle embeds the canonical deployment templates without copies");
     Check(bicepFiles.ContainsKey("parameters.json"), "Bicep bundle includes generated deployment parameters");
     Check(bicepFiles["README.md"].EndsWith('\n') && bicepFiles["deploy.sh"].EndsWith('\n'), "bundle text assets preserve their final newline");
     Check(bicepFiles["README.md"].Contains("\n## Check deployment status\n", StringComparison.Ordinal), "bundle README recovery heading is not indented as code");
@@ -334,13 +335,12 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["main.bicep"].Contains("containerAppBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules safely consume the optional proxy system principal output");
     Check(bicepFiles["main.bicep"].Contains("companionAppBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Companion App system principal output");
     Check(bicepFiles["main.bicep"].Contains("metricsServerBootstrap.?outputs.identityPrincipalId", StringComparison.Ordinal), "Bicep access modules consume the bootstrapped Metrics Server system principal output");
-    Check(Regex.Matches(bicepFiles["main.bicep"], "serverBaseUrl: 'https://\\$\\{containerAppBootstrap\\.\\?outputs\\.proxyFqdn").Count == 2, "Bicep safely passes the optional proxy URL to both Companion App revisions");
-    Check(Regex.Matches(bicepFiles["main.bicep"], "sidecarUrl: containerAppBootstrap\\.\\?outputs\\.healthProbeSidecarUrl").Count == 2, "Bicep safely passes the optional sidecar URL to both Companion App revisions");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "serverBaseUrl: 'https://\\$\\{containerAppBootstrap\\.outputs\\.proxyFqdn").Count == 2, "Bicep passes the proxy URL to both Companion App revisions");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "sidecarUrl: containerAppBootstrap\\.outputs\\.healthProbeSidecarUrl").Count == 2, "Bicep passes the sidecar URL to both Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "metricsServerUrl: metricsServerBootstrap\\.\\?outputs\\.url \\?\\? ''").Count == 2, "Bicep passes the Metrics Server URL to both Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "appInsightsConnectionString: foundation\\.outputs\\.appInsightsConnectionString").Count == 4, "Bicep passes the App Insights connection string to both proxy and Companion App revisions");
     Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: ''").Count == 3, "Bicep withholds the App Configuration endpoint from bootstrap revisions until RBAC exists");
-    Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: configuration\\.\\?outputs\\.endpoint").Count == 1, "Bicep passes the App Configuration endpoint only to the Companion App");
-    Check(bicepFiles["main.bicep"].Contains("appConfigurationEndpoint: settings.DEPLOY_COMPANION_APP ? configuration.?outputs.endpoint ?? '' : ''", StringComparison.Ordinal), "Bicep passes the App Configuration endpoint to the final Metrics Server only when the store is deployed");
+    Check(Regex.Matches(bicepFiles["main.bicep"], "appConfigurationEndpoint: configuration\\.outputs\\.endpoint").Count == 3, "Bicep passes the App Configuration endpoint to the final proxy, Companion App, and Metrics Server");
     Check(bicepFiles["main.bicep"].Contains("metricsServerPrincipalId: metricsServerBootstrap.?outputs.identityPrincipalId ?? ''", StringComparison.Ordinal), "Bicep passes the Metrics Server principal to App Configuration access");
     Check(bicepFiles["main.bicep"].Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "App Configuration and Event Hub follow Companion App selection");
     Check(bicepFiles["main.bicep"].Contains("output proxyUrl string", StringComparison.Ordinal), "Bicep exposes the proxy URL");

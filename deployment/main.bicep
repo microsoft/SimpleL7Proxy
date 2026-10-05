@@ -49,6 +49,24 @@ module companionAppBootstrap 'modules/companion-app.bicep' = if (settings.DEPLOY
   }
 }
 
+module eventHub 'modules/event-hub.bicep' = if (settings.DEPLOY_COMPANION_APP) {
+  scope: resourceGroup(settings.COMPANION_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+  }
+}
+
+module eventHubAccess 'modules/event-hub-access.bicep' = if (settings.DEPLOY_COMPANION_APP) {
+  scope: resourceGroup(settings.COMPANION_APP_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
+  }
+  dependsOn: [
+    eventHub
+  ]
+}
+
 module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRICS_SERVER) {
   scope: resourceGroup(settings.CONTAINER_APP_RESOURCE_GROUP)
   params: {
@@ -133,6 +151,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     usePrivateRegistry: true
     environmentId: foundation.outputs.environmentId
     serverBaseUrl: 'https://${containerAppBootstrap.outputs.proxyFqdn}'
+    eventHubMonitorEnabled: true
     appConfigurationEndpoint: configuration.outputs.endpoint
     appInsightsConnectionString: foundation.outputs.appInsightsConnectionString
     sidecarUrl: containerAppBootstrap.outputs.healthProbeSidecarUrl
@@ -141,6 +160,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
   dependsOn: [
     registryAccess
     configurationAccess
+    eventHubAccess
   ]
 }
 
@@ -209,3 +229,4 @@ module privateDns 'modules/private-dns.bicep' = if (settings.PRIVATE_NETWORK_DEP
 
 output proxyUrl string = 'https://${containerApp.outputs.proxyFqdn}'
 output companionAppUrl string = companionApp.?outputs.url ?? ''
+output metricsServerUrl string = metricsServer.?outputs.url ?? ''
