@@ -48,6 +48,7 @@ builder.Services.AddSingleton<ImageSyncService>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.AddSingleton<EventHubMonitorStore>();
+builder.Services.AddSingleton<TokenomicsDashboardStore>();
 builder.Services.AddSingleton<ProxyMetricsCatalog>();
 if (!uiOnly && (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath)))
 {
