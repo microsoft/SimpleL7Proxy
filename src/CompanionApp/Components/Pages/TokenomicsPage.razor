@@ -1,6 +1,8 @@
 @page "/tokenomics"
 @namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
+@inject CompanionApp.Components.Shared.TokenomicsDashboardStore Store
+@implements IDisposable
 
 <PageTitle>Tokenomics</PageTitle>
 
@@ -9,21 +11,24 @@
         <div>
             <h1>Tokenomics</h1>
             <p>Usage, cost, policy and performance insights for your AI workloads</p>
-            <span class="sample-data-label">Static sample data · not connected to a service</span>
+            @if (_snapshot.IsSampleData)
+            {
+                <span class="sample-data-label">Sample data · not connected to a service</span>
+            }
         </div>
         <div class="tokenomics-filters" aria-label="Dashboard filters">
-            <label><span class="visually-hidden">Time period</span><select aria-label="Time period"><option>Last 7 days</option><option>Last 30 days</option></select></label>
-            <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant"><option>All tenants</option><option>Contoso</option><option>Fabrikam</option></select></label>
-            <label><span class="visually-hidden">User</span><select aria-label="User"><option>All users</option><option>sam</option><option>alex</option></select></label>
-            <label><span class="visually-hidden">Model</span><select aria-label="Model"><option>All models</option><option>gpt-4o</option><option>claude-3-5</option></select></label>
-            <span class="updated-label">Sample snapshot · Nov 10, 2024</span>
+            <label><span class="visually-hidden">Time period</span><select aria-label="Time period">@foreach (var period in _snapshot.TimePeriods) { <option>@period</option> }</select></label>
+            <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
+            <label><span class="visually-hidden">User</span><select aria-label="User">@foreach (var user in _snapshot.UserFilters) { <option>@user</option> }</select></label>
+            <label><span class="visually-hidden">Model</span><select aria-label="Model">@foreach (var model in _snapshot.ModelFilters) { <option>@model</option> }</select></label>
+            <span class="updated-label">@_snapshot.SnapshotLabel</span>
         </div>
     </header>
 
     <div class="tokenomics-layout">
         <main class="tokenomics-dashboard">
             <section class="tokenomics-kpis" aria-label="Summary metrics">
-                @foreach (var metric in Metrics)
+                @foreach (var metric in _snapshot.Metrics)
                 {
                     <article class="tokenomics-card kpi-card">
                         <div class="kpi-heading">
@@ -48,31 +53,33 @@
                 </div>
                 <article class="tokenomics-card trend-card">
                     <h3>Token Usage and Spend Trend</h3>
-                    <div class="trend-plot" role="img" aria-label="Sample chart showing daily input, output, cached tokens and spend from November 3 through November 10">
+                    <div class="trend-plot" role="img" aria-label="@_snapshot.TrendDescription">
                         <div class="trend-y-label">Tokens</div>
                         <div class="trend-grid">
-                            <div class="trend-y-ticks" aria-hidden="true"><span>8M</span><span>6M</span><span>4M</span><span>2M</span><span>0</span></div>
+                            <div class="trend-y-ticks" aria-hidden="true">@foreach (var tick in _snapshot.TokenAxisTicks) { <span>@tick</span> }</div>
                             <div class="trend-bars">
-                                @foreach (var point in Trend)
+                                @foreach (var point in _snapshot.Trend)
                                 {
                                     <div class="trend-day">
                                         <div class="bar-area">
                                             <div class="trend-bar">
-                                                <span class="bar-input" style="height: @(point.InputNet / 8d * 100)%"></span>
-                                                <span class="bar-cached" style="height: @(point.Cached / 8d * 100)%"></span>
-                                                <span class="bar-output" style="height: @(point.Output / 8d * 100)%"></span>
+                                                <span class="bar-input" style="height: @((point.InputNet / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                                                <span class="bar-cached" style="height: @((point.Cached / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                                                <span class="bar-output" style="height: @((point.Output / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
                                             </div>
                                         </div>
                                         <span class="trend-date">@point.Date</span>
                                     </div>
                                 }
                                 <svg class="trend-line" viewBox="0 0 800 160" preserveAspectRatio="none" aria-hidden="true">
-                                    <polyline points="54,75 153,83 251,61 349,81 447,92 545,68 643,45 742,79" />
-                                    <circle cx="54" cy="75" r="3" /><circle cx="153" cy="83" r="3" /><circle cx="251" cy="61" r="3" /><circle cx="349" cy="81" r="3" />
-                                    <circle cx="447" cy="92" r="3" /><circle cx="545" cy="68" r="3" /><circle cx="643" cy="45" r="3" /><circle cx="742" cy="79" r="3" />
+                                    <polyline points="@string.Join(" ", _snapshot.SpendLine.Select(point => $"{point.X},{point.Y}"))" />
+                                    @foreach (var point in _snapshot.SpendLine)
+                                    {
+                                        <circle cx="@point.X" cy="@point.Y" r="3" />
+                                    }
                                 </svg>
                             </div>
-                            <div class="trend-right-ticks" aria-hidden="true"><span>$400</span><span>$300</span><span>$200</span><span>$100</span><span>$0</span></div>
+                            <div class="trend-right-ticks" aria-hidden="true">@foreach (var tick in _snapshot.SpendAxisTicks) { <span>@tick</span> }</div>
                         </div>
                         <div class="trend-x-label">Spend (USD)</div>
                     </div>
@@ -88,11 +95,11 @@
                     <article class="tokenomics-card insight-card model-card">
                         <h3>Token Usage by Model</h3>
                         <div class="model-breakdown">
-                            <div class="model-donut" role="img" aria-label="gpt-4o 58.8%, gpt-4o-mini 16.8%, claude-3-5 10.8%, gpt-4.1 7%, o3-mini 3.9%, other 2.7%">
-                                <div><strong>48.3M</strong><span>Total Tokens</span></div>
+                            <div class="model-donut" role="img" aria-label="@_snapshot.ModelDescription" style="--model-distribution: @_snapshot.ModelGradient">
+                                <div><strong>@_snapshot.TotalTokens</strong><span>Total Tokens</span></div>
                             </div>
                             <ul class="model-legend">
-                                @foreach (var model in Models)
+                                @foreach (var model in _snapshot.Models)
                                 {
                                     <li><i class="@model.Color"></i><span>@model.Name</span><strong>@model.Tokens <small>(@model.Share)</small></strong></li>
                                 }
@@ -103,7 +110,7 @@
                     <article class="tokenomics-card insight-card">
                         <h3>Spend by Tenant</h3>
                         <ul class="horizontal-bars spend-bars">
-                            @foreach (var tenant in TenantSpend)
+                            @foreach (var tenant in _snapshot.TenantSpend)
                             {
                                 <li><span>@tenant.Name</span><div class="horizontal-track"><i class="@tenant.Color" style="width: @tenant.Width"></i></div><strong>@tenant.Amount</strong></li>
                             }
@@ -113,7 +120,7 @@
                     <article class="tokenomics-card insight-card">
                         <h3>Quota Utilization</h3>
                         <ul class="horizontal-bars quota-bars">
-                            @foreach (var tenant in Quotas)
+                            @foreach (var tenant in _snapshot.Quotas)
                             {
                                 <li><span>@tenant.Name</span><div class="horizontal-track"><i class="@tenant.Color" style="width: @tenant.Width"></i></div><strong>@tenant.Amount</strong></li>
                             }
@@ -133,7 +140,7 @@
                         <table class="users-table">
                             <thead><tr><th>#</th><th>User</th><th>Tenant</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cached Tokens</th><th>Spend (USD)</th><th>Quota Used</th><th>Trend</th></tr></thead>
                             <tbody>
-                                @foreach (var user in Users)
+                                @foreach (var user in _snapshot.Users)
                                 {
                                     <tr>
                                         <td>@user.Rank</td><td><i class="user-dot @user.Color"></i>@user.Name</td><td>@user.Tenant</td><td>@user.Total</td><td>@user.Input</td><td>@user.Output</td><td>@user.Cached</td><td>@user.Spend</td>
@@ -151,7 +158,7 @@
         <aside class="tokenomics-reports" aria-label="Tokenomics reports">
             <h2><span aria-hidden="true">▥</span> Tokenomics Reports</h2>
             <p>Select a report to explore detailed insights</p>
-            @foreach (var report in Reports)
+            @foreach (var report in _snapshot.Reports)
             {
                 <button type="button" class="report-card" disabled title="Report navigation is a placeholder">
                     <span class="report-icon" aria-hidden="true">@report.Icon</span>
@@ -164,61 +171,28 @@
 </div>
 
 @code {
-    private static readonly (string Name, string Value, string Change, string Icon, string Tone, string ChangeTone)[] Metrics =
-    [
-        ("Total Tokens", "48.3M", "↑ 12%", "▤", "blue", "positive"),
-        ("Total Spend (USD)", "$1,924", "↑ 8%", "$", "blue", "positive"),
-        ("Total Requests", "52,389", "↑ 15%", "▣", "blue", "positive"),
-        ("Success Rate", "98.7%", "↑ 0.6%", "✓", "green", "positive"),
-        ("Policy Actions", "1,243", "↑ 22%", "⬟", "red", "negative"),
-        ("429 Throttles", "186", "↑ 34%", "!", "red", "negative")
-    ];
+    private CompanionApp.Components.Shared.TokenomicsDashboardSnapshot _snapshot = new();
+    private bool _disposed;
 
-    private static readonly (string Date, double InputNet, double Cached, double Output)[] Trend =
-    [
-        ("Nov 3", 2.2, 0.7, 0.9), ("Nov 4", 2.1, 0.8, 0.9), ("Nov 5", 2.4, 0.9, 1.0), ("Nov 6", 2.8, 0.8, 1.1),
-        ("Nov 7", 2.0, 0.7, 0.9), ("Nov 8", 2.9, 0.9, 1.0), ("Nov 9", 3.6, 1.0, 1.2), ("Nov 10", 1.8, 0.6, 0.8)
-    ];
+    protected override void OnInitialized()
+    {
+        Store.Changed += OnStoreChanged;
+        _snapshot = Store.GetSnapshot();
+    }
 
-    private static readonly (string Name, string Tokens, string Share, string Color)[] Models =
-    [
-        ("gpt-4o", "28.4M", "58.8%", "model-blue"), ("gpt-4o-mini", "8.1M", "16.8%", "model-cyan"),
-        ("claude-3-5", "5.2M", "10.8%", "model-green"), ("gpt-4.1", "3.4M", "7.0%", "model-purple"),
-        ("o3-mini", "1.9M", "3.9%", "model-orange"), ("Other", "1.3M", "2.7%", "model-gray")
-    ];
+    private void OnStoreChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (_disposed) return;
+            _snapshot = Store.GetSnapshot();
+            StateHasChanged();
+        });
+    }
 
-    private static readonly (string Name, string Amount, string Width, string Color)[] TenantSpend =
-    [
-        ("Contoso", "$642", "100%", "bar-blue"), ("Fabrikam", "$412", "64%", "bar-cyan"),
-        ("Northwind", "$318", "50%", "bar-green"), ("Tailspin", "$286", "45%", "bar-purple"),
-        ("AdventureWorks", "$196", "31%", "bar-orange"), ("Other", "$70", "11%", "bar-gray")
-    ];
-
-    private static readonly (string Name, string Amount, string Width, string Color)[] Quotas =
-    [
-        ("Contoso", "78%", "78%", "bar-red"), ("Fabrikam", "62%", "62%", "bar-orange"),
-        ("Northwind", "41%", "41%", "bar-green"), ("Tailspin", "38%", "38%", "bar-green"),
-        ("AdventureWorks", "22%", "22%", "bar-green"), ("Other", "18%", "18%", "bar-green")
-    ];
-
-    private static readonly (int Rank, string Name, string Tenant, string Total, string Input, string Output, string Cached, string Spend, string Quota, string QuotaColor, string Color, string Sparkline)[] Users =
-    [
-        (1, "sam", "Contoso", "8,421,332", "5,221,443", "2,814,221", "385,668", "$336.88", "84%", "quota-red", "user-blue", "2,16 12,13 20,15 29,8 39,11 48,5 57,8 66,2"),
-        (2, "alex", "Fabrikam", "4,993,221", "3,104,552", "1,553,219", "335,450", "$201.44", "62%", "quota-orange", "user-blue", "2,15 11,11 19,14 29,7 38,10 47,4 56,7 66,2"),
-        (3, "maria", "Northwind", "3,881,002", "2,450,883", "1,101,334", "328,785", "$158.13", "48%", "quota-green", "user-green", "2,16 12,13 21,14 30,7 38,10 48,5 57,7 66,2"),
-        (4, "david", "Tailspin", "2,995,441", "1,882,119", "827,221", "286,101", "$121.77", "34%", "quota-green", "user-purple", "2,15 11,12 20,14 29,8 38,10 47,5 56,7 66,2"),
-        (5, "chen", "Contoso", "2,114,993", "1,221,004", "664,332", "229,657", "$86.21", "29%", "quota-green", "user-blue", "2,16 12,13 21,14 29,9 38,11 47,5 56,7 66,2")
-    ];
-
-    private static readonly (string Name, string Description, string Icon)[] Reports =
-    [
-        ("Quota and Budget Utilization", "Usage, spend, limits and at-risk entities", "▤"),
-        ("Policy Decisions and Outcomes", "Actions taken and their results", "⬟"),
-        ("Model Routing and Substitution", "Requested vs selected models and cost impact", "⌘"),
-        ("Capacity and Queue Pressure", "Utilization, queue depth and delay/requeue", "☷"),
-        ("Latency, Errors and Throttling", "Performance, 429s and error rates", "◷"),
-        ("Large-Context Workload", "High token requests and model behavior", "▣"),
-        ("Governance, Overrides and Exceptions", "Admin overrides, approvals and compliance", "♟"),
-        ("Abuse and Content-Filter Activity", "Jailbreaks, filtered responses and trends", "⚠")
-    ];
+    public void Dispose()
+    {
+        _disposed = true;
+        Store.Changed -= OnStoreChanged;
+    }
 }

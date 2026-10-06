@@ -362,7 +362,7 @@
     aspect-ratio: 1;
     place-items: center;
     border-radius: 50%;
-    background: conic-gradient(#287cf0 0 58.8%, #31c1df 58.8% 75.6%, #48c58a 75.6% 86.4%, #9652ef 86.4% 93.4%, #ffa21b 93.4% 97.3%, #9ba9c1 97.3% 100%);
+    background: var(--model-distribution);
 }
 
 .model-donut > div {
