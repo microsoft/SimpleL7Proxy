@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 
 namespace CompanionApp.Components.Shared;
 
@@ -88,8 +89,20 @@ public sealed record TokenomicsDashboardSnapshot {
 }
 
 /// <summary>Shared server-side state; publishers control the update cadence independently of the UI.</summary>
-public sealed class TokenomicsDashboardStore {
+public sealed class TokenomicsDashboardStore : IDisposable {
     private TokenomicsDashboardSnapshot _snapshot = TokenomicsDashboardSnapshot.Sample;
+    private readonly object _updateLock = new();
+    private readonly Timer _sampleTimer;
+    private readonly ILogger<TokenomicsDashboardStore>? _logger;
+    private bool _disposed;
+    private bool _sampleUpdatesStopped;
+
+    /// <summary>Starts one-second sample updates until real data is published or the store is disposed.</summary>
+    public TokenomicsDashboardStore(ILogger<TokenomicsDashboardStore>? logger = null) {
+        _logger = logger;
+        _sampleTimer = new Timer(RefreshSample, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _sampleTimer.Change(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
 
     /// <summary>Signals that subscribers can read a new snapshot.</summary>
     public event Action? Changed;
@@ -103,7 +116,127 @@ public sealed class TokenomicsDashboardStore {
         if (!double.IsFinite(snapshot.TokenAxisMaximum) || snapshot.TokenAxisMaximum <= 0) {
             throw new ArgumentOutOfRangeException(nameof(snapshot), "The token axis maximum must be finite and positive.");
         }
-        Interlocked.Exchange(ref _snapshot, snapshot);
-        Changed?.Invoke();
+        lock (_updateLock) {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!snapshot.IsSampleData) {
+                _sampleUpdatesStopped = true;
+                _sampleTimer.Dispose();
+            }
+            Interlocked.Exchange(ref _snapshot, snapshot);
+            Changed?.Invoke();
+        }
+    }
+
+    private void RefreshSample(object? state) {
+        try {
+            lock (_updateLock) {
+                if (_disposed || _sampleUpdatesStopped) return;
+                Update(CreateSampleSnapshot());
+            }
+        }
+        catch (Exception exception) {
+            _logger?.LogError(exception, "Failed to refresh the Tokenomics sample dashboard.");
+        }
+    }
+
+    private static TokenomicsDashboardSnapshot CreateSampleSnapshot() {
+        var sample = TokenomicsDashboardSnapshot.Sample;
+        var culture = CultureInfo.InvariantCulture;
+        var trend = sample.Trend.Select(point => (
+            point.Date,
+            InputNet: point.InputNet * (0.8 + Random.Shared.NextDouble() * 0.4),
+            Cached: point.Cached * (0.8 + Random.Shared.NextDouble() * 0.4),
+            Output: point.Output * (0.8 + Random.Shared.NextDouble() * 0.4))).ToImmutableArray();
+        var total = trend.Sum(point => point.InputNet + point.Cached + point.Output);
+        var totalTokens = total.ToString("F1", culture) + "M";
+        var dailySpend = trend.Select(point => (point.InputNet + point.Cached + point.Output) * 40).ToArray();
+        var spend = dailySpend.Sum();
+        var metrics = sample.Metrics.Select((metric, index) => {
+            var value = index switch {
+                0 => totalTokens,
+                1 => spend.ToString("$#,##0", culture),
+                2 => Random.Shared.Next(45000, 60000).ToString("N0", culture),
+                3 => (97 + Random.Shared.NextDouble() * 2.9).ToString("F1", culture) + "%",
+                4 => Random.Shared.Next(1000, 1500).ToString("N0", culture),
+                _ => Random.Shared.Next(100, 300).ToString("N0", culture)
+            };
+            return (metric.Name, Value: value, Change: $"↑ {Random.Shared.Next(1, 35)}%",
+                metric.Icon, metric.Tone, metric.ChangeTone);
+        }).ToImmutableArray();
+
+        var weights = sample.Models.Select(model =>
+            double.Parse(model.Share.TrimEnd('%'), culture) * (0.8 + Random.Shared.NextDouble() * 0.4)).ToArray();
+        var weightTotal = weights.Sum();
+        var shares = weights.Select(weight => weight / weightTotal * 100).ToArray();
+        var models = sample.Models.Select((model, index) => (
+            model.Name,
+            Tokens: (total * shares[index] / 100).ToString("F1", culture) + "M",
+            Share: shares[index].ToString("F1", culture) + "%",
+            model.Color)).ToImmutableArray();
+        string[] colors = ["#287cf0", "#31c1df", "#48c58a", "#9652ef", "#ffa21b", "#9ba9c1"];
+        var start = 0.0;
+        var gradientStops = shares.Select((share, index) => {
+            var end = index == shares.Length - 1 ? 100 : start + share;
+            var stop = FormattableString.Invariant($"{colors[index]} {start:F2}% {end:F2}%");
+            start = end;
+            return stop;
+        }).ToArray();
+
+        var tenantWeights = sample.TenantSpend.Select(tenant =>
+            double.Parse(tenant.Amount.TrimStart('$'), culture) * (0.8 + Random.Shared.NextDouble() * 0.4)).ToArray();
+        var tenantWeightTotal = tenantWeights.Sum();
+        var tenantWeightMaximum = tenantWeights.Max();
+        var tenantSpend = sample.TenantSpend.Select((tenant, index) => (
+            tenant.Name,
+            Amount: (spend * tenantWeights[index] / tenantWeightTotal).ToString("$#,##0", culture),
+            Width: (tenantWeights[index] / tenantWeightMaximum * 100).ToString("F1", culture) + "%",
+            tenant.Color)).ToImmutableArray();
+        var quotas = sample.Quotas.Select(tenant => {
+            var quota = Random.Shared.Next(15, 96);
+            return (tenant.Name, Amount: $"{quota}%", Width: $"{quota}%",
+                Color: quota >= 75 ? "bar-red" : quota >= 50 ? "bar-orange" : "bar-green");
+        }).ToImmutableArray();
+        var users = sample.Users.Select(user => {
+            var factor = 0.8 + Random.Shared.NextDouble() * 0.4;
+            var input = (long)(long.Parse(user.Input, NumberStyles.AllowThousands, culture) * factor);
+            var output = (long)(long.Parse(user.Output, NumberStyles.AllowThousands, culture) * factor);
+            var cached = (long)(long.Parse(user.Cached, NumberStyles.AllowThousands, culture) * factor);
+            var userTotal = input + output + cached;
+            var quota = Random.Shared.Next(20, 96);
+            var sparkline = string.Join(" ", Enumerable.Range(0, 8).Select(index =>
+                $"{2 + index * 9},{Math.Max(1, 17 - index * 2 + Random.Shared.Next(-2, 3))}"));
+            return (user.Rank, user.Name, user.Tenant,
+                Total: userTotal.ToString("N0", culture), Input: input.ToString("N0", culture),
+                Output: output.ToString("N0", culture), Cached: cached.ToString("N0", culture),
+                Spend: (userTotal / 1_000_000.0 * 40).ToString("$0.00", culture),
+                Quota: $"{quota}%", QuotaColor: quota >= 75 ? "quota-red" : quota >= 50 ? "quota-orange" : "quota-green",
+                user.Color, Sparkline: sparkline);
+        }).OrderByDescending(user => long.Parse(user.Total, NumberStyles.AllowThousands, culture))
+            .Select((user, index) => user with { Rank = index + 1 }).ToImmutableArray();
+
+        return sample with {
+            SnapshotLabel = $"Sample snapshot · {DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", culture)}",
+            Metrics = metrics,
+            Trend = trend,
+            TrendDescription = "Simulated daily input, output, cached tokens and spend; refreshed every second",
+            SpendLine = sample.SpendLine.Select((point, index) =>
+                (point.X, Y: (int)Math.Round(160 * (1 - dailySpend[index] / 400)))).ToImmutableArray(),
+            TotalTokens = totalTokens,
+            Models = models,
+            ModelDescription = string.Join(", ", models.Select(model => $"{model.Name} {model.Share}")),
+            ModelGradient = $"conic-gradient({string.Join(", ", gradientStops)})",
+            TenantSpend = tenantSpend,
+            Quotas = quotas,
+            Users = users
+        };
+    }
+
+    /// <summary>Stops sample updates when the singleton store is released by the host.</summary>
+    public void Dispose() {
+        lock (_updateLock) {
+            if (_disposed) return;
+            _disposed = true;
+            _sampleTimer.Dispose();
+        }
     }
 }
