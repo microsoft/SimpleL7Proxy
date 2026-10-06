@@ -117,7 +117,7 @@ public sealed class TokenomicsSummaryEventSampleTests : IRegressionTestMetadata 
         var shuffledEvents = events.ToArray();
         random.Shuffle(shuffledEvents);
         string artifactDirectory = Path.Combine(
-            TestContext.TestResultsDirectory ?? Path.GetTempPath(),
+            Path.GetTempPath(),
             $"tokenomics-sample-{Guid.NewGuid():N}");
         Directory.CreateDirectory(artifactDirectory);
         string artifactPath = Path.Combine(artifactDirectory, "tokenomics-summary-events.ndjson");
