@@ -16,6 +16,8 @@ using SimpleL7Proxy.Async.Jobs;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
+using SimpleL7Proxy.Tokenomics;
+using SimpleL7Proxy.Tokenomics.Llm;
 
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
@@ -220,23 +222,27 @@ public class RequestData : IDisposable, IAsyncDisposable
     public short S7PHash { get; set; }
     public int S7PInputTokens { get; set; }
     public int S7POutputTokens { get; set; }
-    public bool ModelReplacementAllowed { get; set; }
+    public bool ModelReplacementAllowed { get; set; }   // Tokenomics related flag
     /// <summary>Gets or sets whether abuse detection has marked this request for rejection.</summary>
     public bool IsAbusive { get; set; }
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
     public ProxyEvent EventData;
+    public TokenomicsSummaryEvent? TokenomicsSummary { get; set; }
     public Stream? OutputStream { get; set; }
     public Stream? Body { get; private set; }
+    public int EvaluationSequence { get; set; } = 0;   // Tokenomics related evaluation sequence
     public string ExpireReason { get; set; } = "";
     public string ExpiresAtString { get; set; } = "";
     public string FullURL { get; set; }
     public string Method { get; set; }
     public string MID { get; set; } = "";
-    public string Model { get; set; } = "";
+    public string Model { get; set; } = "";     // Tokenomics related model
+    public string OriginalModel { get; set; } = "";   // Tokenomics related original model
     public string ParentId { get; set; } = "";
     public string Path { get; set; }
     public bool Requeued { get; set; } = false;
+    public string Tenant { get; set; } = "";   // Tokenomics related tenant
     public string UserID { get; set; } = "";
     public string profileUserId { get; set; } = "";
     public WebHeaderCollection Headers { get; private set; }

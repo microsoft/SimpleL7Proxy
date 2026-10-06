@@ -1,6 +1,6 @@
 using System.Collections.Frozen;
 
-namespace SimpleL7Proxy.Llm;
+namespace SimpleL7Proxy.Tokenomics.Llm;
 
 public static class FieldRemovalMap
 {

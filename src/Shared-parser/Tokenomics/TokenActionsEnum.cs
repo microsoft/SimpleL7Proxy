@@ -38,7 +38,8 @@ public enum TokenDecisionEnum
     AllowedWithChanges,
     Delayed,
     Requeued,
-    Rejected
+    Rejected,
+    Throttled
 }
 public enum TokenConditionEnum
 {

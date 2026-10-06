@@ -113,7 +113,7 @@ public class TokenomicsSettings
     public TokenActionEnum GovernanceWorkloadAction { get; set; } = TokenActionEnum.Bypass;
 
     /// <summary>Gets or sets the action when no policy matches.</summary>
-    public TokenActionEnum DefaultAction { get; set; } = TokenActionEnum.None;
+    public TokenActionEnum DefaultAction { get; set; } = TokenActionEnum.Bypass;
 
 
     

@@ -9,14 +9,15 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Llm;
+using SimpleL7Proxy.Tokenomics;
+using SimpleL7Proxy.Tokenomics.Llm;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
 using System.Collections.Frozen;
-using SimpleL7Proxy.Tokenomics;
+
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -242,6 +243,7 @@ public class ProxyRequestHandler
         while (!_cancellationToken.IsCancellationRequested || s_requestsQueue.thrdSafeCount > 0)
         {
             RequestData incomingRequest;
+            TokenomicsSummaryEvent tokenomicsSummary = new();
 
             try
             {
@@ -386,6 +388,7 @@ public class ProxyRequestHandler
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
                     HealthCheckService.EnterState(_id, WorkerState.Reporting);
+
                     workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
@@ -421,6 +424,21 @@ public class ProxyRequestHandler
 
                     // Populate final event data
                     _eventDataBuilder.PopulateFinalEventData(incomingRequest, lcontext);
+                    if (_options.TokenomicsEnable &&
+                        incomingRequest.TokenomicsSummary != null)
+                    {
+                        incomingRequest.TokenomicsSummary.PrepForFinalStats(
+                            pr.StatusCode,
+                            DateTime.UtcNow - incomingRequest.EnqueueTime,
+                            pr.BackendHostname,
+                            incomingRequest.Model ?? "unknown",
+                            incomingRequest.BackendAttempts,
+                            incomingRequest.LifetimeBackendAttempts,
+                            pr.UsageStats);
+
+                    }
+
+
 
                     HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     workerState = "Cleanup";
@@ -467,6 +485,15 @@ public class ProxyRequestHandler
                     eventData["ErrorDetails"] = e.InnerException?.Message ?? e.Message;
                     eventData.Type = EventType.Exception;
                     eventData.Exception = e;
+
+                    if (_options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
+                    {
+                        incomingRequest.TokenomicsSummary.PrepForExceptionStats(
+                            HttpStatusCode.TooManyRequests, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
+                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            e.Message);
+                    }
+
                     if (lcontext != null)
                     {
                         await WriteErrorToClientAsync(
@@ -510,6 +537,14 @@ public class ProxyRequestHandler
                     eventData.Status = HttpStatusCode.Forbidden;
                     eventData["Error"] = "Request Rejected";
                     eventData.Type = EventType.Tokenomics;
+
+                    if (_options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
+                    {
+                        incomingRequest.TokenomicsSummary.PrepForExceptionStats(
+                            HttpStatusCode.Forbidden, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
+                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            e.Message);
+                    }
 
                     if (lcontext != null)
                     {
@@ -629,6 +664,9 @@ public class ProxyRequestHandler
                 {
                     try
                     {
+                        if ( _options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
+                            incomingRequest.TokenomicsSummary.Emit();
+
                         // Dispose ProxyData to release HttpResponseMessage and body byte arrays.
                         // Must be in finally — exception paths were previously leaking this.
                         pr?.Dispose();

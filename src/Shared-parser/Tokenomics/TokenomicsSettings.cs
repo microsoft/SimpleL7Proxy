@@ -38,6 +38,9 @@ public class TokenomicsSettings
     public int CriticalPriority { get; set; }=1;
     public int HighPriority { get; set; }=2;
 
+    /// <summary>Gets or sets the tenant used when a request does not provide one.</summary>
+    public string DefaultTenant { get; set; } = "Contoso";
+
     /// <summary>Gets or sets the default model name; an empty value leaves it unconfigured.</summary>
     public string DefaultModel { get; set; } = string.Empty;
 
@@ -127,7 +130,7 @@ public class TokenomicsSettings
 
 
     /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
-    /// <remarks>DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
+    /// <remarks>DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultTenant and DefaultModel use URI-escaped values. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
     public  bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
@@ -431,8 +434,8 @@ public class TokenomicsSettings
     public override string ToString() {
         var parts = new List<string>();
         foreach (var property in JsonSerializer.SerializeToElement(this, _serializerOptions).EnumerateObject()) {
-            if (property.Name == nameof(DefaultModel)) {
-                parts.Add($"{property.Name}={Uri.EscapeDataString(DefaultModel)}");
+            if (property.Name is nameof(DefaultTenant) or nameof(DefaultModel)) {
+                parts.Add($"{property.Name}={Uri.EscapeDataString(property.Value.GetString() ?? string.Empty)}");
             } else if (property.Name == nameof(DelayDuration)) {
                 if (DelayDuration < 0) {
                     throw new InvalidOperationException($"{nameof(DelayDuration)} cannot be negative.");

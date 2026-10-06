@@ -9,15 +9,14 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Llm;
+using SimpleL7Proxy.Tokenomics.Llm;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
-using Shared.RequestAPI.Models;
 using System.Collections.Frozen;
 using SimpleL7Proxy.Tokenomics;
-using System.IO.Pipelines;
+using Shared.RequestAPI.Models;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -418,12 +417,13 @@ public class ProxyWorker : IConfigChangeSubscriber
                     throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
                 }
 
-                if (_options.TokenomicsEnable && !wasCached && bodyBytes.Length > 0)
+                if (_options.TokenomicsEnable && bodyBytes.Length > 0)
                 {
         
-                    // Parse the request... get word Count and model
+                    // Parse the request...  [ ignores wasCached fix eventually]
                     var parseResult = ModelSwapper.ParseModel(bodyBytes);
                     request.WordCount = parseResult.WordCount;
+                    request.OriginalModel = parseResult.SourceModel ?? "unknown";
                     request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
 
                     request.S7PInputTokens = (int)((double)request.WordCount * .75);
@@ -437,7 +437,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                             request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
                     }
 
-                    ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
+                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
 
                     if (request.Headers["S7PDEBUGBODY"] is {} debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1477,44 +1477,32 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 if (proxyResponse.Headers != null && processor != null)
                 {
-                    processor.GetStats(request.EventData, proxyResponse.Headers);
 
-                    if (string.IsNullOrWhiteSpace(request.Model))
-                    {
-                        request.Model = "unknown";
-                    }
+                    processor.GetStats(request.EventData, proxyResponse.Headers);
 
                     // submit stats to Tokenomics
                     if (_options.TokenomicsEnable
                         && !string.IsNullOrWhiteSpace(request.UserID)
                         && !string.IsNullOrWhiteSpace(request.Model))
                     {
-                        // Pull the Tokenomics-relevant stats that GetStats just populated into
-                        // request.EventData, ready for the upcoming submission to Tokenomics.
-                        var isJailbreakDetected = request.EventData.TryGetValue("Usage.Is_Jailbreak_Detected", out var jailbreakDetectedStr)
-                            && bool.TryParse(jailbreakDetectedStr, out var jailbreakDetectedValue) && jailbreakDetectedValue;
-                        var isContentFiltered = request.EventData.TryGetValue("Usage.Is_Content_Filtered", out var contentFilteredStr)
-                            && bool.TryParse(contentFilteredStr, out var contentFilteredValue) && contentFilteredValue;
-                        var cachedTokens = request.EventData.TryGetValue("Usage.Cached_Tokens", out var cachedTokensStr)
-                            && int.TryParse(cachedTokensStr, out var cachedTokensValue) ? cachedTokensValue : 0;
-                        var inputTokens = request.EventData.TryGetValue("Usage.Prompt_Tokens", out var inputTokensStr)
-                            && int.TryParse(inputTokensStr, out var inputTokensValue) ? inputTokensValue : 0;
-                        var outputTokens = request.EventData.TryGetValue("Usage.Completion_Tokens", out var outputTokensStr)
-                            && int.TryParse(outputTokensStr, out var outputTokensValue) ? outputTokensValue : 0;
+                        // get model specific usage provider and populate usage stats
+                        var usageProvider = ModelMap.GetUsageProvider(request.Model);
+                        pr.UsageStats = LLMHandler.PopulateUsage(usageProvider,request.EventData);
 
                         Console.WriteLine("Submitting Tokenomics metrics for request {0}: inputTokens={1}, outputTokens={2}, cachedTokens={3}, isJailbreakDetected={4}, isContentFiltered={5}",
-                            request.Guid, inputTokens, outputTokens, cachedTokens, isJailbreakDetected, isContentFiltered);
+                            request.Guid, pr.UsageStats.InputTokens, pr.UsageStats.OutputTokens, pr.UsageStats.CachedTokens, pr.UsageStats.IsJailbreakDetected, pr.UsageStats.IsContentFiltered);
 
-                        _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
-                            request.UserID,
-                            request.Model,
-                            inputTokens,
-                            outputTokens,
-                            cachedTokens,
-                            isJailbreakDetected,
-                            isContentFiltered,
-                            statusCode: (int)proxyResponse.StatusCode,
-                            latencyMs: (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
+                        if ( pr.UsageStats is not null) 
+                            _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
+                                request.UserID,
+                                request.Model,
+                                pr.UsageStats.InputTokens,
+                                pr.UsageStats.OutputTokens,
+                                pr.UsageStats.CachedTokens,
+                                pr.UsageStats.IsJailbreakDetected,
+                                pr.UsageStats.IsContentFiltered,
+                                statusCode: (int)proxyResponse.StatusCode,
+                                latencyMs: (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
                     }
                 }
                 

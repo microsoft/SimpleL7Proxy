@@ -4,8 +4,7 @@ using System.Text.Json;
 using SimpleL7Proxy.Tokenomics;
 using System.Collections.Frozen;
 
-namespace SimpleL7Proxy.Llm;
-
+namespace SimpleL7Proxy.Tokenomics.Llm;
 public class ModelSwapper
 {
     private readonly ILogger<ModelSwapper> _logger;
