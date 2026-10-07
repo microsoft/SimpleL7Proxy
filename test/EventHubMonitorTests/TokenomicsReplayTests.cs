@@ -2,9 +2,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text.Json;
 using CompanionApp.Components.Shared;
+using CompanionApp.Components.Shared.EventHub;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Tokenomics;
@@ -42,6 +45,118 @@ public sealed class TokenomicsReplayTests {
         }) {
             Assert.ThrowsException<ArgumentException>(() => TokenomicsReplayOptions.Parse(args));
         }
+    }
+
+    [TestMethod]
+    public void LivePipeline_SkipsMalformedSummaries_AndAggregatesValidRecordsAcrossBatches() {
+        using var store = new TokenomicsDashboardStore();
+        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance);
+        using var reader = new EventHubReader(new EventHubMonitorStore(), new ProxyMetricsCatalog(),
+            Options.Create(new EventHubMonitorOptions()), NullLogger<EventHubReader>.Instance, live);
+        Assert.IsTrue(store.GetSnapshot().IsSampleData, "Unconfigured readers must not disable sample data.");
+        live.BeginLive();
+        var initial = store.GetSnapshot();
+        Assert.IsFalse(initial.IsSampleData);
+        Assert.AreEqual("0", Metric(store, "Total Requests"));
+        var invalid = new[] {
+            "not json", "[]",
+            "{\"Type\":\"S7P-Tokenomics\",\"MID\":\"bad\",\"RecordKind\":\"unknown\"}",
+            "{\"Type\":\"S7P-Tokenomics\",\"RecordKind\":\"RequestOutcome\",\"Status\":\"200\"}",
+            "{\"Type\":\"S7P-Tokenomics\",\"MID\":\"bad\",\"SchemaVersion\":\"1\"}",
+            "{\"Type\":\"S7P-Tokenomics\",\"MID\":\"bad\",\"RecordKind\":\"PolicyDecision\"}",
+            "{\"Type\":\"S7P-Tokenomics\",\"MID\":\"bad\",\"MID\":\"duplicate\",\"RecordKind\":\"PolicyDecision\",\"PolicyAction\":\"Throttle\"}",
+            Event("bad", "RequestOutcome", input: "-1"), Event("bad", "RequestOutcome", cached: "101"),
+            Event("bad", "RequestOutcome", status: "OK"), Event("bad", "RequestOutcome", timestamp: "bad"),
+            Event("bad", "RequestOutcome").Replace("\"RecordKind\"", "\"recordKind\"", StringComparison.Ordinal),
+            Event("bad", "RequestOutcome").Replace("\"Type\"", "\"TYPE\"", StringComparison.Ordinal),
+            Event("bad", "RequestOutcome").Replace("\"UserId\":\"user\"", "\"UserId\":{}", StringComparison.Ordinal)
+        };
+        var pipeline = typeof(EventHubReader).GetMethod("RunPipeline", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        pipeline.Invoke(reader, [invalid, "test partition"]);
+        Assert.AreSame(initial, store.GetSnapshot());
+        pipeline.Invoke(reader, [new[] {
+            "{\"Type\":\"S7P-Tokenomics\",\"MID\":\"ordinary\",\"Status\":\"403\"}",
+            "{\"Type\":\"other\",\"MID\":\"unrelated\"}",
+            Event("same", "PolicyDecision", action: "Throttle"),
+            Event("same", "RequestOutcome", status: "429")
+        }, "test partition 0"]);
+        var first = store.GetSnapshot();
+        Assert.AreEqual("1", Metric(store, "Total Requests"));
+        Assert.AreEqual("1", Metric(store, "Policy Actions"));
+        Assert.AreEqual("1", Metric(store, "429 Throttles"));
+        Assert.AreEqual("0.0%", Metric(store, "Success Rate"));
+        pipeline.Invoke(reader, [new[] {
+            Event("same", "PolicyDecision", action: "Throttle"),
+            Event("same", "RequestOutcome", status: "429"),
+            Event("successful", "RequestOutcome", model: "requested", effectiveModel: "effective")
+        }, "test partition 1"]);
+        var snapshot = store.GetSnapshot();
+        Assert.AreEqual("2", Metric(store, "Total Requests"));
+        Assert.AreEqual("1", Metric(store, "Policy Actions"));
+        Assert.AreEqual("1", Metric(store, "429 Throttles"));
+        Assert.AreEqual("50.0%", Metric(store, "Success Rate"));
+        Assert.AreEqual("240", snapshot.TotalTokens);
+        Assert.AreEqual(150.0, snapshot.Trend.Sum(point => point.InputNet));
+        Assert.AreEqual(50.0, snapshot.Trend.Sum(point => point.Cached));
+        Assert.AreEqual(40.0, snapshot.Trend.Sum(point => point.Output));
+        Assert.AreEqual("120", snapshot.Models.Single(model => model.Name == "effective").Tokens);
+        Assert.AreEqual("0", snapshot.Models.Single(model => model.Name == "requested").Tokens);
+        Assert.AreEqual("Unavailable", Metric(store, "Total Spend (USD)"));
+        StringAssert.Contains(snapshot.SnapshotLabel, "Event Hub");
+        CollectionAssert.AreEqual(new[] { "Retained events" }, snapshot.TimePeriods.ToArray());
+        Assert.AreEqual("120", first.TotalTokens, "Published snapshots must remain immutable.");
+        Assert.AreEqual("0", initial.TotalTokens);
+    }
+
+    [TestMethod]
+    public async Task LiveReader_LocalImportFeedsTokenomicsWithLiveConsumptionDisabled() {
+        using var store = new TokenomicsDashboardStore();
+        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance);
+        using var reader = new EventHubReader(new EventHubMonitorStore(), new ProxyMetricsCatalog(),
+            Options.Create(new EventHubMonitorOptions {
+                EventHubEnabled = false,
+                LocalFilePath = WriteFile(Event("imported", "RequestOutcome") + "\n" + Event("imported", "PolicyDecision"))
+            }), NullLogger<EventHubReader>.Instance, live);
+        await reader.StartAsync(CancellationToken.None);
+        await reader.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        await reader.StopAsync(CancellationToken.None);
+        Assert.IsFalse(store.GetSnapshot().IsSampleData);
+        Assert.AreEqual("120", store.GetSnapshot().TotalTokens);
+        Assert.AreEqual("1", Metric(store, "Total Requests"));
+        Assert.AreEqual("1", Metric(store, "Policy Actions"));
+    }
+
+    [TestMethod]
+    public async Task LiveAggregation_SerializesConcurrentPartitions_AndBoundsRetention() {
+        using var store = new TokenomicsDashboardStore();
+        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance);
+        var options = TokenomicsReplayOptions.Parse(["--run", "events",
+            WriteFile(string.Join("\n", Enumerable.Range(0, 10_001).Select(index => Event($"request-{index}", "RequestOutcome"))))]);
+        var records = options.Events.Select(fields => new ParsedEventRecord("", fields)).ToArray();
+        await Task.WhenAll(Enumerable.Range(0, 10).Select(index => Task.Run(() =>
+            live.PublishRecords(records.Skip(index * 10).Take(10).ToArray()))));
+        Assert.AreEqual("100", Metric(store, "Total Requests"));
+        Assert.AreEqual("12,000", store.GetSnapshot().TotalTokens);
+        live.PublishRecords(records);
+        var snapshot = store.GetSnapshot();
+        Assert.AreEqual("10,000", Metric(store, "Total Requests"));
+        Assert.AreEqual("1,200,000", snapshot.TotalTokens);
+        StringAssert.Contains(snapshot.SnapshotLabel, "latest 10,000 retained");
+        live.PublishRecords([new ParsedEventRecord("", options.Events[0])]);
+        Assert.AreEqual("10,000", Metric(store, "Total Requests"));
+        Assert.AreEqual("1,200,000", store.GetSnapshot().TotalTokens);
+    }
+
+    [TestMethod]
+    public void FileReplay_IgnoresLivePublication_AndKeepsItsOwnSnapshot() {
+        using var store = new TokenomicsDashboardStore();
+        var options = TokenomicsReplayOptions.Parse(["--run", "events", WriteFile(Event("replay", "RequestOutcome"))]);
+        using var replay = new TokenomicsEventReplay(options, store, NullLogger<TokenomicsEventReplay>.Instance);
+        var initial = store.GetSnapshot();
+        replay.BeginLive();
+        replay.PublishRecords([new ParsedEventRecord("", options.Events[0])]);
+        Assert.AreSame(initial, store.GetSnapshot());
+        StringAssert.Contains(initial.SnapshotLabel, "Local replay");
     }
 
     [TestMethod]

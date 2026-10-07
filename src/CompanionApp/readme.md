@@ -68,7 +68,7 @@ Only the fields for the selected backend are used. Blob Storage and Cosmos DB au
 
 ### Event Hub monitoring
 
-`EventHubMonitor` configures the shared event feed used by **EventHub Monitor** and **Insights**. The fields below belong inside `CompanionApp.EventHubMonitor`.
+`EventHubMonitor` configures the shared event feed used by **EventHub Monitor**, **Insights**, and **Tokenomics**. The fields below belong inside `CompanionApp.EventHubMonitor`.
 
 - `eventhub_enabled`: Whether CompanionApp connects to the live Event Hub. Set it to `false` to disable live reading; local-file import still runs when `LocalFilePath` is set.
 - `LocalFilePath`: An optional JSON event-log file to import at startup. Use an absolute path, or set it to `""` to skip import; relative paths resolve from the running app's output directory, not its content root.
@@ -108,7 +108,13 @@ To start the UI without App Configuration startup access or the Event Hub reader
 
 This flag does not block Azure actions you explicitly initiate in the UI or change the configured history and conversation storage modes. Keep those modes set to `Disk` when you do not want cloud storage access.
 
-To replay an NDJSON event file locally into **Tokenomics**, run from this directory:
+To read **Tokenomics** summaries from Event Hub, configure the `EventHubMonitor` settings above and run `dotnet run` without `--uionly` or `--run`. Connection-string authentication requires receive/listen access; Azure identity authentication requires **Azure Event Hubs Data Receiver** access. The existing `EVENTHUB_NAMESPACE`, `EVENTHUB_NAME`, `EVENTHUB_CONNECTIONSTRING`, and `EVENTHUB_CONSUMER_GROUP` environment overrides also apply.
+
+Open `/tokenomics` and publish proxy `S7P-Tokenomics` summaries with `RecordKind` equal to `RequestOutcome` or `PolicyDecision`. The dashboard replaces sample data when the configured reader starts and updates as summaries arrive. Ordinary Tokenomics diagnostic logs and unrelated event types do not contribute; malformed summaries are logged and skipped without stopping consumption.
+
+The live dashboard aggregates the latest **10,000 valid summary records** received by this process, across all partitions. Totals and deduplication apply only to that retained window, not lifetime usage. `StartPosition=latest` requires new events after startup; use `earliest` to include retained Event Hub events. Restarting resets the in-memory window and reads from the configured start position; no checkpoints are saved. A configured `LocalFilePath` import also feeds Tokenomics before live consumption.
+
+To replay an NDJSON event file locally instead, run from this directory:
 
 ```bash
 dotnet run -- --uionly --run events /absolute/path/tokenomics-summary-events.ndjson
@@ -116,7 +122,7 @@ dotnet run -- --uionly --run events /absolute/path/tokenomics-summary-events.ndj
 
 The whole file is validated before startup. Replay replaces synthetic data immediately, applies ten events each second (a smaller final batch is allowed), and stops at EOF without looping. The final dashboard remains available at `/tokenomics`; stopping the app cancels replay safely. Events are not published to Azure. `--uionly` is optional and independently skips App Configuration startup access.
 
-Request counts use distinct `MID` values; success rate uses HTTP outcomes only. Policy Actions counts recorded policy decisions, including None and Bypass; 429 Throttles counts distinct requests with a throttle decision or HTTP 429. Cached input is a subset of input, not additional tokens. Events contain no price, quota, or previous-period data, so spend and quota are unavailable and percentage changes are omitted. Without `--run`, normal startup and synthetic Tokenomics updates are unchanged.
+Both sources use the same validation and aggregation rules. Request counts use distinct `MID` values; success rate uses HTTP outcomes only. Policy Actions counts recorded policy decisions, including None and Bypass; 429 Throttles counts distinct requests with a throttle decision or HTTP 429. Cached input is a subset of input, not additional tokens. Events contain no price, quota, or previous-period data, so spend and quota are unavailable and percentage changes are omitted. File replay does not start the Event Hub reader. UI-only mode and unconfigured or disabled readers retain synthetic Tokenomics updates when no file replay or local import is active.
 
 Open the URL shown in the terminal. The included launch profiles use:
 

@@ -137,8 +137,10 @@ public sealed class TokenomicsEventReplay : BackgroundService {
                 if (fields.GetValueOrDefault("Type") != "S7P-Tokenomics"
                     || (!fields.ContainsKey("RecordKind") && !fields.ContainsKey("SchemaVersion"))) continue;
                 try {
-                    TokenomicsReplayOptions.ValidateSummary(fields);
-                    _received.Add(fields.ToImmutableDictionary(StringComparer.Ordinal));
+                    var summary = fields.ToImmutableDictionary(StringComparer.Ordinal);
+                    if (summary.GetValueOrDefault("Type") != "S7P-Tokenomics") continue;
+                    TokenomicsReplayOptions.ValidateSummary(summary);
+                    _received.Add(summary);
                     added = true;
                 }
                 catch (FormatException exception) {
@@ -225,7 +227,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
                 QuotaColor: "", Color: "user-blue", Sparkline: "")).ToImmutableArray();
         return new TokenomicsDashboardSnapshot {
             SnapshotLabel = _options.FileName is null
-                ? $"Event Hub · {_received.Count:N0} summaries · latest {LiveRecordLimit:N0} retained"
+                ? FormattableString.Invariant($"Event Hub · {_received.Count:N0} summaries · latest {LiveRecordLimit:N0} retained")
                 : $"Local replay · {_position}/{_options.Events.Length} events" + (_position == _options.Events.Length ? " · EOF" : ""),
             TimePeriods = [_options.FileName is null ? "Retained events" : "Replay to date"],
             Tenants = _received.Select(fields => Identity(fields, "Tenant")).Distinct().Order(StringComparer.Ordinal).Prepend("All tenants").ToImmutableArray(),
