@@ -48,13 +48,16 @@ public sealed class TokenomicsReplayTests {
     }
 
     [TestMethod]
-    public void LivePipeline_SkipsMalformedSummaries_AndAggregatesValidRecordsAcrossBatches() {
+    public async Task LivePipeline_SkipsMalformedSummaries_AndAggregatesValidRecordsAcrossBatches() {
         using var store = new TokenomicsDashboardStore();
-        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance);
+        var clock = new ReplayClock();
+        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance, clock);
         using var reader = new EventHubReader(new EventHubMonitorStore(), new ProxyMetricsCatalog(),
             Options.Create(new EventHubMonitorOptions()), NullLogger<EventHubReader>.Instance, live);
         Assert.IsTrue(store.GetSnapshot().IsSampleData, "Unconfigured readers must not disable sample data.");
         live.BeginLive();
+        await live.StartAsync(CancellationToken.None);
+        await WaitUntil(() => clock.HasTimer);
         var initial = store.GetSnapshot();
         Assert.IsFalse(initial.IsSampleData);
         Assert.AreEqual("0", Metric(store, "Total Requests"));
@@ -80,6 +83,9 @@ public sealed class TokenomicsReplayTests {
             Event("same", "PolicyDecision", action: "Throttle"),
             Event("same", "RequestOutcome", status: "429")
         }, "test partition 0"]);
+        Assert.AreSame(initial, store.GetSnapshot(), "Live ingestion must not rebuild snapshots for each event.");
+        clock.AdvanceSecond();
+        await WaitUntil(() => Metric(store, "Total Requests") == "1");
         var first = store.GetSnapshot();
         Assert.AreEqual("1", Metric(store, "Total Requests"));
         Assert.AreEqual("1", Metric(store, "Policy Actions"));
@@ -90,6 +96,8 @@ public sealed class TokenomicsReplayTests {
             Event("same", "RequestOutcome", status: "429"),
             Event("successful", "RequestOutcome", model: "requested", effectiveModel: "effective")
         }, "test partition 1"]);
+        clock.AdvanceSecond();
+        await WaitUntil(() => Metric(store, "Total Requests") == "2");
         var snapshot = store.GetSnapshot();
         Assert.AreEqual("2", Metric(store, "Total Requests"));
         Assert.AreEqual("1", Metric(store, "Policy Actions"));
@@ -106,45 +114,68 @@ public sealed class TokenomicsReplayTests {
         CollectionAssert.AreEqual(new[] { "Retained events" }, snapshot.TimePeriods.ToArray());
         Assert.AreEqual("120", first.TotalTokens, "Published snapshots must remain immutable.");
         Assert.AreEqual("0", initial.TotalTokens);
+        clock.AdvanceSecond();
+        await Task.Delay(20);
+        Assert.AreSame(snapshot, store.GetSnapshot(), "Idle ticks must not republish unchanged snapshots.");
+        await live.StopAsync(CancellationToken.None);
     }
 
     [TestMethod]
     public async Task LiveReader_LocalImportFeedsTokenomicsWithLiveConsumptionDisabled() {
         using var store = new TokenomicsDashboardStore();
-        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance);
+        var clock = new ReplayClock();
+        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance, clock);
         using var reader = new EventHubReader(new EventHubMonitorStore(), new ProxyMetricsCatalog(),
             Options.Create(new EventHubMonitorOptions {
                 EventHubEnabled = false,
                 LocalFilePath = WriteFile(Event("imported", "RequestOutcome") + "\n" + Event("imported", "PolicyDecision"))
             }), NullLogger<EventHubReader>.Instance, live);
+        await live.StartAsync(CancellationToken.None);
+        await WaitUntil(() => clock.HasTimer);
         await reader.StartAsync(CancellationToken.None);
         await reader.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
         await reader.StopAsync(CancellationToken.None);
+        clock.AdvanceSecond();
+        await WaitUntil(() => Metric(store, "Total Requests") == "1");
         Assert.IsFalse(store.GetSnapshot().IsSampleData);
         Assert.AreEqual("120", store.GetSnapshot().TotalTokens);
         Assert.AreEqual("1", Metric(store, "Total Requests"));
         Assert.AreEqual("1", Metric(store, "Policy Actions"));
+        await live.StopAsync(CancellationToken.None);
     }
 
     [TestMethod]
     public async Task LiveAggregation_SerializesConcurrentPartitions_AndBoundsRetention() {
         using var store = new TokenomicsDashboardStore();
-        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance);
+        var clock = new ReplayClock();
+        using var live = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse([]), store, NullLogger<TokenomicsEventReplay>.Instance, clock);
+        live.BeginLive();
+        await live.StartAsync(CancellationToken.None);
+        await WaitUntil(() => clock.HasTimer);
         var options = TokenomicsReplayOptions.Parse(["--run", "events",
-            WriteFile(string.Join("\n", Enumerable.Range(0, 10_001).Select(index => Event($"request-{index}", "RequestOutcome"))))]);
+            WriteFile(string.Join("\n", Enumerable.Range(0, 10_001).Select(index =>
+                Event($"request-{index}", "RequestOutcome", user: $"user-{index}"))))]);
         var records = options.Events.Select(fields => new ParsedEventRecord("", fields)).ToArray();
         await Task.WhenAll(Enumerable.Range(0, 10).Select(index => Task.Run(() =>
             live.PublishRecords(records.Skip(index * 10).Take(10).ToArray()))));
+        clock.AdvanceSecond();
+        await WaitUntil(() => Metric(store, "Total Requests") == "100");
         Assert.AreEqual("100", Metric(store, "Total Requests"));
         Assert.AreEqual("12,000", store.GetSnapshot().TotalTokens);
         live.PublishRecords(records);
+        clock.AdvanceSecond();
+        await WaitUntil(() => Metric(store, "Total Requests") == "10,000");
         var snapshot = store.GetSnapshot();
         Assert.AreEqual("10,000", Metric(store, "Total Requests"));
         Assert.AreEqual("1,200,000", snapshot.TotalTokens);
+        Assert.AreEqual(10_000, snapshot.Users.Length);
         StringAssert.Contains(snapshot.SnapshotLabel, "latest 10,000 retained");
         live.PublishRecords([new ParsedEventRecord("", options.Events[0])]);
+        clock.AdvanceSecond();
+        await WaitUntil(() => !ReferenceEquals(snapshot, store.GetSnapshot()));
         Assert.AreEqual("10,000", Metric(store, "Total Requests"));
         Assert.AreEqual("1,200,000", store.GetSnapshot().TotalTokens);
+        await live.StopAsync(CancellationToken.None);
     }
 
     [TestMethod]

@@ -74,6 +74,7 @@ if (!uiOnly && replayOptions.FileName is null && (eventHubEnabled || !string.IsN
 {
     builder.Services.AddSingleton(replayOptions);
     builder.Services.AddSingleton<TokenomicsEventReplay>();
+    builder.Services.AddHostedService(services => services.GetRequiredService<TokenomicsEventReplay>());
     builder.Services.AddHostedService<EventHubReader>();
 }
 builder.Services.AddScoped<UserPreferencesService>();

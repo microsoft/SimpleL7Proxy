@@ -108,6 +108,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
     private int _position;
     private readonly object _ingestionLock = new();
     private const int LiveRecordLimit = 10_000;
+    private bool _liveDirty;
 
     /// <summary>Disables synthetic data before file replay; live reading initializes it when the reader starts.</summary>
     public TokenomicsEventReplay(TokenomicsReplayOptions options, TokenomicsDashboardStore store,
@@ -127,7 +128,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         }
     }
 
-    /// <summary>Publishes validated live summaries from all partitions within a bounded record window.</summary>
+    /// <summary>Buffers validated live summaries from all partitions for the next one-second publication.</summary>
     public void PublishRecords(IReadOnlyList<ParsedEventRecord> records) {
         if (_options.FileName is not null) return;
         lock (_ingestionLock) {
@@ -150,14 +151,24 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             if (!added) return;
             if (_received.Count > LiveRecordLimit)
                 _received.RemoveRange(0, _received.Count - LiveRecordLimit);
-            _store.Update(CreateSnapshot());
+            _liveDirty = true;
         }
     }
 
-    /// <summary>Publishes fixed-size batches until EOF or host cancellation, without cloud publishing.</summary>
+    /// <summary>Publishes live updates each second or replays fixed-size batches until EOF or cancellation.</summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         try {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), _timeProvider);
+            if (_options.FileName is null) {
+                while (await timer.WaitForNextTickAsync(stoppingToken)) {
+                    lock (_ingestionLock) {
+                        if (!_liveDirty) continue;
+                        _store.Update(CreateSnapshot());
+                        _liveDirty = false;
+                    }
+                }
+                return;
+            }
             while (_position < _options.Events.Length && await timer.WaitForNextTickAsync(stoppingToken)) {
                 var count = Math.Min(10, _options.Events.Length - _position);
                 _received.AddRange(_options.Events.Skip(_position).Take(count)
@@ -181,6 +192,8 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         string Number(double value) => value.ToString("N0", culture);
         var outcomes = _received.Where(fields => fields["RecordKind"] == "RequestOutcome")
             .GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(group => group.Last()).ToArray();
+        var outcomesByModel = outcomes.ToLookup(Model, StringComparer.Ordinal);
+        var outcomesByUser = outcomes.ToLookup(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Tenant")));
         var decisions = _received.Where(fields => fields["RecordKind"] == "PolicyDecision")
             .DistinctBy(fields => fields.GetValueOrDefault("DecisionId") is { Length: > 0 } id
                 ? id : $"{fields["MID"]}:{fields.GetValueOrDefault("EvaluationSequence")}:{fields["PolicyAction"]}").ToArray();
@@ -209,7 +222,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         var start = 0.0;
         var stops = new List<string>();
         var models = modelNames.Select((name, index) => {
-            var tokens = outcomes.Where(fields => Model(fields) == name).Sum(Total);
+            var tokens = outcomesByModel[name].Sum(Total);
             var share = total == 0 ? 0 : tokens / total * 100;
             var end = start + share;
             if (share > 0) stops.Add(FormattableString.Invariant($"{colors[index % colors.Length]} {start:F6}% {end:F6}%"));
@@ -218,7 +231,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         }).ToImmutableArray();
         var users = _received.Select(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Tenant")))
             .Distinct().Select(user => {
-                var usage = outcomes.Where(fields => Identity(fields, "UserId") == user.Name && Identity(fields, "Tenant") == user.Tenant).ToArray();
+                var usage = outcomesByUser[user].ToArray();
                 return (user.Name, user.Tenant, Total: usage.Sum(Total), Input: usage.Sum(fields => Tokens(fields, "InputTokens")),
                     Output: usage.Sum(fields => Tokens(fields, "OutputTokens")), Cached: usage.Sum(fields => Tokens(fields, "CachedTokens")));
             }).OrderByDescending(user => user.Total).ThenBy(user => user.Name, StringComparer.Ordinal).ThenBy(user => user.Tenant, StringComparer.Ordinal)
