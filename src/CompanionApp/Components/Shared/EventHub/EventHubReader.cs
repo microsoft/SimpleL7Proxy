@@ -23,6 +23,7 @@ public sealed class EventHubReader : BackgroundService
     private readonly ProxyMetricsCatalog _proxyMetricsCatalog;
     private readonly EventHubMonitorOptions _options;
     private readonly ILogger<EventHubReader> _logger;
+    private readonly TokenomicsEventReplay? _tokenomics;
     private readonly DefaultAzureCredential? _credential;
     private readonly Dictionary<string, List<string>> _requestLifecycle = new(StringComparer.OrdinalIgnoreCase);
     // Per-request field capture keyed by S7P-ID: the enqueue, each backend attempt, and the final
@@ -74,12 +75,14 @@ public sealed class EventHubReader : BackgroundService
         EventHubMonitorStore store,
         ProxyMetricsCatalog proxyMetricsCatalog,
         IOptions<EventHubMonitorOptions> options,
-        ILogger<EventHubReader> logger)
+        ILogger<EventHubReader> logger,
+        TokenomicsEventReplay? tokenomics = null)
     {
         _store = store;
         _proxyMetricsCatalog = proxyMetricsCatalog;
         _options = options.Value;
         _logger = logger;
+        _tokenomics = tokenomics;
         
         try
         {
@@ -156,6 +159,7 @@ public sealed class EventHubReader : BackgroundService
 
         try
         {
+            _tokenomics?.BeginLive();
             await RunConsumerAsync(settings, clientOptions, stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -188,6 +192,7 @@ public sealed class EventHubReader : BackgroundService
         }
 
         _store.DisableRequestAging = true;
+        _tokenomics?.BeginLive();
         _store.Clear();
         _requestLifecycle.Clear();
         _requestPhases.Clear();
@@ -461,7 +466,7 @@ public sealed class EventHubReader : BackgroundService
             {
                 eventData = ParseEventData(raw);
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException or FormatException)
             {
                 skipped++;
                 LogInvalidRecord(ex, source);
@@ -498,6 +503,7 @@ public sealed class EventHubReader : BackgroundService
     private void RunStatisticsStage(IReadOnlyList<ParsedEventRecord> parsed)
     {
         _proxyMetricsCatalog.Publish(parsed);
+        _tokenomics?.PublishRecords(parsed);
     }
 
     private void LogInvalidRecord(Exception exception, string source)
@@ -606,6 +612,7 @@ public sealed class EventHubReader : BackgroundService
     {
         return eventType is
             "S7P-Backend"
+            or "S7P-Tokenomics"
             or "S7P-ProxyRequestEnqueued"
             or "S7P-BackendRequest"
             or "S7P-ServerError"
@@ -1355,6 +1362,14 @@ public sealed class EventHubReader : BackgroundService
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             throw new JsonException("Event Hub payload was not a JSON object.");
+        }
+
+        if (document.RootElement.TryGetProperty("Type", out var type)
+            && type.ValueKind == JsonValueKind.String && type.GetString() == "S7P-Tokenomics"
+            && (document.RootElement.TryGetProperty("RecordKind", out _) || document.RootElement.TryGetProperty("SchemaVersion", out _)))
+        {
+            return TokenomicsReplayOptions.ParseRecord(document.RootElement)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         }
 
         var eventData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

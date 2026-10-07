@@ -72,6 +72,9 @@ else {
 builder.Services.AddSingleton<ProxyMetricsCatalog>();
 if (!uiOnly && replayOptions.FileName is null && (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath)))
 {
+    builder.Services.AddSingleton(replayOptions);
+    builder.Services.AddSingleton<TokenomicsEventReplay>();
+    builder.Services.AddHostedService(services => services.GetRequiredService<TokenomicsEventReplay>());
     builder.Services.AddHostedService<EventHubReader>();
 }
 builder.Services.AddScoped<UserPreferencesService>();
