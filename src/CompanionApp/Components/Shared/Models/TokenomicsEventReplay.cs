@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using CompanionApp.Components.Shared.EventHub;
 
 namespace CompanionApp.Components.Shared;
 
@@ -35,41 +36,7 @@ public sealed record TokenomicsReplayOptions(string[] ApplicationArgs, string? F
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 try {
                     using var document = JsonDocument.Parse(line);
-                    if (document.RootElement.ValueKind != JsonValueKind.Object)
-                        throw new FormatException("Each NDJSON record must be a JSON object.");
-                    var fields = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
-                    foreach (var property in document.RootElement.EnumerateObject()) {
-                        if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-                            throw new FormatException($"Field '{property.Name}' must be a scalar value.");
-                        if (!fields.TryAdd(property.Name, property.Value.ValueKind == JsonValueKind.String
-                            ? property.Value.GetString()! : property.Value.ToString()))
-                            throw new FormatException($"Duplicate field '{property.Name}'.");
-                    }
-                    if (!fields.TryGetValue("Type", out var type) || string.IsNullOrWhiteSpace(type))
-                        throw new FormatException("Field 'Type' is required.");
-                    if (type == "S7P-Tokenomics" && (fields.ContainsKey("RecordKind") || fields.ContainsKey("SchemaVersion"))) {
-                        if (!fields.TryGetValue("MID", out var mid) || string.IsNullOrWhiteSpace(mid))
-                            throw new FormatException("Tokenomics field 'MID' is required.");
-                        if (!fields.TryGetValue("RecordKind", out var kind) || kind is not ("RequestOutcome" or "PolicyDecision"))
-                            throw new FormatException("Tokenomics RecordKind must be RequestOutcome or PolicyDecision.");
-                        if (fields.TryGetValue("TimestampUtc", out var timestamp)
-                            && !DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
-                            throw new FormatException("TimestampUtc is not a valid timestamp.");
-                        if (kind == "RequestOutcome") {
-                            var status = GetStatus(fields);
-                            if (status is < 100 or > 599) throw new FormatException("RequestOutcome requires a numeric StatusCode or Status (100–599).");
-                            foreach (var key in new[] { "InputTokens", "OutputTokens", "CachedTokens" }) {
-                                if (fields.TryGetValue(key, out var value)
-                                    && (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var tokens) || tokens < 0))
-                                    throw new FormatException($"{key} must be a nonnegative integer.");
-                            }
-                            if (GetTokens(fields, "CachedTokens") > GetTokens(fields, "InputTokens"))
-                                throw new FormatException("CachedTokens must not exceed InputTokens.");
-                        }
-                        else if (!fields.TryGetValue("PolicyAction", out var action) || string.IsNullOrWhiteSpace(action))
-                            throw new FormatException("PolicyDecision requires PolicyAction.");
-                    }
-                    events.Add(fields.ToImmutable());
+                    events.Add(ParseRecord(document.RootElement));
                 }
                 catch (Exception exception) when (exception is JsonException or FormatException) {
                     throw new FormatException($"Replay file '{fileName}', line {lineNumber}: {exception.Message}", exception);
@@ -82,6 +49,47 @@ public sealed record TokenomicsReplayOptions(string[] ApplicationArgs, string? F
         return new(applicationArgs.ToArray(), fileName, events.ToImmutable());
     }
 
+    internal static ImmutableDictionary<string, string> ParseRecord(JsonElement record) {
+        if (record.ValueKind != JsonValueKind.Object)
+            throw new FormatException("Each event record must be a JSON object.");
+        var fields = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        foreach (var property in record.EnumerateObject()) {
+            if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                throw new FormatException($"Field '{property.Name}' must be a scalar value.");
+            if (!fields.TryAdd(property.Name, property.Value.ValueKind == JsonValueKind.String
+                ? property.Value.GetString()! : property.Value.ToString()))
+                throw new FormatException($"Duplicate field '{property.Name}'.");
+        }
+        if (!fields.TryGetValue("Type", out var type) || string.IsNullOrWhiteSpace(type))
+            throw new FormatException("Field 'Type' is required.");
+        if (type == "S7P-Tokenomics" && (fields.ContainsKey("RecordKind") || fields.ContainsKey("SchemaVersion")))
+            ValidateSummary(fields);
+        return fields.ToImmutable();
+    }
+
+    internal static void ValidateSummary(IReadOnlyDictionary<string, string> fields) {
+        if (!fields.TryGetValue("MID", out var mid) || string.IsNullOrWhiteSpace(mid))
+            throw new FormatException("Tokenomics field 'MID' is required.");
+        if (!fields.TryGetValue("RecordKind", out var kind) || kind is not ("RequestOutcome" or "PolicyDecision"))
+            throw new FormatException("Tokenomics RecordKind must be RequestOutcome or PolicyDecision.");
+        if (fields.TryGetValue("TimestampUtc", out var timestamp)
+            && !DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
+            throw new FormatException("TimestampUtc is not a valid timestamp.");
+        if (kind == "RequestOutcome") {
+            var status = GetStatus(fields);
+            if (status is < 100 or > 599) throw new FormatException("RequestOutcome requires a numeric StatusCode or Status (100–599).");
+            foreach (var key in new[] { "InputTokens", "OutputTokens", "CachedTokens" }) {
+                if (fields.TryGetValue(key, out var value)
+                    && (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var tokens) || tokens < 0))
+                    throw new FormatException($"{key} must be a nonnegative integer.");
+            }
+            if (GetTokens(fields, "CachedTokens") > GetTokens(fields, "InputTokens"))
+                throw new FormatException("CachedTokens must not exceed InputTokens.");
+        }
+        else if (!fields.TryGetValue("PolicyAction", out var action) || string.IsNullOrWhiteSpace(action))
+            throw new FormatException("PolicyDecision requires PolicyAction.");
+    }
+
     internal static int GetStatus(IReadOnlyDictionary<string, string> fields) =>
         int.TryParse(fields.GetValueOrDefault("StatusCode"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var code)
             ? code : int.TryParse(fields.GetValueOrDefault("Status"), NumberStyles.Integer, CultureInfo.InvariantCulture, out code) ? code : 0;
@@ -90,7 +98,7 @@ public sealed record TokenomicsReplayOptions(string[] ApplicationArgs, string? F
         long.TryParse(fields.GetValueOrDefault(key), NumberStyles.None, CultureInfo.InvariantCulture, out var value) ? value : 0;
 }
 
-/// <summary>Replays ten local events per second once and retains the final immutable dashboard.</summary>
+/// <summary>Aggregates live Tokenomics summaries or replays ten local events per second.</summary>
 public sealed class TokenomicsEventReplay : BackgroundService {
     private readonly TokenomicsReplayOptions _options;
     private readonly TokenomicsDashboardStore _store;
@@ -98,15 +106,50 @@ public sealed class TokenomicsEventReplay : BackgroundService {
     private readonly TimeProvider _timeProvider;
     private readonly List<ImmutableDictionary<string, string>> _received = [];
     private int _position;
+    private readonly object _ingestionLock = new();
+    private const int LiveRecordLimit = 10_000;
 
-    /// <summary>Disables synthetic data immediately, before waiting for the first replay tick.</summary>
+    /// <summary>Disables synthetic data before file replay; live reading initializes it when the reader starts.</summary>
     public TokenomicsEventReplay(TokenomicsReplayOptions options, TokenomicsDashboardStore store,
         ILogger<TokenomicsEventReplay> logger, TimeProvider? timeProvider = null) {
         _options = options;
         _store = store;
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _store.Update(CreateSnapshot());
+        if (_options.FileName is not null) _store.Update(CreateSnapshot());
+    }
+
+    /// <summary>Replaces sample data with an empty live snapshot before Event Hub reading or local import.</summary>
+    public void BeginLive() {
+        if (_options.FileName is not null) return;
+        lock (_ingestionLock) {
+            _store.Update(CreateSnapshot());
+        }
+    }
+
+    /// <summary>Publishes validated live summaries from all partitions within a bounded record window.</summary>
+    public void PublishRecords(IReadOnlyList<ParsedEventRecord> records) {
+        if (_options.FileName is not null) return;
+        lock (_ingestionLock) {
+            var added = false;
+            foreach (var record in records) {
+                var fields = record.Data;
+                if (fields.GetValueOrDefault("Type") != "S7P-Tokenomics"
+                    || (!fields.ContainsKey("RecordKind") && !fields.ContainsKey("SchemaVersion"))) continue;
+                try {
+                    TokenomicsReplayOptions.ValidateSummary(fields);
+                    _received.Add(fields.ToImmutableDictionary(StringComparer.Ordinal));
+                    added = true;
+                }
+                catch (FormatException exception) {
+                    _logger.LogWarning(exception, "Ignoring invalid Tokenomics summary.");
+                }
+            }
+            if (!added) return;
+            if (_received.Count > LiveRecordLimit)
+                _received.RemoveRange(0, _received.Count - LiveRecordLimit);
+            _store.Update(CreateSnapshot());
+        }
     }
 
     /// <summary>Publishes fixed-size batches until EOF or host cancellation, without cloud publishing.</summary>
@@ -181,8 +224,10 @@ public sealed class TokenomicsEventReplay : BackgroundService {
                 Output: Number(user.Output), Cached: Number(user.Cached), Spend: "Unavailable", Quota: "Unavailable",
                 QuotaColor: "", Color: "user-blue", Sparkline: "")).ToImmutableArray();
         return new TokenomicsDashboardSnapshot {
-            SnapshotLabel = $"Local replay · {_position}/{_options.Events.Length} events" + (_position == _options.Events.Length ? " · EOF" : ""),
-            TimePeriods = ["Replay to date"],
+            SnapshotLabel = _options.FileName is null
+                ? $"Event Hub · {_received.Count:N0} summaries · latest {LiveRecordLimit:N0} retained"
+                : $"Local replay · {_position}/{_options.Events.Length} events" + (_position == _options.Events.Length ? " · EOF" : ""),
+            TimePeriods = [_options.FileName is null ? "Retained events" : "Replay to date"],
             Tenants = _received.Select(fields => Identity(fields, "Tenant")).Distinct().Order(StringComparer.Ordinal).Prepend("All tenants").ToImmutableArray(),
             UserFilters = users.Select(user => user.Name).Distinct().Prepend("All users").ToImmutableArray(),
             ModelFilters = modelNames.Prepend("All models").ToImmutableArray(),
