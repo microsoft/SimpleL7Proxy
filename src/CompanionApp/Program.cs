@@ -7,8 +7,17 @@ using Microsoft.Extensions.Options;
 using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.Tokenomics;
 
-var uiOnly = args.Contains("--uionly", StringComparer.OrdinalIgnoreCase);
-var builder = WebApplication.CreateBuilder(args
+TokenomicsReplayOptions replayOptions;
+try {
+    replayOptions = TokenomicsReplayOptions.Parse(args);
+}
+catch (Exception exception) when (exception is ArgumentException or FormatException) {
+    Console.Error.WriteLine(exception.Message);
+    Environment.ExitCode = 1;
+    return;
+}
+var uiOnly = replayOptions.ApplicationArgs.Contains("--uionly", StringComparer.OrdinalIgnoreCase);
+var builder = WebApplication.CreateBuilder(replayOptions.ApplicationArgs
     .Where(arg => !string.Equals(arg, "--uionly", StringComparison.OrdinalIgnoreCase))
     .ToArray());
 var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
@@ -48,9 +57,20 @@ builder.Services.AddSingleton<ImageSyncService>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.AddSingleton<EventHubMonitorStore>();
-builder.Services.AddSingleton<TokenomicsDashboardStore>();
+if (replayOptions.FileName is not null) {
+    builder.Services.AddSingleton(replayOptions);
+    builder.Services.AddSingleton<TokenomicsDashboardStore>(services => {
+        var store = new TokenomicsDashboardStore(services.GetRequiredService<ILogger<TokenomicsDashboardStore>>());
+        store.Update(new TokenomicsDashboardSnapshot { SnapshotLabel = "Local replay · waiting for first batch" });
+        return store;
+    });
+    builder.Services.AddHostedService<TokenomicsEventReplay>();
+}
+else {
+    builder.Services.AddSingleton<TokenomicsDashboardStore>();
+}
 builder.Services.AddSingleton<ProxyMetricsCatalog>();
-if (!uiOnly && (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath)))
+if (!uiOnly && replayOptions.FileName is null && (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath)))
 {
     builder.Services.AddHostedService<EventHubReader>();
 }
