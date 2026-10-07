@@ -36,7 +36,10 @@
                             <span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span>
                         </div>
                         <p class="kpi-value">@metric.Value</p>
-                        <p class="kpi-change @metric.ChangeTone">@metric.Change <span>vs. previous period</span></p>
+                        @if (!string.IsNullOrEmpty(metric.Change))
+                        {
+                            <p class="kpi-change @metric.ChangeTone">@metric.Change <span>vs. previous period</span></p>
+                        }
                     </article>
                 }
             </section>
@@ -52,7 +55,7 @@
                     </div>
                 </div>
                 <article class="tokenomics-card trend-card">
-                    <h3>Token Usage and Spend Trend</h3>
+                    <h3>@(_snapshot.SpendAxisTicks.IsEmpty ? "Token Usage Trend" : "Token Usage and Spend Trend")</h3>
                     <div class="trend-plot" role="img" aria-label="@_snapshot.TrendDescription">
                         <div class="trend-y-label">Tokens</div>
                         <div class="trend-grid">
@@ -81,13 +84,19 @@
                             </div>
                             <div class="trend-right-ticks" aria-hidden="true">@foreach (var tick in _snapshot.SpendAxisTicks) { <span>@tick</span> }</div>
                         </div>
-                        <div class="trend-x-label">Spend (USD)</div>
+                        @if (!_snapshot.SpendAxisTicks.IsEmpty)
+                        {
+                            <div class="trend-x-label">Spend (USD)</div>
+                        }
                     </div>
                     <div class="trend-legend">
                         <span><i class="legend-input"></i>Input tokens (excl. cached)</span>
                         <span><i class="legend-output"></i>Output tokens</span>
                         <span><i class="legend-cached"></i>Cached input tokens</span>
-                        <span><i class="legend-spend"></i>Spend (USD)</span>
+                        @if (!_snapshot.SpendAxisTicks.IsEmpty)
+                        {
+                            <span><i class="legend-spend"></i>Spend (USD)</span>
+                        }
                     </div>
                 </article>
 
@@ -109,6 +118,10 @@
 
                     <article class="tokenomics-card insight-card">
                         <h3>Spend by Tenant</h3>
+                        @if (_snapshot.TenantSpend.IsEmpty)
+                        {
+                            <p>Spend unavailable: no price data.</p>
+                        }
                         <ul class="horizontal-bars spend-bars">
                             @foreach (var tenant in _snapshot.TenantSpend)
                             {
@@ -119,6 +132,10 @@
 
                     <article class="tokenomics-card insight-card">
                         <h3>Quota Utilization</h3>
+                        @if (_snapshot.Quotas.IsEmpty)
+                        {
+                            <p>Quota data unavailable.</p>
+                        }
                         <ul class="horizontal-bars quota-bars">
                             @foreach (var tenant in _snapshot.Quotas)
                             {
@@ -144,8 +161,8 @@
                                 {
                                     <tr>
                                         <td>@user.Rank</td><td><i class="user-dot @user.Color"></i>@user.Name</td><td>@user.Tenant</td><td>@user.Total</td><td>@user.Input</td><td>@user.Output</td><td>@user.Cached</td><td>@user.Spend</td>
-                                        <td><div class="quota-cell"><span class="quota-track"><i class="@user.QuotaColor" style="width: @user.Quota"></i></span><span>@user.Quota</span></div></td>
-                                        <td><svg class="sparkline" viewBox="0 0 68 20" aria-label="Increasing usage trend"><polyline points="@user.Sparkline" /></svg></td>
+                                        <td><div class="quota-cell">@if (user.Quota.EndsWith('%')) { <span class="quota-track"><i class="@user.QuotaColor" style="width: @user.Quota"></i></span> }<span>@user.Quota</span></div></td>
+                                        <td>@if (!string.IsNullOrEmpty(user.Sparkline)) { <svg class="sparkline" viewBox="0 0 68 20" aria-label="Usage trend"><polyline points="@user.Sparkline" /></svg> } else { <span>Unavailable</span> }</td>
                                     </tr>
                                 }
                             </tbody>

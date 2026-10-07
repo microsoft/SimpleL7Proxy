@@ -1,5 +1,5 @@
 using System.Text.Json;
-using SimpleL7Proxy.Llm;
+using SimpleL7Proxy.Tokenomics.Llm;
 using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Test;

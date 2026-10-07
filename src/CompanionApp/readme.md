@@ -108,6 +108,16 @@ To start the UI without App Configuration startup access or the Event Hub reader
 
 This flag does not block Azure actions you explicitly initiate in the UI or change the configured history and conversation storage modes. Keep those modes set to `Disk` when you do not want cloud storage access.
 
+To replay an NDJSON event file locally into **Tokenomics**, run from this directory:
+
+```bash
+dotnet run -- --uionly --run events /absolute/path/tokenomics-summary-events.ndjson
+```
+
+The whole file is validated before startup. Replay replaces synthetic data immediately, applies ten events each second (a smaller final batch is allowed), and stops at EOF without looping. The final dashboard remains available at `/tokenomics`; stopping the app cancels replay safely. Events are not published to Azure. `--uionly` is optional and independently skips App Configuration startup access.
+
+Request counts use distinct `MID` values; success rate uses HTTP outcomes only. Policy Actions counts recorded policy decisions, including None and Bypass; 429 Throttles counts distinct requests with a throttle decision or HTTP 429. Cached input is a subset of input, not additional tokens. Events contain no price, quota, or previous-period data, so spend and quota are unavailable and percentage changes are omitted. Without `--run`, normal startup and synthetic Tokenomics updates are unchanged.
+
 Open the URL shown in the terminal. The included launch profiles use:
 
 - http://localhost:5259
