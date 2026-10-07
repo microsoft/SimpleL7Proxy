@@ -50,7 +50,7 @@ public class AppConfigService : BackgroundService
         if (_lastRefreshTime == DateTime.MinValue)
             return "AppConfigService not initialized";
             
-        return $"Label: {_labelFilter} Last Refresh: {_lastRefreshTime}, Last Sentinel: {_lastSentinel}, Tokenomics:  {_options.TokenomicsMetricsServer}";
+        return $"Label: {_labelFilter} Last Refresh: {_lastRefreshTime}, Last Sentinel: {_lastSentinel}, Tokenomics URL: {_options.TokenomicsMetricsServer}";
 
     }
 

@@ -88,6 +88,24 @@
                     </NavLink>
                 </div>
                 <div class="nav-item nav-child-item px-3">
+                    <NavLink class="nav-link" href="history" title="History">
+                        <span class="nav-text">History</span>
+                    </NavLink>
+                </div>
+                <div class="nav-item nav-child-item px-3">
+                    <NavLink class="nav-link" href="user-preferences" title="User Preferences">
+                        <span class="nav-text">User Preferences</span>
+                    </NavLink>
+                </div>
+            </div>
+
+            <div class="nav-group" role="group" aria-label="Analyze">
+                <div class="nav-item nav-section-item px-3">
+                    <NavLink class="nav-link nav-section-link" href="analyze" title="Analyze">
+                        <span class="bi bi-graph-up-nav-menu" aria-hidden="true"></span> <span class="nav-text">Analyze</span>
+                    </NavLink>
+                </div>
+                <div class="nav-item nav-child-item px-3">
                     <span class="onboarding-target @(IsOnboardingStep("eventhub") ? "is-active" : string.Empty)">
                         @if (IsOnboardingStep("eventhub"))
                         {
@@ -112,16 +130,6 @@
                 <div class="nav-item nav-child-item px-3">
                     <NavLink class="nav-link" href="tokenomics" title="Tokenomics">
                         <span class="nav-text">Tokenomics</span>
-                    </NavLink>
-                </div>
-                <div class="nav-item nav-child-item px-3">
-                    <NavLink class="nav-link" href="history" title="History">
-                        <span class="nav-text">History</span>
-                    </NavLink>
-                </div>
-                <div class="nav-item nav-child-item px-3">
-                    <NavLink class="nav-link" href="user-preferences" title="User Preferences">
-                        <span class="nav-text">User Preferences</span>
                     </NavLink>
                 </div>
             </div>

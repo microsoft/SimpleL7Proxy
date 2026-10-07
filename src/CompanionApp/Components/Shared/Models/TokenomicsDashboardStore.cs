@@ -3,6 +3,13 @@ using System.Globalization;
 
 namespace CompanionApp.Components.Shared;
 
+/// <summary>Rolling time windows available across the Tokenomics dashboard.</summary>
+public enum TokenomicsPeriod {
+    Hourly,
+    Daily,
+    Monthly
+}
+
 /// <summary>Immutable dashboard data published as one consistent snapshot.</summary>
 public sealed record TokenomicsDashboardSnapshot {
     public bool IsSampleData { get; init; }
@@ -16,6 +23,8 @@ public sealed record TokenomicsDashboardSnapshot {
     public double TokenAxisMaximum { get; init; } = 8;
     public ImmutableArray<string> TokenAxisTicks { get; init; } = [];
     public ImmutableArray<string> SpendAxisTicks { get; init; } = [];
+    public bool HasPriceData { get; init; }
+    public bool HasQuotaData { get; init; }
     public string TrendDescription { get; init; } = string.Empty;
     public ImmutableArray<(int X, int Y)> SpendLine { get; init; } = [];
     public string TotalTokens { get; init; } = string.Empty;
@@ -48,6 +57,8 @@ public sealed record TokenomicsDashboardSnapshot {
         ],
         TokenAxisTicks = ["8M", "6M", "4M", "2M", "0"],
         SpendAxisTicks = ["$400", "$300", "$200", "$100", "$0"],
+        HasPriceData = true,
+        HasQuotaData = true,
         TrendDescription = "Sample chart showing daily input, output, cached tokens and spend from November 3 through November 10",
         SpendLine = [(54, 75), (153, 83), (251, 61), (349, 81), (447, 92), (545, 68), (643, 45), (742, 79)],
         TotalTokens = "48.3M",
@@ -91,6 +102,8 @@ public sealed record TokenomicsDashboardSnapshot {
 /// <summary>Shared server-side state; publishers control the update cadence independently of the UI.</summary>
 public sealed class TokenomicsDashboardStore : IDisposable {
     private TokenomicsDashboardSnapshot _snapshot = TokenomicsDashboardSnapshot.Sample;
+    private ImmutableDictionary<TokenomicsPeriod, TokenomicsDashboardSnapshot> _periodSnapshots =
+        Enum.GetValues<TokenomicsPeriod>().ToImmutableDictionary(period => period, _ => TokenomicsDashboardSnapshot.Sample);
     private readonly object _updateLock = new();
     private readonly Timer _sampleTimer;
     private readonly ILogger<TokenomicsDashboardStore>? _logger;
@@ -110,11 +123,30 @@ public sealed class TokenomicsDashboardStore : IDisposable {
     /// <summary>Returns the latest immutable dashboard snapshot.</summary>
     public TokenomicsDashboardSnapshot GetSnapshot() => Volatile.Read(ref _snapshot);
 
+    /// <summary>Returns the latest immutable snapshot for one rolling dashboard period.</summary>
+    public TokenomicsDashboardSnapshot GetSnapshot(TokenomicsPeriod period) {
+        var snapshots = Volatile.Read(ref _periodSnapshots);
+        return snapshots.TryGetValue(period, out var snapshot) ? snapshot : GetSnapshot();
+    }
+
     /// <summary>Atomically replaces dashboard data and notifies subscribed components.</summary>
-    public void Update(TokenomicsDashboardSnapshot snapshot) {
+    public void Update(
+        TokenomicsDashboardSnapshot snapshot,
+        IReadOnlyDictionary<TokenomicsPeriod, TokenomicsDashboardSnapshot>? periodSnapshots = null) {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (!double.IsFinite(snapshot.TokenAxisMaximum) || snapshot.TokenAxisMaximum <= 0) {
             throw new ArgumentOutOfRangeException(nameof(snapshot), "The token axis maximum must be finite and positive.");
+        }
+        var resolvedPeriodSnapshots = Enum.GetValues<TokenomicsPeriod>().ToImmutableDictionary(
+            period => period,
+            period => periodSnapshots is not null && periodSnapshots.TryGetValue(period, out var periodSnapshot)
+                ? periodSnapshot
+                : snapshot);
+        foreach (var periodSnapshot in resolvedPeriodSnapshots.Values) {
+            ArgumentNullException.ThrowIfNull(periodSnapshot);
+            if (!double.IsFinite(periodSnapshot.TokenAxisMaximum) || periodSnapshot.TokenAxisMaximum <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(periodSnapshots), "Every period token axis maximum must be finite and positive.");
+            }
         }
         lock (_updateLock) {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -123,6 +155,7 @@ public sealed class TokenomicsDashboardStore : IDisposable {
                 _sampleTimer.Dispose();
             }
             Interlocked.Exchange(ref _snapshot, snapshot);
+            Interlocked.Exchange(ref _periodSnapshots, resolvedPeriodSnapshots);
             Changed?.Invoke();
         }
     }

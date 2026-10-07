@@ -18,7 +18,7 @@
                     <input id="tokenomics-metrics-server-url" class="form-control form-control-sm" type="url"
                            placeholder="http://localhost:9100" spellcheck="false"
                            @bind:get="metricsServerSetting.DraftValue" @bind:set="SetMetricsServer"
-                           @bind:event="oninput" @onchange="NotifyChangedAsync" />
+                           @bind:event="oninput" @onblur="NotifyChangedAsync" />
                 </div>
             }
         </div>
@@ -333,6 +333,8 @@
     .tokenomics-metrics-server.config-field-changed { background: #fff8dc; }
     .tokenomics-metrics-server .form-label { flex: 0 0 auto; margin: 0; font-size: 0.875rem; font-weight: 500; white-space: nowrap; }
     .tokenomics-metrics-server .form-control { min-width: 0; }
+    .tokenomics-metrics-server .form-control::placeholder { color: transparent; }
+    .tokenomics-metrics-server .form-control:focus::placeholder { color: var(--bs-secondary-color); opacity: 1; }
     .tokenomics-global-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
     .tokenomics-tabs { display: grid; grid-template-columns: repeat(5, minmax(6rem, 1fr)); overflow-x: auto; border-bottom: 1px solid #d2d2d7; }
     .tokenomics-tab { min-height: 44px; padding: 0.6rem 0.5rem; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #515154; font-weight: 500; text-align: center; white-space: nowrap; }
@@ -466,8 +468,12 @@
 
     private IEnumerable<PropertyInfo> SelectedNumericProperties => NumericProperties.Where(property => _selectedTab switch
     {
-        "limits" => property.Name is nameof(TokenomicsSettings.MonthlyTokenLimit) or nameof(TokenomicsSettings.DailyTokenLimit),
-        "budgets" => property.Name is nameof(TokenomicsSettings.DailyBudgetUsd) or nameof(TokenomicsSettings.MonthlyBudgetUsd),
+        "limits" => property.Name is nameof(TokenomicsSettings.HourlyTokenLimit)
+            or nameof(TokenomicsSettings.DailyTokenLimit)
+            or nameof(TokenomicsSettings.MonthlyTokenLimit),
+        "budgets" => property.Name is nameof(TokenomicsSettings.HourlyBudgetUsd)
+            or nameof(TokenomicsSettings.DailyBudgetUsd)
+            or nameof(TokenomicsSettings.MonthlyBudgetUsd),
         "capacity" => property.Name is nameof(TokenomicsSettings.CurrentCapacityUtilizationPercent)
             or nameof(TokenomicsSettings.CapacityConstraintThresholdPercent)
             or nameof(TokenomicsSettings.HighQueueDepthThreshold)
@@ -483,14 +489,19 @@
 
     private static string ActionTab(string name) => name switch {
         nameof(TokenomicsSettings.AbuseDetectedAction)
-            or nameof(TokenomicsSettings.MonthlyQuotaExceededAction)
+            or nameof(TokenomicsSettings.HourlyQuotaGovernanceAction)
             or nameof(TokenomicsSettings.DailyQuotaGovernanceAction)
+            or nameof(TokenomicsSettings.MonthlyQuotaGovernanceAction)
+            or nameof(TokenomicsSettings.HourlyQuotaExceededAction)
             or nameof(TokenomicsSettings.DailyQuotaExceededAction)
+            or nameof(TokenomicsSettings.MonthlyQuotaExceededAction)
             or nameof(TokenomicsSettings.DefaultAction) => "limits",
-        nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.MonthlyBudgetExceededAction)
+        nameof(TokenomicsSettings.HourlyBudgetEntitledTenantAction)
             or nameof(TokenomicsSettings.DailyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.DailyBudgetExceededAction) => "budgets",
+            or nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
+            or nameof(TokenomicsSettings.HourlyBudgetExceededAction)
+            or nameof(TokenomicsSettings.DailyBudgetExceededAction)
+            or nameof(TokenomicsSettings.MonthlyBudgetExceededAction) => "budgets",
         nameof(TokenomicsSettings.CapacityCriticalWorkloadAction)
             or nameof(TokenomicsSettings.CapacityHighPriorityAction)
             or nameof(TokenomicsSettings.CapacityConstrainedAction)
@@ -613,7 +624,15 @@
         setting.DraftValue = value ?? string.Empty;
     }
 
-    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+    private Task NotifyChangedAsync() {
+        if (MetricsServerSetting is { } setting
+            && string.IsNullOrEmpty(setting.LoadedValue)
+            && string.IsNullOrEmpty(setting.DraftValue)) {
+            setting.DraftValue = "http://localhost:9100";
+        }
+
+        return OnChanged.InvokeAsync();
+    }
 
     private async Task RevertMetricsServerAsync() {
         if (MetricsServerSetting is not { } setting) {

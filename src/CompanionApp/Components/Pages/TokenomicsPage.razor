@@ -2,6 +2,7 @@
 @namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
 @inject CompanionApp.Components.Shared.TokenomicsDashboardStore Store
+@inject CompanionApp.Components.Shared.AppConfigurationScaffoldService AppConfiguration
 @implements IDisposable
 
 <PageTitle>Tokenomics</PageTitle>
@@ -17,10 +18,29 @@
             }
         </div>
         <div class="tokenomics-filters" aria-label="Dashboard filters">
-            <label><span class="visually-hidden">Time period</span><select aria-label="Time period">@foreach (var period in _snapshot.TimePeriods) { <option>@period</option> }</select></label>
+            <div class="tokenomics-time-range">
+                <span>Time Range:</span>
+                <div class="tokenomics-period-toggle" role="radiogroup" aria-label="Display period">
+                    @foreach (var period in Enum.GetValues<CompanionApp.Components.Shared.TokenomicsPeriod>())
+                    {
+                        <button type="button" role="radio"
+                                class="@(period == _selectedPeriod ? "is-selected" : string.Empty)"
+                                aria-checked="@(period == _selectedPeriod ? "true" : "false")"
+                                @onclick="() => SelectPeriod(period)">
+                            @period
+                        </button>
+                    }
+                </div>
+            </div>
             <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
             <label><span class="visually-hidden">User</span><select aria-label="User">@foreach (var user in _snapshot.UserFilters) { <option>@user</option> }</select></label>
             <label><span class="visually-hidden">Model</span><select aria-label="Model">@foreach (var model in _snapshot.ModelFilters) { <option>@model</option> }</select></label>
+            <span class="tokenomics-appconfig-label" title="Current App Configuration label">
+                <span>AppConfig</span>
+                <strong>@(string.IsNullOrEmpty(AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel)
+                    ? "(No label)"
+                    : AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel)</strong>
+            </span>
             <span class="updated-label">@_snapshot.SnapshotLabel</span>
         </div>
     </header>
@@ -60,7 +80,7 @@
                         <div class="trend-y-label">Tokens</div>
                         <div class="trend-grid">
                             <div class="trend-y-ticks" aria-hidden="true">@foreach (var tick in _snapshot.TokenAxisTicks) { <span>@tick</span> }</div>
-                            <div class="trend-bars">
+                            <div class="trend-bars" style="@($"--trend-columns: {Math.Max(1, _snapshot.Trend.Length)}")">
                                 @foreach (var point in _snapshot.Trend)
                                 {
                                     <div class="trend-day">
@@ -120,7 +140,7 @@
                         <h3>Spend by Tenant</h3>
                         @if (_snapshot.TenantSpend.IsEmpty)
                         {
-                            <p>Spend unavailable: no price data.</p>
+                            <p>@(_snapshot.HasPriceData ? "No priced token usage in this time range." : "Spend unavailable: no price data.")</p>
                         }
                         <ul class="horizontal-bars spend-bars">
                             @foreach (var tenant in _snapshot.TenantSpend)
@@ -134,7 +154,7 @@
                         <h3>Quota Utilization</h3>
                         @if (_snapshot.Quotas.IsEmpty)
                         {
-                            <p>Quota data unavailable.</p>
+                            <p>@(_snapshot.HasQuotaData ? "No token usage in this time range." : "Quota data unavailable.")</p>
                         }
                         <ul class="horizontal-bars quota-bars">
                             @foreach (var tenant in _snapshot.Quotas)
@@ -189,12 +209,20 @@
 
 @code {
     private CompanionApp.Components.Shared.TokenomicsDashboardSnapshot _snapshot = new();
+    private CompanionApp.Components.Shared.TokenomicsPeriod _selectedPeriod =
+        CompanionApp.Components.Shared.TokenomicsPeriod.Hourly;
     private bool _disposed;
 
     protected override void OnInitialized()
     {
         Store.Changed += OnStoreChanged;
-        _snapshot = Store.GetSnapshot();
+        _snapshot = Store.GetSnapshot(_selectedPeriod);
+    }
+
+    private void SelectPeriod(CompanionApp.Components.Shared.TokenomicsPeriod period)
+    {
+        _selectedPeriod = period;
+        _snapshot = Store.GetSnapshot(_selectedPeriod);
     }
 
     private void OnStoreChanged()
@@ -202,7 +230,7 @@
         _ = InvokeAsync(() =>
         {
             if (_disposed) return;
-            _snapshot = Store.GetSnapshot();
+            _snapshot = Store.GetSnapshot(_selectedPeriod);
             StateHasChanged();
         });
     }

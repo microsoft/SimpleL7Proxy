@@ -23,7 +23,9 @@ public class TokenomicsSettings
 {
     public int MonthlyTokenLimit { get; set; }=10000;
     public int DailyTokenLimit { get; set; }=1000;
+    public int HourlyTokenLimit { get; set; }=1000;
 
+    public decimal HourlyBudgetUsd { get; set; } = 10m;
     public decimal DailyBudgetUsd { get; set; } = 50m;
     public decimal MonthlyBudgetUsd { get; set; }=1000m;
     /// <summary>Gets or sets the delay duration in milliseconds.</summary>
@@ -49,29 +51,41 @@ public class TokenomicsSettings
     /// <summary>Gets or sets the action when abuse is detected.</summary>
     public TokenActionEnum AbuseDetectedAction { get; set; } = TokenActionEnum.Reject;
 
-    /// <summary>Gets or sets the action for an exceeded monthly quota without an override or approved exception.</summary>
-    public TokenActionEnum MonthlyQuotaExceededAction { get; set; } = TokenActionEnum.Reject;
-
     /// <summary>Gets or sets the action for an administrator override or approved exception.</summary>
     public TokenActionEnum AdministratorOverrideAction { get; set; } = TokenActionEnum.Bypass;
 
+    /// <summary>Gets or sets the Hourly-quota action for incident response, audit investigation, or compliance work.</summary>
+    public TokenActionEnum HourlyQuotaGovernanceAction { get; set; } = TokenActionEnum.Bypass;
     /// <summary>Gets or sets the daily-quota action for incident response, audit investigation, or compliance work.</summary>
-    public TokenActionEnum DailyQuotaGovernanceAction { get; set; } = TokenActionEnum.IncreaseLimit;
+    public TokenActionEnum DailyQuotaGovernanceAction { get; set; } = TokenActionEnum.Bypass;
+    /// <summary>Gets or sets the action for an exceeded monthly quota without an override or approved exception.</summary>
+    public TokenActionEnum MonthlyQuotaGovernanceAction  { get; set; } = TokenActionEnum.Reject;
 
+    /// <summary>Gets or sets the hourly-quota action for other workloads.</summary>
+    public TokenActionEnum HourlyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
     /// <summary>Gets or sets the daily-quota action for other workloads.</summary>
     public TokenActionEnum DailyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
+    /// <summary>Gets or sets the monthly-quota action for other workloads.</summary>
+    public TokenActionEnum MonthlyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
 
-    /// <summary>Gets or sets the monthly-budget action for premium or enterprise tenants.</summary>
-    public TokenActionEnum MonthlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-
+    /// <summary>Gets or sets the hourly-budget action for other tenants.</summary>
+    public TokenActionEnum HourlyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
+    /// <summary>Gets or sets the daily-budget action for other tenants.</summary>
+    public TokenActionEnum DailyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
     /// <summary>Gets or sets the monthly-budget action for other tenants.</summary>
     public TokenActionEnum MonthlyBudgetExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
 
+    /// <summary>Gets or sets the hourly-budget action for premium or enterprise tenants.</summary>
+    public TokenActionEnum HourlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
     /// <summary>Gets or sets the daily-budget action for premium or enterprise tenants.</summary>
     public TokenActionEnum DailyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
+    /// <summary>Gets or sets the monthly-budget action for premium or enterprise tenants.</summary>
+    public TokenActionEnum MonthlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
 
-    /// <summary>Gets or sets the daily-budget action for other tenants.</summary>
-    public TokenActionEnum DailyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
+
+
+
+
 
     /// <summary>Gets or sets the capacity-constrained action for critical-priority or incident-response work.</summary>
     public TokenActionEnum CapacityCriticalWorkloadAction { get; set; } = TokenActionEnum.IncreasePriority;

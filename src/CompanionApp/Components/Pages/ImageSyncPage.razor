@@ -50,7 +50,7 @@
     <div class="card shadow-sm mb-3">
         <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
             <span class="fw-semibold">Public images</span>
-            <span class="small">Select the tags to copy into the deployment registry.</span>
+            <span class="small">Select missing tags or tags whose image digest has changed.</span>
         </div>
         <div class="card-body">
             <table class="table table-sm align-middle">
@@ -86,7 +86,10 @@
                                 }
                                 @foreach (var tag in repository.SourceTags)
                                 {
-                                    var present = repository.TargetTags.Contains(tag);
+                                    var present = repository.TargetDigests.TryGetValue(tag, out var targetDigest);
+                                    var digestMatches = present
+                                        && repository.SourceDigests.TryGetValue(tag, out var sourceDigest)
+                                        && string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal);
                                     var id = $"sync-{repository.Name}-{tag}";
                                     <div class="form-check form-check-inline" @key="tag">
                                         <input class="form-check-input" type="checkbox" id="@id"
@@ -94,11 +97,15 @@
                                                @onchange="@(args => ToggleTag(repository, tag, args.Value is true))" />
                                         <label class="form-check-label" for="@id">
                                             @tag
-                                            @if (ImageSync.HasTarget && present)
+                                            @if (ImageSync.HasTarget && repository.Error is null && digestMatches)
                                             {
                                                 <span class="badge text-bg-success ms-1">in local</span>
                                             }
-                                            else if (ImageSync.HasTarget)
+                                            else if (ImageSync.HasTarget && repository.Error is null && present)
+                                            {
+                                                <span class="badge text-bg-warning ms-1">changed</span>
+                                            }
+                                            else if (ImageSync.HasTarget && repository.Error is null)
                                             {
                                                 <span class="badge text-bg-warning ms-1">missing</span>
                                             }
@@ -127,7 +134,7 @@
             }
             else
             {
-                <button type="button" class="btn btn-outline-secondary me-2" disabled="@(_busy || !ImageSync.HasTarget)" @onclick="SelectMissing">Select missing</button>
+                <button type="button" class="btn btn-outline-secondary me-2" disabled="@(_busy || !ImageSync.HasTarget)" @onclick="SelectMissing">Select missing or changed</button>
                 <button type="button" class="btn btn-primary me-2" disabled="@(_busy || !CanSynchronize)" @onclick="() => _confirming = true">
                     Synchronize selected (@SelectedCount)
                 </button>
@@ -212,7 +219,8 @@
         repository.Error = null;
         try
         {
-            repository.SourceTags = await ImageSync.GetSourceTagsAsync(repository.Name, cancellationToken);
+                repository.SourceDigests = await ImageSync.GetSourceTagDigestsAsync(repository.Name, cancellationToken);
+                repository.SourceTags = repository.SourceDigests.Keys.ToArray();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -224,14 +232,17 @@
 
     private async Task LoadTargetTagsAsync(RepositoryState repository, CancellationToken cancellationToken)
     {
-        repository.TargetTags = new HashSet<string>(StringComparer.Ordinal);
+        repository.Error = null;
+        repository.TargetDigests = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!ImageSync.HasTarget || !ImageSyncService.IsValidRepositoryName(repository.TargetName))
         {
             return;
         }
         try
         {
-            repository.TargetTags = (await ImageSync.GetTargetTagsAsync(repository.TargetName, cancellationToken)).ToHashSet(StringComparer.Ordinal);
+            repository.TargetDigests = new Dictionary<string, string>(
+                await ImageSync.GetTargetTagDigestsAsync(repository.TargetName, cancellationToken),
+                StringComparer.Ordinal);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -274,7 +285,13 @@
         foreach (var repository in _repositories)
         {
             repository.Selected.Clear();
-            repository.Selected.UnionWith(repository.SourceTags.Where(tag => !repository.TargetTags.Contains(tag)));
+            if (repository.Error is null)
+            {
+                repository.Selected.UnionWith(repository.SourceTags.Where(tag =>
+                    !repository.TargetDigests.TryGetValue(tag, out var targetDigest)
+                    || !repository.SourceDigests.TryGetValue(tag, out var sourceDigest)
+                    || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal)));
+            }
         }
     }
 
@@ -298,7 +315,10 @@
                 try
                 {
                     await ImageSync.CopyImageAsync(repository.Name, tag, repository.TargetName, progress, cancellation.Token);
-                    repository.TargetTags.Add(tag);
+                    if (repository.SourceDigests.TryGetValue(tag, out var sourceDigest))
+                    {
+                        repository.TargetDigests[tag] = sourceDigest;
+                    }
                     repository.Selected.Remove(tag);
                     completed++;
                 }
@@ -344,7 +364,8 @@
         public string Name { get; } = name;
         public string TargetName { get; set; } = name;
         public IReadOnlyList<string> SourceTags { get; set; } = Array.Empty<string>();
-        public HashSet<string> TargetTags { get; set; } = new(StringComparer.Ordinal);
+        public IReadOnlyDictionary<string, string> SourceDigests { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
+        public Dictionary<string, string> TargetDigests { get; set; } = new(StringComparer.Ordinal);
         public HashSet<string> Selected { get; } = new(StringComparer.Ordinal);
         public string? Error { get; set; }
     }

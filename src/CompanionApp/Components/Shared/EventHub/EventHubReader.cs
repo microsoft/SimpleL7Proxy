@@ -29,6 +29,7 @@ public sealed class EventHubReader : BackgroundService
     // Per-request field capture keyed by S7P-ID: the enqueue, each backend attempt, and the final
     // proxy-request fields are retained so the request detail can show the full lifecycle.
     private readonly Dictionary<string, RequestPhaseRecord> _requestPhases = new(StringComparer.OrdinalIgnoreCase);
+    private long _tokenomicsEventsSinceLastLog;
     private bool _logSkippedRecords;
 
     private static readonly PipelineStage[] OrderedStages =
@@ -393,7 +394,19 @@ public sealed class EventHubReader : BackgroundService
             .Select(partitionId => ReadPartitionAsync(consumerClient, partitionId, startPosition, stoppingToken))
             .ToArray();
 
-        await Task.WhenAll(partitionReaders).ConfigureAwait(false);
+        var tokenomicsCountLogger = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+            {
+                var count = Interlocked.Exchange(ref _tokenomicsEventsSinceLastLog, 0);
+                _logger.LogInformation(
+                    "[Tokenomics] Event Hub entries received in the last minute: {EntryCount}",
+                    count);
+            }
+        }, stoppingToken);
+
+        await Task.WhenAll(partitionReaders.Append(tokenomicsCountLogger)).ConfigureAwait(false);
     }
 
     private async Task ReadPartitionAsync(
@@ -462,18 +475,28 @@ public sealed class EventHubReader : BackgroundService
         foreach (var raw in incomingRecords)
         {
             Dictionary<string, string> eventData;
+            var isTokenomicsEvent = false;
             try
             {
-                eventData = ParseEventData(raw);
+                eventData = ParseEventData(raw, out isTokenomicsEvent);
             }
             catch (Exception ex) when (ex is JsonException or FormatException)
             {
+                if (isTokenomicsEvent && source.StartsWith("Event Hub partition ", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref _tokenomicsEventsSinceLastLog);
+                }
                 skipped++;
                 LogInvalidRecord(ex, source);
                 continue;
             }
 
             parsed.Add(new ParsedEventRecord(raw, eventData));
+
+            if (isTokenomicsEvent && source.StartsWith("Event Hub partition ", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _tokenomicsEventsSinceLastLog);
+            }
 
             if (eventData.TryGetValue("Type", out var recordType)
                 && IsIncompleteRecord(eventData, recordType))
@@ -1356,16 +1379,19 @@ public sealed class EventHubReader : BackgroundService
         return null;
     }
 
-    private static Dictionary<string, string> ParseEventData(string eventBody)
+    private static Dictionary<string, string> ParseEventData(string eventBody, out bool isTokenomicsEvent)
     {
         using var document = JsonDocument.Parse(NormalizeJsonRecord(eventBody));
+        isTokenomicsEvent = document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty("Type", out var eventType)
+            && eventType.ValueKind == JsonValueKind.String
+            && eventType.GetString() == "S7P-Tokenomics";
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             throw new JsonException("Event Hub payload was not a JSON object.");
         }
 
-        if (document.RootElement.TryGetProperty("Type", out var type)
-            && type.ValueKind == JsonValueKind.String && type.GetString() == "S7P-Tokenomics"
+        if (isTokenomicsEvent
             && (document.RootElement.TryGetProperty("RecordKind", out _) || document.RootElement.TryGetProperty("SchemaVersion", out _)))
         {
             return TokenomicsReplayOptions.ParseRecord(document.RootElement)

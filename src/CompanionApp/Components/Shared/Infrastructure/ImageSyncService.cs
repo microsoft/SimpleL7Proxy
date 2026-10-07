@@ -72,6 +72,14 @@ public sealed class ImageSyncService
         return GetTagsAsync(target.Pipeline, target.Endpoint, repository, cancellationToken);
     }
 
+    /// <summary>Lists each public tag and its manifest digest.</summary>
+    public Task<IReadOnlyDictionary<string, string>> GetSourceTagDigestsAsync(string repository, CancellationToken cancellationToken) =>
+        GetTagDigestsAsync(new ContainerRegistryContentClient(SourceEndpoint, repository), cancellationToken);
+
+    /// <summary>Lists each deployment-registry tag and its manifest digest.</summary>
+    public Task<IReadOnlyDictionary<string, string>> GetTargetTagDigestsAsync(string repository, CancellationToken cancellationToken) =>
+        GetTagDigestsAsync(CreateTargetClient(repository), cancellationToken);
+
     /// <summary>
     /// Copies one tagged image, including every platform manifest of a multi-platform index,
     /// from the public registry into <paramref name="targetRepository"/> of the deployment registry.
@@ -215,6 +223,20 @@ public sealed class ImageSyncService
         }
         tags.Sort(StringComparer.Ordinal);
         return tags;
+    }
+
+    private static async Task<IReadOnlyDictionary<string, string>> GetTagDigestsAsync(
+        ContainerRegistryContentClient client,
+        CancellationToken cancellationToken)
+    {
+        var tags = await GetTagsAsync(client.Pipeline, client.Endpoint, client.RepositoryName, cancellationToken);
+        var digests = new Dictionary<string, string>(tags.Count, StringComparer.Ordinal);
+        foreach (var tag in tags)
+        {
+            var manifest = (await client.GetManifestAsync(tag, cancellationToken)).Value;
+            digests.Add(tag, manifest.Digest.ToString());
+        }
+        return digests;
     }
 
     private static Uri? ParseNextLink(Uri endpoint, string link)
