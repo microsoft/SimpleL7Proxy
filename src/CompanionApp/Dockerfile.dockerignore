@@ -1,6 +1,8 @@
 **
 !src/CompanionApp/CompanionApp.csproj
 !src/CompanionApp/Program.cs
+!src/CompanionApp/Simulated/**
+!src/CompanionApp/Startup/**
 !src/CompanionApp/Components/**
 !src/CompanionApp/wwwroot/**
 !src/CompanionApp/Assets/**
