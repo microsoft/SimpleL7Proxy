@@ -108,7 +108,7 @@ Retrieve the application URLs:
 az deployment sub show \
     --subscription "$sub" \
     --name "$deployment" \
-    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value}' \
+    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value,MetricsServer:properties.outputs.metricsServerUrl.value}' \
     --output table
 ```
 
@@ -202,19 +202,14 @@ The same Azure permissions and recovery steps apply.
 The deployment:
 
 - Creates the selected resource groups and Azure Container Registry.
+- Creates or reuses the selected Container Apps environment.
 - Imports the selected proxy, HealthProbe, Companion App, and Metrics Server images.
 - Creates the selected infrastructure.
 - Enables system-assigned identities on the Container Apps.
-- Grants the required ACR and App Configuration roles.
+- Grants ACR pull access to each selected app; grants the Companion App ACR push, App Configuration Data Owner, and Event Hubs Data Receiver access when selected.
 - Updates the Container Apps to use the imported ACR images.
 - Creates the Metrics Server as a single-replica internal Container App when selected.
 - Prints the deployment name and available application URLs.
-
-The deployment grants:
-
-- App Configuration Data Owner to the deployment principal.
-- App Configuration Data Reader to the proxy managed identity.
-- App Configuration Data Owner to the Companion App managed identity when selected.
 
 ## What the ZIP contains
 

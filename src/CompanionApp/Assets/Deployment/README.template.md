@@ -1,6 +1,6 @@
 # Deploy SimpleL7Proxy
 
-The Bicep bundle deploys the selected proxy, Metrics Server, and Companion App; it always creates the Azure Container Registry and creates or reuses the selected Container Apps environment.
+The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP included in the repo.  Once deployed, you will have the following resources:
 
 ![SimpleL7Proxy deployment architecture](arch.png)
 
@@ -8,7 +8,7 @@ The Bicep bundle deploys the selected proxy, Metrics Server, and Companion App; 
 
 You need:
 
-- The complete deployment ZIP from Deployment Setup.
+- The complete [deployment ZIP](deploy.zip) from Deployment Setup.
 - The target Azure subscription ID.
 - Subscription Contributor access plus permission to assign roles, or subscription Owner access.
 - Permission to create an Azure Container Registry and import images.
@@ -18,7 +18,7 @@ You need:
 1. Open Azure Cloud Shell in Bash mode.
 2. Select **Manage files > Upload**.
 3. Upload the deployment ZIP.
-4. Extract it and open the extracted directory:
+4. Extract the ZIP file and open the extracted directory:
 
 ```bash
 mkdir simplel7proxy-deployment
@@ -28,32 +28,32 @@ cd simplel7proxy-deployment
 
 5. Set the subscription and deploy:
 
+![alt text](cloudshell.png)
+
+Once the bash shell opens, set your subscription and deploy.  If you see powershell, switch to bash.
+
 ```bash
-sub='YOUR_SUBSCRIPTION_ID'
+export sub=`az account show --query 'id'`
+
+#Deploy
 ./deploy.sh "$sub" create
 ```
 
-This creates a unique deployment by appending a unique suffix to the resource names.
+The deplopyment takes about 10-15 minutes and will have a unique suffix added to the end of all the resources.
 
 ![Deployment output](deployment.png)
 
-The script prints a URL for each selected app and reports unselected apps as `not deployed`.
+If the deployment is successful, the script prints the URL's for :
+* The proxy endpoint, which is the URL for LLM queries.
+* The Companion App URLs, which is used to configure and test the proxy.
 
-When the Companion App is selected, the Bicep deployment also creates its Event Hubs namespace, hub, and consumer group in the Companion App resource group. The namespace uses Standard tier with one throughput unit; the hub uses two partitions and one-day retention. Deployment Setup supplies the three names, and `--MakeUniq` also suffixes the namespace name.
+## Secure the proxy
 
-The Companion App and its App Configuration store, Event Hubs namespace, hub, and consumer group deploy only when selected. Its managed identity receives App Configuration Data Owner, Event Hubs Data Receiver scoped to the hub, and ACR pull/push access. Other selected apps receive ACR pull access.
-
-The Companion App monitor is disabled in the bootstrap revision. After its managed identity receives **Azure Event Hubs Data Receiver** access scoped to the hub, the final revision enables the monitor and sets `CompanionApp__EventHubMonitor__EventHubNamespace`, `CompanionApp__EventHubMonitor__EventHubName`, and `CompanionApp__EventHubMonitor__ConsumerGroup`.
-
-> [!NOTE]
-> Provisioning the hub does not configure the proxy to publish events. Configure the proxy's event destination and grant its publishing identity Event Hubs Data Sender access separately. Verify the Companion App Log stream reports that the Event Hub reader started; an empty monitor does not prove that publishing is configured. Portal ARM and standalone exports do not deploy the Companion App or its Event Hub resources.
-
-> [!WARNING]
-> A completed role assignment does not guarantee that Event Hubs authorization has propagated. If a fresh Companion App revision logs an authorization failure followed by `Event Hub reader stopped unexpectedly.`, verify its managed identity has Azure Event Hubs Data Receiver on the selected hub, allow the assignment to propagate, then open **Container App > Revisions and replicas** in the Azure portal and restart the active Companion App revision. Confirm the reader-started message in Log stream; the existing reader does not automatically restart after startup authorization fails.
+After initial setup, the companion app is unsecured and open to the internet.  Ensure that you [secure](https://learn.microsoft.com/en-us/azure/container-apps/secure-deployment#identity-and-access-management) the Companion App or shut it down when not in use as it will default to open access to the internet.  It is not recommended to leave it unsecured.
 
 ## Configure the proxy
 
-Open the Companion App URL and select **Proxy Configuration**.
+Open the Companion App URL and select **Proxy Configuration**.  The companion app can manage multiple proxies, each of which have their own unique label.  The deployment.zip uses a label of `prod`.  
 
 Select **Update**, then choose the deployment label, `prod`.
 
@@ -229,7 +229,7 @@ Regenerate the ZIP when changing resource names, image names, topology, or Deplo
 
 Confirm that the deployment identity can import images into the selected Azure Container Registry and reach the public source registry.
 
-**A selected Container App cannot pull its image**
+**A Container App cannot pull its image**
 
 Confirm that the imported image tag exists and the Container App managed identity has `AcrPull` on the registry.
 
