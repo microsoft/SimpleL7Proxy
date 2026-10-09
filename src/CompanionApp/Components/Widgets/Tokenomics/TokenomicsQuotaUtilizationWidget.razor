@@ -1,0 +1,22 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<article class="tokenomics-card insight-card">
+    <h3>Quota Utilization</h3>
+    @if (Snapshot.Quotas.IsEmpty)
+    {
+        <p>@(Snapshot.HasQuotaData ? "No token usage in this time range." : "Quota data unavailable.")</p>
+    }
+    <ul class="horizontal-bars quota-bars">
+        @foreach (var tenant in Snapshot.Quotas)
+        {
+            <li><span>@tenant.Name</span><div class="horizontal-track"><i class="@tenant.Color" style="width: @tenant.Width"></i></div><strong>@tenant.Amount</strong></li>
+        }
+    </ul>
+</article>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}
