@@ -37,6 +37,7 @@ public sealed record TokenomicsDashboardSnapshot {
     public ImmutableArray<(int Rank, string Name, string Tenant, string Total, string Input, string Output, string Cached, string Spend, string Quota, string QuotaColor, string Color, string Sparkline)> Users { get; init; } = [];
     public ImmutableArray<(int Rank, string User, string Model, string Reason, string Timestamp, string Status)> AtRiskRequests { get; init; } = [];
     public ImmutableArray<(string Name, string Description, string Icon)> Reports { get; init; } = [];
+    public ImmutableArray<ImmutableDictionary<string, string>> PolicyDecisions { get; init; } = [];
 
     public static TokenomicsDashboardSnapshot Sample { get; } = new() {
         IsSampleData = true,
@@ -234,7 +235,12 @@ public sealed class TokenomicsDashboardStore : IDisposable {
         return baseSnapshot with {
             Users = filteredUsers,
             AtRiskRequests = filteredAtRisk,
-            Models = filteredModels
+            Models = filteredModels,
+            PolicyDecisions = baseSnapshot.PolicyDecisions.Where(fields =>
+                (tenantFilter == null || fields.GetValueOrDefault("Tenant") == tenantFilter)
+                && (userFilter == null || fields.GetValueOrDefault("UserId") == userFilter)
+                && (modelFilter == null || new[] { "RequestedModel", "ModelBefore", "ModelAfter" }
+                    .Any(key => fields.GetValueOrDefault(key) == modelFilter))).ToImmutableArray()
         };
     }
 

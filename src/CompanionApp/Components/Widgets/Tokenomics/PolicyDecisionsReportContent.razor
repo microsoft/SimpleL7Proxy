@@ -1,65 +1,448 @@
 @namespace CompanionApp.Components.Widgets.Tokenomics
 @rendermode InteractiveServer
 @using CompanionApp.Tokenomics
+@using System.Collections.Immutable
+@using System.Globalization
+@using System.Text
 
-<section>
-    <h3>Policy Decisions and Outcomes</h3>
-    <p>Summary of actions taken by the system and their results</p>
-    
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Policy Actions</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">1,243</strong>
-            <span style="font-size: 0.75rem; color: #999;">↑ 22% vs. previous period</span>
-        </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Approved</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem; color: #28a745;">892</strong>
-            <span style="font-size: 0.75rem; color: #999;">72% of total actions</span>
-        </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Denied</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem; color: #dc3545;">351</strong>
-            <span style="font-size: 0.75rem; color: #999;">28% of total actions</span>
-        </div>
+<section class="tokenomics-section policy-report" aria-label="Policy decisions and outcomes">
+    <div class="tokenomics-kpis">
+        @foreach (var metric in _metrics)
+        {
+            <article class="tokenomics-card kpi-card">
+                <div class="kpi-heading">
+                    <h2 title="@metric.Name">@metric.Name</h2>
+                    <span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span>
+                </div>
+                <p class="kpi-value">@metric.Count.ToString("N0", CultureInfo.InvariantCulture)</p>
+                <p class="policy-kpi-caption">@metric.Caption</p>
+            </article>
+        }
     </div>
 
-    <div class="report-section" style="margin-top: 2rem;">
-        <h4>Recent Actions</h4>
-        <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse;">
-            <thead>
-                <tr style="border-bottom: 1px solid #e0e0e0;">
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Action Type</th>
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">User</th>
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Reason</th>
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Outcome</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Rate Limit</td>
-                    <td style="padding: 0.5rem;">alex</td>
-                    <td style="padding: 0.5rem;">Exceeded hourly quota</td>
-                    <td style="padding: 0.5rem;"><span style="background: #fff3cd; color: #856404; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Throttled</span></td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Content Filter</td>
-                    <td style="padding: 0.5rem;">maria</td>
-                    <td style="padding: 0.5rem;">Jailbreak attempt detected</td>
-                    <td style="padding: 0.5rem;"><span style="background: #ffe0e0; color: #d32f2f; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Blocked</span></td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Budget Alert</td>
-                    <td style="padding: 0.5rem;">sam</td>
-                    <td style="padding: 0.5rem;">Approaching spend limit</td>
-                    <td style="padding: 0.5rem;"><span style="background: #d4edda; color: #155724; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Notified</span></td>
-                </tr>
-            </tbody>
-        </table>
+    <div class="policy-chart-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading">
+                <h3>Policy Decisions Over Time</h3>
+                <p>Latest recorded evaluation per request, @IntervalLabel in UTC</p>
+            </div>
+            <div class="policy-timeline" role="img" aria-label="@TimelineDescription">
+                <span class="policy-axis-label">Requests</span>
+                <div class="policy-axis-ticks" aria-hidden="true">
+                    @for (var index = 4; index >= 0; index--)
+                    {
+                        <span>@(_axisMaximum * index / 4)</span>
+                    }
+                </div>
+                <div class="policy-timeline-bars" style="@($"--policy-buckets: {_timeline.Length}")">
+                    @for (var index = 0; index < _timeline.Length; index++)
+                    {
+                        var bucket = _timeline[index];
+                        <div class="policy-time-bucket">
+                            <div class="policy-time-stack" title="@($"{bucket.Label} UTC: {bucket.Total} requests")">
+                                @foreach (var segment in bucket.Segments)
+                                {
+                                    <span class="@OutcomeClass(segment.Outcome)"
+                                          style="height: @Percent(segment.Count, _axisMaximum)%"
+                                          title="@($"{segment.Outcome}: {segment.Count}")"></span>
+                                }
+                            </div>
+                            <span class="policy-time-label">
+                                @(index % Math.Max(1, _timeline.Length / 8) == 0 || index == _timeline.Length - 1 ? bucket.Label : "")
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="policy-legend" aria-label="Chart outcomes">
+                @foreach (var outcome in _outcomes)
+                {
+                    <span><i class="@OutcomeClass(outcome.Name)" aria-hidden="true"></i>@outcome.Name</span>
+                }
+            </div>
+        </article>
+
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading">
+                <h3>Decision Outcomes</h3>
+                <p>Share of requests by latest recorded policy outcome</p>
+            </div>
+            <div class="policy-outcome-distribution">
+                <div class="model-donut policy-donut" style="@($"--model-distribution: {_donutGradient}")"
+                     role="img" aria-label="@OutcomeDescription">
+                    <div><strong>@_requestCount.ToString("N0", CultureInfo.InvariantCulture)</strong><span>Total Requests</span></div>
+                </div>
+                <ul class="policy-outcome-list">
+                    @foreach (var outcome in _outcomes)
+                    {
+                        <li>
+                            <i class="@OutcomeClass(outcome.Name)" aria-hidden="true"></i>
+                            <span>@outcome.Name</span>
+                            <strong>@outcome.Count.ToString("N0", CultureInfo.InvariantCulture) (@Percent(outcome.Count, _requestCount)%)</strong>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </article>
     </div>
+
+    <div class="tokenomics-insight-grid policy-breakdown-grid">
+        @foreach (var breakdown in _breakdowns)
+        {
+            <article class="tokenomics-card insight-card">
+                <div class="policy-card-heading">
+                    <h3>@breakdown.Title</h3>
+                    <p>@breakdown.Description</p>
+                </div>
+                <ul class="policy-breakdown-bars">
+                    @foreach (var row in breakdown.Rows)
+                    {
+                        <li>
+                            <span title="@row.Label">@row.Label</span>
+                            <div class="horizontal-track">
+                                @if (breakdown.IsCondition)
+                                {
+                                    <i class="bar-blue" style="width: @Percent(row.Total, breakdown.Maximum)%"></i>
+                                }
+                                else
+                                {
+                                    @foreach (var segment in row.Segments)
+                                    {
+                                        <i class="@OutcomeClass(segment.Outcome)"
+                                           style="width: @Percent(segment.Count, breakdown.Maximum)%"
+                                           title="@($"{segment.Outcome}: {segment.Count}")"></i>
+                                    }
+                                }
+                            </div>
+                            <strong>@row.Total.ToString("N0", CultureInfo.InvariantCulture)</strong>
+                        </li>
+                    }
+                </ul>
+            </article>
+        }
+    </div>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading">
+            <div class="policy-card-heading">
+                <h3>Recent Decisions</h3>
+                <p>Individual policy evaluations, newest first</p>
+            </div>
+            <div class="policy-table-controls">
+                <div class="section-tabs" aria-label="Filter recent decisions by outcome">
+                    <button type="button" class="@(_selectedOutcome == "All Decisions" ? "selected" : "")"
+                            aria-pressed="@(_selectedOutcome == "All Decisions" ? "true" : "false")"
+                            @onclick="@(() => SelectOutcome("All Decisions"))">All Decisions</button>
+                    @foreach (var outcome in _outcomes)
+                    {
+                        <button type="button" class="@(_selectedOutcome == outcome.Name ? "selected" : "")"
+                                aria-pressed="@(_selectedOutcome == outcome.Name ? "true" : "false")"
+                                @onclick="@(() => SelectOutcome(outcome.Name))">@outcome.Name</button>
+                    }
+                </div>
+                @if (_filteredDecisions.IsEmpty)
+                {
+                    <button type="button" class="export-button" disabled>Export CSV</button>
+                }
+                else
+                {
+                    <a class="export-button" href="@_csvHref" download="policy-decisions.csv">Export CSV</a>
+                }
+            </div>
+        </div>
+        @if (_visibleDecisions.IsEmpty)
+        {
+            <p class="policy-note" role="status">No recorded policy decisions match the selected time range and filters.</p>
+        }
+        else
+        {
+            <div class="users-table-wrap">
+                <table class="users-table policy-decisions-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Time (UTC)</th>
+                            <th scope="col">User</th>
+                            <th scope="col">Tenant</th>
+                            <th scope="col">Model (Before / After)</th>
+                            <th scope="col">Condition</th>
+                            <th scope="col">Action</th>
+                            <th scope="col">Outcome</th>
+                            <th scope="col">Tokens</th>
+                            <th scope="col">Priority</th>
+                            <th scope="col">Policy Version</th>
+                            <th scope="col">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var decision in _visibleDecisions)
+                        {
+                            <tr>
+                                <td title="@Field(decision, "TimestampUtc")">@TimeLabel(decision)</td>
+                                <td>@Field(decision, "UserId")</td>
+                                <td>@Field(decision, "Tenant")</td>
+                                <td>@Field(decision, "ModelBefore")<br />@Field(decision, "ModelAfter")</td>
+                                <td>@Field(decision, "PolicyCondition")</td>
+                                <td>@Field(decision, "PolicyAction")</td>
+                                <td><span class="policy-outcome-text @OutcomeClass(Outcome(decision.GetValueOrDefault("Decision")))">@Outcome(decision.GetValueOrDefault("Decision"))</span></td>
+                                <td>Not captured</td>
+                                <td>@Field(decision, "PriorityBefore") / @Field(decision, "PriorityAfter")</td>
+                                <td>Not captured</td>
+                                <td>
+                                    <details class="policy-decision-details">
+                                        <summary>View</summary>
+                                        <dl>
+                                            <dt>Request ID</dt><dd>@Field(decision, "MID")</dd>
+                                            <dt>Decision ID</dt><dd>@Field(decision, "DecisionId")</dd>
+                                            <dt>Evaluation sequence</dt><dd>@Field(decision, "EvaluationSequence")</dd>
+                                            <dt>Requested model</dt><dd>@Field(decision, "RequestedModel")</dd>
+                                            <dt>Model changed</dt><dd>@Field(decision, "ModelChanged")</dd>
+                                            <dt>Priority changed</dt><dd>@Field(decision, "PriorityChanged")</dd>
+                                            <dt>Backend allowed</dt><dd>@Field(decision, "BackendCallAllowed")</dd>
+                                            <dt>Local status</dt><dd>@Field(decision, "LocalStatusCode")</dd>
+                                            <dt>Retry after (ms)</dt><dd>@Field(decision, "RetryAfterMs")</dd>
+                                            <dt>Configured action</dt><dd>Not captured</dd>
+                                            <dt>Limits / thresholds</dt><dd>Not captured</dd>
+                                            <dt>Override / exception flags</dt><dd>Not captured</dd>
+                                            <dt>Policy / config version</dt><dd>Not captured</dd>
+                                        </dl>
+                                    </details>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        <div class="policy-pagination">
+            <span>@_filteredDecisions.Length.ToString("N0", CultureInfo.InvariantCulture) matching evaluations</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex == 0)" @onclick="() => ChangePage(-1)">Previous</button>
+            <span>Page @(_pageIndex + 1) of @PageCount</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next</button>
+        </div>
+    </article>
+
+    <p class="policy-note">
+        Charts count each request once using its latest evaluation within the selected window, not its eventual backend response.
+        Policy actions and recent decisions count individual evaluations; requeued requests can have several.
+        Tokens, configured actions, thresholds, governance flags and policy/config versions are not captured by current decision telemetry.
+        No previous-period baseline is recorded.
+    </p>
 </section>
 
 @code {
     [Parameter]
     public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public TokenomicsPeriod Period { get; set; } = TokenomicsPeriod.Hourly;
+
+    private const int PageSize = 10;
+    private readonly string[] _outcomeOrder = ["Allowed", "Rejected", "Delayed", "Modified", "Requeued", "Throttled", "Pending", "Not captured"];
+    private ImmutableArray<ImmutableDictionary<string, string>> _finalDecisions = [];
+    private ImmutableArray<ImmutableDictionary<string, string>> _filteredDecisions = [];
+    private ImmutableArray<ImmutableDictionary<string, string>> _visibleDecisions = [];
+    private (string Name, int Count)[] _outcomes = [];
+    private (string Name, int Count, string Icon, string Tone, string Caption)[] _metrics = [];
+    private (string Label, int Total, (string Outcome, int Count)[] Segments)[] _timeline = [];
+    private (string Title, string Description, bool IsCondition, int Maximum,
+        (string Label, int Total, (string Outcome, int Count)[] Segments)[] Rows)[] _breakdowns = [];
+    private string _selectedOutcome = "All Decisions";
+    private string _donutGradient = "conic-gradient(#9ba9c1 0% 100%)";
+    private string _csvHref = string.Empty;
+    private int _pageIndex;
+    private int _requestCount;
+    private int _axisMaximum = 4;
+    private int PageCount => Math.Max(1, (_filteredDecisions.Length + PageSize - 1) / PageSize);
+    private string IntervalLabel => Period switch {
+        TokenomicsPeriod.Hourly => "per minute",
+        TokenomicsPeriod.Daily => "per hour",
+        _ => "per day"
+    };
+    private string OutcomeDescription => $"{_requestCount} requests. " + string.Join(", ", _outcomes.Select(outcome => $"{outcome.Name}: {outcome.Count}"));
+    private string TimelineDescription => $"{OutcomeDescription}. Latest evaluations {IntervalLabel} in UTC.";
+
+    protected override void OnParametersSet() {
+        _finalDecisions = Snapshot.PolicyDecisions.GroupBy(fields => fields["MID"], StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(Timestamp).ThenByDescending(fields =>
+                int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0).First())
+            .ToImmutableArray();
+        _requestCount = _finalDecisions.Length;
+        var counts = _finalDecisions.GroupBy(fields => Outcome(fields.GetValueOrDefault("Decision")))
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var evaluationOutcomes = Snapshot.PolicyDecisions.Select(fields => Outcome(fields.GetValueOrDefault("Decision")));
+        _outcomes = _outcomeOrder.Take(6).Concat(counts.Keys).Concat(evaluationOutcomes).Distinct(StringComparer.Ordinal)
+            .Select(name => (Name: name, Count: counts.GetValueOrDefault(name)))
+            .ToArray();
+        var actionCount = Snapshot.PolicyDecisions.Count(IsAction);
+        _metrics = [
+            ("Total Requests Evaluated", _requestCount, "▣", "blue", "Distinct requests in this window"),
+            ("Policy Actions Taken", actionCount, "⬟", "red", "Evaluations excluding Bypass / None"),
+            ("Allowed", counts.GetValueOrDefault("Allowed"), "✓", "green", $"{Percent(counts.GetValueOrDefault("Allowed"), _requestCount)}% of requests"),
+            ("Rejected", counts.GetValueOrDefault("Rejected"), "×", "red", $"{Percent(counts.GetValueOrDefault("Rejected"), _requestCount)}% of requests"),
+            ("Delayed", counts.GetValueOrDefault("Delayed"), "◷", "blue", $"{Percent(counts.GetValueOrDefault("Delayed"), _requestCount)}% of requests"),
+            ("Modified", counts.GetValueOrDefault("Modified"), "↗", "blue", $"{Percent(counts.GetValueOrDefault("Modified"), _requestCount)}% of requests")
+        ];
+        var stops = new List<string>();
+        var accumulated = 0;
+        foreach (var outcome in _outcomes.Where(outcome => outcome.Count > 0)) {
+            var start = accumulated;
+            accumulated += outcome.Count;
+            stops.Add($"{OutcomeColor(outcome.Name)} {Percent(start, _requestCount)}% {Percent(accumulated, _requestCount)}%");
+        }
+        _donutGradient = stops.Count == 0 ? "conic-gradient(#9ba9c1 0% 100%)" : $"conic-gradient({string.Join(", ", stops)})";
+        BuildTimeline();
+        _breakdowns = [
+            BuildBreakdown("Policy Actions by Condition", "Top conditions across all action evaluations", "PolicyCondition", true),
+            BuildBreakdown("Decisions by Model", "Latest policy outcome by requested model", "RequestedModel", false),
+            BuildBreakdown("Decisions by Tenant", "Latest policy outcome by tenant", "Tenant", false)
+        ];
+        UpdateRows();
+    }
+
+    private void BuildTimeline() {
+        var dated = _finalDecisions.Where(fields => Timestamp(fields) != DateTimeOffset.MinValue).ToArray();
+        var anchor = dated.Length == 0 ? DateTimeOffset.UtcNow : dated.Max(Timestamp);
+        var start = Period switch {
+            TokenomicsPeriod.Hourly => new DateTimeOffset(anchor.Year, anchor.Month, anchor.Day, anchor.Hour, 0, 0, TimeSpan.Zero),
+            TokenomicsPeriod.Daily => new DateTimeOffset(anchor.Year, anchor.Month, anchor.Day, 0, 0, 0, TimeSpan.Zero),
+            _ => new DateTimeOffset(anchor.Year, anchor.Month, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var count = Period switch {
+            TokenomicsPeriod.Hourly => 60,
+            TokenomicsPeriod.Daily => 24,
+            _ => DateTime.DaysInMonth(anchor.Year, anchor.Month)
+        };
+        var buckets = dated.ToLookup(fields => Period switch {
+            TokenomicsPeriod.Hourly => Timestamp(fields).Minute,
+            TokenomicsPeriod.Daily => Timestamp(fields).Hour,
+            _ => Timestamp(fields).Day - 1
+        });
+        _timeline = Enumerable.Range(0, count).Select(index => {
+            var records = buckets[index].ToArray();
+            var label = Period switch {
+                TokenomicsPeriod.Hourly => start.AddMinutes(index).ToString("HH:mm", CultureInfo.InvariantCulture),
+                TokenomicsPeriod.Daily => start.AddHours(index).ToString("HH:mm", CultureInfo.InvariantCulture),
+                _ => start.AddDays(index).ToString("MMM d", CultureInfo.InvariantCulture)
+            };
+            return (Label: label, Total: records.Length, Segments: Segments(records));
+        }).ToArray();
+        if (dated.Length != _finalDecisions.Length) {
+            var undated = _finalDecisions.Where(fields => Timestamp(fields) == DateTimeOffset.MinValue).ToArray();
+            _timeline = [.. _timeline, ("Undated", undated.Length, Segments(undated))];
+        }
+        _axisMaximum = Math.Max(4, (int)Math.Ceiling(_timeline.Max(bucket => bucket.Total) / 4.0) * 4);
+    }
+
+    private (string Title, string Description, bool IsCondition, int Maximum,
+        (string Label, int Total, (string Outcome, int Count)[] Segments)[] Rows) BuildBreakdown(
+            string title, string description, string key, bool isCondition) {
+        var records = isCondition ? Snapshot.PolicyDecisions.Where(IsAction) : _finalDecisions;
+        var groups = records.GroupBy(fields => Field(fields, key)).OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal).ToArray();
+        var rows = groups.Take(5).Select(group => (
+            Label: group.Key, Total: group.Count(), Segments: Segments(group))).ToList();
+        if (groups.Length > 5) {
+            var other = groups.Skip(5).SelectMany(group => group).ToArray();
+            rows.Add(("Other", other.Length, Segments(other)));
+        }
+        return (title, description, isCondition, rows.Count == 0 ? 1 : rows.Max(row => row.Total), rows.ToArray());
+    }
+
+    private (string Outcome, int Count)[] Segments(IEnumerable<ImmutableDictionary<string, string>> records) {
+        var counts = records.GroupBy(fields => Outcome(fields.GetValueOrDefault("Decision")))
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        return _outcomes.Select(outcome => (Outcome: outcome.Name, Count: counts.GetValueOrDefault(outcome.Name))).ToArray();
+    }
+
+    private void SelectOutcome(string outcome) {
+        _selectedOutcome = outcome;
+        _pageIndex = 0;
+        UpdateRows();
+    }
+
+    private void ChangePage(int change) {
+        _pageIndex = Math.Clamp(_pageIndex + change, 0, PageCount - 1);
+        _visibleDecisions = _filteredDecisions.Skip(_pageIndex * PageSize).Take(PageSize).ToImmutableArray();
+    }
+
+    private void UpdateRows() {
+        _filteredDecisions = Snapshot.PolicyDecisions.Where(fields =>
+                _selectedOutcome == "All Decisions" || Outcome(fields.GetValueOrDefault("Decision")) == _selectedOutcome)
+            .OrderByDescending(Timestamp).ThenByDescending(fields =>
+                int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0)
+            .ToImmutableArray();
+        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        _visibleDecisions = _filteredDecisions.Skip(_pageIndex * PageSize).Take(PageSize).ToImmutableArray();
+        var csv = new StringBuilder("TimestampUtc,UserId,Tenant,RequestedModel,ModelBefore,ModelAfter,PriorityBefore,PriorityAfter,PolicyCondition,PolicyAction,Decision,ConfiguredAction,Tokens,PolicyVersion,Limits,OverrideFlags,MID,DecisionId,EvaluationSequence,BackendCallAllowed,LocalStatusCode,RetryAfterMs\r\n");
+        foreach (var fields in _filteredDecisions) {
+            var values = new[] {
+                Field(fields, "TimestampUtc"), Field(fields, "UserId"), Field(fields, "Tenant"),
+                Field(fields, "RequestedModel"), Field(fields, "ModelBefore"), Field(fields, "ModelAfter"),
+                Field(fields, "PriorityBefore"), Field(fields, "PriorityAfter"), Field(fields, "PolicyCondition"),
+                Field(fields, "PolicyAction"), Outcome(fields.GetValueOrDefault("Decision")),
+                "Not captured", "Not captured", "Not captured", "Not captured", "Not captured",
+                Field(fields, "MID"), Field(fields, "DecisionId"), Field(fields, "EvaluationSequence"),
+                Field(fields, "BackendCallAllowed"), Field(fields, "LocalStatusCode"), Field(fields, "RetryAfterMs")
+            };
+            csv.AppendLine(string.Join(",", values.Select(CsvCell)));
+        }
+        _csvHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv.ToString());
+    }
+
+    private static string CsvCell(string value) {
+        if (value.TrimStart().StartsWith('=') || value.TrimStart().StartsWith('+')
+            || value.TrimStart().StartsWith('-') || value.TrimStart().StartsWith('@')
+            || value.StartsWith('\t') || value.StartsWith('\r') || value.StartsWith('\n')) {
+            value = "'" + value;
+        }
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
+
+    private static bool IsAction(ImmutableDictionary<string, string> fields) =>
+        fields.TryGetValue("PolicyAction", out var action) && !string.IsNullOrWhiteSpace(action)
+        && !action.Equals("None", StringComparison.OrdinalIgnoreCase)
+        && !action.Equals("Bypass", StringComparison.OrdinalIgnoreCase);
+
+    private static DateTimeOffset Timestamp(ImmutableDictionary<string, string> fields) =>
+        DateTimeOffset.TryParse(fields.GetValueOrDefault("TimestampUtc"), CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)
+            ? timestamp : DateTimeOffset.MinValue;
+
+    private static string TimeLabel(ImmutableDictionary<string, string> fields) {
+        var timestamp = Timestamp(fields);
+        return timestamp != DateTimeOffset.MinValue
+            ? timestamp.ToString("MMM d, HH:mm:ss", CultureInfo.InvariantCulture) : "Not captured";
+    }
+
+    private static string Percent(int count, int total) =>
+        (total == 0 ? 0 : count * 100.0 / total).ToString("0.###", CultureInfo.InvariantCulture);
+
+    private static string Field(IReadOnlyDictionary<string, string> fields, string key) =>
+        fields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : "Not captured";
+
+    private static string Outcome(string? decision) => decision switch {
+        "AllowedWithChanges" => "Modified",
+        null or "" => "Not captured",
+        _ => decision
+    };
+
+    private static string OutcomeClass(string outcome) => outcome switch {
+        "Allowed" => "policy-allowed",
+        "Rejected" => "policy-rejected",
+        "Delayed" => "policy-delayed",
+        "Modified" => "policy-modified",
+        "Requeued" => "policy-requeued",
+        "Throttled" => "policy-throttled",
+        _ => "policy-unknown"
+    };
+
+    private static string OutcomeColor(string outcome) => outcome switch {
+        "Allowed" => "#32bf78",
+        "Rejected" => "#f2554b",
+        "Delayed" => "#f5ab28",
+        "Modified" => "#398cf1",
+        "Requeued" => "#9255eb",
+        "Throttled" => "#d44a96",
+        _ => "#9ba9c1"
+    };
 }

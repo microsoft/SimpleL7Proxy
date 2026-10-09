@@ -7,13 +7,20 @@
 @inject CompanionApp.Components.Shared.AppConfigurationScaffoldService AppConfiguration
 @implements IDisposable
 
-<PageTitle>Tokenomics</PageTitle>
+<PageTitle>@(_selectedReport == "Quota and Budget Utilization" ? "Tokenomics" : $"Tokenomics - {_selectedReport}")</PageTitle>
 
 <div class="tokenomics-page">
     <header class="tokenomics-header">
         <div>
-            <h1>Tokenomics</h1>
-            <p>Usage, cost, policy and performance insights for your AI workloads</p>
+            <h1>Tokenomics
+                @if (_selectedReport == "Policy Decisions and Outcomes")
+                {
+                    <span class="tokenomics-report-title">@_selectedReport</span>
+                }
+            </h1>
+            <p>@(_selectedReport == "Policy Decisions and Outcomes"
+                ? "Actions taken, their results, and recorded policy evaluations for your AI workloads"
+                : "Usage, cost, policy and performance insights for your AI workloads")</p>
             @if (_snapshot.IsSampleData)
             {
                 <span class="sample-data-label">Sample data · not connected to a service</span>
@@ -49,6 +56,8 @@
 
     <div class="tokenomics-layout">
         <main class="tokenomics-dashboard">
+            @if (_selectedReport == "Quota and Budget Utilization")
+            {
             <TokenomicsKpiCardsWidget Snapshot="_snapshot" />
             
             <TokenomicsQuotaBudgetWidget Snapshot="_snapshot" SelectedTab="@_selectedQuotaTab" OnTabChanged="HandleQuotaTabChanged" />
@@ -56,9 +65,15 @@
             <TokenomicsInsightGridWidget Snapshot="_snapshot" />
             
             <TokenomicsUsersTableWidget Snapshot="_snapshot" />
+            }
+            else if (_selectedReport == "Policy Decisions and Outcomes")
+            {
+                <PolicyDecisionsReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
         </main>
 
-        <TokenomicsReportsWidget Snapshot="_snapshot" SelectedReport="Quota and Budget Utilization" />
+        <TokenomicsReportsWidget Snapshot="_snapshot" SelectedReport="@_selectedReport"
+                                OnReportSelected="@(report => _selectedReport = report)" />
     </div>
 </div>
 @code {
@@ -68,6 +83,7 @@
     private string? _selectedUser;
     private string? _selectedModel;
     private string _selectedQuotaTab = "overview";
+    private string _selectedReport = "Quota and Budget Utilization";
     private bool _disposed;
 
     protected override void OnInitialized()

@@ -439,6 +439,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             Quotas = quotas,
             Users = users,
             AtRiskRequests = atRiskRequests,
+            PolicyDecisions = decisions.OrderByDescending(fields => Timestamp(fields)).ToImmutableArray(),
             Reports = TokenomicsDashboardSnapshot.Empty.Reports
         };
     }

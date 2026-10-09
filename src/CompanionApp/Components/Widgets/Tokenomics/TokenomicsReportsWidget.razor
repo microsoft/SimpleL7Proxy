@@ -7,8 +7,11 @@
     <p>Select a report to explore detailed insights</p>
     @foreach (var report in Snapshot.Reports)
     {
+        var available = report.Name is "Quota and Budget Utilization" or "Policy Decisions and Outcomes";
         <button type="button" class="report-card @(report.Name == SelectedReport ? "selected" : string.Empty)"
-                aria-current="@(report.Name == SelectedReport ? "true" : null)" title="@report.Description">
+                aria-current="@(report.Name == SelectedReport ? "true" : null)"
+                disabled="@(!available)" title="@(available ? report.Description : "This report is not implemented yet.")"
+                @onclick="@(() => OnReportSelected.InvokeAsync(report.Name))">
             <span class="report-icon" aria-hidden="true">@report.Icon</span>
             <span><strong>@report.Name</strong><small>@report.Description</small></span>
             <span class="report-arrow" aria-hidden="true">›</span>
@@ -22,4 +25,7 @@
 
     [Parameter]
     public string SelectedReport { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> OnReportSelected { get; set; }
 }

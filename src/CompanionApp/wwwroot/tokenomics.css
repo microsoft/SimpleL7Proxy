@@ -575,6 +575,64 @@
 .report-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: start; gap: 0.55rem; width: 100%; margin-bottom: 0.55rem; padding: 0.7rem 0.65rem; text-align: left; color: var(--ink); border: 1px solid var(--line); border-radius: 0.35rem; background: #fff; cursor: pointer; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s; }
 .report-card:hover { border-color: #b9c8dc; background: #f9fafc; }
 .report-card.selected { border-color: var(--blue); background: #edf5ff; box-shadow: 0 2px 8px #1976f30a; }
+.report-card:disabled { cursor: not-allowed; opacity: 0.65; }
+.tokenomics-report-title { display: inline-block; margin-left: 0.65rem; font-size: 1rem; letter-spacing: normal; }
+.policy-report .policy-note { margin: 0; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
+.policy-kpi-caption { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.65rem; }
+.policy-chart-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: 0.6rem; }
+.policy-card-heading { min-width: 0; border-left: 3px solid var(--blue); padding-left: 0.55rem; }
+.policy-card-heading p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.68rem; }
+.policy-timeline { display: grid; grid-template-columns: 1rem 2.1rem minmax(0, 1fr); height: 13rem; margin: 1rem 0 0.8rem; }
+.policy-axis-label { align-self: center; color: var(--muted); font-size: 0.65rem; writing-mode: vertical-rl; transform: rotate(180deg); }
+.policy-axis-ticks { display: flex; flex-direction: column; justify-content: space-between; padding: 0 0.3rem 1.3rem 0; color: var(--muted); text-align: right; font-size: 0.65rem; }
+.policy-timeline-bars { display: grid; grid-template-columns: repeat(var(--policy-buckets), minmax(0, 1fr)); min-width: 0; }
+.policy-time-bucket { display: grid; grid-template-rows: minmax(0, 1fr) 1.3rem; min-width: 0; }
+.policy-time-stack { display: flex; flex-direction: column-reverse; align-items: stretch; justify-content: flex-start; padding: 0 12%; border-bottom: 1px solid #687da4; background: repeating-linear-gradient(to top, #e7edf6 0, #e7edf6 1px, transparent 1px, transparent 25%); }
+.policy-time-bucket:first-child .policy-time-stack { border-left: 1px solid #687da4; }
+.policy-time-stack > span { display: block; flex: 0 0 auto; }
+.policy-time-label { position: relative; left: 50%; width: max-content; padding-top: 0.25rem; color: var(--muted); font-size: 0.6rem; transform: translateX(-50%); }
+.policy-time-bucket:first-child .policy-time-label { left: 0; transform: none; }
+.policy-time-bucket:last-child .policy-time-label { left: 100%; transform: translateX(-100%); }
+.policy-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.55rem; color: var(--muted); font-size: 0.65rem; }
+.policy-legend > span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.policy-legend i { width: 0.55rem; height: 0.55rem; border-radius: 1px; }
+.policy-outcome-distribution { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.75rem; margin-top: 1rem; }
+.policy-donut { flex-basis: 7rem; width: 7rem; }
+.policy-outcome-list { display: grid; flex: 1; gap: 0.5rem; min-width: 10rem; margin: 0; padding: 0; list-style: none; }
+.policy-outcome-list li { display: grid; grid-template-columns: 0.6rem minmax(0, 1fr) auto; align-items: center; gap: 0.3rem; color: var(--muted); font-size: 0.64rem; }
+.policy-outcome-list i { width: 0.55rem; height: 0.55rem; border-radius: 50%; }
+.policy-outcome-list strong { color: var(--ink); font-size: 0.62rem; font-weight: 500; white-space: nowrap; }
+.policy-breakdown-bars { display: grid; gap: 0.65rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.policy-breakdown-bars li { display: grid; grid-template-columns: minmax(4rem, 0.8fr) minmax(0, 1fr) auto; align-items: center; gap: 0.4rem; font-size: 0.65rem; }
+.policy-breakdown-bars li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.policy-breakdown-bars strong { font-weight: 500; }
+.policy-breakdown-bars .horizontal-track { display: flex; height: 0.9rem; }
+.policy-breakdown-bars .horizontal-track i { flex: 0 0 auto; }
+.policy-report .policy-allowed { --policy-color: #32bf78; background: var(--policy-color); }
+.policy-report .policy-rejected { --policy-color: #f2554b; background: var(--policy-color); }
+.policy-report .policy-delayed { --policy-color: #f5ab28; background: var(--policy-color); }
+.policy-report .policy-modified { --policy-color: #398cf1; background: var(--policy-color); }
+.policy-report .policy-requeued { --policy-color: #9255eb; background: var(--policy-color); }
+.policy-report .policy-throttled { --policy-color: #d44a96; background: var(--policy-color); }
+.policy-report .policy-unknown { --policy-color: #9ba9c1; background: var(--policy-color); }
+.policy-report .policy-outcome-text { background: transparent; color: var(--policy-color); font-weight: 650; }
+.policy-recent-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--line); }
+.policy-table-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; max-width: 100%; }
+.policy-table-controls .section-tabs { max-width: 100%; overflow-x: auto; }
+.policy-table-controls a.export-button { text-decoration: none; }
+.policy-report .policy-decisions-table td { white-space: normal; min-width: 4.5rem; max-width: 14rem; overflow-wrap: anywhere; vertical-align: top; }
+.policy-report .users-card > .policy-note { padding: 0.75rem; }
+.policy-decision-details summary { color: var(--blue); cursor: pointer; }
+.policy-decision-details dl { width: 14rem; margin: 0.5rem 0 0; font-size: 0.68rem; }
+.policy-decision-details dt { color: var(--muted); }
+.policy-decision-details dd { margin: 0 0 0.5rem; }
+.policy-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; padding: 0.65rem 0.75rem; color: var(--muted); font-size: 0.68rem; }
+.policy-pagination > span:first-child { margin-right: auto; }
+
+@media (max-width: 900px) {
+    .policy-chart-grid { grid-template-columns: minmax(0, 1fr); }
+    .policy-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .report-icon { color: var(--blue); font-size: 1.4rem; font-weight: 750; line-height: 1.2; text-align: center; }
 .report-card strong { display: block; color: #064ab0; font-size: 0.74rem; line-height: 1.35; }
 .report-card small { display: block; margin-top: 0.18rem; color: var(--muted); font-size: 0.67rem; line-height: 1.35; }

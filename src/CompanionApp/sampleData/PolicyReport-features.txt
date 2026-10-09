@@ -1,0 +1,10 @@
+The proposed report includes:
+
+KPIs: requests evaluated, actions taken, allowed, rejected, delayed, and modified
+Policy decisions over time: daily, weekly, and monthly views
+Outcome distribution: allowed, rejected, delayed, modified, and approval-required
+Actions by condition: quota, budget, capacity, priority, abuse, and other triggered conditions
+Breakdowns: decisions by model and tenant
+Decision-level audit table: UTC timestamp, user, tenant, requested/final model, condition, action, outcome, tokens, priority, and policy version
+Shared dashboard controls: date range, tenant, user, and model
+Outcome filtering and export
