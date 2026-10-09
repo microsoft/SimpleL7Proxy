@@ -24,6 +24,7 @@
                 "Capacity and Queue Pressure" => "Recorded capacity, queue and quota conditions, scheduling actions, and request outcomes",
                 "Latency, Errors and Throttling" => "Performance, reliability and recorded rate-limiting outcomes for your AI workloads",
                 "Governance, Overrides and Exceptions" => "Recorded governance conditions, override/exception signals, usage and request correlations",
+                "Abuse and Content-Filter Activity" => "Recorded jailbreak detections, filtered responses and abuse-policy signals with pseudonymous request details",
                 _ => "Usage, cost, policy and performance insights for your AI workloads"
             })</p>
             @if (_snapshot.IsSampleData)
@@ -90,6 +91,10 @@
             else if (_selectedReport == "Governance, Overrides and Exceptions")
             {
                 <GovernanceReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Abuse and Content-Filter Activity")
+            {
+                <AbuseFilterReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
             }
         </main>
 

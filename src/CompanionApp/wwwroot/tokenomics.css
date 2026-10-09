@@ -681,6 +681,12 @@
 .governance-total { font-weight: 650; background: #edf5ff; }
 .governance-report .governance-empty { padding: 0.75rem; }
 .governance-report .governance-warning { padding: 0.75rem; border: 1px solid #ef3932; border-radius: 0.35rem; color: #9d2525; }
+.abuse-summary-table { margin-top: 0.75rem; white-space: normal; }
+.abuse-summary-table td { overflow-wrap: anywhere; }
+.abuse-events-table td { white-space: normal; min-width: 4rem; max-width: 12rem; overflow-wrap: anywhere; vertical-align: top; }
+.abuse-alias { overflow-wrap: anywhere; font-size: 0.65rem; }
+.abuse-report .abuse-empty { padding: 0.75rem; }
+.abuse-report .abuse-warning { padding: 0.75rem; border: 1px solid #ef3932; border-radius: 0.35rem; color: #9d2525; }
 
 @media (max-width: 900px) {
     .policy-chart-grid { grid-template-columns: minmax(0, 1fr); }
@@ -690,6 +696,7 @@
     .latency-report .latency-breakdown-grid,
     .latency-report .latency-bottom-grid { grid-template-columns: minmax(0, 1fr); }
     .governance-report .governance-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
+    .abuse-report .abuse-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
     .capacity-scheduling-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .report-icon { color: var(--blue); font-size: 1.4rem; font-weight: 750; line-height: 1.2; text-align: center; }

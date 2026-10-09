@@ -7,7 +7,7 @@
     <p>Select a report to explore detailed insights</p>
     @foreach (var report in Snapshot.Reports)
     {
-        var available = report.Name is "Quota and Budget Utilization" or "Policy Decisions and Outcomes" or "Model Routing and Substitution" or "Capacity and Queue Pressure" or "Latency, Errors and Throttling" or "Governance, Overrides and Exceptions";
+        var available = report.Name is "Quota and Budget Utilization" or "Policy Decisions and Outcomes" or "Model Routing and Substitution" or "Capacity and Queue Pressure" or "Latency, Errors and Throttling" or "Governance, Overrides and Exceptions" or "Abuse and Content-Filter Activity";
         <button type="button" class="report-card @(report.Name == SelectedReport ? "selected" : string.Empty)"
                 aria-current="@(report.Name == SelectedReport ? "true" : null)"
                 disabled="@(!available)" title="@(available ? report.Description : "This report is not implemented yet.")"
