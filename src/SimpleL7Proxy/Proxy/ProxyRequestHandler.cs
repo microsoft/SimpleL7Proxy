@@ -9,14 +9,15 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Llm;
+using SimpleL7Proxy.Tokenomics;
+using SimpleL7Proxy.Tokenomics.Llm;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
 using System.Collections.Frozen;
-using SimpleL7Proxy.Tokenomics;
+
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -31,7 +32,7 @@ namespace SimpleL7Proxy.Proxy;
 // 4. Return a 502 Bad Gateway if all backends fail.
 // 5. Return a 200 OK with backend server stats if the request is for /health.
 // 6. Log telemetry data for each request.
-public class ProxyRequestHandler
+public partial class ProxyRequestHandler
 {
     private readonly WorkerContext _wrkCntxt;
     private readonly int _preferredPriority;
@@ -47,28 +48,25 @@ public class ProxyRequestHandler
     private readonly ProxyEvent s_finallyBlockErrorEvent = new ProxyEvent(18);
     private ProxyWorker _pw;
 
-    // private readonly StreamFlusher _streamFlusher;
-    // // private static bool s_readyToWork;
-    // // public static bool IsReadyToWork => s_readyToWork;
-    // private CancellationTokenSource? _asyncExpelSource;
-    // private bool _isEvictingAsyncRequest;
-    // private static List<string> s_backendKeys = [];
-    // private static FrozenSet<string> s_stripRequestHeaders = FrozenSet.Create<string>();
-    // private static FrozenSet<string> s_stripResponseHeaders = FrozenSet.Create<string>();
-
-    // private bool detectModel = false;
-
-    // //private readonly ProxyStreamWriter _proxyStreamWriter;
-    // // private readonly string _timeoutHeaderName;
-
-    // // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor
-    // // private static readonly ProxyEvent s_backendRequestAttemptEvent = new ProxyEvent(25);  // Base eventData (~20) + attempt fields (7)
-
-    public ProxyRequestHandler(
-        int id,
+    [LoggerMessage(
+        Level = LogLevel.Critical,
+        Message = "[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Model: {Rodel} Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime:T}, Lat: {ProxyTime:F3} ms, Cost: ${Cost:0.0000########################}, {FullURL}")]
+    private static partial void LogRequestCompleted(
+        ILogger logger,
+        Guid guid,
         int priority,
-        WorkerContext context,
-        CancellationToken cancellationToken)
+        int statusCode,
+        string user,
+        RequestType requestType,
+        string rodel,
+        string processor,
+        string contentLength,
+        DateTime dequeueTime,
+        double proxyTime,
+        decimal cost,
+        string fullURL);
+
+    public ProxyRequestHandler( int id, int priority, WorkerContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -78,7 +76,6 @@ public class ProxyRequestHandler
         _preferredPriority = priority;
         _cancellationToken = cancellationToken;
         _options = context.BackendOptions;
-
 
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
 
@@ -111,10 +108,7 @@ public class ProxyRequestHandler
         var healthMessage = Encoding.UTF8.GetBytes(probeMessage);
         lcontext.Response.ContentLength64 = healthMessage.Length;
 
-        await lcontext.Response.OutputStream.WriteAsync(
-            healthMessage,
-            0,
-            healthMessage.Length).ConfigureAwait(false);
+        await lcontext.Response.OutputStream.WriteAsync( healthMessage, 0, healthMessage.Length).ConfigureAwait(false);
 
         // Log probe telemetry (moved from Server.Run to ensure single-log per probe)
         var eventData = req.EventData;
@@ -242,6 +236,7 @@ public class ProxyRequestHandler
         while (!_cancellationToken.IsCancellationRequested || s_requestsQueue.thrdSafeCount > 0)
         {
             RequestData incomingRequest;
+            TokenomicsSummaryEvent tokenomicsSummary = new();
 
             try
             {
@@ -386,22 +381,27 @@ public class ProxyRequestHandler
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
                     HealthCheckService.EnterState(_id, WorkerState.Reporting);
+
                     workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
-                    var proxyLatency = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    var proxyLatency = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds;
 
-                    _logger.LogCritical("[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Model: {Rodel} Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime}, Lat: {ProxyTime} ms, {FullURL}",
+                    // output the status for each request to the console
+                    LogRequestCompleted(
+                        _logger,
                         incomingRequest.Guid,
-                        incomingRequest.Priority, statusCodeInt,
+                        incomingRequest.Priority,
+                        statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
                         _options.DetectModel ? incomingRequest.Model ?? "N/A" : "-",
                         pr.StreamingProcessor,
-                        conlen, 
-                        incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyLatency,
-                        pr.FullURL
-                        );
+                        conlen,
+                        incomingRequest.DequeueTime.ToLocalTime(),
+                        proxyLatency,
+                        pr.UsageStats?.Cost ?? 0m,
+                        pr.FullURL);
 
                     // Log circuit breaker details when status code is -1
                     if (incomingRequest.Debug && (statusCodeInt == -1 || statusCodeInt == 503))
@@ -421,6 +421,19 @@ public class ProxyRequestHandler
 
                     // Populate final event data
                     _eventDataBuilder.PopulateFinalEventData(incomingRequest, lcontext);
+                    if (_options.TokenomicsEnable &&
+                        incomingRequest.TokenomicsSummary != null)
+                    {
+                        incomingRequest.TokenomicsSummary.PrepForFinalStats(
+                            pr.StatusCode,
+                            DateTime.UtcNow - incomingRequest.EnqueueTime,
+                            pr.BackendHostname,
+                            incomingRequest.Model ?? "unknown",
+                            incomingRequest.BackendAttempts,
+                            incomingRequest.LifetimeBackendAttempts,
+                            pr.UsageStats);
+
+                    }
 
                     HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     workerState = "Cleanup";
@@ -467,6 +480,15 @@ public class ProxyRequestHandler
                     eventData["ErrorDetails"] = e.InnerException?.Message ?? e.Message;
                     eventData.Type = EventType.Exception;
                     eventData.Exception = e;
+
+                    if (_options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
+                    {
+                        incomingRequest.TokenomicsSummary.PrepForExceptionStats(
+                            HttpStatusCode.TooManyRequests, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
+                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            e.Message);
+                    }
+
                     if (lcontext != null)
                     {
                         await WriteErrorToClientAsync(
@@ -510,6 +532,14 @@ public class ProxyRequestHandler
                     eventData.Status = HttpStatusCode.Forbidden;
                     eventData["Error"] = "Request Rejected";
                     eventData.Type = EventType.Tokenomics;
+
+                    if (_options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
+                    {
+                        incomingRequest.TokenomicsSummary.PrepForExceptionStats(
+                            HttpStatusCode.Forbidden, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
+                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            e.Message);
+                    }
 
                     if (lcontext != null)
                     {
@@ -629,6 +659,9 @@ public class ProxyRequestHandler
                 {
                     try
                     {
+                        if ( _options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
+                            incomingRequest.TokenomicsSummary.Emit();
+
                         // Dispose ProxyData to release HttpResponseMessage and body byte arrays.
                         // Must be in finally — exception paths were previously leaking this.
                         pr?.Dispose();

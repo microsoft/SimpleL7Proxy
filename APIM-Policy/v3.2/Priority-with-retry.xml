@@ -1,0 +1,49 @@
+<!--
+=============================================================================
+Azure API Policy Template
+=============================================================================
+Version:	 3.2
+Mode:	 Standard
+Updated:	 2026-07-24
+Notes:	 3.2-notes.md
+=============================================================================
+-->
+<policies>
+	<inbound>
+		<base />
+		<set-variable name="DefaultModel" value="computervision" />
+		<!-- cache-lookup-value is not supported inside policy fragments. Load the shared
+		     throttle state before the fragment initializes request routing state. -->
+		<cache-lookup-value key="@("throttle-" + context.Api.Id)" variable-name="throttleState" />
+
+		<!-- Load the endpoint catalog and initialize request routing state. -->
+		<include-fragment fragment-id="SimpleL7Proxy-frag-3_2" />
+
+	</inbound>
+	<!-- Control if and how the requests are forwarded to services  -->
+	<backend>
+		<retry condition="@(context.Variables.GetValueOrDefault<bool>("RetryRemaining", true))" count="50" interval="1" delta="1">
+			<set-variable name="PolicyCycleCounter" value="@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter") + 1)" />
+			<!-- Refresh the shared throttle state and overlay it onto the backend list -->
+			<cache-lookup-value key="@("throttle-" + context.Api.Id)" variable-name="throttleState" />
+			<include-fragment fragment-id="SimpleL7Proxy-backend-dispatch-3_2" />
+			<choose>
+				<when condition="@(((JObject)context.Variables["resultObj"]).Value<bool>("shouldThrottle"))">
+					<cache-lookup-value key="@("throttle-" + context.Api.Id)" variable-name="throttleState" />
+					<include-fragment fragment-id="SimpleL7Proxy-backend-throttle-3_2" />
+				</when>
+			</choose>
+			<include-fragment fragment-id="SimpleL7Proxy-backend-finalize-3_2" />
+		</retry>
+	</backend>
+	<!-- Customize the responses -->
+	<outbound>
+		<base />
+		<include-fragment fragment-id="SimpleL7Proxy-outbound-3_2" />
+	</outbound>
+	<!-- Handle exceptions and customize error responses  -->
+	<on-error>
+		<include-fragment fragment-id="SimpleL7Proxy-on-error-3_2" />
+		<base />
+	</on-error>
+</policies>

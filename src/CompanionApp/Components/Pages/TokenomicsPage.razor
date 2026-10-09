@@ -1,0 +1,168 @@
+@page "/tokenomics"
+@namespace CompanionApp.Components.Pages
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+@using CompanionApp.Components.Widgets.Tokenomics
+@inject TokenomicsDashboardStore Store
+@inject CompanionApp.Components.Shared.AppConfigurationScaffoldService AppConfiguration
+@implements IDisposable
+
+<PageTitle>@(_selectedReport == "Quota and Budget Utilization" ? "Tokenomics" : $"Tokenomics - {_selectedReport}")</PageTitle>
+
+<div class="tokenomics-page">
+    <header class="tokenomics-header">
+        <div>
+            <h1>Tokenomics
+                @if (_selectedReport != "Quota and Budget Utilization")
+                {
+                    <span class="tokenomics-report-title">@_selectedReport</span>
+                }
+            </h1>
+            <p>@(_selectedReport switch {
+                "Policy Decisions and Outcomes" => "Actions taken, their results, and recorded policy evaluations for your AI workloads",
+                "Model Routing and Substitution" => "How requests are routed, when models are substituted, and the impact on performance and cost",
+                "Capacity and Queue Pressure" => "Recorded capacity, queue and quota conditions, scheduling actions, and request outcomes",
+                "Latency, Errors and Throttling" => "Performance, reliability and recorded rate-limiting outcomes for your AI workloads",
+                "Governance, Overrides and Exceptions" => "Recorded governance conditions, override/exception signals, usage and request correlations",
+                "Abuse and Content-Filter Activity" => "Recorded jailbreak detections, filtered responses and abuse-policy signals with pseudonymous request details",
+                _ => "Usage, cost, policy and performance insights for your AI workloads"
+            })</p>
+            @if (_snapshot.IsSampleData)
+            {
+                <span class="sample-data-label">Sample data · not connected to a service</span>
+            }
+        </div>
+        <div class="tokenomics-filters" aria-label="Dashboard filters">
+            <div class="tokenomics-time-range">
+                <span>Time Range:</span>
+                <div class="tokenomics-period-toggle" role="radiogroup" aria-label="Display period">
+                    @foreach (var period in Enum.GetValues<TokenomicsPeriod>())
+                    {
+                        <button type="button" role="radio"
+                                class="@(period == _selectedPeriod ? "is-selected" : string.Empty)"
+                                aria-checked="@(period == _selectedPeriod ? "true" : "false")"
+                                @onclick="() => SelectPeriod(period)">
+                            @period
+                        </button>
+                    }
+                </div>
+            </div>
+            <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant" @onchange="(ChangeEventArgs e) => SelectTenant((string?)e.Value)">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
+            <label><span class="visually-hidden">User</span><select aria-label="User" @onchange="(ChangeEventArgs e) => SelectUser((string?)e.Value)">@foreach (var user in _snapshot.UserFilters) { <option>@user</option> }</select></label>
+            <label><span class="visually-hidden">Model</span><select aria-label="Model" @onchange="(ChangeEventArgs e) => SelectModel((string?)e.Value)">@foreach (var model in _snapshot.ModelFilters) { <option>@model</option> }</select></label>
+            <span class="tokenomics-appconfig-label" title="Current App Configuration label">
+                <span>AppConfig</span>
+                <strong>@(string.IsNullOrEmpty(AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel)
+                    ? "(No label)"
+                    : AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel)</strong>
+            </span>
+            <span class="updated-label">@_snapshot.SnapshotLabel</span>
+        </div>
+    </header>
+
+    <div class="tokenomics-layout">
+        <main class="tokenomics-dashboard">
+            @if (_selectedReport == "Quota and Budget Utilization")
+            {
+            <TokenomicsKpiCardsWidget Snapshot="_snapshot" />
+            
+            <TokenomicsQuotaBudgetWidget Snapshot="_snapshot" SelectedTab="@_selectedQuotaTab" OnTabChanged="HandleQuotaTabChanged" />
+            
+            <TokenomicsInsightGridWidget Snapshot="_snapshot" />
+            
+            <TokenomicsUsersTableWidget Snapshot="_snapshot" />
+            }
+            else if (_selectedReport == "Policy Decisions and Outcomes")
+            {
+                <PolicyDecisionsReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Model Routing and Substitution")
+            {
+                <ModelRoutingReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Capacity and Queue Pressure")
+            {
+                <CapacityQueueReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Latency, Errors and Throttling")
+            {
+                <LatencyErrorsReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Governance, Overrides and Exceptions")
+            {
+                <GovernanceReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Abuse and Content-Filter Activity")
+            {
+                <AbuseFilterReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+        </main>
+
+        <TokenomicsReportsWidget Snapshot="_snapshot" SelectedReport="@_selectedReport"
+                                OnReportSelected="@(report => _selectedReport = report)" />
+    </div>
+</div>
+@code {
+    private TokenomicsDashboardSnapshot _snapshot = new();
+    private TokenomicsPeriod _selectedPeriod = TokenomicsPeriod.Hourly;
+    private string? _selectedTenant;
+    private string? _selectedUser;
+    private string? _selectedModel;
+    private string _selectedQuotaTab = "overview";
+    private string _selectedReport = "Quota and Budget Utilization";
+    private bool _disposed;
+
+    protected override void OnInitialized()
+    {
+        Store.Changed += OnStoreChanged;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+        StateHasChanged();
+    }
+
+    private void SelectPeriod(TokenomicsPeriod period)
+    {
+        _selectedPeriod = period;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectTenant(string? tenant)
+    {
+        _selectedTenant = string.IsNullOrEmpty(tenant) ? null : tenant;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectUser(string? user)
+    {
+        _selectedUser = string.IsNullOrEmpty(user) ? null : user;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectModel(string? model)
+    {
+        _selectedModel = string.IsNullOrEmpty(model) ? null : model;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private Task HandleQuotaTabChanged(string tab)
+    {
+        _selectedQuotaTab = tab;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void OnStoreChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (_disposed) return;
+            _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Store.Changed -= OnStoreChanged;
+    }
+}

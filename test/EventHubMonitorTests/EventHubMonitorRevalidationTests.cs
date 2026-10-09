@@ -1,4 +1,5 @@
 using CompanionApp.Components.Shared;
+using CompanionApp.Tokenomics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

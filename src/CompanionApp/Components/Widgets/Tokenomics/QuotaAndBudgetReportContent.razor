@@ -1,0 +1,88 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Token Usage and Spend Across Organization</h3>
+    <p>Comprehensive view of quota utilization, budget constraints, and at-risk entities</p>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <div class="report-section">
+            <h4>Quota Utilization by Tenant</h4>
+            <ul class="horizontal-bars" style="margin: 0; padding: 1rem 0; list-style: none;">
+                @foreach (var quota in Snapshot.Quotas)
+                {
+                    <li>
+                        <span style="font-weight: 600; font-size: 0.75rem;">@quota.Name</span>
+                        <div class="horizontal-track">
+                            <i class="@quota.Color" style="width: @quota.Width;"></i>
+                        </div>
+                        <strong style="font-size: 0.75rem;">@quota.Amount</strong>
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <div class="report-section">
+            <h4>Budget Distribution</h4>
+            <ul class="horizontal-bars" style="margin: 0; padding: 1rem 0; list-style: none;">
+                @foreach (var spend in Snapshot.TenantSpend)
+                {
+                    <li>
+                        <span style="font-weight: 600; font-size: 0.75rem;">@spend.Name</span>
+                        <div class="horizontal-track">
+                            <i class="@spend.Color" style="width: @spend.Width;"></i>
+                        </div>
+                        <strong style="font-size: 0.75rem;">@spend.Amount</strong>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+
+    @if (!Snapshot.AtRiskRequests.IsEmpty)
+    {
+        <div class="report-section" style="margin-top: 2rem;">
+            <h4>At-Risk Requests</h4>
+            <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <th style="text-align: left; padding: 0.5rem; font-weight: 600;">User</th>
+                        <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Model</th>
+                        <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Reason</th>
+                        <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var request in Snapshot.AtRiskRequests)
+                    {
+                        <tr style="border-bottom: 1px solid #f0f0f0;">
+                            <td style="padding: 0.5rem;">@request.User</td>
+                            <td style="padding: 0.5rem;">@request.Model</td>
+                            <td style="padding: 0.5rem;">@request.Reason</td>
+                            <td style="padding: 0.5rem;">
+                                <span style="@GetStatusBadgeStyle(request.Status)">@request.Status</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    private string GetStatusBadgeStyle(string status)
+    {
+        return status switch
+        {
+            "Blocked" => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #ffe0e0; color: #d32f2f;",
+            "Rejected" => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #fff3cd; color: #856404;",
+            "Sanitized" => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #d4edda; color: #155724;",
+            _ => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #e2e3e5; color: #383d41;"
+        };
+    }
+}

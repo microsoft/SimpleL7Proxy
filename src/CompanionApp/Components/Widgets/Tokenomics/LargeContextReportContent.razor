@@ -1,0 +1,81 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Large-Context Workload Analysis</h3>
+    <p>Requests with high token counts and their model distribution</p>
+    
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Large Requests (>10K tokens)</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">2,341</strong>
+            <span style="font-size: 0.75rem; color: #999;">4.5% of total</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Avg Token Count</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">24,567</strong>
+            <span style="font-size: 0.75rem; color: #999;">↑ 12% vs. last week</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Cost Impact</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">$425.68</strong>
+            <span style="font-size: 0.75rem; color: #999;">22% of total spend</span>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <div class="report-section">
+            <h4>Model Usage (>10K tokens)</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">gpt-4</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        <strong>1,248 requests</strong> (53.3%)
+                    </div>
+                </li>
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">claude-3-opus</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        <strong>641 requests</strong> (27.4%)
+                    </div>
+                </li>
+                <li style="padding: 0.75rem;">
+                    <span style="font-weight: 600;">gpt-4-turbo</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        <strong>452 requests</strong> (19.3%)
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="report-section">
+            <h4>Top Users by Large-Context Workload</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">maria</span>
+                    <div style="margin-top: 0.25rem; font-size: 0.85rem; color: #666;">
+                        <strong>456 requests</strong> • 8.2M tokens
+                    </div>
+                </li>
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">alex</span>
+                    <div style="margin-top: 0.25rem; font-size: 0.85rem; color: #666;">
+                        <strong>382 requests</strong> • 6.9M tokens
+                    </div>
+                </li>
+                <li style="padding: 0.75rem;">
+                    <span style="font-weight: 600;">sam</span>
+                    <div style="margin-top: 0.25rem; font-size: 0.85rem; color: #666;">
+                        <strong>328 requests</strong> • 5.6M tokens
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

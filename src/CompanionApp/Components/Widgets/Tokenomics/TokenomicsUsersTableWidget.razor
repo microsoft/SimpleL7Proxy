@@ -1,0 +1,33 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<article class="tokenomics-card users-card">
+    <div class="users-heading">
+        <h3>Top Users by Token Usage</h3>
+        <div class="section-tabs compact-tabs" aria-label="Table grouping">
+            <span class="selected">Users</span><span>Tenants</span><span>Models</span>
+        </div>
+        <button class="export-button" type="button" disabled title="Export is a placeholder">↓ Export</button>
+    </div>
+    <div class="users-table-wrap">
+        <table class="users-table">
+            <thead><tr><th>#</th><th>User</th><th>Tenant</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cached Tokens</th><th>Spend (USD)</th><th>Quota Used</th><th>Trend</th></tr></thead>
+            <tbody>
+                @foreach (var user in Snapshot.Users)
+                {
+                    <tr>
+                        <td>@user.Rank</td><td><i class="user-dot @user.Color"></i>@user.Name</td><td>@user.Tenant</td><td>@user.Total</td><td>@user.Input</td><td>@user.Output</td><td>@user.Cached</td><td>@user.Spend</td>
+                        <td><div class="quota-cell">@if (user.Quota.EndsWith('%')) { <span class="quota-track"><i class="@user.QuotaColor" style="width: @user.Quota"></i></span> }<span>@user.Quota</span></div></td>
+                        <td>@if (!string.IsNullOrEmpty(user.Sparkline)) { <svg class="sparkline" viewBox="0 0 68 20" aria-label="Usage trend"><polyline points="@user.Sparkline" /></svg> } else { <span>Unavailable</span> }</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</article>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

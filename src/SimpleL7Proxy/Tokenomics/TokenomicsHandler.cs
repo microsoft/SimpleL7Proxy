@@ -14,7 +14,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
     private readonly ILogger<TokenomicsHandler> _logger;
     private readonly ProxyConfig _options;
     public bool doTokenomics { get; private set; }
-    private int _minPriority=0;
+    private int _minPriority = 0;
 
     public TokenomicsHandler(
         IConcurrentPriQueue<RequestData> queue,
@@ -57,76 +57,119 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         return Task.CompletedTask;
     }
 
-    public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
+    public decimal RequestCost(string model, int inputTokens, int cachedTokens, int outputTokens)
     {
-        (string conditionString, TokenActionEnum action) = await EvaluateAsync(data);
-
-    Console.WriteLine("Tokenomics condition: " + conditionString);
-    Console.WriteLine("Tokenomics action: " + action);
-
-        switch (action)
+        if (Settings.ModelCostPerToken.TryGetValue(model, out var modelPricing) &&
+            modelPricing is not null)
         {
-            case TokenActionEnum.IncreasePriority:
-                data.Priority = Math.Min(data.Priority - 1, 0);
-                throw new S7PRequeueException("Request delayed due to policy", now: true);
-
-            case TokenActionEnum.DecreasePriority:
-                data.Priority = Math.Max(data.Priority + 1, _minPriority);
-                throw new S7PRequeueException("Request delayed due to policy", now: true);
-
-            case TokenActionEnum.Reject:
-                Console.WriteLine("::Tokenomics action: Reject");
-                throw new ProxyErrorException(ProxyErrorException.ErrorType.Rejected,
-                                              (HttpStatusCode)429,
-                                              "Message rejected due to policy.");
-
-            // Scheduling
-            case TokenActionEnum.Requeue:
-                throw new S7PRequeueException("Request delayed due to policy", now: true);
-
-            case TokenActionEnum.Delay:
-                throw new S7PRequeueException("Request delayed due to policy", now: true, retry_after: Settings.DelayDuration);
-
-            case TokenActionEnum.WaitForReset:
-                throw new S7PRequeueException("Request delayed due to policy", now: true);
-
-            // Token governance
-            case TokenActionEnum.Throttle:
-                throw new S7PThrottledException("Message throttled due to policy", now: true);
-
-            case TokenActionEnum.Bypass:
-                break;
-
-            case TokenActionEnum.ChangeModel:
-                data.Model = Settings.DefaultModel;
-                break;
-
-            case TokenActionEnum.UpgradeModel:
-                data.Model = UpdateModel(data.Model, ModelOverrideEnum.Upgrade);
-                break;
-
-            case TokenActionEnum.DowngradeModel:
-                data.Model = UpdateModel(data.Model, ModelOverrideEnum.Downgrade);
-                break;
+            return Math.Max(0, inputTokens - cachedTokens) * modelPricing.Input
+                + cachedTokens * modelPricing.CachedInput
+                + outputTokens * modelPricing.Output;
         }
 
-        return ModelOverrideEnum.None;
-
-        //     // Model routing
-        //     case TokenActionEnum.IncreaseLimit:
-        //     case TokenActionEnum.DecreaseLimit:
-        //     case TokenActionEnum.Cap:
-
+        return 0m;
     }
 
-    public async Task<(string, TokenActionEnum)> EvaluateAsync(RequestData data)
+    public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
+    {
+        TokenomicsCondition c = await new TokenomicsCondition().CreateAsync(data, Settings, LiveMetrics, Queue);
+
+        var (rulename, action) = await EvaluateAsync(data, c);
+
+        data.Tenant = data.Tenant == "unknown" ? Settings.DefaultTenant : data.Tenant;
+
+        data.EvaluationSequence++;
+
+        data.TokenomicsSummary = new TokenomicsSummaryEvent(
+            requestId: data.MID,
+            userId: data.UserID,
+            tenant: data.Tenant,
+            evaluationSequence: data.EvaluationSequence,
+            policyCondition: rulename,
+            policyAction: action,
+            requestedModel: data.Model,
+            modelBefore: data.OriginalModel,
+            priorityBefore: data.Priority);
+
+        try
+        {
+            switch (action)
+            {
+                case TokenActionEnum.IncreasePriority:
+                    data.Priority = Math.Min(data.Priority - 1, 0);
+                    data.TokenomicsSummary.SetPriority(data.Priority);
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Requeued, false);
+                    throw new S7PRequeueException("Request delayed due to policy", now: true);
+
+                case TokenActionEnum.DecreasePriority:
+                    data.Priority = Math.Max(data.Priority + 1, _minPriority);
+                    data.TokenomicsSummary.SetPriority(data.Priority);
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Requeued, false);
+                    throw new S7PRequeueException("Request delayed due to policy", now: true);
+
+                case TokenActionEnum.Reject:
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Rejected, false);
+                    data.TokenomicsSummary.SetLocalStatus(403);
+                    throw new S7PRejectedException("Message rejected due to policy.");
+
+                // Scheduling
+                case TokenActionEnum.Requeue:
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Requeued, false);
+                    throw new S7PRequeueException("Request delayed due to policy", now: true);
+
+                case TokenActionEnum.Delay:
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Delayed, false);
+                    data.TokenomicsSummary.SetRetryAfter(Settings.DelayDuration);
+                    throw new S7PRequeueException("Request delayed due to policy", now: true, retry_after: Settings.DelayDuration);
+
+                case TokenActionEnum.WaitForReset:
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Delayed, false);
+                    throw new S7PRequeueException("Request delayed due to policy", now: true);
+
+                // Token governance
+                case TokenActionEnum.Throttle:
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Throttled, false);
+                    throw new S7PThrottledException("Message throttled due to policy", now: true);
+
+
+                // MOST OF THE TIME CASE
+                case TokenActionEnum.Bypass:
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.Allowed, true);
+                    break;
+
+                case TokenActionEnum.ChangeModel:
+                    data.Model = Settings.DefaultModel;
+                    data.TokenomicsSummary.SetModel(data.Model);
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.AllowedWithChanges, true);
+                    break;
+
+                case TokenActionEnum.UpgradeModel:
+                    data.Model = UpdateModel(data.Model, ModelOverrideEnum.Upgrade);
+                    data.TokenomicsSummary.SetModel(data.Model);
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.AllowedWithChanges, true);
+                    break;
+
+                case TokenActionEnum.DowngradeModel:
+                    data.Model = UpdateModel(data.Model, ModelOverrideEnum.Downgrade);
+                    data.TokenomicsSummary.SetModel(data.Model);
+                    data.TokenomicsSummary.SetDecision(TokenDecisionEnum.AllowedWithChanges, true);
+                    break;
+            }
+
+
+            return ModelOverrideEnum.None;
+        }
+        finally
+        {
+            data.TokenomicsSummary.Emit();
+        }
+    }
+
+    public async Task<(string, TokenActionEnum)> EvaluateAsync(RequestData data, TokenomicsCondition c)
     {
         if (!doTokenomics)
             return ("TokenomicsDisabled", TokenActionEnum.None);
 
-        TokenomicsCondition c = await new TokenomicsCondition().CreateAsync(data, Settings, LiveMetrics, Queue);
-
-        Console.WriteLine("Tokenomics condition: " + c.ToString());
 
         if (c.AbuseDetected)
             return ("AbuseDetected", Settings.AbuseDetectedAction);

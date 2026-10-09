@@ -1,0 +1,31 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section class="tokenomics-section">
+    <div class="section-heading">
+        <div>
+            <h2>Available Reports</h2>
+            <p>Detailed analysis across all tokenomics dimensions</p>
+        </div>
+    </div>
+    
+    <div class="reports-grid">
+        @foreach (var report in Snapshot.Reports)
+        {
+            <article class="report-item">
+                <div class="report-icon-large">@report.Icon</div>
+                <h3>@report.Name</h3>
+                <p>@report.Description</p>
+                <button type="button" class="report-action-button" title="View @report.Name report">
+                    View Report <span aria-hidden="true">›</span>
+                </button>
+            </article>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

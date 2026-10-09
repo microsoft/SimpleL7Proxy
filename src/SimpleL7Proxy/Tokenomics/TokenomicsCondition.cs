@@ -24,6 +24,7 @@ public sealed class TokenomicsCondition
     public bool ModelReplacementAllowed { get; set; }
     public bool LargeContextRequest { get; set; }
     public bool CapacityAvailable { get; set; }
+    public ResponseMetric Metric { get; set; }
 
     public async Task<TokenomicsCondition> CreateAsync(
         RequestData data,
@@ -37,11 +38,10 @@ public sealed class TokenomicsCondition
         ArgumentNullException.ThrowIfNull(queue);
 
         AbuseDetected = data.IsAbusive;
+        Metric = await lm.GetMetric(data.UserID, data.Model);
 
-        DailyQuotaExceeded = await lm.GetDailyTokenBalanceAsync(data.UserID, data.Model) >= settings.DailyTokenLimit;
-        MonthlyQuotaExceeded = await lm.GetMonthlyTokenBalanceAsync(data.UserID, data.Model) >= settings.MonthlyTokenLimit;
-
-        Console.WriteLine($"DailyQuotaExceeded: {DailyQuotaExceeded}, MonthlyQuotaExceeded: {MonthlyQuotaExceeded}");
+        DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= settings.DailyTokenLimit;
+        MonthlyQuotaExceeded = lm.GetMonthlyTokenBalanceAsync(Metric) >= settings.MonthlyTokenLimit;
 
         //MonthlyBudgetExceeded = await lm.GetMonthlyBudgetUsageAsync(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
         //DailyBudgetExceeded = await lm.GetDailyBudgetUsageAsync(data.UserID, data.Model) >= settings.DailyBudgetUsd;

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using SimpleL7Proxy.Tokenomics.Llm;
 
 namespace SimpleL7Proxy.Proxy;
 // This class represents the data returned from the downstream host.
@@ -21,6 +22,7 @@ public class ProxyData : IDisposable
     public DateTime ResponseDate { get; set; } = DateTime.UtcNow;
     public bool IsStreamingResponse { get; set; } = false;
     public string StreamingProcessor { get; set; } = string.Empty;
+    public LLMStats? UsageStats { get; set; } = null;
 
     public override string ToString()
     {

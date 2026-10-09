@@ -1,6 +1,6 @@
 # Deploy SimpleL7Proxy
 
-The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP created by Deployment Setup. The ZIP contains parameterized Bicep files for the following architecture:
+The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP included in the repo.  Once deployed, you will have the following resources:
 
 ![SimpleL7Proxy deployment architecture](arch.png)
 
@@ -8,7 +8,7 @@ The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP c
 
 You need:
 
-- The complete deployment ZIP from Deployment Setup.
+- The complete [deployment ZIP](deploy.zip) from Deployment Setup.
 - The target Azure subscription ID.
 - Subscription Contributor access plus permission to assign roles, or subscription Owner access.
 - Permission to create an Azure Container Registry and import images.
@@ -18,7 +18,7 @@ You need:
 1. Open Azure Cloud Shell in Bash mode.
 2. Select **Manage files > Upload**.
 3. Upload the deployment ZIP.
-4. Extract it and open the extracted directory:
+4. Extract the ZIP file and open the extracted directory:
 
 ```bash
 mkdir simplel7proxy-deployment
@@ -28,20 +28,32 @@ cd simplel7proxy-deployment
 
 5. Set the subscription and deploy:
 
+![alt text](cloudshell.png)
+
+Once the bash shell opens, set your subscription and deploy.  If you see powershell, switch to bash.
+
 ```bash
-sub='YOUR_SUBSCRIPTION_ID'
+export sub=`az account show --query 'id'`
+
+#Deploy
 ./deploy.sh "$sub" create
 ```
 
-This creates a unique deployment by appending a unique suffix to the resource names.
+The deplopyment takes about 10-15 minutes and will have a unique suffix added to the end of all the resources.
 
 ![Deployment output](deployment.png)
 
-When deployment succeeds, the script prints the available proxy and Companion App URLs. Make a note of these URLs so that you can validate the proxy.
+If the deployment is successful, the script prints the URL's for :
+* The proxy endpoint, which is the URL for LLM queries.
+* The Companion App URLs, which is used to configure and test the proxy.
+
+## Secure the proxy
+
+After initial setup, the companion app is unsecured and open to the internet.  Ensure that you [secure](https://learn.microsoft.com/en-us/azure/container-apps/secure-deployment#identity-and-access-management) the Companion App or shut it down when not in use as it will default to open access to the internet.  It is not recommended to leave it unsecured.
 
 ## Configure the proxy
 
-Open the Companion App URL and select **Proxy Configuration**.
+Open the Companion App URL and select **Proxy Configuration**.  The companion app can manage multiple proxies, each of which have their own unique label.  The deployment.zip uses a label of `prod`.  
 
 Select **Update**, then choose the deployment label, `prod`.
 
@@ -96,7 +108,7 @@ Retrieve the application URLs:
 az deployment sub show \
     --subscription "$sub" \
     --name "$deployment" \
-    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value}' \
+    --query '{Proxy:properties.outputs.proxyUrl.value,CompanionApp:properties.outputs.companionAppUrl.value,MetricsServer:properties.outputs.metricsServerUrl.value}' \
     --output table
 ```
 
@@ -190,19 +202,14 @@ The same Azure permissions and recovery steps apply.
 The deployment:
 
 - Creates the selected resource groups and Azure Container Registry.
+- Creates or reuses the selected Container Apps environment.
 - Imports the selected proxy, HealthProbe, Companion App, and Metrics Server images.
 - Creates the selected infrastructure.
 - Enables system-assigned identities on the Container Apps.
-- Grants the required ACR and App Configuration roles.
+- Grants ACR pull access to each selected app; grants the Companion App ACR push, App Configuration Data Owner, and Event Hubs Data Receiver access when selected.
 - Updates the Container Apps to use the imported ACR images.
 - Creates the Metrics Server as a single-replica internal Container App when selected.
 - Prints the deployment name and available application URLs.
-
-The deployment grants:
-
-- App Configuration Data Owner to the deployment principal.
-- App Configuration Data Reader to the proxy managed identity.
-- App Configuration Data Owner to the Companion App managed identity when selected.
 
 ## What the ZIP contains
 

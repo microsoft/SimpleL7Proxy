@@ -1,0 +1,499 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+@using System.Collections.Immutable
+@using System.Globalization
+@using System.Text
+
+<section class="tokenomics-section policy-report routing-report" aria-label="Model routing and substitution">
+    <div class="tokenomics-kpis">
+        @foreach (var metric in _metrics)
+        {
+            <article class="tokenomics-card kpi-card">
+                <div class="kpi-heading"><h2 title="@metric.Name">@metric.Name</h2><span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span></div>
+                <p class="kpi-value routing-kpi-value">@metric.Value</p>
+                <p class="policy-kpi-caption">@metric.Caption</p>
+            </article>
+        }
+    </div>
+    @if (_warnings.Count > 0)
+    {
+        <p class="policy-note routing-warning" role="alert">Invalid telemetry excluded: @string.Join("; ", _warnings.Order(StringComparer.Ordinal))</p>
+    }
+
+    <div class="policy-chart-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Routing Outcomes Over Time</h3><p>One request per latest recorded event; @IntervalLabel in UTC</p></div>
+            <div class="policy-timeline" role="img" aria-label="@RoutingDescription">
+                <span class="policy-axis-label">Requests</span>
+                <div class="policy-axis-ticks" aria-hidden="true">
+                    @for (var index = 4; index >= 0; index--) { <span>@(_axisMaximum * index / 4)</span> }
+                </div>
+                <div class="policy-timeline-bars" style="@($"--policy-buckets: {_timeline.Length}")">
+                    @for (var index = 0; index < _timeline.Length; index++)
+                    {
+                        var bucket = _timeline[index];
+                        <div class="policy-time-bucket">
+                            <div class="policy-time-stack" title="@($"{bucket.Label} UTC: {bucket.Total} requests")">
+                                @for (var category = 0; category < _categories.Length; category++)
+                                {
+                                    <span class="@CategoryClass(_categories[category])" style="height: @Percent(bucket.Counts[category], _axisMaximum)%"
+                                          title="@($"{_categories[category]}: {bucket.Counts[category]}")"></span>
+                                }
+                            </div>
+                            <span class="policy-time-label">@(index % Math.Max(1, _timeline.Length / 8) == 0 || index == _timeline.Length - 1 ? bucket.Label : "")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="policy-legend">
+                @foreach (var category in _categories) { <span><i class="@CategoryClass(category)" aria-hidden="true"></i>@category</span> }
+            </div>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Model Routing Distribution</h3><p>Selected or outcome-reported model per request</p></div>
+            <div class="policy-outcome-distribution">
+                <div class="model-donut policy-donut" style="@($"--model-distribution: {_modelGradient}")" role="img" aria-label="@ModelDescription">
+                    <div><strong>@Number(_rows.Length)</strong><span>Total Requests</span></div>
+                </div>
+                <ul class="policy-outcome-list">
+                    @for (var index = 0; index < _models.Length; index++)
+                    {
+                        var model = _models[index];
+                        <li><i style="background: @ModelColor(index)" aria-hidden="true"></i><span title="@model.Name">@model.Name</span><strong>@Number(model.Count) (@Percent(model.Count, _rows.Length)%)</strong></li>
+                    }
+                </ul>
+            </div>
+        </article>
+    </div>
+
+    <div class="tokenomics-insight-grid routing-breakdown-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Top Model Substitutions</h3><p>Recorded requested-to-selected model changes</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table routing-mappings">
+                    <thead><tr><th scope="col">Requested</th><th scope="col">Selected</th><th scope="col">Requests</th><th scope="col">% of Subs</th></tr></thead>
+                    <tbody>
+                        @foreach (var mapping in _substitutions)
+                        {
+                            <tr><td>@mapping.Original</td><td>@mapping.Selected</td><td>@Number(mapping.Count)</td><td>@Percent(mapping.Count, _substitutedCount)%</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_substitutions.Length == 0) { <p class="policy-note">No recorded substitutions in this selection.</p> }
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Substitution Reasons</h3><p>Recorded condition associated with the model change</p></div>
+            <ul class="policy-breakdown-bars">
+                @foreach (var reason in _reasons)
+                {
+                    <li>
+                        <span title="@reason.Name">@reason.Name</span>
+                        <div class="horizontal-track"><i class="policy-modified" style="width: @Percent(reason.Count, Math.Max(1, _reasons.Max(row => row.Count)))%"></i></div>
+                        <strong>@Number(reason.Count)</strong>
+                    </li>
+                }
+            </ul>
+            @if (_reasons.Length == 0) { <p class="policy-note">No substitution reasons recorded.</p> }
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Cost Comparison</h3><p>Same observed usage priced at current model rates</p></div>
+            <div class="routing-cost-summary">
+                <div><span>Requested model estimate</span><strong>@(_costPairCount == 0 ? "Unavailable" : Money(_originalCost))</strong></div>
+                <div><span>Selected model estimate</span><strong>@(_costPairCount == 0 ? "Unavailable" : Money(_selectedCost))</strong></div>
+            </div>
+            <p class="policy-note">@_costPairCount of @_substitutedCount substitutions have usage and prices for both models.</p>
+            @if (_costRows.Length > 0)
+            {
+                <ul class="routing-cost-bars">
+                    @foreach (var cost in _costRows)
+                    {
+                        <li>
+                            <span>@cost.Model</span>
+                            <div class="routing-cost-tracks">
+                                <div class="horizontal-track"><i class="policy-modified" style="width: @CostWidth(cost.Original)%"></i></div>
+                                <div class="horizontal-track"><i class="policy-allowed" style="width: @CostWidth(cost.Selected)%"></i></div>
+                            </div>
+                            <strong>@Money(cost.Original)<br />@Money(cost.Selected)</strong>
+                        </li>
+                    }
+                </ul>
+                <div class="policy-legend"><span><i class="policy-modified"></i>Requested estimate</span><span><i class="policy-allowed"></i>Selected estimate</span></div>
+            }
+            else
+            {
+                <p class="policy-note">Backend token usage and prices for both models are required. No savings are assumed.</p>
+            }
+        </article>
+    </div>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading"><div class="policy-card-heading"><h3>Performance and Usage by Model</h3><p>Recorded request outcomes, grouped separately by requested and selected model</p></div></div>
+        <div class="users-table-wrap">
+            <table class="users-table routing-performance-table">
+                <thead><tr><th scope="col">Model role</th><th scope="col">Model</th><th scope="col">Requests</th><th scope="col">Recorded outcomes</th><th scope="col">Success rate</th><th scope="col">Error rate (non-2xx)</th><th scope="col">Avg. latency (ms)</th><th scope="col">Tokens</th></tr></thead>
+                <tbody>
+                    @foreach (var model in _performance)
+                    {
+                        <tr>
+                            <td>@model.Role</td><td>@model.Model</td><td>@Number(model.Requests)</td><td>@Number(model.Responses)</td>
+                            <td>@(model.Responses == 0 ? "Unavailable" : Percent(model.Successes, model.Responses) + "%")</td>
+                            <td>@(model.Responses == 0 ? "Unavailable" : Percent(model.Responses - model.Successes, model.Responses) + "%")</td>
+                            <td>@(model.Latency is { } latency ? latency.ToString("N1", CultureInfo.InvariantCulture) : "Not captured") (@model.LatencySamples samples)</td>
+                            <td>@(model.Tokens is { } tokens ? tokens.ToString("N0", CultureInfo.InvariantCulture) : "Not captured") (@model.UsageSamples samples)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_performance.Length == 0) { <p class="policy-note routing-empty" role="status">No routing records match this time range and filters.</p> }
+    </article>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading">
+            <div class="policy-card-heading"><h3>Recent Model Routing and Substitution Events</h3><p>One row per request, with correlated in-window policy and outcome records</p></div>
+            <div class="policy-table-controls">
+                <div class="section-tabs" aria-label="Filter model routing requests">
+                    @foreach (var filter in _filters)
+                    {
+                        <button type="button" class="@(filter == _selectedFilter ? "selected" : "")" aria-pressed="@(filter == _selectedFilter ? "true" : "false")"
+                                @onclick="@(() => SelectFilter(filter))">@filter</button>
+                    }
+                </div>
+                @if (_filteredRows.Length == 0) { <button type="button" class="export-button" disabled>Export CSV</button> }
+                else { <a class="export-button" href="@_csvHref" download="model-routing.csv">Export CSV</a> }
+            </div>
+        </div>
+        <div class="users-table-wrap">
+            <table class="users-table routing-events-table">
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User</th><th scope="col">Tenant</th><th scope="col">Requested Model</th><th scope="col">Selected Model</th><th scope="col">Substitution</th><th scope="col">Reason</th><th scope="col">Status</th><th scope="col">Tokens</th><th scope="col">Latency (ms)</th><th scope="col">Est. Cost (USD)</th><th scope="col">Details</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _visibleRows)
+                    {
+                        <tr>
+                            <td>@(row.Timestamp?.ToString("MMM d, HH:mm:ss", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@row.User</td><td>@row.Tenant</td><td>@row.Original</td><td>@row.Selected</td>
+                            <td>@SubstitutionLabel(row)</td><td>@row.Condition</td><td>@(row.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@(row.Tokens?.ToString("N0", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@(row.Latency?.ToString("N1", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@(row.SelectedCost is { } cost ? Money(cost) : "Unavailable")</td>
+                            <td>
+                                <details class="policy-decision-details">
+                                    <summary>View</summary>
+                                    <dl>
+                                        <dt>Request ID</dt><dd>@row.Id</dd>
+                                        <dt>Policy decision ID</dt><dd>@row.DecisionId</dd>
+                                        <dt>Selected model source</dt><dd>@row.SelectionSource</dd>
+                                        <dt>Selected action</dt><dd>@row.Action</dd>
+                                        <dt>Policy outcome</dt><dd>@row.Decision</dd>
+                                        <dt>Substitution permission</dt><dd>@PermissionLabel(row.Permission)</dd>
+                                        <dt>Hierarchy / default-model action</dt><dd>@RuleLabel(row.Action)</dd>
+                                        <dt>Exact applied rule / configured default</dt><dd>Not captured</dd>
+                                        <dt>Permission rationale</dt><dd>Not captured</dd>
+                                        <dt>Requested cost estimate</dt><dd>@(row.OriginalCost is { } original ? Money(original) : "Unavailable")</dd>
+                                    </dl>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_filteredRows.Length == 0) { <p class="policy-note routing-empty" role="status">No requests match this routing filter.</p> }
+        <div class="policy-pagination">
+            <span>@Number(_filteredRows.Length) matching requests</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex == 0)" @onclick="() => ChangePage(-1)">Previous</button>
+            <span>Page @(_pageIndex + 1) of @PageCount</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next</button>
+        </div>
+    </article>
+    <p class="policy-note">
+        Requested model is the earliest recorded model in the selected window; selected model comes from the latest request outcome, or policy selection if no outcome exists.
+        Timestamps are event times, not request arrival times. Records outside the selected window are not correlated.
+        Permission denial is not inferred from policy rejection; missing permission flags remain unknown.
+        Cost comparisons cover only substitutions with usage and both prices, use current rates rather than historical billing, and assume identical token usage for the counterfactual requested model.
+        A model change or admitted backend call does not prove substitution permission. No previous-period baseline is recorded.
+    </p>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public TokenomicsPeriod Period { get; set; } = TokenomicsPeriod.Hourly;
+
+    private sealed record RoutingRequest(string Id, DateTimeOffset? Timestamp, string User, string Tenant,
+        string Original, string Selected, string Action, string Condition, string Decision, string DecisionId,
+        string SelectionSource, bool? Changed, bool? Permission, int? Status, double? Latency,
+        decimal? Tokens, decimal? OriginalCost, decimal? SelectedCost);
+
+    private sealed record ModelPerformance(string Role, string Model, int Requests, int Responses, int Successes,
+        double? Latency, int LatencySamples, decimal? Tokens, int UsageSamples);
+
+    private const int PageSize = 10;
+    private readonly string[] _filters = ["All Requests", "Substituted", "Not Substituted", "Permission Denied"];
+    private readonly string[] _categories = ["Requested model", "Substituted", "Permission denied", "Default-model action", "Unknown model"];
+    private readonly HashSet<string> _warnings = new(StringComparer.Ordinal);
+    private RoutingRequest[] _rows = [];
+    private RoutingRequest[] _filteredRows = [];
+    private RoutingRequest[] _visibleRows = [];
+    private ModelPerformance[] _performance = [];
+    private (string Name, string Value, string Icon, string Tone, string Caption)[] _metrics = [];
+    private (string Name, int Count)[] _models = [];
+    private (string Original, string Selected, int Count)[] _substitutions = [];
+    private (string Name, int Count)[] _reasons = [];
+    private (string Label, int Total, int[] Counts)[] _timeline = [];
+    private (string Model, decimal Original, decimal Selected)[] _costRows = [];
+    private string _modelGradient = "conic-gradient(#9ba9c1 0% 100%)";
+    private string _selectedFilter = "All Requests";
+    private string _csvHref = string.Empty;
+    private int _pageIndex;
+    private int _axisMaximum = 4;
+    private int _substitutedCount;
+    private int _costPairCount;
+    private decimal _originalCost;
+    private decimal _selectedCost;
+    private decimal _costMaximum;
+    private int PageCount => Math.Max(1, (_filteredRows.Length + PageSize - 1) / PageSize);
+    private string IntervalLabel => Period switch { TokenomicsPeriod.Hourly => "per minute", TokenomicsPeriod.Daily => "per hour", _ => "per day" };
+    private string ModelDescription => string.Join(", ", _models.Select(model => $"{model.Name}: {model.Count} requests"));
+    private string RoutingDescription => $"{Number(_rows.Length)} requests; {Number(_substitutedCount)} substitutions. {IntervalLabel} in UTC.";
+
+    protected override void OnParametersSet() {
+        _warnings.Clear();
+        _rows = Snapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal)
+            .Select(BuildRequest).OrderByDescending(row => row.Timestamp).ThenBy(row => row.Id, StringComparer.Ordinal).ToArray();
+        var substituted = _rows.Where(row => row.Changed == true).ToArray();
+        _substitutedCount = substituted.Length;
+        var unchanged = _rows.Count(row => row.Changed == false);
+        var permitted = _rows.Count(row => row.Permission == true);
+        var denied = _rows.Count(row => row.Permission == false);
+        var knownPermissions = _rows.Count(row => row.Permission.HasValue);
+        var costPairs = substituted.Where(row => row.OriginalCost.HasValue && row.SelectedCost.HasValue).ToArray();
+        _costPairCount = costPairs.Length;
+        _originalCost = costPairs.Sum(row => row.OriginalCost!.Value);
+        _selectedCost = costPairs.Sum(row => row.SelectedCost!.Value);
+        var costChange = _costPairCount > 0 && _originalCost > 0
+            ? ((_selectedCost - _originalCost) / _originalCost * 100).ToString("+0.##;-0.##;0", CultureInfo.InvariantCulture) + "%"
+            : "Unavailable";
+        _metrics = [
+            ("Total Requests", Number(_rows.Length), "▣", "blue", "Distinct requests with routing events"),
+            ("Requested Model Retained", Number(unchanged), "⌘", "blue", $"{Percent(unchanged, _rows.Length)}% unchanged"),
+            ("Substituted", Number(_substitutedCount), "↔", "blue", $"{Percent(_substitutedCount, _rows.Length)}% changed model"),
+            ("Substitution Allowed", knownPermissions == 0 ? "Not captured" : Number(permitted), "✓", "green", $"{knownPermissions} of {_rows.Length} have permission flags"),
+            ("Substitution Blocked", knownPermissions == 0 ? "Not captured" : Number(denied), "×", "red", "Recorded denied permission, not rejection"),
+            ("Est. Cost Impact", costChange, "$", "blue", $"{_costPairCount} priced substitutions; current rates")
+        ];
+        var models = _rows.GroupBy(row => row.Selected).OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal).ToArray();
+        _models = models.Take(5).Select(group => (Name: group.Key, Count: group.Count())).ToArray();
+        if (models.Length > 5) _models = [.. _models, ("Other", models.Skip(5).Sum(group => group.Count()))];
+        var accumulated = 0;
+        var stops = new List<string>();
+        for (var index = 0; index < _models.Length; index++) {
+            var start = accumulated;
+            accumulated += _models[index].Count;
+            stops.Add($"{ModelColor(index)} {Percent(start, _rows.Length)}% {Percent(accumulated, _rows.Length)}%");
+        }
+        _modelGradient = stops.Count == 0 ? "conic-gradient(#9ba9c1 0% 100%)" : $"conic-gradient({string.Join(", ", stops)})";
+        var mappings = substituted.GroupBy(row => (row.Original, row.Selected)).OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key.Original, StringComparer.Ordinal).ThenBy(group => group.Key.Selected, StringComparer.Ordinal).ToArray();
+        _substitutions = mappings.Take(5).Select(group => (group.Key.Original, group.Key.Selected, Count: group.Count())).ToArray();
+        if (mappings.Length > 5) _substitutions = [.. _substitutions, ("Other", "Other", mappings.Skip(5).Sum(group => group.Count()))];
+        var reasons = substituted.GroupBy(row => row.Condition).OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal).ToArray();
+        _reasons = reasons.Take(5).Select(group => (Name: group.Key, Count: group.Count())).ToArray();
+        if (reasons.Length > 5) _reasons = [.. _reasons, ("Other", reasons.Skip(5).Sum(group => group.Count()))];
+        _costRows = costPairs.GroupBy(row => row.Original).OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => (Model: group.Key, Original: group.Sum(row => row.OriginalCost!.Value), Selected: group.Sum(row => row.SelectedCost!.Value))).ToArray();
+        _costMaximum = _costRows.Length == 0 ? 0 : _costRows.Max(row => Math.Max(row.Original, row.Selected));
+        _performance = [.. Performance("Requested", row => row.Original), .. Performance("Selected", row => row.Selected)];
+        BuildTimeline();
+        UpdateRows();
+    }
+
+    private RoutingRequest BuildRequest(IGrouping<string, ImmutableDictionary<string, string>> group) {
+        var records = group.OrderBy(fields => Time(fields)).ThenBy(fields =>
+            int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0).ToArray();
+        var decisions = records.Where(fields => fields.GetValueOrDefault("RecordKind") == "PolicyDecision").ToArray();
+        var latestDecision = decisions.LastOrDefault();
+        var outcome = records.LastOrDefault(fields => fields.GetValueOrDefault("RecordKind") == "RequestOutcome");
+        var first = decisions.FirstOrDefault() ?? records[0];
+        var latest = records[^1];
+        var original = Text(first, "RequestedModel") ?? Text(first, "ModelBefore") ?? "Not captured";
+        var selected = Text(outcome, "EffectiveModel") ?? Text(latestDecision, "ModelAfter") ?? "Not captured";
+        var changingDecision = decisions.LastOrDefault(fields => Text(fields, "PolicyAction") is "ChangeModel" or "UpgradeModel" or "DowngradeModel")
+            ?? latestDecision;
+        var input = Usage(outcome) ? Amount(outcome, "InputTokens") : null;
+        var cached = Usage(outcome) ? Amount(outcome, "CachedTokens") : null;
+        var output = Usage(outcome) ? Amount(outcome, "OutputTokens") : null;
+        var permissionRecord = records.LastOrDefault(fields => fields.ContainsKey("ModelReplacementAllowed"));
+        return new RoutingRequest(group.Key, Time(latest), Text(first, "UserId") ?? "Not captured",
+            Text(first, "Tenant") ?? "Not captured", original, selected,
+            Text(changingDecision, "PolicyAction") ?? "Not captured",
+            Text(changingDecision, "PolicyCondition") ?? "Not captured",
+            Text(latestDecision, "Decision") ?? "Not captured", Text(changingDecision, "DecisionId") ?? "Not captured",
+            Text(outcome, "EffectiveModel") is not null ? "Outcome-reported model" : Text(latestDecision, "ModelAfter") is not null ? "Policy-selected model" : "Not captured",
+            original == "Not captured" || selected == "Not captured" ? null : !original.Equals(selected, StringComparison.OrdinalIgnoreCase),
+            Boolean(permissionRecord, "ModelReplacementAllowed"),
+            outcome is null ? null : TokenomicsReplayOptions.GetStatus(outcome),
+            Latency(outcome), input.HasValue && output.HasValue ? input.Value + output.Value : null,
+            Estimate(original, input, cached, output), Estimate(selected, input, cached, output));
+    }
+
+    private IEnumerable<ModelPerformance> Performance(string role, Func<RoutingRequest, string> model) =>
+        _rows.GroupBy(model).OrderBy(group => group.Key, StringComparer.Ordinal).Select(group => {
+            var responses = group.Where(row => row.Status.HasValue).ToArray();
+            var latency = group.Where(row => row.Latency.HasValue).Select(row => row.Latency!.Value).ToArray();
+            var usage = group.Where(row => row.Tokens.HasValue).Select(row => row.Tokens!.Value).ToArray();
+            return new ModelPerformance(role, group.Key, group.Count(), responses.Length, responses.Count(row => row.Status is >= 200 and < 300),
+                latency.Length == 0 ? null : latency.Average(), latency.Length, usage.Length == 0 ? null : usage.Sum(), usage.Length);
+        });
+
+    private void BuildTimeline() {
+        var dated = _rows.Where(row => row.Timestamp.HasValue).ToArray();
+        var anchor = dated.Length == 0 ? DateTimeOffset.UtcNow : dated.Max(row => row.Timestamp!.Value);
+        var start = Period switch {
+            TokenomicsPeriod.Hourly => new DateTimeOffset(anchor.Year, anchor.Month, anchor.Day, anchor.Hour, 0, 0, TimeSpan.Zero),
+            TokenomicsPeriod.Daily => new DateTimeOffset(anchor.Year, anchor.Month, anchor.Day, 0, 0, 0, TimeSpan.Zero),
+            _ => new DateTimeOffset(anchor.Year, anchor.Month, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var count = Period switch { TokenomicsPeriod.Hourly => 60, TokenomicsPeriod.Daily => 24, _ => DateTime.DaysInMonth(anchor.Year, anchor.Month) };
+        var buckets = dated.ToLookup(row => Period switch {
+            TokenomicsPeriod.Hourly => row.Timestamp!.Value.Minute,
+            TokenomicsPeriod.Daily => row.Timestamp!.Value.Hour,
+            _ => row.Timestamp!.Value.Day - 1
+        });
+        _timeline = Enumerable.Range(0, count).Select(index => {
+            var rows = buckets[index].ToArray();
+            var label = Period switch {
+                TokenomicsPeriod.Hourly => start.AddMinutes(index).ToString("HH:mm", CultureInfo.InvariantCulture),
+                TokenomicsPeriod.Daily => start.AddHours(index).ToString("HH:mm", CultureInfo.InvariantCulture),
+                _ => start.AddDays(index).ToString("MMM d", CultureInfo.InvariantCulture)
+            };
+            return (Label: label, Total: rows.Length, Counts: CategoryCounts(rows));
+        }).ToArray();
+        if (dated.Length != _rows.Length) {
+            var undated = _rows.Where(row => !row.Timestamp.HasValue).ToArray();
+            _timeline = [.. _timeline, ("Undated", undated.Length, CategoryCounts(undated))];
+        }
+        _axisMaximum = Math.Max(4, (int)Math.Ceiling(_timeline.Max(bucket => bucket.Total) / 4.0) * 4);
+    }
+
+    private int[] CategoryCounts(RoutingRequest[] rows) => _categories.Select(category => rows.Count(row => Category(row) == category)).ToArray();
+
+    private static string Category(RoutingRequest row) => row.Changed switch {
+        null => "Unknown model",
+        true when row.Action == "ChangeModel" => "Default-model action",
+        true => "Substituted",
+        false when row.Permission == false => "Permission denied",
+        _ => "Requested model"
+    };
+
+    private void SelectFilter(string filter) {
+        _selectedFilter = filter;
+        _pageIndex = 0;
+        UpdateRows();
+    }
+
+    private void ChangePage(int change) {
+        _pageIndex = Math.Clamp(_pageIndex + change, 0, PageCount - 1);
+        _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+    }
+
+    private void UpdateRows() {
+        _filteredRows = _rows.Where(row => _selectedFilter switch {
+            "Substituted" => row.Changed == true,
+            "Not Substituted" => row.Changed == false,
+            "Permission Denied" => row.Permission == false,
+            _ => true
+        }).ToArray();
+        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+        var csv = new StringBuilder("TimestampUtc,User,Tenant,RequestedModel,SelectedModel,Substitution,Permission,Condition,Action,RuleAction,ExactRule,PermissionReason,PolicyOutcome,Status,Tokens,LatencyMs,RequestedCostEstimateUsd,SelectedCostEstimateUsd,SelectionSource,MID,DecisionId\r\n");
+        foreach (var row in _filteredRows) {
+            string[] cells = [row.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured", row.User, row.Tenant,
+                row.Original, row.Selected, SubstitutionLabel(row), PermissionLabel(row.Permission), row.Condition, row.Action, RuleLabel(row.Action),
+                "Not captured", "Not captured", row.Decision, row.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                row.Tokens?.ToString(CultureInfo.InvariantCulture) ?? "Not captured", row.Latency?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                row.OriginalCost?.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", row.SelectedCost?.ToString(CultureInfo.InvariantCulture) ?? "Unavailable",
+                row.SelectionSource, row.Id, row.DecisionId];
+            csv.Append(string.Join(",", cells.Select(CsvCell))).Append("\r\n");
+        }
+        _csvHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv.ToString());
+    }
+
+    private decimal? Estimate(string model, decimal? input, decimal? cached, decimal? output) {
+        if (!input.HasValue || !cached.HasValue || !output.HasValue || !Snapshot.RoutingPrices.TryGetValue(model, out var price)) return null;
+        try {
+            return Math.Max(0, input.Value - cached.Value) * price.Input + cached.Value * price.CachedInput + output.Value * price.Output;
+        }
+        catch (OverflowException) {
+            _warnings.Add("Cost estimate exceeded numeric range");
+            return null;
+        }
+    }
+
+    private decimal? Amount(IReadOnlyDictionary<string, string>? fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value)) return value;
+        _warnings.Add($"{key} is not a nonnegative integer");
+        return null;
+    }
+
+    private double? Latency(IReadOnlyDictionary<string, string>? fields) {
+        var text = Text(fields, "LatencyMs");
+        if (text is null) return null;
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) && value >= 0) return value;
+        _warnings.Add("LatencyMs is not a finite nonnegative number");
+        return null;
+    }
+
+    private bool? Boolean(IReadOnlyDictionary<string, string>? fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (bool.TryParse(text, out var value)) return value;
+        _warnings.Add($"{key} is not a Boolean");
+        return null;
+    }
+
+    private bool Usage(IReadOnlyDictionary<string, string>? fields) => Boolean(fields, "UsageAvailable") == true;
+
+    private DateTimeOffset? Time(IReadOnlyDictionary<string, string> fields) {
+        var text = Text(fields, "TimestampUtc");
+        if (text is null) return null;
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)) return timestamp;
+        _warnings.Add("TimestampUtc is invalid");
+        return null;
+    }
+
+    private static string? Text(IReadOnlyDictionary<string, string>? fields, string key) =>
+        fields is not null && fields.TryGetValue(key, out var text) && !string.IsNullOrWhiteSpace(text) ? text : null;
+
+    private string CostWidth(decimal cost) => (_costMaximum == 0 ? 0 : cost / _costMaximum * 100).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string Number(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    private static string Money(decimal value) => "$" + value.ToString("0.00####", CultureInfo.InvariantCulture);
+    private static string Percent(int count, int total) => (total == 0 ? 0 : count * 100.0 / total).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string PermissionLabel(bool? value) => value switch { true => "Permitted", false => "Not permitted", _ => "Not captured" };
+    private static string SubstitutionLabel(RoutingRequest row) => row.Changed switch { true => "Substituted", false => "Unchanged", _ => "Not captured" };
+    private static string RuleLabel(string action) => action switch {
+        "ChangeModel" => "Default-model action (exact configured model not captured)",
+        "UpgradeModel" => "Hierarchy upgrade action (exact hierarchy not captured)",
+        "DowngradeModel" => "Hierarchy downgrade action (exact hierarchy not captured)",
+        _ => "Not captured"
+    };
+    private static string CategoryClass(string category) => category switch {
+        "Requested model" => "policy-modified", "Substituted" => "policy-allowed", "Permission denied" => "policy-rejected",
+        "Default-model action" => "policy-delayed", _ => "policy-unknown"
+    };
+    private static string ModelColor(int index) => index switch {
+        0 => "#287cf0", 1 => "#31c1df", 2 => "#48c58a", 3 => "#9652ef", 4 => "#ffa21b", _ => "#9ba9c1"
+    };
+    private static string CsvCell(string value) {
+        var trimmed = value.TrimStart();
+        if (trimmed.StartsWith('=') || trimmed.StartsWith('+') || trimmed.StartsWith('-') || trimmed.StartsWith('@')
+            || value.StartsWith('\t') || value.StartsWith('\r') || value.StartsWith('\n')) value = "'" + value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
+}

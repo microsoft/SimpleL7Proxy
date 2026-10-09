@@ -62,8 +62,21 @@
                     <div class="vision-body-panel rounded border p-2 small vision-body-fill">
                         @* ── Section 1 (top): mode toggles + filter / model / api ── *@
                         <div class="vision-section-top">
-                            <div class="d-flex align-items-center gap-3 mb-1">
-                                <div class="form-check mb-0 ms-auto">
+                            <div class="d-flex flex-wrap justify-content-end align-items-center gap-3 mb-1">
+                                @if (SupportsIncludeUsage)
+                                {
+                                    <div class="form-check mb-0 onboarding-target @(IsOnboardingIncludeUsageStep ? "is-active" : string.Empty)">
+                                        @if (IsOnboardingIncludeUsageStep)
+                                        {
+                                            <span class="onboarding-orb" aria-hidden="true"></span>
+                                        }
+                                        <input class="form-check-input" type="checkbox" id="visionIncludeUsageCheck"
+                                               checked="@string.Equals(FieldValues["include_usage"], "true", StringComparison.OrdinalIgnoreCase)"
+                                               @onchange="@(async args => { OnFieldChanged("include_usage", args.Value is bool selected && selected ? "true" : "false"); await AdvanceToSendAsync(); })" />
+                                        <label class="form-check-label" for="visionIncludeUsageCheck">include_usage</label>
+                                    </div>
+                                }
+                                <div class="form-check mb-0">
                                     <input class="form-check-input" type="checkbox" id="visionDebugCheck"
                                            checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
                                     <label class="form-check-label" for="visionDebugCheck">Debug</label>
@@ -2384,7 +2397,7 @@
 
         if (IsOpenAiStreamingChat)
         {
-            FieldValues["include_usage"] = "false";
+            FieldValues["include_usage"] = "true";
         }
     }
 

@@ -18,7 +18,7 @@
                     <input id="tokenomics-metrics-server-url" class="form-control form-control-sm" type="url"
                            placeholder="http://localhost:9100" spellcheck="false"
                            @bind:get="metricsServerSetting.DraftValue" @bind:set="SetMetricsServer"
-                           @bind:event="oninput" @onchange="NotifyChangedAsync" />
+                           @bind:event="oninput" @onblur="NotifyChangedAsync" />
                 </div>
             }
         </div>
@@ -84,49 +84,179 @@
         {
             <section id="@($"tokenomics-panel-{_selectedTab}")" class="tokenomics-tab-panel" role="tabpanel"
                      aria-labelledby="@($"tokenomics-tab-{_selectedTab}")">
-                <div class="config-newhost-grid">
-                    @foreach (var property in SelectedNumericProperties)
-                    {
-                        var errorId = $"tokenomics-{property.Name}-error";
-                        <div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)" @key="property.Name">
-                            <div class="config-setting-heading">
-                                <label class="form-label" for="@($"tokenomics-{property.Name}")">@FieldLabel(property.Name)</label>
-                                <ConfigurationHelp Section="Tokenomics" Topic="@property.Name" />
-                            </div>
-                            <ConfigurationExplanation Section="Tokenomics" Topic="@property.Name" />
-                            <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm"
-                                   type="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
-                                   placeholder="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? "00:10:000" : null)"
-                                   step="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? null : InputStep(property.PropertyType))"
-                                   value="@FormatValue(property.GetValue(_options), property.Name)"
-                                   aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
-                                   aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
-                                   @onchange="args => SetOptionAsync(property, args)" />
-                            @if (_fieldErrors.TryGetValue(property.Name, out var error))
+                @if (_selectedTab is "limits" or "budgets")
+                {
+                    var periodNumericProperties = (_selectedTab == "limits"
+                        ? new[]
+                        {
+                            nameof(TokenomicsSettings.HourlyTokenLimit),
+                            nameof(TokenomicsSettings.DailyTokenLimit),
+                            nameof(TokenomicsSettings.MonthlyTokenLimit)
+                        }
+                        : new[]
+                        {
+                            nameof(TokenomicsSettings.HourlyBudgetUsd),
+                            nameof(TokenomicsSettings.DailyBudgetUsd),
+                            nameof(TokenomicsSettings.MonthlyBudgetUsd)
+                        })
+                        .Select(name => OptionProperties.Single(property => property.Name == name))
+                        .ToArray();
+                    var periodActionRows = _selectedTab == "limits"
+                        ? new[]
+                        {
+                            (
+                                Label: "Quota governance action",
+                                Names: new[]
+                                {
+                                    nameof(TokenomicsSettings.HourlyQuotaGovernanceAction),
+                                    nameof(TokenomicsSettings.DailyQuotaGovernanceAction),
+                                    nameof(TokenomicsSettings.MonthlyQuotaGovernanceAction)
+                                }),
+                            (
+                                Label: "Quota exceeded action",
+                                Names: new[]
+                                {
+                                    nameof(TokenomicsSettings.HourlyQuotaExceededAction),
+                                    nameof(TokenomicsSettings.DailyQuotaExceededAction),
+                                    nameof(TokenomicsSettings.MonthlyQuotaExceededAction)
+                                })
+                        }
+                        : new[]
+                        {
+                            (
+                                Label: "Budget exceeded action",
+                                Names: new[]
+                                {
+                                    nameof(TokenomicsSettings.HourlyBudgetExceededAction),
+                                    nameof(TokenomicsSettings.DailyBudgetExceededAction),
+                                    nameof(TokenomicsSettings.MonthlyBudgetExceededAction)
+                                }),
+                            (
+                                Label: "Entitled tenant action",
+                                Names: new[]
+                                {
+                                    nameof(TokenomicsSettings.HourlyBudgetEntitledTenantAction),
+                                    nameof(TokenomicsSettings.DailyBudgetEntitledTenantAction),
+                                    nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
+                                })
+                        };
+
+                    <div class="tokenomics-period-matrix" role="group" aria-label="@($"{(_selectedTab == "limits" ? "Limits" : "Budgets")} by period")">
+                        <div class="tokenomics-period-matrix-header" aria-hidden="true">
+                            <span></span>
+                            <span>Hourly</span>
+                            <span>Daily</span>
+                            <span>Monthly</span>
+                        </div>
+                        <div class="tokenomics-period-matrix-row">
+                            <div class="tokenomics-period-row-label">@(_selectedTab == "limits" ? "Token limit" : "Budget (USD)")</div>
+                            @foreach (var property in periodNumericProperties)
                             {
-                                <span id="@errorId" class="small text-danger" role="alert">@error</span>
+                                var errorId = $"tokenomics-{property.Name}-error";
+                                <div class="tokenomics-period-cell @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)" @key="property.Name">
+                                    <label class="visually-hidden" for="@($"tokenomics-{property.Name}")">@FieldLabel(property.Name)</label>
+                                    <ConfigurationExplanation Section="Tokenomics" Topic="@property.Name" />
+                                    <div class="tokenomics-period-control">
+                                        <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm" type="number"
+                                               step="@InputStep(property.PropertyType)"
+                                               value="@FormatValue(property.GetValue(_options), property.Name)"
+                                               aria-label="@FieldLabel(property.Name)"
+                                               aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
+                                               aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
+                                               @onchange="args => SetOptionAsync(property, args)" />
+                                        <ConfigurationHelp Section="Tokenomics" Topic="@property.Name" />
+                                    </div>
+                                    @if (_fieldErrors.TryGetValue(property.Name, out var error))
+                                    {
+                                        <span id="@errorId" class="small text-danger" role="alert">@error</span>
+                                    }
+                                </div>
                             }
                         </div>
-                    }
-                </div>
-                <div class="tokenomics-inline-actions" aria-label="Policy actions">
-                    @foreach (var actionProperty in SelectedActionProperties)
-                    {
-                        <div class="tokenomics-inline-action @(IsOptionChanged(actionProperty) ? "config-field-changed" : string.Empty)" @key="actionProperty.Name">
-                            <div class="tokenomics-inline-action-name">
-                                <label for="@($"tokenomics-{actionProperty.Name}")">@ActionLabel(actionProperty.Name)</label>
-                                <ConfigurationHelp Section="Tokenomics" Topic="@actionProperty.Name" />
-                            </div>
-                            <select id="@($"tokenomics-{actionProperty.Name}")" class="form-select form-select-sm"
-                                    value="@FormatValue(actionProperty.GetValue(_options))" @onchange="args => SetOptionAsync(actionProperty, args)">
-                                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                        @foreach (var actionRow in periodActionRows)
+                        {
+                            <div class="tokenomics-period-matrix-row" @key="actionRow.Label">
+                                <div class="tokenomics-period-row-label">@actionRow.Label</div>
+                                @foreach (var propertyName in actionRow.Names)
                                 {
-                                    <option value="@action">@FieldLabel(action.ToString())</option>
+                                    var actionProperty = OptionProperties.Single(property => property.Name == propertyName);
+                                    <div class="tokenomics-period-cell @(IsOptionChanged(actionProperty) ? "config-field-changed" : string.Empty)" @key="actionProperty.Name">
+                                        <label class="visually-hidden" for="@($"tokenomics-{actionProperty.Name}")">@ActionLabel(actionProperty.Name)</label>
+                                        <div class="tokenomics-period-control">
+                                            <select id="@($"tokenomics-{actionProperty.Name}")" class="form-select form-select-sm"
+                                                    aria-label="@ActionLabel(actionProperty.Name)"
+                                                    value="@FormatValue(actionProperty.GetValue(_options))"
+                                                    @onchange="args => SetOptionAsync(actionProperty, args)">
+                                                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                                                {
+                                                    <option value="@action">@FieldLabel(action.ToString())</option>
+                                                }
+                                            </select>
+                                            <ConfigurationHelp Section="Tokenomics" Topic="@actionProperty.Name" />
+                                        </div>
+                                    </div>
                                 }
-                            </select>
-                        </div>
-                    }
-                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="config-newhost-grid">
+                        @foreach (var property in SelectedNumericProperties)
+                        {
+                            var errorId = $"tokenomics-{property.Name}-error";
+                            <div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)" @key="property.Name">
+                                <div class="config-setting-heading">
+                                    <label class="form-label" for="@($"tokenomics-{property.Name}")">@FieldLabel(property.Name)</label>
+                                    <ConfigurationHelp Section="Tokenomics" Topic="@property.Name" />
+                                </div>
+                                <ConfigurationExplanation Section="Tokenomics" Topic="@property.Name" />
+                                <input id="@($"tokenomics-{property.Name}")" class="form-control form-control-sm"
+                                       type="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
+                                       placeholder="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? "00:10:000" : null)"
+                                       step="@(property.Name == nameof(TokenomicsSettings.DelayDuration) ? null : InputStep(property.PropertyType))"
+                                       value="@FormatValue(property.GetValue(_options), property.Name)"
+                                       aria-invalid="@(_fieldErrors.ContainsKey(property.Name) ? "true" : "false")"
+                                       aria-describedby="@(_fieldErrors.ContainsKey(property.Name) ? errorId : null)"
+                                       @onchange="args => SetOptionAsync(property, args)" />
+                                @if (_fieldErrors.TryGetValue(property.Name, out var error))
+                                {
+                                    <span id="@errorId" class="small text-danger" role="alert">@error</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                @{
+                    var remainingActionProperties = SelectedActionProperties
+                        .Where(property => !(_selectedTab is "limits" or "budgets")
+                            || !(property.Name.StartsWith("Hourly", StringComparison.Ordinal)
+                                || property.Name.StartsWith("Daily", StringComparison.Ordinal)
+                                || property.Name.StartsWith("Monthly", StringComparison.Ordinal)))
+                        .ToArray();
+                }
+                @if (remainingActionProperties.Length > 0)
+                {
+                    <div class="tokenomics-inline-actions" aria-label="Policy actions">
+                        @foreach (var actionProperty in remainingActionProperties)
+                        {
+                            <div class="tokenomics-inline-action @(IsOptionChanged(actionProperty) ? "config-field-changed" : string.Empty)" @key="actionProperty.Name">
+                                <div class="tokenomics-inline-action-name">
+                                    <label for="@($"tokenomics-{actionProperty.Name}")">@ActionLabel(actionProperty.Name)</label>
+                                    <ConfigurationHelp Section="Tokenomics" Topic="@actionProperty.Name" />
+                                </div>
+                                <select id="@($"tokenomics-{actionProperty.Name}")" class="form-select form-select-sm"
+                                        value="@FormatValue(actionProperty.GetValue(_options))" @onchange="args => SetOptionAsync(actionProperty, args)">
+                                    @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                                    {
+                                        <option value="@action">@FieldLabel(action.ToString())</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                }
             </section>
         }
         else if (_selectedTab == "costs")
@@ -333,6 +463,8 @@
     .tokenomics-metrics-server.config-field-changed { background: #fff8dc; }
     .tokenomics-metrics-server .form-label { flex: 0 0 auto; margin: 0; font-size: 0.875rem; font-weight: 500; white-space: nowrap; }
     .tokenomics-metrics-server .form-control { min-width: 0; }
+    .tokenomics-metrics-server .form-control::placeholder { color: transparent; }
+    .tokenomics-metrics-server .form-control:focus::placeholder { color: var(--bs-secondary-color); opacity: 1; }
     .tokenomics-global-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
     .tokenomics-tabs { display: grid; grid-template-columns: repeat(5, minmax(6rem, 1fr)); overflow-x: auto; border-bottom: 1px solid #d2d2d7; }
     .tokenomics-tab { min-height: 44px; padding: 0.6rem 0.5rem; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #515154; font-weight: 500; text-align: center; white-space: nowrap; }
@@ -340,6 +472,18 @@
     .tokenomics-tab:hover { background: #f5f5f7; }
     .tokenomics-tab:focus-visible { outline: 2px solid #0066cc; outline-offset: -2px; }
     .tokenomics-tab-panel { padding: 0.75rem 0; }
+    .tokenomics-period-matrix { display: grid; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.25rem; }
+    .tokenomics-period-matrix-header,
+    .tokenomics-period-matrix-row { display: grid; grid-template-columns: minmax(10rem, 1.1fr) repeat(3, minmax(9rem, 1fr)); gap: 0.5rem; min-width: 40rem; }
+    .tokenomics-period-matrix-header { padding: 0 0.75rem; color: #6e6e73; font-size: 0.72rem; font-weight: 600; text-align: center; text-transform: uppercase; }
+    .tokenomics-period-matrix-row { align-items: start; padding: 0.55rem 0.75rem; border-radius: 12px; background: #f5f6f8; box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.04); }
+    .tokenomics-period-row-label { padding: 0.45rem 0; font-size: 0.875rem; font-weight: 500; overflow-wrap: anywhere; }
+    .tokenomics-period-cell { min-width: 0; padding: 0.2rem; border-radius: 8px; }
+    .tokenomics-period-cell.config-field-changed { background: #fff8dc; }
+    .tokenomics-period-control { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+    .tokenomics-period-control .form-control,
+    .tokenomics-period-control .form-select { min-width: 0; }
+    .tokenomics-period-cell > .text-danger { display: block; margin-top: 0.25rem; }
     .tokenomics-inline-actions { display: grid; gap: 0.35rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #e5e5ea; }
     .tokenomics-inline-action { display: grid; grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem); align-items: center; gap: 1rem; min-height: 44px; padding: 0.35rem 0.5rem; border-radius: 4px; background: #f5f6f8; }
     .tokenomics-inline-action.config-field-changed { background: #fff8dc; }
@@ -466,8 +610,12 @@
 
     private IEnumerable<PropertyInfo> SelectedNumericProperties => NumericProperties.Where(property => _selectedTab switch
     {
-        "limits" => property.Name is nameof(TokenomicsSettings.MonthlyTokenLimit) or nameof(TokenomicsSettings.DailyTokenLimit),
-        "budgets" => property.Name is nameof(TokenomicsSettings.DailyBudgetUsd) or nameof(TokenomicsSettings.MonthlyBudgetUsd),
+        "limits" => property.Name is nameof(TokenomicsSettings.HourlyTokenLimit)
+            or nameof(TokenomicsSettings.DailyTokenLimit)
+            or nameof(TokenomicsSettings.MonthlyTokenLimit),
+        "budgets" => property.Name is nameof(TokenomicsSettings.HourlyBudgetUsd)
+            or nameof(TokenomicsSettings.DailyBudgetUsd)
+            or nameof(TokenomicsSettings.MonthlyBudgetUsd),
         "capacity" => property.Name is nameof(TokenomicsSettings.CurrentCapacityUtilizationPercent)
             or nameof(TokenomicsSettings.CapacityConstraintThresholdPercent)
             or nameof(TokenomicsSettings.HighQueueDepthThreshold)
@@ -483,14 +631,19 @@
 
     private static string ActionTab(string name) => name switch {
         nameof(TokenomicsSettings.AbuseDetectedAction)
-            or nameof(TokenomicsSettings.MonthlyQuotaExceededAction)
+            or nameof(TokenomicsSettings.HourlyQuotaGovernanceAction)
             or nameof(TokenomicsSettings.DailyQuotaGovernanceAction)
+            or nameof(TokenomicsSettings.MonthlyQuotaGovernanceAction)
+            or nameof(TokenomicsSettings.HourlyQuotaExceededAction)
             or nameof(TokenomicsSettings.DailyQuotaExceededAction)
+            or nameof(TokenomicsSettings.MonthlyQuotaExceededAction)
             or nameof(TokenomicsSettings.DefaultAction) => "limits",
-        nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.MonthlyBudgetExceededAction)
+        nameof(TokenomicsSettings.HourlyBudgetEntitledTenantAction)
             or nameof(TokenomicsSettings.DailyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.DailyBudgetExceededAction) => "budgets",
+            or nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
+            or nameof(TokenomicsSettings.HourlyBudgetExceededAction)
+            or nameof(TokenomicsSettings.DailyBudgetExceededAction)
+            or nameof(TokenomicsSettings.MonthlyBudgetExceededAction) => "budgets",
         nameof(TokenomicsSettings.CapacityCriticalWorkloadAction)
             or nameof(TokenomicsSettings.CapacityHighPriorityAction)
             or nameof(TokenomicsSettings.CapacityConstrainedAction)
@@ -613,7 +766,15 @@
         setting.DraftValue = value ?? string.Empty;
     }
 
-    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+    private Task NotifyChangedAsync() {
+        if (MetricsServerSetting is { } setting
+            && string.IsNullOrEmpty(setting.LoadedValue)
+            && string.IsNullOrEmpty(setting.DraftValue)) {
+            setting.DraftValue = "http://localhost:9100";
+        }
+
+        return OnChanged.InvokeAsync();
+    }
 
     private async Task RevertMetricsServerAsync() {
         if (MetricsServerSetting is not { } setting) {

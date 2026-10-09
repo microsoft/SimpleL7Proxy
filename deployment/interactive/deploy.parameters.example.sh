@@ -22,11 +22,13 @@
 # These settings control which optional resources are enabled.
 #   PRIVATE_NETWORK_DEPLOYMENT=yes  enables step 2 (Virtual Network) and step 6 (Private DNS)
 #   ASYNC_DEPLOYMENT=yes            enables step 8 (Blob Storage) and steps 9-10 (RequestAPI)
+#   DEPLOY_PROXY=true               includes the proxy Container App
 #   DEPLOY_COMPANION_APP=true       includes the Companion App in Bicep downloads
 #   DEPLOY_METRICS_SERVER=true      includes the Metrics Server in Bicep downloads
 # -----------------------------------------------------------------------------
 export PRIVATE_NETWORK_DEPLOYMENT="yes|no"
 export ASYNC_DEPLOYMENT="yes|no"
+export DEPLOY_PROXY="true"
 export DEPLOY_COMPANION_APP="false"
 export DEPLOY_METRICS_SERVER="false"
 
@@ -48,7 +50,7 @@ export ENVIRONMENT_RESOURCE_GROUP="rg-simplel7proxy-v2_30"
 # -----------------------------------------------------------------------------
 export ACR_NAME="acrsimplel7proxy"
 export ACR_SKU="Basic"                   # Basic | Standard | Premium
-export PROXY_IMAGE_NAME="simple-l7-proxy"
+export PROXY_IMAGE_NAME="simplel7proxy"
 export HEALTH_IMAGE_NAME="healthprobe"
 export COMPANION_IMAGE_NAME="companionapp"
 
@@ -68,6 +70,9 @@ export ACA_ENVIRONMENT_NAME="simplel7proxy-env"
 export USE_EXISTING_ENVIRONMENT="false"
 export CONTAINER_APP_NAME="ca-simplel7proxy-proxy"
 export COMPANION_APP_NAME="ca-simplel7proxy-companion"
+export COMPANION_EVENTHUB_NAMESPACE="simplel7proxy-events" # Bicep creates a Standard namespace in the Companion App resource group.
+export COMPANION_EVENTHUB_NAME="proxy-events"
+export COMPANION_EVENTHUB_CONSUMER_GROUP="companion"
 export METRICS_SERVER_NAME="ca-simplel7proxy-metrics"
 
 export CPU="0.5"

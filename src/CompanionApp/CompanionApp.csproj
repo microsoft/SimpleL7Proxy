@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Containers.ContainerRegistry" Version="1.3.0" />
     <PackageReference Include="Azure.Core" Version="1.62.0" />
     <PackageReference Include="Azure.Data.AppConfiguration" Version="1.11.0" />
     <PackageReference Include="Azure.Messaging.EventHubs" Version="5.12.2" />
@@ -27,24 +28,8 @@
     <EmbeddedResource Include="..\HealthProbe\Constants.cs" LogicalName="HealthProbeVersionSource" />
     <EmbeddedResource Include="Assets\Deployment\README.template.md" LogicalName="DeploymentReadmeTemplate" />
     <EmbeddedResource Include="Assets\Deployment\deploy.template.sh" LogicalName="DeploymentScriptTemplate" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\types.bicep" LogicalName="DeploymentBicepAsset/types.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\bootstrap.bicep" LogicalName="DeploymentBicepAsset/bootstrap.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\main.bicep" LogicalName="DeploymentBicepAsset/main.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\registry.bicep" LogicalName="DeploymentBicepAsset/modules/registry.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\network.bicep" LogicalName="DeploymentBicepAsset/modules/network.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\foundation.bicep" LogicalName="DeploymentBicepAsset/modules/foundation.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\configuration.bicep" LogicalName="DeploymentBicepAsset/modules/configuration.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\configuration-access.bicep" LogicalName="DeploymentBicepAsset/modules/configuration-access.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\blob-storage.bicep" LogicalName="DeploymentBicepAsset/modules/blob-storage.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\blob-access.bicep" LogicalName="DeploymentBicepAsset/modules/blob-access.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\request-api.bicep" LogicalName="DeploymentBicepAsset/modules/request-api.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\service-bus-access.bicep" LogicalName="DeploymentBicepAsset/modules/service-bus-access.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\cosmos-access.bicep" LogicalName="DeploymentBicepAsset/modules/cosmos-access.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\companion-app.bicep" LogicalName="DeploymentBicepAsset/modules/companion-app.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\metrics-server.bicep" LogicalName="DeploymentBicepAsset/modules/metrics-server.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\container-app.bicep" LogicalName="DeploymentBicepAsset/modules/container-app.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\registry-access.bicep" LogicalName="DeploymentBicepAsset/modules/registry-access.bicep" />
-    <EmbeddedResource Include="Assets\Deployment\Bicep\modules\private-dns.bicep" LogicalName="DeploymentBicepAsset/modules/private-dns.bicep" />
+    <EmbeddedResource Include="..\..\deployment\*.bicep" LogicalName="DeploymentBicepAsset/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\deployment\modules\*.bicep" LogicalName="DeploymentBicepAsset/modules/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

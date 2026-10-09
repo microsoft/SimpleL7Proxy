@@ -34,6 +34,103 @@ public sealed class MetricsServerBenchmarkTests : IRegressionTestMetadata
     private static readonly TimeSpan SustainedLoadDuration = TimeSpan.FromSeconds(60);
 
     [TestMethod]
+    [TestCategory("Metrics")]
+    public void TokenomicsBudgets_UseExistingTotalsAndModelPricing()
+    {
+        var store = new MetricsServer.TokenomicsMetricsStore();
+        var now = DateTime.UtcNow;
+        var day = DateOnly.FromDateTime(now);
+        store.Record(new PendingMetric("alice", "model-a", 100, 20, 40, true, false, day, 429, 120, now));
+        store.Record(new PendingMetric("bob", "model-a", 50, 10, 10, false, true, day, 200, 80, now));
+        store.Record(new PendingMetric("alice", "model-b", 1000, 1000, 0, false, false, day, 200, 80, now));
+        var settings = new TokenomicsSettings();
+        settings.ModelCostPerToken["MODEL-A"] = new ModelTokenPricing {
+            Input = 0.01m, CachedInput = 0.002m, Output = 0.03m
+        };
+
+        var response = store.GetMetrics("alice", "model-a", settings);
+        Assert.AreEqual(1.28m, response.DailyUserBudget);
+        Assert.AreEqual(1.28m, response.MonthlyUserBudget);
+        Assert.AreEqual(2m, response.DailyModelBudget);
+        Assert.AreEqual(2m, response.MonthlyModelBudget);
+        Assert.AreEqual(100, response.DailyInputTokens);
+        Assert.AreEqual(40, response.DailyCachedTokens);
+        Assert.AreEqual(1, response.DailyUser429);
+        Assert.AreEqual(120d, response.DailyAvgLatencyMs);
+
+        var missingPricing = store.GetMetrics("alice", "model-a");
+        Assert.AreEqual(0m, missingPricing.DailyUserBudget);
+        Assert.AreEqual(0m, missingPricing.MonthlyUserBudget);
+        Assert.AreEqual(0m, missingPricing.DailyModelBudget);
+        Assert.AreEqual(0m, missingPricing.MonthlyModelBudget);
+        Assert.AreEqual(0m, store.GetMetrics("alice", "model-b", settings).DailyUserBudget);
+        var missingUser = store.GetMetrics("missing", "model-a", settings);
+        Assert.AreEqual(0m, missingUser.DailyUserBudget);
+        Assert.AreEqual(2m, missingUser.DailyModelBudget);
+
+        settings.ModelCostPerToken["MODEL-A"].Output = 0.04m;
+        Assert.AreEqual(1.48m, store.GetMetrics("alice", "model-a", settings).DailyUserBudget);
+    }
+
+    [TestMethod]
+    [TestCategory("Metrics")]
+    public async Task TokenomicsLookup_ReturnsBudgetAndHourlyFields()
+    {
+        var options = new MetricsServer.MetricsOptions();
+        var reader = new MetricsServer.AppConfigurationReader(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MetricsServer.AppConfigurationReader>.Instance,
+            options);
+        reader.TokenomicsSettings.ModelCostPerToken["model-a"] = new ModelTokenPricing {
+            Input = 0.01m, CachedInput = 0.002m, Output = 0.03m
+        };
+        var store = new MetricsServer.TokenomicsMetricsStore();
+        var now = DateTime.UtcNow;
+        store.Record(new PendingMetric("alice", "model-a", 100, 20, 40, true, true,
+            DateOnly.FromDateTime(now), 429, 120, now));
+        using var processor = new MetricsServer.TokenomicsRollupProcessor(store);
+        using var server = new MetricsServer.MetricsHttpServer(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MetricsServer.MetricsHttpServer>.Instance,
+            options, new MetricsServer.MetricsStore(options), processor, store,
+            appConfigurationReader: reader);
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        context.Request.QueryString = new Microsoft.AspNetCore.Http.QueryString("?m=model-a");
+        context.Response.Body = new MemoryStream();
+        await server.TokenomicsLookup(context, new MetricsServer.MetricsHttpServer.RequestIdentity("alice", null));
+        context.Response.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(context.Response.Body);
+        Assert.AreEqual(1.28m, document.RootElement.GetProperty("DailyUserBudget").GetDecimal());
+        foreach (var field in new[] { "HourlyInputTokens", "HourlyOutputTokens", "HourlyCachedTokens",
+            "HourlyModel429", "HourlyUser429", "HourlyAvgLatencyMs", "HourlyUserBudget", "HourlyModelBudget" })
+        {
+            Assert.AreEqual(0m, document.RootElement.GetProperty(field).GetDecimal(), field);
+        }
+        Assert.IsFalse(document.RootElement.GetProperty("IsHourlyJailbreakDetected").GetBoolean());
+        Assert.IsFalse(document.RootElement.GetProperty("IsHourlyContentFiltered").GetBoolean());
+        var response = document.RootElement.Deserialize(MetricsServer.MetricsJsonContext.Default.ResponseMetric);
+        Assert.AreEqual(1.28m, response.MonthlyModelBudget);
+        Assert.AreEqual(100, response.DailyInputTokens);
+
+        var populated = new ResponseMetric("alice", "model-a", 0, 0, 0, false, false, 0, 0,
+            0, 0, 0, false, false, 0, 0, 0, 0, now,
+            hourlyInputTokens: 10, hourlyOutputTokens: 20, hourlyCachedTokens: 5,
+            isHourlyJailbreakDetected: true, isHourlyContentFiltered: true,
+            hourlyModel429: 2, hourlyUser429: 1, hourlyAvgLatencyMs: 30,
+            hourlyUserBudget: 0.5m, hourlyModelBudget: 1m);
+        var json = JsonSerializer.Serialize(populated, MetricsServer.MetricsJsonContext.Default.ResponseMetric);
+        var roundTrip = JsonSerializer.Deserialize(json, MetricsServer.MetricsJsonContext.Default.ResponseMetric);
+        Assert.AreEqual(10, roundTrip.HourlyInputTokens);
+        Assert.AreEqual(20, roundTrip.HourlyOutputTokens);
+        Assert.AreEqual(5, roundTrip.HourlyCachedTokens);
+        Assert.IsTrue(roundTrip.IsHourlyJailbreakDetected);
+        Assert.IsTrue(roundTrip.IsHourlyContentFiltered);
+        Assert.AreEqual(2, roundTrip.HourlyModel429);
+        Assert.AreEqual(1, roundTrip.HourlyUser429);
+        Assert.AreEqual(30d, roundTrip.HourlyAvgLatencyMs);
+        Assert.AreEqual(0.5m, roundTrip.HourlyUserBudget);
+        Assert.AreEqual(1m, roundTrip.HourlyModelBudget);
+    }
+
+    [TestMethod]
     [RegressionTestCase("metrics-server-throughput", "MetricsServer sustains concurrent requests at scale", "Benchmark various concurrency levels for 60 seconds each.")]
     [TestCategory("Benchmark")]
     [TestCategory("Performance")]

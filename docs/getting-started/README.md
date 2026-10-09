@@ -1,25 +1,8 @@
 # Run SimpleL7Proxy
 
-Run the proxy locally or in Azure, connect one backend, and verify that traffic reaches it.
+Run the proxy in Azure or locally, connect one backend, and verify that traffic reaches it.
 
-## TL;DR
-
-1. Clone the repository and choose a local or Azure setup.
-2. Connect an LLM endpoint, APIM instance, or the included LLM simulator.
-3. Check readiness, send a request, and confirm the proxy response headers.
-
-**Expected outcome:** `/readiness` returns `200 OK`, and a proxied response identifies the selected backend in the `BackendHost` header.
-
-## 1. Clone the Repository
-
-**Run all remaining commands from the repository root unless a step says otherwise.**
-
-```bash
-git clone https://github.com/microsoft/SimpleL7Proxy.git
-cd SimpleL7Proxy
-```
-
-## 2. Choose Where to Run
+## 1. Choose Where to Run
 
 **Use the local path for development and the Container Apps path for an Azure deployment.**
 
@@ -27,27 +10,25 @@ cd SimpleL7Proxy
 <tr>
 <td width="50%" valign="top">
 
+### [Run in Azure Container Apps](container-apps.md)
+
+Deploy the starter package directly to Azure.
+
+![Azure Container Apps deployment](container-apps.png)
+
+</td>
+<td width="50%" valign="top">
+
 ### [Run Locally](local.md)
 
 Use .NET 10 or Docker.
 
 </td>
-<td width="50%" valign="top">
-
-### [Run in Azure Container Apps](container-apps.md)
-
-Use the repository deployment workflow.
-
-![Azure Container Apps deployment](container-apps.png)
-
-</td>
 </tr>
 </table>
 
-> [!NOTE]
-> When running a container with `Port=8000`, publish the same container port: `-p 8000:8000`. See [Deploy to Azure Container Apps](../how-to/deploy-container-apps.md) for image and ingress configuration.
 
-## 3. Connect a Backend
+## 2. Connect a Backend
 
 **Configure one backend before checking readiness.**
 

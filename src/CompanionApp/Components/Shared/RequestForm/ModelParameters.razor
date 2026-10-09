@@ -119,6 +119,7 @@
     };
 
     private IEnumerable<KeyValuePair<string, string>> FieldsForDisplay => Fields
+        .Where(entry => !string.Equals(entry.Key, "include_usage", StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(entry => IsBooleanValue(entry.Value))
         .ThenBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase);
 

@@ -5,218 +5,250 @@ using System.Text;
 namespace SimpleL7Proxy.Tokenomics;
 
 /// <summary>
-/// Standalone transmitter for tokenomics CSV batches to a remote metrics server.
-/// Manages batch state (pending, processing, acknowledged), packages payloads using ReplicaPayloadMaker,
-/// and retries unacknowledged batches on a periodic cycle.
+/// Transmits tokenomics batches and retains them until the server reports them processed.
 /// </summary>
 public sealed class TokenomicsTransmitter
 {
-    /// <summary>Cadence of the transmission loop, independent of batch submission.</summary>
     private static readonly TimeSpan TransmissionInterval = TimeSpan.FromSeconds(5);
-    private const string NL = "\n";
 
     private readonly Uri _metricsServerUri;
     private readonly string _replicaId;
     private readonly HttpClient _httpClient;
-
-    /// <summary>Batches queued for transmission: batchId → csv content.</summary>
-    private readonly ConcurrentDictionary<string, string> _queuedBatches = new();
-
-    /// <summary>Batches that have been sent but not yet acknowledged by the server.</summary>
-    private readonly HashSet<string> _pendingAcknowledgment = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>Batches that the server reported as still processing.</summary>
-    private readonly HashSet<string> _serverProcessing = new(StringComparer.OrdinalIgnoreCase);
-
+    private readonly ConcurrentDictionary<string, string> _queuedBatches =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _pendingAcknowledgment =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _serverProcessing =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _transmissionLoopCts = new();
-    private Task? _transmissionLoopTask;
 
-    public TokenomicsTransmitter(Uri metricsServerUri, string replicaId, HttpClient httpClient)
+    private Task? _transmissionLoopTask;
+    private int _started;
+
+    public TokenomicsTransmitter(
+        Uri metricsServerUri,
+        string replicaId,
+        HttpClient httpClient)
     {
-        _metricsServerUri = metricsServerUri ?? throw new ArgumentNullException(nameof(metricsServerUri));
-        _replicaId = string.IsNullOrWhiteSpace(replicaId) ? "DEV" : replicaId;
-        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        ArgumentNullException.ThrowIfNull(metricsServerUri);
+
+        _replicaId = string.IsNullOrWhiteSpace(replicaId)
+            ? "DEV"
+            : replicaId;
+        _metricsServerUri = AddReplicaId(metricsServerUri, _replicaId);
+        _httpClient = httpClient
+            ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
-    /// <summary>
-    /// Queues a CSV batch for transmission. The batch will be sent on the next transmission cycle,
-    /// retried until acknowledged by the server.
-    /// </summary>
+    /// <summary>Queues a batch for transmission.</summary>
     public void SubmitBatch(string batchId, string csvContent)
     {
-        if (string.IsNullOrWhiteSpace(batchId))
-            throw new ArgumentException("Batch ID cannot be empty", nameof(batchId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(csvContent);
 
-        if (string.IsNullOrWhiteSpace(csvContent))
-            throw new ArgumentException("CSV content cannot be empty", nameof(csvContent));
-
-        _queuedBatches.TryAdd(batchId, csvContent);
-        _pendingAcknowledgment.Add(batchId);
+        if (_queuedBatches.TryAdd(batchId, csvContent))
+        {
+            _pendingAcknowledgment.TryAdd(batchId, 0);
+        }
     }
 
-    /// <summary>
-    /// Starts the transmission loop. Should be called when ready to begin transmitting batches.
-    /// </summary>
+    /// <summary>Starts the transmission loop.</summary>
     public void Start()
     {
-        if (_transmissionLoopTask is not null)
+        if (Interlocked.Exchange(ref _started, 1) != 0)
+        {
             return;
+        }
 
-        _transmissionLoopTask = RunTransmissionLoopAsync(_transmissionLoopCts.Token);
+        _transmissionLoopTask =
+            RunTransmissionLoopAsync(_transmissionLoopCts.Token);
     }
 
-    /// <summary>
-    /// Runs the periodic transmission loop. Packages all queued/pending batches and sends them,
-    /// retrying unacknowledged batches until the server confirms receipt.
-    /// </summary>
-    private async Task RunTransmissionLoopAsync(CancellationToken cancellationToken)
+    private async Task RunTransmissionLoopAsync(
+        CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TransmissionInterval);
 
         try
         {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            while (await timer.WaitForNextTickAsync(cancellationToken)
+                .ConfigureAwait(false))
             {
+                if (_queuedBatches.IsEmpty)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    // If nothing to send, skip this cycle
-                    if (_queuedBatches.IsEmpty && _pendingAcknowledgment.Count == 0)
-                        continue;
+                    var batches = BuildTransmission();
+                    var acknowledgement = await TransmitAsync(
+                        batches,
+                        cancellationToken).ConfigureAwait(false);
 
-                    // Stage 1: Build the list of batches to transmit
-                    // Include all queued batches + all pending (unacknowledged) batches
-                    var batchesToSend = new List<KeyValuePair<string, string>>();
-
-                    foreach (var batchId in _queuedBatches.Keys)
+                    if (acknowledgement is not null)
                     {
-                        if (_queuedBatches.TryGetValue(batchId, out var csv))
-                        {
-                            batchesToSend.Add(new KeyValuePair<string, string>(batchId, csv));
-                        }
+                        ApplyAcknowledgement(acknowledgement);
                     }
-
-                    // Retransmit any pending batches that the server hasn't started processing
-                    foreach (var batchId in _pendingAcknowledgment)
-                    {
-                        if (!_serverProcessing.Contains(batchId) && _queuedBatches.TryGetValue(batchId, out var csv))
-                        {
-                            // Only add if not already in the list
-                            if (!batchesToSend.Any(kv => kv.Key == batchId))
-                            {
-                                batchesToSend.Add(new KeyValuePair<string, string>(batchId, csv));
-                            }
-                        }
-                    }
-
-                    if (batchesToSend.Count == 0)
-                        continue;
-
-                    // Stage 2: Package the payload using ReplicaPayloadMaker
-                    var payload = ReplicaPayloadMaker.Make(_replicaId, batchesToSend);
-                    var content = new StringContent(payload, Encoding.UTF8, "text/csv");
-
-                    // Stage 3: Transmit
-                    HttpResponseMessage? response = null;
-                    try
-                    {
-                        response = await _httpClient.PostAsync(_metricsServerUri, content).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[ERROR] Transmission failed: {ex.Message}");
-                        continue;
-                    }
-                    finally
-                    {
-                        content?.Dispose();
-                    }
-
-                    if (response == null)
-                    {
-                        Console.WriteLine("[ERROR] Transmission returned null response");
-                        continue;
-                    }
-
-                    // Stage 4: Read and process acknowledgment
-                    MetricsServerResponse? responseAck = null;
-                    try
-                    {
-                        if (!response.IsSuccessStatusCode)
-                        {
-                            Console.WriteLine($"[ERROR] Server returned {response.StatusCode}");
-                            continue;
-                        }
-
-                        responseAck = await response.Content.ReadFromJsonAsync<MetricsServerResponse>()
-                            .ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[ERROR] Failed to parse response: {ex.Message}");
-                    }
-                    finally
-                    {
-                        response?.Dispose();
-                    }
-
-                    if (responseAck is null)
-                        continue;
-
-                    // Stage 5: Update state based on acknowledgments
-                    // Remove acknowledged batches
-                    if (responseAck.ProcessedBatches != null)
-                    {
-                        foreach (var batchId in responseAck.ProcessedBatches)
-                        {
-                            _queuedBatches.TryRemove(batchId, out _);
-                            _pendingAcknowledgment.Remove(batchId);
-                            _serverProcessing.Remove(batchId);
-                        }
-                    }
-
-                    // Update which batches the server is currently processing
-                    _serverProcessing.Clear();
-                    if (responseAck.PendingBatches != null)
-                    {
-                        foreach (var batchId in responseAck.PendingBatches)
-                        {
-                            _serverProcessing.Add(batchId);
-                        }
-                    }
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ERROR] Exception in transmission loop: {ex.Message}");
+                    Console.WriteLine(
+                        $"[ERROR] Tokenomics transmission failed: {ex.Message}");
                 }
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
         {
-            // Expected during shutdown
         }
     }
 
-    /// <summary>
-    /// Gracefully shuts down the transmission loop.
-    /// </summary>
-    public async Task StopAsync(CancellationToken cancellationToken = default)
+    private List<KeyValuePair<string, string>> BuildTransmission()
     {
-        if (_transmissionLoopTask is null)
+        var batches = new List<KeyValuePair<string, string>>();
+
+        foreach (var batchId in _pendingAcknowledgment.Keys)
+        {
+            if (_serverProcessing.ContainsKey(batchId))
+            {
+                continue;
+            }
+
+            if (_queuedBatches.TryGetValue(batchId, out var csv))
+            {
+                batches.Add(
+                    new KeyValuePair<string, string>(batchId, csv));
+            }
+            else
+            {
+                _pendingAcknowledgment.TryRemove(batchId, out _);
+            }
+        }
+
+        return batches;
+    }
+
+    private async Task<MetricsServerResponse?> TransmitAsync(
+        List<KeyValuePair<string, string>> batches,
+        CancellationToken cancellationToken)
+    {
+        // An empty manifest is a status-only poll for server-pending IDs.
+        var payload = ReplicaPayloadMaker.Make(batches);
+
+        using var content = new StringContent(
+            payload,
+            Encoding.UTF8,
+            "text/csv");
+        using var response = await _httpClient.PostAsync(
+            _metricsServerUri,
+            content,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine(
+                $"[ERROR] Metrics server returned {response.StatusCode}");
+            return null;
+        }
+
+        return await response.Content
+            .ReadFromJsonAsync<MetricsServerResponse>(
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private void ApplyAcknowledgement(MetricsServerResponse response)
+    {
+        var processed = response.ProcessedBatches is { Count: > 0 }
+            ? new HashSet<string>(
+                response.ProcessedBatches,
+                StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var pending = response.PendingBatches is { Count: > 0 }
+            ? new HashSet<string>(
+                response.PendingBatches,
+                StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var batchId in processed)
+        {
+            _queuedBatches.TryRemove(batchId, out _);
+            _pendingAcknowledgment.TryRemove(batchId, out _);
+            _serverProcessing.TryRemove(batchId, out _);
+        }
+
+        foreach (var batchId in pending)
+        {
+            if (processed.Contains(batchId)
+                || !_queuedBatches.ContainsKey(batchId))
+            {
+                continue;
+            }
+
+            _pendingAcknowledgment.TryRemove(batchId, out _);
+            _serverProcessing.TryAdd(batchId, 0);
+        }
+
+        foreach (var batchId in _serverProcessing.Keys)
+        {
+            if (pending.Contains(batchId)
+                || processed.Contains(batchId))
+            {
+                continue;
+            }
+
+            _serverProcessing.TryRemove(batchId, out _);
+
+            if (_queuedBatches.ContainsKey(batchId))
+            {
+                _pendingAcknowledgment.TryAdd(batchId, 0);
+            }
+        }
+    }
+
+    /// <summary>Stops the transmission loop.</summary>
+    public async Task StopAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var transmissionTask = Volatile.Read(ref _transmissionLoopTask);
+        if (transmissionTask is null)
+        {
             return;
+        }
 
         await _transmissionLoopCts.CancelAsync().ConfigureAwait(false);
+
         try
         {
-            await _transmissionLoopTask.ConfigureAwait(false);
+            await transmissionTask
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            // Expected
         }
     }
 
-    /// <summary>
-    /// Gets the count of batches currently queued or pending acknowledgment.
-    /// </summary>
-    public int GetPendingBatchCount() => _queuedBatches.Count + _pendingAcknowledgment.Count;
+    /// <summary>Returns the number of unprocessed batches retained locally.</summary>
+    public int GetPendingBatchCount() => _queuedBatches.Count;
+
+    private static Uri AddReplicaId(Uri endpoint, string replicaId)
+    {
+        var builder = new UriBuilder(endpoint);
+        var existingQuery = builder.Query.TrimStart('?');
+        var replicaQuery = $"r={Uri.EscapeDataString(replicaId)}";
+
+        builder.Query = string.IsNullOrEmpty(existingQuery)
+            ? replicaQuery
+            : $"{existingQuery}&{replicaQuery}";
+
+        return builder.Uri;
+    }
 }

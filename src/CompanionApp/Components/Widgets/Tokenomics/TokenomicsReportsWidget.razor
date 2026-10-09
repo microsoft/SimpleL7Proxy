@@ -1,0 +1,31 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<aside class="tokenomics-reports" aria-label="Tokenomics reports">
+    <h2><span aria-hidden="true">▥</span> Tokenomics Reports</h2>
+    <p>Select a report to explore detailed insights</p>
+    @foreach (var report in Snapshot.Reports)
+    {
+        var available = report.Name is "Quota and Budget Utilization" or "Policy Decisions and Outcomes" or "Model Routing and Substitution" or "Capacity and Queue Pressure" or "Latency, Errors and Throttling" or "Governance, Overrides and Exceptions" or "Abuse and Content-Filter Activity";
+        <button type="button" class="report-card @(report.Name == SelectedReport ? "selected" : string.Empty)"
+                aria-current="@(report.Name == SelectedReport ? "true" : null)"
+                disabled="@(!available)" title="@(available ? report.Description : "This report is not implemented yet.")"
+                @onclick="@(() => OnReportSelected.InvokeAsync(report.Name))">
+            <span class="report-icon" aria-hidden="true">@report.Icon</span>
+            <span><strong>@report.Name</strong><small>@report.Description</small></span>
+            <span class="report-arrow" aria-hidden="true">›</span>
+        </button>
+    }
+</aside>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public string SelectedReport { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> OnReportSelected { get; set; }
+}

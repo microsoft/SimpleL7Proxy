@@ -1,0 +1,445 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+@using System.Collections.Immutable
+@using System.Globalization
+@using System.Security.Cryptography
+@using System.Text
+
+<section class="tokenomics-section policy-report abuse-report" aria-label="Abuse and content-filter activity">
+    <div class="tokenomics-kpis">
+        @foreach (var metric in _metrics)
+        {
+            <article class="tokenomics-card kpi-card">
+                <div class="kpi-heading"><h2>@metric.Name</h2><span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span></div>
+                <p class="kpi-value routing-kpi-value">@metric.Value</p>
+                <p class="policy-kpi-caption">@metric.Caption</p>
+            </article>
+        }
+    </div>
+    <p class="policy-note">
+        Scan coverage, review-queue actions, detailed content-filter categories, sanitization and policy versions are not captured.
+        False or missing safety flags do not establish that a request was scanned or safe. Previous-period comparisons are unavailable.
+    </p>
+    @if (_warnings.Count > 0)
+    {
+        <p class="policy-note abuse-warning" role="alert">Invalid telemetry excluded: @string.Join("; ", _warnings.Order(StringComparer.Ordinal))</p>
+    }
+
+    <div class="policy-chart-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Abuse and Content-Filter Activity Over Time</h3><p>One request at its latest recorded positive-signal time, otherwise latest event; @IntervalLabel in UTC</p></div>
+            <div class="policy-timeline" role="img" aria-label="@TimelineDescription">
+                <span class="policy-axis-label">Requests</span>
+                <div class="policy-axis-ticks" aria-hidden="true">
+                    @for (var tick = 4; tick >= 0; tick--) { <span>@(_axisMaximum * tick / 4)</span> }
+                </div>
+                <div class="policy-timeline-bars" style="@($"--policy-buckets: {Math.Max(1, _timeline.Length)}")">
+                    @for (var index = 0; index < _timeline.Length; index++)
+                    {
+                        var bucket = _timeline[index];
+                        <div class="policy-time-bucket">
+                            <div class="policy-time-stack" title="@($"{bucket.Label} UTC: {bucket.Total} requests")">
+                                @for (var category = 0; category < _categories.Length; category++)
+                                {
+                                    <span style="@($"height: {Width(bucket.Counts[category], _axisMaximum)}%; background: {CategoryColor(category)}")"
+                                          title="@($"{_categories[category]}: {bucket.Counts[category]}")"></span>
+                                }
+                            </div>
+                            <span class="policy-time-label">@(index % Math.Max(1, _timeline.Length / 6) == 0 || index == _timeline.Length - 1 ? bucket.Label : "")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="policy-legend">
+                @for (var category = 0; category < _categories.Length; category++) { <span><i style="background: @CategoryColor(category)"></i>@_categories[category]</span> }
+            </div>
+            <p class="policy-note">@Number(_timestampedRequests) of @Number(_requests.Length) requests have timestamps for this chart.</p>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Recorded Safety Signals</h3><p>Exclusive groups with rejection first; these are not proven-safe outcome classes</p></div>
+            <div class="policy-outcome-distribution">
+                <div class="model-donut policy-donut" style="@($"--model-distribution: {_signalGradient}")" role="img" aria-label="@SignalDescription">
+                    <div><strong>@Number(_requests.Length)</strong><span>Total Requests</span></div>
+                </div>
+                <ul class="policy-outcome-list">
+                    @for (var category = 0; category < _categories.Length; category++)
+                    {
+                        <li><i style="background: @CategoryColor(category)" aria-hidden="true"></i><span>@_categories[category]</span><strong>@Number(_categoryCounts[category]) (@Percent(_categoryCounts[category], _requests.Length))</strong></li>
+                    }
+                </ul>
+            </div>
+        </article>
+    </div>
+
+    <div class="tokenomics-insight-grid abuse-breakdown-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Recorded Signal Types</h3><p>Distinct requests; positive signal types can overlap</p></div>
+            <ul class="policy-breakdown-bars">
+                @foreach (var signal in _signals)
+                {
+                    <li><span>@signal.Name</span><span class="horizontal-track"><i style="@($"width: {Width(signal.Count, Math.Max(1, _positiveRequests))}%; background: {signal.Color}")"></i></span><strong>@Number(signal.Count)</strong></li>
+                }
+            </ul>
+            <p class="policy-note">Harmful content, self-harm, hate, sexual content, violence and other detailed categories are not captured in summary events. Generic content-filter positives do not identify a category.</p>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Requests by Model</h3><p>Requested model, with outcome-reported fallback; rates use distinct requests, not scans</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table abuse-summary-table">
+                    <thead><tr><th scope="col">Model</th><th scope="col">Requests</th><th scope="col">Signals</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Signal Rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var model in _models)
+                        {
+                            <tr><td>@model.Name</td><td>@Number(model.Requests)</td><td>@Number(model.Positive)</td><td>@Number(model.Rejected)</td>
+                                <td>@Number(model.Filtered)</td><td>@Number(model.Jailbreaks)</td><td>@Percent(model.Positive, model.Requests)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Requests by Tenant</h3><p>Recorded signals, not inferred abuse from quota/capacity actions</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table abuse-summary-table">
+                    <thead><tr><th scope="col">Tenant</th><th scope="col">Requests</th><th scope="col">Signals</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Signal Rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var tenant in _tenants)
+                        {
+                            <tr><td>@tenant.Name</td><td>@Number(tenant.Requests)</td><td>@Number(tenant.Positive)</td><td>@Number(tenant.Rejected)</td>
+                                <td>@Number(tenant.Filtered)</td><td>@Number(tenant.Jailbreaks)</td><td>@Percent(tenant.Positive, tenant.Requests)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </div>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading"><div class="policy-card-heading"><h3>Repeat Activity and Associated Usage</h3><p>Subjects with positive signals on at least two distinct requests in this window, not multiple evaluations of one request</p></div></div>
+        <div class="users-table-wrap">
+            <table class="users-table abuse-summary-table">
+                <thead><tr><th scope="col">Subject Alias</th><th scope="col">Tenant</th><th scope="col">Positive Requests</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Latest Outcome Tokens</th><th scope="col">Usage Coverage</th></tr></thead>
+                <tbody>
+                    @foreach (var subject in _repeatedSubjects)
+                    {
+                        <tr><td class="abuse-alias">@subject.Subject</td><td>@subject.Tenant</td><td>@Number(subject.Requests)</td><td>@Number(subject.Rejected)</td>
+                            <td>@Number(subject.Filtered)</td><td>@Number(subject.Jailbreaks)</td><td>@Tokens(subject.Tokens)</td>
+                            <td>@Number(subject.UsageSamples) / @Number(subject.Requests)</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_repeatedSubjects.Length == 0) { <p class="policy-note abuse-empty">No repeat positive activity with a captured user identity in this selection.</p> }
+        <p class="policy-note">@Number(_positiveRequests) requests with recorded positive signals; @Tokens(_associatedTokens) latest-outcome tokens across @Number(_usageSamples) captured usage samples.
+            @Number(_unidentifiedRequests) positive requests lack a user identity and are not grouped into a repeat subject.</p>
+    </article>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading">
+            <div class="policy-card-heading"><h3>Recent Abuse and Content-Filter Signals</h3><p>One row per request with any recorded positive signal, newest observation first</p></div>
+            <div class="policy-table-controls">
+                <div class="section-tabs" aria-label="Filter safety signals">
+                    @foreach (var filter in _filters)
+                    {
+                        <button type="button" class="@(filter == _selectedFilter ? "selected" : "")" aria-pressed="@(filter == _selectedFilter ? "true" : "false")"
+                                @onclick="@(() => SelectFilter(filter))">@filter</button>
+                    }
+                </div>
+                @if (_filteredRows.Length == 0) { <button type="button" class="export-button" disabled>Export CSV</button> }
+                else { <a class="export-button" href="@_csvHref" download="abuse-content-filter-signals.csv">Export CSV</a> }
+            </div>
+        </div>
+        <div class="users-table-wrap">
+            <table class="users-table abuse-events-table">
+                <thead><tr><th scope="col">Observation (UTC)</th><th scope="col">Subject / Tenant</th><th scope="col">Model (Requested / Selected)</th><th scope="col">Recorded Signals</th><th scope="col">Abuse Policy Action</th><th scope="col">Latest Policy / HTTP Outcome</th><th scope="col">Latest Outcome Tokens</th><th scope="col">Policy Version</th><th scope="col">Correlation</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _visibleRows)
+                    {
+                        <tr><td>@(row.Timestamp?.ToString("MMM d, HH:mm:ss", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td><span class="abuse-alias">@(row.Subject ?? "Not captured")</span><br />@row.Tenant</td><td>@row.Requested<br />@row.Selected</td>
+                            <td>@SignalLabel(row)</td><td>@row.Action</td><td>@row.Decision<br />@(row.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@Tokens(row.Tokens)</td><td>Not captured</td>
+                            <td>
+                                <details class="policy-decision-details">
+                                    <summary>View</summary>
+                                    <dl>
+                                        <dt>Request alias</dt><dd class="abuse-alias">@row.Request</dd>
+                                        <dt>Any abuse-policy rejection</dt><dd>@(row.Rejected ? "Recorded" : "No recorded rejection")</dd>
+                                        <dt>Latest abuse-policy decision</dt><dd>@row.AbuseDecision</dd>
+                                        <dt>Latest recorded outcome time (UTC)</dt><dd>@(row.OutcomeTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured")</dd>
+                                        <dt>Content-filter flag + latest 2xx outcome</dt><dd>@(row.Filtered && row.Status is >= 200 and < 300 ? "Recorded; does not prove sanitization or safety" : "Not recorded")</dd>
+                                        <dt>Detailed violation category / configured policy action</dt><dd>Not captured</dd>
+                                        <dt>Review, sanitization and scan coverage</dt><dd>Not captured</dd>
+                                    </dl>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_filteredRows.Length == 0) { <p class="policy-note abuse-empty" role="status">No recorded positive signals match this selection. This is not proof that requests were scanned or safe.</p> }
+        <div class="policy-pagination">
+            <span>@Number(_filteredRows.Length) matching requests</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex == 0)" @onclick="() => ChangePage(-1)">Previous</button>
+            <span>Page @(_pageIndex + 1) of @PageCount</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next</button>
+        </div>
+    </article>
+    <p class="policy-note">
+        Jailbreak/content-filter counts retain any true flag across recorded RequestOutcome records for a MID; duplicate outcomes do not inflate request counts.
+        Abuse-policy signals require the AbuseDetected condition. Rejection requires a Rejected decision under that condition; unrelated quota rejections, 403s and 429s are not abuse evidence.
+        Rejection counts mean the request had an abuse-policy rejection, not necessarily its final outcome. Latest policy/HTTP outcomes are shown separately.
+        Signal counts can overlap; charts use rejection → both backend flags → jailbreak → filtered → other abuse-policy signal → no recorded positive signal.
+        False flags can be emitter defaults, including outcomes without usage; neither false nor missing flags prove safety or scan coverage.
+        Usage requires UsageAvailable and uses the latest recorded outcome once per request, not cumulative attempt usage. Tokens are input + output, with cached input already included.
+        Aliases use keyed pseudonyms scoped to this app process; they are stable across updates/filters and change after restart. Tenant names and shared dashboard filters remain unchanged.
+        No prompts, response text, error messages or raw user/request/decision IDs are displayed or exported by this report. Pseudonyms are not a guarantee of anonymity.
+        Correlations and repeat activity are limited to the selected time window; timestamps are observation times, not request arrival times.
+    </p>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public TokenomicsPeriod Period { get; set; } = TokenomicsPeriod.Hourly;
+
+    private sealed record SafetyRequest(string Request, string? Subject, string Tenant, string Requested, string Selected,
+        DateTimeOffset? Timestamp, DateTimeOffset? OutcomeTime, bool Abuse, bool Rejected, bool Jailbreak, bool Filtered,
+        string Action, string AbuseDecision, string Decision, int? Status, decimal? Tokens, int Category);
+    private sealed record SignalSummary(string Name, int Requests, int Positive, int Rejected, int Filtered, int Jailbreaks);
+    private sealed record RepeatSubject(string Subject, string Tenant, int Requests, int Rejected, int Filtered, int Jailbreaks, decimal? Tokens, int UsageSamples);
+
+    private const int PageSize = 10;
+    private static readonly byte[] _privacyKey = RandomNumberGenerator.GetBytes(32);
+    private readonly string[] _categories = ["Had abuse-policy rejection", "Jailbreak + filtered", "Jailbreak detected", "Content filtered", "Other abuse-policy signal", "No recorded positive signal"];
+    private readonly string[] _filters = ["All Signals", "Abuse Rejected", "Filtered", "Abuse Policy", "Jailbreaks"];
+    private readonly HashSet<string> _warnings = new(StringComparer.Ordinal);
+    private SafetyRequest[] _requests = [];
+    private SafetyRequest[] _filteredRows = [];
+    private SafetyRequest[] _visibleRows = [];
+    private SignalSummary[] _models = [];
+    private SignalSummary[] _tenants = [];
+    private RepeatSubject[] _repeatedSubjects = [];
+    private (string Name, int Count, string Color)[] _signals = [];
+    private (string Name, string Value, string Icon, string Tone, string Caption)[] _metrics = [];
+    private (string Label, int Total, int[] Counts)[] _timeline = [];
+    private int[] _categoryCounts = [0, 0, 0, 0, 0, 0];
+    private string _signalGradient = "conic-gradient(#9ba9c1 0% 100%)";
+    private string _selectedFilter = "All Signals";
+    private string _csvHref = string.Empty;
+    private int _pageIndex;
+    private int _axisMaximum = 4;
+    private int _positiveRequests;
+    private int _timestampedRequests;
+    private int _unidentifiedRequests;
+    private int _usageSamples;
+    private decimal? _associatedTokens;
+    private int PageCount => Math.Max(1, (_filteredRows.Length + PageSize - 1) / PageSize);
+    private string IntervalLabel => Period switch { TokenomicsPeriod.Hourly => "per minute", TokenomicsPeriod.Daily => "per hour", _ => "per day" };
+    private string TimelineDescription => $"{Number(_requests.Length)} distinct requests; {Number(_positiveRequests)} with recorded positive signals, {IntervalLabel} in UTC. No recorded positive signal does not establish safety.";
+    private string SignalDescription => string.Join(", ", _categories.Select((name, index) => $"{name}: {_categoryCounts[index]} requests"));
+
+    protected override void OnParametersSet() {
+        _warnings.Clear();
+        _requests = Snapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(BuildRequest)
+            .OrderByDescending(row => row.Timestamp).ThenBy(row => row.Request, StringComparer.Ordinal).ToArray();
+        var positives = _requests.Where(Positive).ToArray();
+        _positiveRequests = positives.Length;
+        _unidentifiedRequests = positives.Count(row => row.Subject is null);
+        var usage = positives.Where(row => row.Tokens.HasValue).ToArray();
+        _usageSamples = usage.Length;
+        _associatedTokens = usage.Length == 0 ? null : usage.Sum(row => row.Tokens!.Value);
+        var rejected = positives.Count(row => row.Rejected);
+        var filtered = positives.Count(row => row.Filtered);
+        var jailbreaks = positives.Count(row => row.Jailbreak);
+        _metrics = [
+            ("Total Requests", Number(_requests.Length), "⬟", "blue", "Distinct MIDs; scan coverage unknown"),
+            ("Recorded Safety Signals", Number(_positiveRequests), "!", "red", "Requests with any positive signal"),
+            ("Abuse-Policy Rejections", Number(rejected), "⊘", "red", "Had an AbuseDetected rejection"),
+            ("Content Filtered", Number(filtered), "▤", "blue", "Any recorded true content-filter flag"),
+            ("Jailbreak Detections", Number(jailbreaks), "!", "blue", "Any recorded true jailbreak flag"),
+            ("Filtered with 2xx Outcome", Number(positives.Count(row => row.Filtered && row.Status is >= 200 and < 300)), "✓", "green", "Not proof of sanitization or safety")
+        ];
+        _signals = [
+            ("AbuseDetected policy condition", positives.Count(row => row.Abuse), "#f5ab28"),
+            ("Abuse-policy rejection", rejected, "#f2554b"), ("Content-filter positive", filtered, "#398cf1"), ("Jailbreak positive", jailbreaks, "#9255eb")
+        ];
+        _categoryCounts = Enumerable.Range(0, _categories.Length).Select(category => _requests.Count(row => row.Category == category)).ToArray();
+        var accumulated = 0;
+        var stops = new List<string>();
+        for (var category = 0; category < _categories.Length; category++) {
+            var start = accumulated;
+            accumulated += _categoryCounts[category];
+            if (_categoryCounts[category] > 0) stops.Add($"{CategoryColor(category)} {Width(start, _requests.Length)}% {Width(accumulated, _requests.Length)}%");
+        }
+        _signalGradient = stops.Count == 0 ? "conic-gradient(#9ba9c1 0% 100%)" : $"conic-gradient({string.Join(", ", stops)})";
+        _models = _requests.GroupBy(row => row.Requested).Select(group => Summarize(group.Key, group))
+            .OrderByDescending(group => group.Positive).ThenByDescending(group => group.Requests).ThenBy(group => group.Name, StringComparer.Ordinal).ToArray();
+        _tenants = _requests.GroupBy(row => row.Tenant).Select(group => Summarize(group.Key, group))
+            .OrderByDescending(group => group.Positive).ThenByDescending(group => group.Requests).ThenBy(group => group.Name, StringComparer.Ordinal).ToArray();
+        _repeatedSubjects = positives.Where(row => row.Subject is not null).GroupBy(row => (row.Subject, row.Tenant))
+            .Where(group => group.Count() >= 2).Select(group => {
+                var samples = group.Where(row => row.Tokens.HasValue).ToArray();
+                return new RepeatSubject(group.Key.Subject!, group.Key.Tenant, group.Count(), group.Count(row => row.Rejected),
+                    group.Count(row => row.Filtered), group.Count(row => row.Jailbreak), samples.Length == 0 ? null : samples.Sum(row => row.Tokens!.Value), samples.Length);
+            }).OrderByDescending(subject => subject.Requests).ThenBy(subject => subject.Subject, StringComparer.Ordinal).ToArray();
+        BuildTimeline();
+        UpdateRows();
+    }
+
+    private SafetyRequest BuildRequest(IGrouping<string, ImmutableDictionary<string, string>> group) {
+        var records = group.OrderBy(Time).ThenBy(fields =>
+            int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0).ToArray();
+        var policies = records.Where(fields => Text(fields, "RecordKind") == "PolicyDecision").ToArray();
+        var abusePolicies = policies.Where(fields => Text(fields, "PolicyCondition") == "AbuseDetected").ToArray();
+        var outcomes = records.Where(fields => Text(fields, "RecordKind") == "RequestOutcome").ToArray();
+        var outcome = outcomes.LastOrDefault();
+        var positiveOutcomes = outcomes.Where(fields => {
+            var jailbreak = Boolean(fields, "IsJailbreakDetected");
+            var filtered = Boolean(fields, "IsContentFiltered");
+            return jailbreak == true || filtered == true;
+        }).ToArray();
+        var jailbroken = positiveOutcomes.Any(fields => Boolean(fields, "IsJailbreakDetected") == true);
+        var contentFiltered = positiveOutcomes.Any(fields => Boolean(fields, "IsContentFiltered") == true);
+        var rejected = abusePolicies.Any(fields => Text(fields, "Decision") == "Rejected");
+        var lastSignal = abusePolicies.Concat(positiveOutcomes).OrderBy(Time).LastOrDefault();
+        var tenant = Identity(records, "Tenant");
+        var user = records.Select(fields => Text(fields, "UserId")).FirstOrDefault(value => value is not null);
+        var input = Boolean(outcome, "UsageAvailable") == true ? TokenAmount(outcome, "InputTokens") : null;
+        var output = Boolean(outcome, "UsageAvailable") == true ? TokenAmount(outcome, "OutputTokens") : null;
+        var original = policies.Select(fields => Text(fields, "RequestedModel") ?? Text(fields, "ModelBefore")).FirstOrDefault(value => value is not null)
+            ?? Text(outcome, "RequestedModel") ?? Text(outcome, "EffectiveModel") ?? "Not captured";
+        var selected = Text(outcome, "EffectiveModel") ?? Text(policies.LastOrDefault(), "ModelAfter") ?? "Not captured";
+        var category = rejected ? 0 : jailbroken && contentFiltered ? 1 : jailbroken ? 2 : contentFiltered ? 3 : abusePolicies.Length > 0 ? 4 : 5;
+        return new SafetyRequest(Alias("request", group.Key), user is null ? null : Alias("subject", $"{tenant.Length}:{tenant}{user.Length}:{user}"),
+            tenant, original, selected, Time(lastSignal ?? records[^1]), outcome is null ? null : Time(outcome),
+            abusePolicies.Length > 0, rejected, jailbroken, contentFiltered,
+            abusePolicies.Length == 0 ? "Not captured" : string.Join(" / ", abusePolicies.Select(fields => Field(fields, "PolicyAction")).Distinct(StringComparer.Ordinal)),
+            Field(abusePolicies.LastOrDefault(), "Decision"), Field(policies.LastOrDefault(), "Decision"), Status(outcome),
+            input.HasValue && output.HasValue ? input.Value + output.Value : null, category);
+    }
+
+    private static SignalSummary Summarize(string name, IEnumerable<SafetyRequest> requests) {
+        var rows = requests.ToArray();
+        return new SignalSummary(name, rows.Length, rows.Count(Positive), rows.Count(row => row.Rejected), rows.Count(row => row.Filtered), rows.Count(row => row.Jailbreak));
+    }
+
+    private void BuildTimeline() {
+        var timed = _requests.Where(row => row.Timestamp.HasValue).ToArray();
+        _timestampedRequests = timed.Length;
+        if (timed.Length == 0) {
+            _timeline = [];
+            _axisMaximum = 4;
+            return;
+        }
+        var latest = timed.Max(row => row.Timestamp!.Value);
+        var start = Period switch {
+            TokenomicsPeriod.Hourly => new DateTimeOffset(latest.Year, latest.Month, latest.Day, latest.Hour, 0, 0, TimeSpan.Zero),
+            TokenomicsPeriod.Daily => new DateTimeOffset(latest.Year, latest.Month, latest.Day, 0, 0, 0, TimeSpan.Zero),
+            _ => new DateTimeOffset(latest.Year, latest.Month, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var count = Period switch { TokenomicsPeriod.Hourly => 60, TokenomicsPeriod.Daily => 24, _ => DateTime.DaysInMonth(start.Year, start.Month) };
+        var buckets = timed.ToLookup(row => Period switch {
+            TokenomicsPeriod.Hourly => row.Timestamp!.Value.Minute,
+            TokenomicsPeriod.Daily => row.Timestamp!.Value.Hour,
+            _ => row.Timestamp!.Value.Day - 1
+        });
+        _timeline = Enumerable.Range(0, count).Select(index => {
+            var rows = buckets[index].ToArray();
+            var time = Period switch { TokenomicsPeriod.Hourly => start.AddMinutes(index), TokenomicsPeriod.Daily => start.AddHours(index), _ => start.AddDays(index) };
+            return (Label: time.ToString(Period == TokenomicsPeriod.Monthly ? "MMM d" : "HH:mm", CultureInfo.InvariantCulture), Total: rows.Length,
+                Counts: Enumerable.Range(0, _categories.Length).Select(category => rows.Count(row => row.Category == category)).ToArray());
+        }).ToArray();
+        _axisMaximum = Math.Max(4, (int)Math.Ceiling(_timeline.Max(bucket => bucket.Total) / 4.0) * 4);
+    }
+
+    private static bool Positive(SafetyRequest row) => row.Abuse || row.Jailbreak || row.Filtered;
+    private static string Alias(string domain, string value) =>
+        domain + "_" + Convert.ToHexString(HMACSHA256.HashData(_privacyKey, Encoding.UTF8.GetBytes($"{domain}:{value}")).AsSpan(0, 16)).ToLowerInvariant();
+    private static string SignalLabel(SafetyRequest row) => string.Join(" / ", new[] {
+        row.Abuse ? "AbuseDetected policy" : null, row.Jailbreak ? "Jailbreak positive" : null, row.Filtered ? "Content-filter positive" : null
+    }.Where(value => value is not null));
+    private static string CategoryColor(int category) => category switch { 0 => "#f2554b", 1 => "#9255eb", 2 => "#398cf1", 3 => "#f5ab28", 4 => "#db9630", _ => "#9ba9c1" };
+    private static string? Text(IReadOnlyDictionary<string, string>? fields, string key) =>
+        fields is not null && fields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+    private static string Field(IReadOnlyDictionary<string, string>? fields, string key) => Text(fields, key) ?? "Not captured";
+    private static string Identity(IEnumerable<ImmutableDictionary<string, string>> records, string key) =>
+        records.Select(fields => Text(fields, key)).FirstOrDefault(value => value is not null) ?? "Not captured";
+    private static string Number(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    private static string Tokens(decimal? value) => value?.ToString("N0", CultureInfo.InvariantCulture) ?? "Not captured";
+    private static string Width(int count, int total) => (total == 0 ? 0 : count * 100.0 / total).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string Percent(int count, int total) => total == 0 ? "Unavailable" : Width(count, total) + "%";
+
+    private bool? Boolean(IReadOnlyDictionary<string, string>? fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (bool.TryParse(text, out var value)) return value;
+        _warnings.Add($"{key} is not a valid boolean");
+        return null;
+    }
+
+    private DateTimeOffset? Time(IReadOnlyDictionary<string, string> fields) {
+        var text = Text(fields, "TimestampUtc");
+        if (text is null) return null;
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)) return timestamp;
+        _warnings.Add("TimestampUtc is invalid");
+        return null;
+    }
+
+    private int? Status(IReadOnlyDictionary<string, string>? fields) {
+        if (fields is null) return null;
+        var status = TokenomicsReplayOptions.GetStatus(fields);
+        if (status is >= 100 and <= 599) return status;
+        _warnings.Add("RequestOutcome has no valid HTTP status (100-599)");
+        return null;
+    }
+
+    private decimal? TokenAmount(IReadOnlyDictionary<string, string>? fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value >= 0) return value;
+        _warnings.Add($"{key} is not a nonnegative integer");
+        return null;
+    }
+
+    private void SelectFilter(string filter) {
+        _selectedFilter = filter;
+        _pageIndex = 0;
+        UpdateRows();
+    }
+
+    private void ChangePage(int change) {
+        _pageIndex = Math.Clamp(_pageIndex + change, 0, PageCount - 1);
+        _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+    }
+
+    private void UpdateRows() {
+        _filteredRows = _requests.Where(row => _selectedFilter switch {
+            "Abuse Rejected" => row.Rejected, "Filtered" => row.Filtered, "Abuse Policy" => row.Abuse,
+            "Jailbreaks" => row.Jailbreak, _ => Positive(row)
+        }).ToArray();
+        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+        var csv = new StringBuilder("ObservationTimestampUtc,SubjectAlias,Tenant,RequestedModel,LatestSelectedModel,HasAbusePolicySignal,HadAbusePolicyRejection,HasRecordedJailbreakPositive,HasRecordedContentFilterPositive,AbusePolicyActions,LatestAbusePolicyDecision,LatestPolicyDecision,LatestStatusCode,LatestOutcomeTimestampUtc,LatestOutcomeTokens,DetailedViolationCategory,ConfiguredAction,PolicyVersion,RequestAlias\r\n");
+        foreach (var row in _filteredRows) {
+            string[] values = [row.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured", row.Subject ?? "Not captured",
+                row.Tenant, row.Requested, row.Selected, row.Abuse ? "true" : "false", row.Rejected ? "true" : "false",
+                row.Jailbreak ? "true" : "false", row.Filtered ? "true" : "false", row.Action, row.AbuseDecision, row.Decision,
+                row.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured", row.OutcomeTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
+                row.Tokens?.ToString(CultureInfo.InvariantCulture) ?? "Not captured", "Not captured", "Not captured", "Not captured", row.Request];
+            csv.Append(string.Join(",", values.Select(CsvCell))).Append("\r\n");
+        }
+        _csvHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv.ToString());
+    }
+
+    private static string CsvCell(string value) {
+        var trimmed = value.TrimStart();
+        if (trimmed.StartsWith('=') || trimmed.StartsWith('+') || trimmed.StartsWith('-') || trimmed.StartsWith('@')
+            || value.StartsWith('\t') || value.StartsWith('\r') || value.StartsWith('\n')) value = "'" + value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
+}

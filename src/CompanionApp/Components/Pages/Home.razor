@@ -2,6 +2,7 @@
 @page "/admin"
 @page "/test"
 @page "/explore"
+@page "/analyze"
 @namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
 @inject CompanionApp.Components.Shared.UserPreferencesService Preferences
@@ -22,7 +23,8 @@
         @foreach (var area in new[] {
             (Name: "Deploy / Configure", Path: "admin", Description: "Manage proxy configurations in App Configuration and prepare parameters for deployment. Review changes before saving or downloading them."),
             (Name: "Test", Path: "test", Description: "Run tests against your proxy and review the results to investigate request behavior and failures."),
-            (Name: "Explore", Path: "explore", Description: "Send requests and chat with models, inspect proxy traffic, and review insights and conversation history. Personalize your workspace with user preferences.")
+            (Name: "Explore", Path: "explore", Description: "Send requests and chat with models, review conversation history, and personalize your workspace."),
+            (Name: "Analyze", Path: "analyze", Description: "Monitor proxy events, investigate behavior and failures, and review token usage and costs.")
         })
         {
             <a class="home-area" href="@area.Path">
@@ -49,10 +51,14 @@
                             <button type="button" class="home-area" @onclick="StartInvestigationAsync"><span class="home-option-title">Investigator</span><span class="home-option-description">Send model requests and inspect the request and response details.</span></button>
                         </li>
                         <li><a class="home-area" href="chat"><span class="home-option-title">Chat</span><span class="home-option-description">Chat with models through the configured server.</span></a></li>
-                        <li><a class="home-area" href="eventhub"><span class="home-option-title">EventHub Monitor</span><span class="home-option-description">Monitor proxy requests, backend activity, and runtime events.</span></a></li>
-                        <li><a class="home-area" href="insights"><span class="home-option-title">Insights</span><span class="home-option-description">Analyze the Event Hub feed for proxy behavior and failures.</span></a></li>
                         <li><a class="home-area" href="history"><span class="home-option-title">History</span><span class="home-option-description">Review previous chat conversations.</span></a></li>
                         <li><a class="home-area" href="user-preferences"><span class="home-option-title">User Preferences</span><span class="home-option-description">Adjust your personal workspace preferences.</span></a></li>
+                    }
+                    else if (_selectedArea == "Analyze")
+                    {
+                        <li><a class="home-area" href="eventhub"><span class="home-option-title">EventHub Monitor</span><span class="home-option-description">Monitor proxy requests, backend activity, and runtime events.</span></a></li>
+                        <li><a class="home-area" href="insights"><span class="home-option-title">Insights</span><span class="home-option-description">Analyze the Event Hub feed for proxy behavior and failures.</span></a></li>
+                        <li><a class="home-area" href="tokenomics"><span class="home-option-title">Tokenomics</span><span class="home-option-description">Review token usage, spend, quotas, and policy insights.</span></a></li>
                     }
                     else if (_selectedArea == "Test")
                     {
@@ -64,6 +70,7 @@
                     {
                         <li><a class="home-area" href="admin/deployment"><span class="home-option-title">Deployment Setup</span><span class="home-option-description">Prepare and download parameters for the existing deployment scripts.</span></a></li>
                         <li><a class="home-area" href="admin/configuration"><span class="home-option-title">Proxy Configuration</span><span class="home-option-description">Create, update, or duplicate a labeled proxy configuration.</span></a></li>
+                        <li><a class="home-area" href="admin/images"><span class="home-option-title">Image Synchronization</span><span class="home-option-description">Copy released images from the public registry into the deployment registry.</span></a></li>
                     }
                 </ul>
                 @if (_selectedArea == "Explore" && _preferencesReady && !_onboardingExpanded && !_invitationExpired && !Preferences.IsOnboardingStep("complete"))
@@ -149,6 +156,7 @@
         "admin" => "Deploy / Configure",
         "test" => "Test",
         "explore" => "Explore",
+        "analyze" => "Analyze",
         _ => null
     };
     private bool _preferencesReady;

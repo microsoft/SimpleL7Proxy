@@ -2,7 +2,9 @@ namespace SimpleL7Proxy.Tokenomics;
 
 public sealed class ReplicaPayload
 {
-    public string ReplicaId { get; init; } = string.Empty;
+    /// <summary>Batch ids declared by the upload's manifest line, in order.</summary>
+    public IReadOnlyList<string> BatchIds { get; init; } = Array.Empty<string>();
 
-    public Dictionary<string, string> Batches { get; init; } = new();
+    /// <summary>The complete raw body, retained for the rollup iterator to parse.</summary>
+    public string Body { get; init; } = string.Empty;
 }

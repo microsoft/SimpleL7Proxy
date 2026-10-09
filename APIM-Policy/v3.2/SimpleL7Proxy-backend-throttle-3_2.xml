@@ -1,0 +1,56 @@
+<fragment>
+	<set-variable name="resultObj" value="@{
+		JObject resultObj = (JObject)context.Variables["resultObj"];
+		JObject loaded = context.Variables.GetValueOrDefault<JObject>("throttleState", null);
+		JObject map = (loaded != null && loaded["backends"] != null && loaded["backends"].Type == JTokenType.Object) ? (JObject)loaded["backends"] : new JObject();
+		JObject wrapper = new JObject { ["dirty"] = false, ["backends"] = map };
+		JArray backends = (JArray)context.Variables["listBackends"];
+		int idx = (int)context.Variables["backendIndex"];
+		if (idx < 0 || idx >= backends.Count) {
+			resultObj["throttleState"] = wrapper;
+			return resultObj;
+		}
+		JObject backend = (JObject)backends[idx];
+		string id = backend.Value<string>("affinity");
+
+		// Use the longer valid response value, or the backend default if neither parses.
+		double retryAfterMilliseconds = backend["defaultRetryAfter"].Value<int>() * 1000.0;
+		string retryAfterMsHeader = context.Response.Headers.GetValueOrDefault("retry-after-ms", "");
+		string retryAfterHeader = context.Response.Headers.GetValueOrDefault("retry-after", "");
+		int parsedMilliseconds = 0;
+		int parsedSeconds = 0;
+		bool hasRetryAfterMs = int.TryParse(retryAfterMsHeader, out parsedMilliseconds) && parsedMilliseconds > 0;
+		bool hasRetryAfter = int.TryParse(retryAfterHeader, out parsedSeconds) && parsedSeconds > 0;
+		if (hasRetryAfterMs || hasRetryAfter) {
+			retryAfterMilliseconds = Math.Max(
+				hasRetryAfterMs ? parsedMilliseconds + 2000.0 : 0,
+				hasRetryAfter ? (parsedSeconds + 2) * 1000.0 : 0);
+		}
+
+		// Multi-process safe: keep the max wake time for this backend id
+		DateTime newWake = DateTime.UtcNow.AddMilliseconds(retryAfterMilliseconds);
+		DateTime existing = (map[id] != null && map[id].Type != JTokenType.Null) ? map[id].Value<DateTime>() : DateTime.MinValue;
+		if (newWake > existing) { map[id] = newWake; wrapper["dirty"] = true; }
+
+		DateTime effective = map[id].Value<DateTime>();
+		backend["isThrottling"] = true;
+		backend["retryAfter"] = effective;
+
+		JArray activityLog = (JArray)((JObject)context.Variables["initObj"])["activityLog"];
+		int remainingSeconds = effective > DateTime.UtcNow ? (int)Math.Ceiling((effective - DateTime.UtcNow).TotalSeconds) : 0;
+		string retryAfterText = string.Format("{0:00}:{1:00}", remainingSeconds / 60, remainingSeconds % 60);
+		string statusCode = context.Response?.StatusCode.ToString() ?? "N/A";
+		activityLog.Add(new JObject {
+			["Elapsed"] = context.Elapsed.TotalSeconds.ToString("F3"),
+			["message"] = "StatusCode: " + statusCode + " - Temp Error; THROTTLED: " + backend.Value<string>("label") + " Retry-After: " + retryAfterText
+		});
+
+		resultObj["throttleState"] = wrapper;
+		return resultObj;
+	}" />
+	<choose>
+		<when condition="@(((JObject)((JObject)context.Variables["resultObj"])["throttleState"]).Value<bool>("dirty"))">
+			<cache-store-value key="@("throttle-" + context.Api.Id)" value="@((JObject)((JObject)context.Variables["resultObj"])["throttleState"])" duration="60" />
+		</when>
+	</choose>
+</fragment>

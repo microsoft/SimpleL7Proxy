@@ -92,14 +92,14 @@
     }" />
 
     <!-- Which model does this request want?
-        Callers pass the model header (modelHeaderName). If it is missing we use
-        DefaultModel (set in the main policy). No need to edit this. -->
+        Callers pass the model header (modelHeaderName). If it is missing or the
+        proxy reports "unknown", use DefaultModel (configured above). -->
     <set-variable name="model" value="@{
         string defaultModel = (string)context.Variables["DefaultModel"];
         string modelHeaderName = (string)context.Variables["modelHeaderName"];
         string requested = context.Request.Headers.GetValueOrDefault(modelHeaderName, defaultModel);
         requested = requested?.Trim().ToLowerInvariant();
-        return string.IsNullOrWhiteSpace(requested) ? defaultModel?.Trim().ToLowerInvariant() : requested;
+        return string.IsNullOrWhiteSpace(requested) || requested == "unknown" ? defaultModel?.Trim().ToLowerInvariant() : requested;
     }" />
 
     <!-- Picks the backend list for this request's model from the catalog above.

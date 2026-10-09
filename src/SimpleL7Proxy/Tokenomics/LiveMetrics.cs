@@ -130,131 +130,63 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
 
     }
 
-    // LOOKATME
-    /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
-    public async Task<int> GetDailyTokenBalanceAsync(string UserId, string Model)
-    {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
+    public long GetDailyTokenBalanceAsync(ResponseMetric pm)
+    { 
         return pm.DailyInputTokens + pm.DailyOutputTokens;
     }
 
-    // LOOKATME
-    /// <summary>Gets the current token balance for a user and model including the live and rolled-up totals.</summary>
-    public async Task<int> GetMonthlyTokenBalanceAsync(string UserId, string Model)
+    public long GetMonthlyTokenBalanceAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.MonthlyInputTokens + pm.MonthlyOutputTokens;
     }
-    // LOOKATME
-    public async Task<int> GetDailyUser429CountAsync(TimeSpan window, string UserId, string Model)
+    public int GetDailyUser429CountAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
         return pm.DailyUser429;
     }
 
-    // LOOKATME
-    /// <summary>Counts 429 responses observed in the supplied window.</summary>
-    public async Task<int> GetDailyModel429CountAsync(TimeSpan window, string UserId, string Model)
+    public int GetDailyModel429CountAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
         return pm.DailyModel429;
     }
 
-    // LOOKATME
-    /// <summary>Gets the average request latency for the supplied window in milliseconds.</summary>
-    public async Task<double> GetDailyAverageLatencyMsAsync(TimeSpan window, string UserId, string Model)
+    public double GetDailyAverageLatencyMsAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
         return pm.DailyAvgLatencyMs;
     }
 
-    // LOOKATME
-    /// <summary>Gets the average request latency for the supplied window in milliseconds.</summary>
-    public async Task<double> GetMonthlyAverageLatencyMsAsync(TimeSpan window, string UserId, string Model)
+    public double GetMonthlyAverageLatencyMsAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
         return pm.MonthlyAvgLatencyMs;
     }
 
-    // LOOKATME
-    /// <summary>Gets the count of jailbreak (prompt injection) detections for a user on the current UTC day, excluding queued metrics.</summary>
-    public async Task<bool> GetDailyJailbreakAsync(string UserId, string Model)
+    public bool GetDailyJailbreakAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.IsDailyJailbreakDetected;
     }
 
-    // LOOKATME
-    /// <summary>Gets the count of jailbreak (prompt injection) detections for a user in the current UTC month, excluding queued metrics.</summary>
-    public async Task<bool> GetMonthlyJailbreakAsync(string UserId, string Model)
+    public bool GetMonthlyJailbreakAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.IsMonthlyJailbreakDetected;
     }
 
-    // LOOKATME
-    /// <summary>Gets the count of responses with a filtered content category for a user on the current UTC day, excluding queued metrics.</summary>
-    public async Task<bool> GetDailyContentFilteredAsync(string UserId, string Model)
+    public bool GetDailyContentFilteredAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.IsDailyContentFiltered;
     }
 
-    // LOOKATME
-    /// <summary>Gets the count of responses with a filtered content category for a user in the current UTC month, excluding queued metrics.</summary>
-    public async Task<bool> GetMonthlyContentFilteredAsync(string UserId, string Model)
+    public bool GetMonthlyContentFilteredAsync(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.IsMonthlyContentFiltered;
     }
 
-    public async Task<int> GetMonthlyUser429Async(string UserId, string Model)
+    public int GetMonthlyUser429Async(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.MonthlyUser429;
     }
 
-    public async Task<int> GetMonthlyModel429Async(string UserId, string Model)
+    public int GetMonthlyModel429Async(ResponseMetric pm)
     {
-        var pm = await GetMetric(UserId, Model);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(UserId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Model);
-
         return pm.MonthlyModel429;
-
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

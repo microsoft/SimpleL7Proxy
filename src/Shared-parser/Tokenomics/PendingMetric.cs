@@ -60,6 +60,84 @@ public readonly struct PendingMetric
         TimestampUtc = DateTime.ParseExact(lineParts[10], "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
     }
 
+    /// <summary>
+    /// Parses one CSV data row from a character span without allocating field strings. Only the
+    /// retained <see cref="UserId"/> and <see cref="Model"/> values allocate. Returns false for
+    /// malformed rows.
+    /// </summary>
+    public static bool TryParse(ReadOnlySpan<char> line, out PendingMetric metric)
+    {
+        metric = default;
+
+        Span<Range> fields = stackalloc Range[11];
+        if (line.Split(fields, ',') != 11)
+        {
+            return false;
+        }
+
+        var userId = line[fields[0]].Trim();
+        var model = line[fields[1]].Trim();
+        if (userId.IsEmpty || model.IsEmpty)
+        {
+            return false;
+        }
+
+        if (!DateOnly.TryParseExact(line[fields[2]].Trim(), "yyyy-MM-dd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
+            || !int.TryParse(line[fields[3]].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var inputTokens)
+            || !int.TryParse(line[fields[4]].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var outputTokens)
+            || !int.TryParse(line[fields[5]].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var cachedTokens)
+            || !bool.TryParse(line[fields[6]].Trim(), out var isJailbreakDetected)
+            || !bool.TryParse(line[fields[7]].Trim(), out var isContentFiltered))
+        {
+            return false;
+        }
+
+        var statusSpan = line[fields[8]].Trim();
+        int? statusCode = null;
+        if (!statusSpan.IsEmpty)
+        {
+            if (!int.TryParse(statusSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var status))
+            {
+                return false;
+            }
+
+            statusCode = status;
+        }
+
+        var latencySpan = line[fields[9]].Trim();
+        double? latencyMs = null;
+        if (!latencySpan.IsEmpty)
+        {
+            if (!double.TryParse(latencySpan, NumberStyles.Float, CultureInfo.InvariantCulture, out var latency))
+            {
+                return false;
+            }
+
+            latencyMs = latency;
+        }
+
+        if (!DateTime.TryParseExact(line[fields[10]].Trim(), "yyyy-MM-ddTHH:mm:ss.fffZ",
+                CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var timestampUtc))
+        {
+            return false;
+        }
+
+        metric = new PendingMetric(
+            userId.ToString(),
+            model.ToString(),
+            inputTokens,
+            outputTokens,
+            cachedTokens,
+            isJailbreakDetected,
+            isContentFiltered,
+            day,
+            statusCode,
+            latencyMs,
+            timestampUtc);
+        return true;
+    }
+
     public static string CsvHeader => "UserId,Model,Day,InputTokens,OutputTokens,CachedTokens,IsJailbreakDetected,IsContentFiltered,StatusCode,LatencyMs,TimestampUtc";
 
     public string ToCSV()

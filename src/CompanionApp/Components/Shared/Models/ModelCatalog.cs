@@ -48,16 +48,28 @@ public static class ModelCatalog
         AddOpenAiModel(templates, "gpt-4o-mini", "OpenAI", "GPT-4o mini", "gpt-4o-mini");
         AddOpenAiModel(templates, "gpt-4.1", "OpenAI", "GPT-4.1", "gpt-4.1");
         AddOpenAiModel(templates, "gpt-4.1-mini", "OpenAI", "GPT-4.1 mini", "gpt-4.1-mini");
+        AddOpenAiModel(templates, "gpt-5", "OpenAI", "GPT-5", "gpt-5");
+        AddOpenAiModel(templates, "gpt-5-mini", "OpenAI", "GPT-5 mini", "gpt-5-mini");
+        AddOpenAiModel(templates, "gpt-5-nano", "OpenAI", "GPT-5 nano", "gpt-5-nano");
+        AddOpenAiModel(templates, "gpt-6-astra", "OpenAI", "GPT-6 Astra", "gpt-6-astra");
+        AddOpenAiModel(templates, "gpt-6-luna", "OpenAI", "GPT-6 Luna", "gpt-6-luna");
+        AddOpenAiModel(templates, "gpt-6.1-sol", "OpenAI", "GPT-6.1 Sol", "gpt-6.1-sol");
         AddOpenAiModel(templates, "o3", "OpenAI", "o3 (reasoning)", "o3");
         AddOpenAiModel(templates, "o4-mini", "OpenAI", "o4-mini (reasoning)", "o4-mini");
         AddOpenAiModel(templates, "gpt-3.5-turbo", "OpenAI", "GPT-3.5 Turbo", "gpt-3.5-turbo");
 
+        AddAnthropicModel(templates, "claude-opus-4-8", "Anthropic", "Claude Opus 4.8", "claude-opus-4-8");
+        AddAnthropicModel(templates, "claude-opus-4-1", "Anthropic", "Claude Opus 4.1", "claude-opus-4-1-20250805");
+        AddAnthropicModel(templates, "claude-sonnet-4-5", "Anthropic", "Claude Sonnet 4.5", "claude-sonnet-4-5-20250929");
+        AddAnthropicModel(templates, "claude-haiku-4-5", "Anthropic", "Claude Haiku 4.5", "claude-haiku-4-5-20251001");
         AddAnthropicModel(templates, "claude-sonnet-4", "Anthropic", "Claude Sonnet 4", "claude-sonnet-4-20250514");
         AddAnthropicModel(templates, "claude-3-7-sonnet", "Anthropic", "Claude 3.7 Sonnet", "claude-3-7-sonnet-20250219");
         AddAnthropicModel(templates, "claude-3-5-sonnet", "Anthropic", "Claude 3.5 Sonnet", "claude-3-5-sonnet-20241022");
         AddAnthropicModel(templates, "claude-3-5-haiku", "Anthropic", "Claude 3.5 Haiku", "claude-3-5-haiku-20241022");
 
         AddGeminiModel(templates, "gemini-2.5-pro", "Google Gemini", "Gemini 2.5 Pro", "gemini-2.5-pro");
+        AddGeminiModel(templates, "gemini-2.5-flash", "Google Gemini", "Gemini 2.5 Flash", "gemini-2.5-flash");
+        AddGeminiModel(templates, "gemini-2.5-flash-lite", "Google Gemini", "Gemini 2.5 Flash-Lite", "gemini-2.5-flash-lite");
         AddGeminiModel(templates, "gemini-2.0-flash", "Google Gemini", "Gemini 2.0 Flash", "gemini-2.0-flash");
         AddGeminiModel(templates, "gemini-1.5-pro", "Google Gemini", "Gemini 1.5 Pro", "gemini-1.5-pro");
 

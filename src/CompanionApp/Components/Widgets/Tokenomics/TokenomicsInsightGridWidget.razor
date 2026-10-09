@@ -1,0 +1,14 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<div class="tokenomics-insight-grid">
+    <TokenomicsModelBreakdownWidget Snapshot="Snapshot" />
+    <TokenomicsSpendByTenantWidget Snapshot="Snapshot" />
+    <TokenomicsQuotaUtilizationWidget Snapshot="Snapshot" />
+</div>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

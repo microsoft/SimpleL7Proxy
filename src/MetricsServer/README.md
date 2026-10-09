@@ -25,8 +25,40 @@ Durations are seconds unless the name ends in `Ms` (milliseconds). Timestamps ar
 | `METRICSSERVER_MAX_BODY_BYTES` | `4194304` | bytes | Maximum accepted request body size. |
 | `APPINSIGHTS_CONNECTIONSTRING` | empty | string | Application Insights connection string. Telemetry is off when empty. `APPLICATIONINSIGHTS_CONNECTION_STRING` is accepted as a fallback. |
 | `METRICSSERVER_TELEMETRY_INTERVAL_SECONDS` | `60` | seconds | How often server counters are published to Application Insights. |
+| `AppConfigurationEndpoint` | empty | HTTPS URL | Azure App Configuration endpoint. Polling is disabled when unset or blank. |
+| `AppConfigurationLabel` | empty | string | Exact label to fetch; empty, `\0`, or a null character selects settings without a label. |
 
 Retention window = `METRICSSERVER_BUCKET_SECONDS` × `METRICSSERVER_BUCKET_COUNT` (default 1 hour). Values that are missing, unparsable, or out of range fall back to the default. All settings are read once at startup.
+
+### Fetching App Configuration settings
+
+**When an endpoint is configured, the server fetches all keys for the selected label at startup and every 15 minutes.**
+
+```bash
+export AppConfigurationEndpoint=https://your-store.azconfig.io
+export AppConfigurationLabel=production
+dotnet run --project src/MetricsServer
+```
+
+Authentication uses one shared `DefaultAzureCredential` and `ConfigurationClient`. Grant the service identity **App Configuration Data Reader** access to the store. For local development, sign in with an identity that has the same access.
+
+The standalone `AppConfigurationReader` hosted service owns polling and caching independently of `MetricsHttpServer`. Successful downloads atomically replace its in-memory `AppConfigurationSettings` snapshot, including removing deleted keys. The same reader instance is available through dependency injection.
+
+The cached settings do not change startup options. Tokenomics lookup budgets use the latest parsed model pricing. HTTP serving continues while downloads run, and shutdown cancels outstanding requests.
+
+**`Warm:Tokenomics:Options` is parsed with the existing `TokenomicsSettings.TryParse` parser after each successful download.** The last valid typed value is available through `AppConfigurationReader.TokenomicsSettings`; parser defaults apply before the first valid value. Missing keys retain the last valid typed settings.
+
+> [!TIP]
+> After each successful parse, the reader logs one `Tokenomics model cost per token` line per model with its `Input`, `CachedInput`, and `Output` prices, or `no models configured` when `ModelCostPerToken` is empty.
+
+> [!WARNING]
+> If parsing fails, the reader retains the last valid typed settings and logs the offending string. Correct the value in App Configuration using the parser's comma- or semicolon-separated `key=value` format; the next successful refresh retries parsing.
+
+> [!NOTE]
+> A failed download retains the last successful snapshot (empty until the first success) and is retried on the next 15-minute tick. Check the `App Configuration refreshed` log for the fetched key count.
+
+> [!WARNING]
+> If refresh fails, check endpoint connectivity, the selected label, and the credential's data-plane role. Only invalid `Warm:Tokenomics:Options` values are logged; do not put secrets in that setting.
 
 ## Endpoints
 
@@ -47,6 +79,13 @@ Retention window = `METRICSSERVER_BUCKET_SECONDS` × `METRICSSERVER_BUCKET_COUNT
 Query parameters for `/metrics/status` and `/metrics/series`: `user`, `model`, and `window` (seconds). Omit `user` or `model` to aggregate across all values. `window` defaults to, and is capped at, the retention window, and is rounded up to whole buckets.
 
 The tokenomics lookup requires both `u` (user identifier) and `m` (model identifier).
+
+The response includes `HourlyUserBudget`, `DailyUserBudget`, `MonthlyUserBudget`, `HourlyModelBudget`, `DailyModelBudget`, and `MonthlyModelBudget`, expressed as consumed USD rather than remaining limits. User budgets cover the requested user/model pair; model budgets cover that model across all users.
+
+Daily/monthly budgets use existing token totals: `(InputTokens - CachedTokens) × Input + CachedTokens × CachedInput + OutputTokens × Output`, with non-cached input clamped to zero. Prices come from `Warm:Tokenomics:Options` for the requested model (case-insensitive); missing model pricing or totals return `0`.
+
+> [!NOTE]
+> Hourly token counts, detection flags, 429 counts, average latency, and budgets are present but remain `0`/`false`. No hourly aggregation is implemented.
 
 ## Sending rollups
 

@@ -14,9 +14,9 @@ Once deployed, you can follow the quick guides below for your scenario.
 </thead>
 <tbody>
 <tr>
-<td valign="top"><a href="image-1.png"><img src="image-1.png" alt="Deployment Setup review with resource summary and deployment methods" width="100%"></a></td>
-<td valign="top"><a href="image-2.png"><img src="image-2.png" alt="Proxy Configuration editor showing staged changes" width="100%"></a></td>
-<td valign="top"><a href="image.png"><img src="image.png" alt="Investigator request editor with model selection" width="100%"></a></td>
+<td valign="top"><a href="img/image-1.png"><img src="img/image-1.png" alt="Deployment Setup review with resource summary and deployment methods" width="100%"></a></td>
+<td valign="top"><a href="img/image-2.png"><img src="img/image-2.png" alt="Proxy Configuration editor showing staged changes" width="100%"></a></td>
+<td valign="top"><a href="img/image.png"><img src="img/image.png" alt="Investigator request editor with model selection" width="100%"></a></td>
 </tr>
 <tr><td><a href="delpoyment.md#deployment-prerequisites">Prepare and deploy SimpleL7Proxy</a></td>
 <td><a href="configuration.md#configuration-prerequisites">Change an existing proxy's settings</a></td>
@@ -68,7 +68,7 @@ Only the fields for the selected backend are used. Blob Storage and Cosmos DB au
 
 ### Event Hub monitoring
 
-`EventHubMonitor` configures the shared event feed used by **EventHub Monitor** and **Insights**. The fields below belong inside `CompanionApp.EventHubMonitor`.
+`EventHubMonitor` configures the shared event feed used by **EventHub Monitor**, **Insights**, and **Tokenomics**. The fields below belong inside `CompanionApp.EventHubMonitor`.
 
 - `eventhub_enabled`: Whether CompanionApp connects to the live Event Hub. Set it to `false` to disable live reading; local-file import still runs when `LocalFilePath` is set.
 - `LocalFilePath`: An optional JSON event-log file to import at startup. Use an absolute path, or set it to `""` to skip import; relative paths resolve from the running app's output directory, not its content root.
@@ -103,6 +103,28 @@ From the CompanionApp directory, run:
 dotnet restore
 dotnet run
 ```
+
+To start the UI without App Configuration startup access or the Event Hub reader, run `dotnet run -- --uionly`. This skips App Configuration loading and label creation, live Event Hub consumption, and Event Hub local-file import even when they are configured. The startup log confirms that UI-only mode is active.
+
+This flag does not block Azure actions you explicitly initiate in the UI or change the configured history and conversation storage modes. Keep those modes set to `Disk` when you do not want cloud storage access.
+
+To read **Tokenomics** summaries from Event Hub, configure the `EventHubMonitor` settings above and run `dotnet run` without `--uionly` or `--run`. Connection-string authentication requires receive/listen access; Azure identity authentication requires **Azure Event Hubs Data Receiver** access. The existing `EVENTHUB_NAMESPACE`, `EVENTHUB_NAME`, `EVENTHUB_CONNECTIONSTRING`, and `EVENTHUB_CONSUMER_GROUP` environment overrides also apply.
+
+Open `/tokenomics` and publish proxy `S7P-Tokenomics` summaries with `RecordKind` equal to `RequestOutcome` or `PolicyDecision`. The dashboard replaces sample data when the configured reader starts and publishes buffered summaries once per second. Ordinary Tokenomics diagnostic logs and unrelated event types do not contribute; malformed summaries are logged and skipped without stopping consumption.
+
+The **Hourly**, **Daily**, and **Monthly** controls apply one UTC calendar period to every dashboard widget. Hourly is selected by default and shows all 60 minutes in the current hour; Daily shows all 24 hours today; Monthly shows every day in the current month. Empty chart buckets remain visible with zero usage. Live periods use each summary's `TimestampUtc` and refresh idle data every minute. Historical replay periods are anchored to the latest replayed event.
+
+The live dashboard aggregates the latest **10,000 valid summary records** received by this process, across all partitions. Totals and deduplication apply only to that retained window, not lifetime usage. `StartPosition=latest` requires new events after startup; use `earliest` to include retained Event Hub events. Restarting resets the in-memory window and reads from the configured start position; no checkpoints are saved. A configured `LocalFilePath` import also feeds Tokenomics before live consumption.
+
+To replay an NDJSON event file locally instead, run from this directory:
+
+```bash
+dotnet run -- --uionly --run events /absolute/path/tokenomics-summary-events.ndjson
+```
+
+The whole file is validated before startup. Replay replaces synthetic data immediately, applies ten events each second (a smaller final batch is allowed), and stops at EOF without looping. The final dashboard remains available at `/tokenomics`; stopping the app cancels replay safely. Events are not published to Azure. `--uionly` is optional and independently skips App Configuration startup access.
+
+Both sources use the same validation and aggregation rules. Request counts use distinct `MID` values; success rate uses HTTP outcomes only. Policy Actions counts recorded policy decisions, including None and Bypass; 429 Throttles counts distinct requests with a throttle decision or HTTP 429. Cached input is a subset of input, not additional tokens. Spend uses the current App Configuration label's saved `Warm:Tokenomics:Options` model prices: non-cached input, cached input, and output tokens use their corresponding USD-per-token rates, and unlisted models are excluded. Spend remains unavailable when the current label has no valid model prices. Quota bars compare the selected period's token usage with `HourlyTokenLimit`, `DailyTokenLimit`, or `MonthlyTokenLimit` from those same saved settings. A missing or nonpositive period limit leaves quota unavailable. Events contain no previous-period data, so percentage changes are omitted. File replay does not start the Event Hub reader. UI-only mode and unconfigured or disabled readers retain synthetic Tokenomics updates when no file replay or local import is active.
 
 Open the URL shown in the terminal. The included launch profiles use:
 

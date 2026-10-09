@@ -6,6 +6,7 @@ using Azure.Identity;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Consumer;
 using CompanionApp.Components.Shared.EventHub;
+using CompanionApp.Tokenomics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,11 +24,13 @@ public sealed class EventHubReader : BackgroundService
     private readonly ProxyMetricsCatalog _proxyMetricsCatalog;
     private readonly EventHubMonitorOptions _options;
     private readonly ILogger<EventHubReader> _logger;
+    private readonly TokenomicsEventReplay? _tokenomics;
     private readonly DefaultAzureCredential? _credential;
     private readonly Dictionary<string, List<string>> _requestLifecycle = new(StringComparer.OrdinalIgnoreCase);
     // Per-request field capture keyed by S7P-ID: the enqueue, each backend attempt, and the final
     // proxy-request fields are retained so the request detail can show the full lifecycle.
     private readonly Dictionary<string, RequestPhaseRecord> _requestPhases = new(StringComparer.OrdinalIgnoreCase);
+    private long _tokenomicsEventsSinceLastLog;
     private bool _logSkippedRecords;
 
     private static readonly PipelineStage[] OrderedStages =
@@ -74,12 +77,14 @@ public sealed class EventHubReader : BackgroundService
         EventHubMonitorStore store,
         ProxyMetricsCatalog proxyMetricsCatalog,
         IOptions<EventHubMonitorOptions> options,
-        ILogger<EventHubReader> logger)
+        ILogger<EventHubReader> logger,
+        TokenomicsEventReplay? tokenomics = null)
     {
         _store = store;
         _proxyMetricsCatalog = proxyMetricsCatalog;
         _options = options.Value;
         _logger = logger;
+        _tokenomics = tokenomics;
         
         try
         {
@@ -114,6 +119,11 @@ public sealed class EventHubReader : BackgroundService
         }
 
         settings = EnsureNamespace(settings);
+
+        _logger.LogInformation(
+            "Eventhub is configured: {EventHubName} in namespace {EventHubNamespace}.",
+            settings.EventHubName,
+            settings.EventHubNamespace);
 
         // Validate settings before attempting to create client
         if (string.IsNullOrWhiteSpace(settings.EventHubName))
@@ -151,6 +161,7 @@ public sealed class EventHubReader : BackgroundService
 
         try
         {
+            _tokenomics?.BeginLive();
             await RunConsumerAsync(settings, clientOptions, stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -183,6 +194,7 @@ public sealed class EventHubReader : BackgroundService
         }
 
         _store.DisableRequestAging = true;
+        _tokenomics?.BeginLive();
         _store.Clear();
         _requestLifecycle.Clear();
         _requestPhases.Clear();
@@ -383,7 +395,19 @@ public sealed class EventHubReader : BackgroundService
             .Select(partitionId => ReadPartitionAsync(consumerClient, partitionId, startPosition, stoppingToken))
             .ToArray();
 
-        await Task.WhenAll(partitionReaders).ConfigureAwait(false);
+        var tokenomicsCountLogger = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+            {
+                var count = Interlocked.Exchange(ref _tokenomicsEventsSinceLastLog, 0);
+                _logger.LogInformation(
+                    "[Tokenomics] Event Hub entries received in the last minute: {EntryCount}",
+                    count);
+            }
+        }, stoppingToken);
+
+        await Task.WhenAll(partitionReaders.Append(tokenomicsCountLogger)).ConfigureAwait(false);
     }
 
     private async Task ReadPartitionAsync(
@@ -452,18 +476,28 @@ public sealed class EventHubReader : BackgroundService
         foreach (var raw in incomingRecords)
         {
             Dictionary<string, string> eventData;
+            var isTokenomicsEvent = false;
             try
             {
-                eventData = ParseEventData(raw);
+                eventData = ParseEventData(raw, out isTokenomicsEvent);
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException or FormatException)
             {
+                if (isTokenomicsEvent && source.StartsWith("Event Hub partition ", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref _tokenomicsEventsSinceLastLog);
+                }
                 skipped++;
                 LogInvalidRecord(ex, source);
                 continue;
             }
 
             parsed.Add(new ParsedEventRecord(raw, eventData));
+
+            if (isTokenomicsEvent && source.StartsWith("Event Hub partition ", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _tokenomicsEventsSinceLastLog);
+            }
 
             if (eventData.TryGetValue("Type", out var recordType)
                 && IsIncompleteRecord(eventData, recordType))
@@ -493,6 +527,7 @@ public sealed class EventHubReader : BackgroundService
     private void RunStatisticsStage(IReadOnlyList<ParsedEventRecord> parsed)
     {
         _proxyMetricsCatalog.Publish(parsed);
+        _tokenomics?.PublishRecords(parsed);
     }
 
     private void LogInvalidRecord(Exception exception, string source)
@@ -601,6 +636,7 @@ public sealed class EventHubReader : BackgroundService
     {
         return eventType is
             "S7P-Backend"
+            or "S7P-Tokenomics"
             or "S7P-ProxyRequestEnqueued"
             or "S7P-BackendRequest"
             or "S7P-ServerError"
@@ -1239,6 +1275,8 @@ public sealed class EventHubReader : BackgroundService
             eventHubNamespace = $"{eventHubNamespace}.servicebus.windows.net";
         }
 
+
+
         return new ReaderSettings(
             _options.EventHubEnabled,
             _options.LocalFilePath,
@@ -1342,12 +1380,23 @@ public sealed class EventHubReader : BackgroundService
         return null;
     }
 
-    private static Dictionary<string, string> ParseEventData(string eventBody)
+    private static Dictionary<string, string> ParseEventData(string eventBody, out bool isTokenomicsEvent)
     {
         using var document = JsonDocument.Parse(NormalizeJsonRecord(eventBody));
+        isTokenomicsEvent = document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty("Type", out var eventType)
+            && eventType.ValueKind == JsonValueKind.String
+            && eventType.GetString() == "S7P-Tokenomics";
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             throw new JsonException("Event Hub payload was not a JSON object.");
+        }
+
+        if (isTokenomicsEvent
+            && (document.RootElement.TryGetProperty("RecordKind", out _) || document.RootElement.TryGetProperty("SchemaVersion", out _)))
+        {
+            return TokenomicsReplayOptions.ParseRecord(document.RootElement)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         }
 
         var eventData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

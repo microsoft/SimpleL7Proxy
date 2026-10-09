@@ -1,0 +1,25 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section class="tokenomics-kpis" aria-label="Summary metrics">
+    @foreach (var metric in Snapshot.Metrics)
+    {
+        <article class="tokenomics-card kpi-card">
+            <div class="kpi-heading">
+                <h2>@metric.Name</h2>
+                <span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span>
+            </div>
+            <p class="kpi-value">@metric.Value</p>
+            @if (!string.IsNullOrEmpty(metric.Change))
+            {
+                <p class="kpi-change @metric.ChangeTone">@metric.Change <span>vs. previous period</span></p>
+            }
+        </article>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

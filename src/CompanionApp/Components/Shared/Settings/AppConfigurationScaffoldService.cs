@@ -198,13 +198,38 @@ public sealed class AppConfigurationScaffoldService
         var client = GetClient(endpointUri);
         if (createLabel)
         {
-            await foreach (var existing in client.GetConfigurationSettingsAsync(new SettingSelector { KeyFilter = "*" }, cancellationToken))
+            _logger.LogInformation(
+                "Checking App Configuration for existing label {Label} before creating it at {Endpoint}",
+                string.IsNullOrEmpty(label) ? "(No label)" : label,
+                endpointUri.Host);
+            try
             {
-                if (string.Equals(existing.Label ?? string.Empty, label, StringComparison.Ordinal))
+                await foreach (var existing in client.GetConfigurationSettingsAsync(new SettingSelector { KeyFilter = "*" }, cancellationToken))
                 {
-                    throw new InvalidOperationException($"Label '{label}' already exists. Reload the label list and choose another name.");
+                    if (string.Equals(existing.Label ?? string.Empty, label, StringComparison.Ordinal))
+                    {
+                        _logger.LogError(
+                            "Cannot create App Configuration label {Label}: an existing setting with that label was found at {Endpoint}",
+                            string.IsNullOrEmpty(label) ? "(No label)" : label,
+                            endpointUri.Host);
+                        throw new InvalidOperationException($"Label '{label}' already exists. Reload the label list and choose another name.");
+                    }
                 }
             }
+            catch (Exception exception) when (exception is not InvalidOperationException)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed checking existing App Configuration labels before creating {Label} at {Endpoint}",
+                    string.IsNullOrEmpty(label) ? "(No label)" : label,
+                    endpointUri.Host);
+                throw;
+            }
+
+            _logger.LogInformation(
+                "No existing App Configuration settings found for label {Label}; creating it at {Endpoint}",
+                string.IsNullOrEmpty(label) ? "(No label)" : label,
+                endpointUri.Host);
         }
         var changedSettings = settings
             .Where(setting => setting.IsChanged
@@ -228,28 +253,71 @@ public sealed class AppConfigurationScaffoldService
         }
         var newSentinel = nextSentinelValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var configurationLabel = string.IsNullOrEmpty(label) ? null : label;
+        var warmSettingCount = changedSettings.Count(setting =>
+            setting.Key.StartsWith("Warm:", StringComparison.OrdinalIgnoreCase));
+        var coldSettingCount = changedSettings.Count(setting =>
+            setting.Key.StartsWith("Cold:", StringComparison.OrdinalIgnoreCase));
+
+        _logger.LogInformation(
+            "App Configuration write plan for label {Label} at {Endpoint}: CreateLabel={CreateLabel}, WarmSettingCount={WarmSettingCount}, ColdSettingCount={ColdSettingCount}",
+            string.IsNullOrEmpty(label) ? "(No label)" : label,
+            endpointUri.Host,
+            createLabel,
+            warmSettingCount,
+            coldSettingCount);
 
         foreach (var setting in changedSettings)
         {
+            try
+            {
+                if (createLabel)
+                {
+                    await client.AddConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
+                }
+                else
+                {
+                    await client.SetConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed writing App Configuration key {Key} for label {Label} at {Endpoint}; CreateLabel={CreateLabel}",
+                    setting.Key,
+                    string.IsNullOrEmpty(label) ? "(No label)" : label,
+                    endpointUri.Host,
+                    createLabel);
+                throw;
+            }
+        }
+
+        try
+        {
             if (createLabel)
             {
-                await client.AddConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
+                await client.AddConfigurationSettingAsync("Warm:Sentinel", newSentinel, configurationLabel, cancellationToken);
             }
             else
             {
-                await client.SetConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
+                await client.SetConfigurationSettingAsync("Warm:Sentinel", newSentinel, configurationLabel, cancellationToken);
             }
         }
-
-        if (createLabel)
+        catch (Exception exception)
         {
-            await client.AddConfigurationSettingAsync("Warm:Sentinel", newSentinel, configurationLabel, cancellationToken);
-        }
-        else
-        {
-            await client.SetConfigurationSettingAsync("Warm:Sentinel", newSentinel, configurationLabel, cancellationToken);
+            _logger.LogError(
+                exception,
+                "Failed writing App Configuration key Warm:Sentinel for label {Label} at {Endpoint}; CreateLabel={CreateLabel}",
+                string.IsNullOrEmpty(label) ? "(No label)" : label,
+                endpointUri.Host,
+                createLabel);
+            throw;
         }
 
+        _logger.LogInformation(
+            "App Configuration writes completed for label {Label} at {Endpoint}; verifying by reloading settings",
+            string.IsNullOrEmpty(label) ? "(No label)" : label,
+            endpointUri.Host);
         var downloadedSettings = await DownloadAsync(endpoint, endpointUri, client, cancellationToken);
         foreach (var submittedSetting in changedSettings)
         {
@@ -270,6 +338,13 @@ public sealed class AppConfigurationScaffoldService
         {
             throw new InvalidOperationException("Verification failed after re-downloading Warm:Sentinel.");
         }
+
+        _logger.LogInformation(
+            "App Configuration write verification succeeded for label {Label} at {Endpoint}; ChangedSettingCount={ChangedSettingCount}, TotalDownloadedSettings={TotalDownloadedSettings}",
+            string.IsNullOrEmpty(label) ? "(No label)" : label,
+            endpointUri.Host,
+            changedSettings.Count,
+            downloadedSettings.Count);
 
         return (downloadedSettings, previousSentinel, newSentinel, changedSettings.Count);
     }

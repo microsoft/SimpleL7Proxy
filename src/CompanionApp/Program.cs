@@ -1,227 +1,193 @@
 using CompanionApp.Components;
 using CompanionApp.Components.Shared;
 using CompanionApp.Components.Shared.EventHub;
+using CompanionApp.Tokenomics;
 using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.Tokenomics;
+using CompanionApp.Simulated;
+using CompanionApp.Startup;
 
-var builder = WebApplication.CreateBuilder(args);
-var sidecarOverride = Environment.GetEnvironmentVariable("SidecarOverride");
-var metricsServerOverride = Environment.GetEnvironmentVariable("MetricsServerOverride");
-var appInsightsConnectionStringOverride = Environment.GetEnvironmentVariable("AppInsightsConnectionStringOverride");
-builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
-builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
-builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
-builder.Configuration.AddJsonFile($"vision-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
-
-var eventHubSection = builder.Configuration.GetSection(EventHubMonitorOptions.SectionName);
-var eventHubEnabled = eventHubSection.GetValue<bool>("eventhub_enabled", true);
-var localEventFilePath = eventHubSection.GetValue<string>("LocalFilePath");
-
-// Add services to the container.
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-builder.Services.AddDataProtection()
-    .SetApplicationName("chat_tester")
-    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".keys")));
-builder.Services.AddSingleton(new HttpClient
+internal static class Program
 {
-    Timeout = TimeSpan.FromMinutes(5)
-});
-builder.Services.AddSingleton<AuthTokenSettings>();
-builder.Services.AddSingleton<UserSettings>();
-builder.Services.AddSingleton<HeaderSettings>();
-builder.Services.AddSingleton<HistorySettings>();
-builder.Services.AddSingleton<ConversationSettings>();
-builder.Services.AddSingleton<RequestDebugSettings>();
-builder.Services.AddSingleton<AutoCollapseSettings>();
-builder.Services.AddSingleton<ModelDefaults>();
-builder.Services.AddSingleton<VisionModelCatalog>();
-builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
-builder.Services.AddSingleton<AppConfigurationScaffoldService>();
-builder.Services.AddSingleton<ChatHistoryStore>();
-builder.Services.AddSingleton<ChatConversationStore>();
-builder.Services.AddSingleton<EventHubMonitorStore>();
-builder.Services.AddSingleton<ProxyMetricsCatalog>();
-if (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath))
-{
-    builder.Services.AddHostedService<EventHubReader>();
-}
-builder.Services.AddScoped<UserPreferencesService>();
-builder.Services.Configure<CompanionAppOptions>(
-    builder.Configuration.GetSection(CompanionAppOptions.SectionName));
-builder.Services.Configure<CompanionAppOptions>(options =>
-{
-    options.AppConfigurationRules = builder.Configuration
-        .GetSection($"{CompanionAppOptions.UiSectionName}:AppConfigurationRules")
-        .Get<List<AppConfigurationSettingRule>>() ?? new();
-    options.Hosts = builder.Configuration
-        .GetSection($"{CompanionAppOptions.UiSectionName}:Hosts")
-        .Get<AppConfigHostSettings>() ?? new();
-    options.Hosts.FieldChoices["processor"] = StreamProcessorFactory.ProcessorNames.ToArray();
-});
-builder.Services.Configure<EventHubMonitorOptions>(
-    builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
-
-var app = builder.Build();
-
-var companionAppOptions = app.Services.GetRequiredService<IOptions<CompanionAppOptions>>().Value;
-var appConfiguration = app.Services.GetRequiredService<AppConfigurationScaffoldService>();
-var appConfigurationLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CompanionApp.Startup");
-if (string.IsNullOrWhiteSpace(appConfiguration.DefaultEndpoint))
-{
-    appConfigurationLogger.LogWarning("App Configuration startup check skipped because CompanionApp:AppConfigurationEndpoint is empty");
-}
-else
-{
-    var configuredLabel = appConfiguration.DefaultLabel;
-    var labelDisplay = string.IsNullOrEmpty(configuredLabel) ? "(No label)" : configuredLabel;
-    try
+    public static async Task Main(string[] args)
     {
-        var settings = await appConfiguration.LoadAsync(appConfiguration.DefaultEndpoint);
-        var labelExists = appConfiguration.CachedLabels?.Contains(configuredLabel, StringComparer.Ordinal) == true;
-        var labelSettingCount = settings.Count(setting => string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
-        if (!labelExists)
+        TokenomicsReplayOptions replayOptions;
+        try
         {
-            var drafts = appConfiguration.CreateLabelDraft(configuredLabel);
-            if (metricsServerOverride is not null)
-            {
-                drafts.Single(setting => setting.Key == "Warm:Tokenomics:MetricsServer").DraftValue = metricsServerOverride;
-                drafts.Single(setting => setting.Key == "Warm:Tokenomics:Enable").DraftValue = "true";
-                drafts.Single(setting => setting.Key == "Warm:Tokenomics:Options").DraftValue = new TokenomicsSettings().ToString();
-            }
-            if (appInsightsConnectionStringOverride is not null)
-            {
-                drafts.Single(setting => setting.Key == "Cold:Logging:AppInsightsConnectionString").DraftValue = appInsightsConnectionStringOverride;
-            }
-            if (sidecarOverride is not null)
-            {
-                drafts.Single(setting => setting.Key == "Warm:HealthProbe:Sidecar").DraftValue =
-                    $"Enabled=true;url={sidecarOverride}";
-            }
-            var result = await appConfiguration.UpdateAsync(
-                appConfiguration.DefaultEndpoint,
-                configuredLabel,
-                drafts,
-                createLabel: true);
-            appConfiguration.CachedLabel = configuredLabel;
-            var initializedSettingCount = result.Settings.Count(setting =>
-                string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
-            appConfigurationLogger.LogInformation(
-                "App Configuration startup initialized label {Label} with {SettingCount} published proxy settings at {Endpoint}",
-                labelDisplay,
-                initializedSettingCount,
-                appConfiguration.DefaultEndpoint);
+            replayOptions = ParseCommandLineArguments(args);
         }
-        else if (labelSettingCount == 0)
+        catch (Exception exception) when (exception is ArgumentException or FormatException)
         {
-            appConfigurationLogger.LogError(
-                "App Configuration startup check failed: label {Label} at {Endpoint} contains no published proxy settings",
-                labelDisplay,
-                appConfiguration.DefaultEndpoint);
+            Console.Error.WriteLine(exception.Message);
+            Environment.ExitCode = 1;
+            return;
         }
-        else
-        {
-            appConfiguration.CachedLabel = configuredLabel;
-            appConfigurationLogger.LogInformation(
-                "App Configuration startup check succeeded: label {Label} contains {SettingCount} published proxy settings at {Endpoint}",
-                labelDisplay,
-                labelSettingCount,
-                appConfiguration.DefaultEndpoint);
-        }
+
+        var uiOnly = replayOptions.ApplicationArgs.Contains("--uionly", StringComparer.OrdinalIgnoreCase);
+        var builder = CreateBuilder(replayOptions);
+        ConfigureServices(builder, replayOptions, uiOnly);
+
+        var app = builder.Build();
+
+        await app.Services
+            .GetRequiredService<AppConfigurationStartupInitializer>()
+            .InitializeAsync(uiOnly);
+        await InitializeStoresAsync(app);
+        ProxyMetricsSeeder.Seed(app.Services.GetRequiredService<ProxyMetricsCatalog>());
+        ConfigureHttpPipeline(app);
+
+        app.Run();
     }
-    catch (Exception exception)
+
+    internal static TokenomicsReplayOptions ParseCommandLineArguments(string[] args)
     {
-        appConfigurationLogger.LogError(
-            exception,
-            "App Configuration startup check failed for label {Label} at {Endpoint}; the admin page remains available for recovery",
-            labelDisplay,
-            appConfiguration.DefaultEndpoint);
+        var applicationArgs = new List<string>();
+        string? replayFileName = null;
+        for (var index = 0; index < args.Length; index++)
+        {
+            if (!args[index].Equals("--run", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args[index].StartsWith("--run=", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new ArgumentException("Use --run events <filename>.");
+                }
+
+                applicationArgs.Add(args[index]);
+                continue;
+            }
+
+            if (replayFileName is not null
+                || index + 2 >= args.Length
+                || !args[index + 1].Equals("events", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(args[index + 2])
+                || args[index + 2].StartsWith("--", StringComparison.Ordinal))
+            {
+                throw new ArgumentException("Replay requires exactly one --run events <filename>.");
+            }
+
+            replayFileName = args[index + 2];
+            index += 2;
+        }
+
+        return TokenomicsReplayOptions.Load(applicationArgs.ToArray(), replayFileName);
+    }
+
+    private static WebApplicationBuilder CreateBuilder(TokenomicsReplayOptions replayOptions)
+    {
+        var applicationArgs = replayOptions.ApplicationArgs
+            .Where(arg => !string.Equals(arg, "--uionly", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        var builder = WebApplication.CreateBuilder(applicationArgs);
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole(options => options.FormatterName = "custom");
+        builder.Logging.AddConsoleFormatter<CompanionApp.Startup.CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+        builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
+        builder.Configuration.AddJsonFile(
+            $"chat-models.{builder.Environment.EnvironmentName}.json",
+            optional: true,
+            reloadOnChange: true);
+        builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
+        builder.Configuration.AddJsonFile(
+            $"vision-models.{builder.Environment.EnvironmentName}.json",
+            optional: true,
+            reloadOnChange: true);
+
+        return builder;
+    }
+
+    private static void ConfigureServices(
+        WebApplicationBuilder builder,
+        TokenomicsReplayOptions replayOptions,
+        bool uiOnly)
+    {
+        builder.Services.AddRazorComponents()
+            .AddInteractiveServerComponents();
+        builder.Services.AddDataProtection()
+            .SetApplicationName("chat_tester")
+            .PersistKeysToFileSystem(
+                new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".keys")));
+
+        builder.Services.AddSingleton(new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(5)
+        });
+        builder.Services.AddSingleton<AuthTokenSettings>();
+        builder.Services.AddSingleton<UserSettings>();
+        builder.Services.AddSingleton<HeaderSettings>();
+        builder.Services.AddSingleton<HistorySettings>();
+        builder.Services.AddSingleton<ConversationSettings>();
+        builder.Services.AddSingleton<RequestDebugSettings>();
+        builder.Services.AddSingleton<AutoCollapseSettings>();
+        builder.Services.AddSingleton<ModelDefaults>();
+        builder.Services.AddSingleton<VisionModelCatalog>();
+        builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
+        builder.Services.AddSingleton<AppConfigurationScaffoldService>();
+        builder.Services.AddSingleton<AppConfigurationStartupInitializer>();
+        builder.Services.AddSingleton<ImageSyncService>();
+        builder.Services.AddSingleton<ChatHistoryStore>();
+        builder.Services.AddSingleton<ChatConversationStore>();
+        builder.Services.AddSingleton<EventHubMonitorStore>();
+
+        TokenomicsStartup.ConfigureServices(builder, replayOptions, uiOnly);
+        ConfigureOptions(builder);
+    }
+
+    private static void ConfigureOptions(WebApplicationBuilder builder)
+    {
+        builder.Services.AddScoped<UserPreferencesService>();
+        builder.Services.Configure<CompanionAppOptions>(
+            builder.Configuration.GetSection(CompanionAppOptions.SectionName));
+        builder.Services.Configure<CompanionAppOptions>(options =>
+        {
+            options.AppConfigurationRules = builder.Configuration
+                .GetSection($"{CompanionAppOptions.UiSectionName}:AppConfigurationRules")
+                .Get<List<AppConfigurationSettingRule>>() ?? new();
+            options.Hosts = builder.Configuration
+                .GetSection($"{CompanionAppOptions.UiSectionName}:Hosts")
+                .Get<AppConfigHostSettings>() ?? new();
+            options.Hosts.FieldChoices["processor"] = StreamProcessorFactory.ProcessorNames.ToArray();
+        });
+        builder.Services.Configure<EventHubMonitorOptions>(
+            builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
+    }
+
+    private static async Task InitializeStoresAsync(WebApplication app)
+    {
+        var companionAppOptions = app.Services
+            .GetRequiredService<IOptions<CompanionAppOptions>>()
+            .Value;
+
+        app.Services.GetRequiredService<HistorySettings>()
+            .ApplyDefaultsIfMissing(companionAppOptions.History);
+        app.Services.GetRequiredService<ConversationSettings>()
+            .ApplyDefaultsIfMissing(companionAppOptions.Conversations);
+
+        await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
+        await app.Services.GetRequiredService<ChatConversationStore>().ReloadAsync();
+    }
+
+
+    private static void ConfigureHttpPipeline(WebApplication app)
+    {
+        if (!app.Environment.IsDevelopment())
+        {
+            app.UseExceptionHandler("/Error", createScopeForErrors: true);
+            app.UseHsts();
+        }
+
+        app.UseStatusCodePagesWithReExecute(
+            "/not-found",
+            createScopeForStatusCodePages: true);
+        app.UseHttpsRedirection();
+        app.UseAntiforgery();
+
+        app.MapStaticAssets();
+        app.MapRazorComponents<App>()
+            .AddInteractiveServerRenderMode();
     }
 }
-
-app.Services.GetRequiredService<HistorySettings>()
-    .ApplyDefaultsIfMissing(companionAppOptions.History);
-app.Services.GetRequiredService<ConversationSettings>()
-    .ApplyDefaultsIfMissing(companionAppOptions.Conversations);
-await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
-await app.Services.GetRequiredService<ChatConversationStore>().ReloadAsync();
-
-var proxyMetricsCatalog = app.Services.GetRequiredService<ProxyMetricsCatalog>();
-
-static ParsedEventRecord SeedRequest(string mid, string type, int status, string path, string modelKey, string model, string backendHost)
-    => new(string.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Type"] = type,
-        ["MID"] = mid,
-        ["Status"] = status.ToString(),
-        ["Path"] = path,
-        [modelKey] = model,
-        ["Backend-Host"] = backendHost,
-    });
-
-proxyMetricsCatalog.Publish(new List<ParsedEventRecord>
-{
-    // Server + fleet health (drives the Server and Backends metric groups).
-    new(string.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Type"] = "S7P-Backend",
-        ["Date"] = DateTimeOffset.UtcNow.ToString("O"),
-        ["Timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
-        ["Ver"] = "9.0.0-preview-ui",
-        ["LoadBalanceMode"] = "latency",
-        ["ActiveHostsCount"] = "3",
-        ["CPU-Usage"] = "38%",
-        ["Memory-Usage"] = "1.2 GB",
-        ["Open-Connections"] = "642",
-        ["ThreadPoolSaturation"] = "41%",
-        ["Response-Content-Length"] = "1984",
-        ["1-Host"] = "https://backend-a.contoso.net",
-        ["1-Status"] = "active",
-        ["1-Latency"] = "112",
-        ["2-Host"] = "https://backend-b.contoso.net",
-        ["2-Status"] = "active",
-        ["2-Latency"] = "127",
-        ["3-Host"] = "https://backend-c.contoso.net",
-        ["3-Status"] = "throttled",
-        ["3-Latency"] = "249",
-    }),
-    // Endpoint sample (drives the Endpoints metric group).
-    new(string.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Method"] = "POST",
-        ["Path"] = "/chat/completions",
-        ["Uri"] = "https://proxy.contoso.net/chat/completions",
-        ["RequestType"] = "chat",
-        ["RequestHost"] = "proxy.contoso.net",
-        ["Total-Latency"] = "285",
-        ["Request-Queue-Duration"] = "18",
-        ["Connection-Establishment-Time"] = "14",
-    }),
-    // Sample request events (drive the Request and Models metric groups).
-    SeedRequest("mid-001", "S7P-ProxyRequest", 200, "/chat/completions", "Model", "gpt-4o-mini", "https://backend-a.contoso.net"),
-    SeedRequest("mid-002", "S7P-ProxyRequest", 200, "/chat/completions", "DeploymentName", "gpt-4o", "https://backend-b.contoso.net"),
-    SeedRequest("mid-003", "S7P-ProxyRequest", 429, "/embeddings", "Model", "text-embedding-3-large", "https://backend-c.contoso.net"),
-    SeedRequest("mid-004", "S7P-ProxyRequestRequeued", 503, "/responses", "ModelDeployment", "gpt-4.1-mini", "https://backend-c.contoso.net"),
-    SeedRequest("mid-005", "S7P-CircuitBreakerError", 503, "/chat/completions", "Model", "gpt-4o-mini", "https://backend-b.contoso.net"),
-});
-
-// Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
-}
-app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
-app.UseHttpsRedirection();
-
-app.UseAntiforgery();
-
-app.MapStaticAssets();
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
-
-app.Run();

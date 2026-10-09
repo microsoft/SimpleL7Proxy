@@ -1,6 +1,8 @@
 using System.Reflection;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
+using SimpleL7Proxy.Extensions;
+using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Config;
 
@@ -143,7 +145,7 @@ public class ProxyConfig
     [ConfigOption("Tokenomics:Enable")]
     public bool TokenomicsEnable { get; set; } = true;
     [ConfigOption("Tokenomics:Options")]
-    public string TokenomicsOptions { get; set; } = "";
+    public string TokenomicsOptions { get; set; } = new TokenomicsSettings().ToString();
     [ConfigOption("Tokenomics:MetricsServer")]
     public string TokenomicsMetricsServer { get; set; } = "";
 
@@ -419,17 +421,18 @@ public class ProxyConfig
                     ? parsedUri
                     : currentValue,
             _ when type == typeof(List<string>)
-                => ConfigParser.ToListOfString(
-                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<string>)currentValue!))),
+                  => ConfigParser.ReadEnvironmentVariableOrDefault(
+                      incomingSettings, configKey, string.Join(",", (List<string>)currentValue!)).ToListOfString(),
             _ when type == typeof(List<int>)
-                => ConfigParser.ToListOfInt(
-                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<int>)currentValue!))),
+                  => ConfigParser.ReadEnvironmentVariableOrDefault(
+                      incomingSettings, configKey, string.Join(",", (List<int>)currentValue!)).ToListOfInt(),
             _ when type == typeof(int[])
                 => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (int[])currentValue!),
             _ when type == typeof(Dictionary<string, string>)
-                => ConfigParser.KVStringPairs(ConfigParser.ToListOfString(
-                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey,
-                           string.Join(",", ((Dictionary<string, string>)currentValue!).Select(kvp => $"{kvp.Key}={kvp.Value}"))))),
+                  => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey,
+                      string.Join(",", ((Dictionary<string, string>)currentValue!).Select(kvp => $"{kvp.Key}={kvp.Value}")))
+                     .ToListOfString()
+                     .KVStringPairs(),
             _ when type.IsEnum
                 => Enum.TryParse(type, ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, currentValue!.ToString()!), true, out var parsed)
                     ? parsed : currentValue,

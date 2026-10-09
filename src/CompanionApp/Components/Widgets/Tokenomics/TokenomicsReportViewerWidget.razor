@@ -1,0 +1,76 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<div class="report-viewer">
+    <header class="report-header">
+        <div>
+            <h2>@SelectedReport</h2>
+            <p>@GetReportDescription(SelectedReport)</p>
+        </div>
+        <button type="button" class="report-close-button" @onclick="OnClose" title="Close report">
+            <span aria-hidden="true">✕</span>
+            <span class="visually-hidden">Close report</span>
+        </button>
+    </header>
+
+    <article class="report-content">
+        @switch (SelectedReport)
+        {
+            case "Quota and Budget Utilization":
+                <QuotaAndBudgetReportContent Snapshot="Snapshot" />
+                break;
+            case "Policy Decisions and Outcomes":
+                <PolicyDecisionsReportContent Snapshot="Snapshot" />
+                break;
+            case "Model Routing and Substitution":
+                <ModelRoutingReportContent Snapshot="Snapshot" />
+                break;
+            case "Capacity and Queue Pressure":
+                <CapacityQueueReportContent Snapshot="Snapshot" />
+                break;
+            case "Latency, Errors and Throttling":
+                <LatencyErrorsReportContent Snapshot="Snapshot" />
+                break;
+            case "Large-Context Workload":
+                <LargeContextReportContent Snapshot="Snapshot" />
+                break;
+            case "Governance, Overrides and Exceptions":
+                <GovernanceReportContent Snapshot="Snapshot" />
+                break;
+            case "Abuse and Content-Filter Activity":
+                <AbuseFilterReportContent Snapshot="Snapshot" />
+                break;
+            default:
+                <p style="color: #999;">Report not found.</p>
+                break;
+        }
+    </article>
+</div>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public string SelectedReport { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private string GetReportDescription(string reportName)
+    {
+        return reportName switch
+        {
+            "Quota and Budget Utilization" => "Usage, spend, limits and at-risk entities",
+            "Policy Decisions and Outcomes" => "Actions taken and their results",
+            "Model Routing and Substitution" => "Requested vs selected models and cost impact",
+            "Capacity and Queue Pressure" => "Utilization, queue depth and delay/requeue",
+            "Latency, Errors and Throttling" => "Performance, 429s and error rates",
+            "Large-Context Workload" => "High token requests and model behavior",
+            "Governance, Overrides and Exceptions" => "Admin overrides, approvals and compliance",
+            "Abuse and Content-Filter Activity" => "Jailbreaks, filtered responses and trends",
+            _ => string.Empty
+        };
+    }
+}

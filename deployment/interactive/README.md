@@ -150,7 +150,7 @@ Configure image registry, repository names, and build behavior before running im
 | Variable | Used by | Suggested value | Purpose |
 |---|---|---|---|
 | `ACR_NAME` | ContainerImage, ACA | `acrsimplel7proxy` | Azure Container Registry name (no `.azurecr.io` suffix). **Must be globally unique across Azure.** |
-| `PROXY_IMAGE_NAME` | ContainerImage, ACA | `simple-l7-proxy` | Repository name within ACR for the proxy image |
+| `PROXY_IMAGE_NAME` | ContainerImage, ACA | `simplel7proxy` | Repository name within ACR for the proxy image |
 | `HEALTH_IMAGE_NAME` | ContainerImage, proxy-with-sidecar | `healthprobe` | Repository name within ACR for the health-probe image |
 | `BUILD_METHOD` | ContainerImage | `remote` | Build strategy: use `remote` for first deployments (no local Docker needed). Use `local` only for dev/test with Docker installed |
 | `DOCKERFILE_PATH` | ContainerImage | `SimpleL7Proxy/Dockerfile` | Dockerfile path under `src/` |

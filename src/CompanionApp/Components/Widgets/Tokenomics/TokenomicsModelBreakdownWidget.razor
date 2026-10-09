@@ -1,0 +1,23 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<article class="tokenomics-card insight-card model-card">
+    <h3>Token Usage by Model</h3>
+    <div class="model-breakdown">
+        <div class="model-donut" role="img" aria-label="@Snapshot.ModelDescription" style="--model-distribution: @Snapshot.ModelGradient">
+            <div><strong>@Snapshot.TotalTokens</strong><span>Total Tokens</span></div>
+        </div>
+        <ul class="model-legend">
+            @foreach (var model in Snapshot.Models)
+            {
+                <li><i class="@model.Color"></i><span>@model.Name</span><strong>@model.Tokens <small>(@model.Share)</small></strong></li>
+            }
+        </ul>
+    </div>
+</article>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

@@ -1,6 +1,19 @@
 {
   "scenarios": [
     {
+      "name": "unknown-model-uses-default-model",
+      "model": "unknown",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 200, "body": "openai" },
+      "b": { "delayMs": 0, "status": 500, "body": "json-error" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 200 - Success"],
+        "forbiddenLog": ["Using UNRECOGNIZED"]
+      }
+    },
+    {
       "name": "healthy-200",
       "model": "policy-default",
       "priorityKey": "high",

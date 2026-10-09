@@ -1,0 +1,22 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<article class="tokenomics-card insight-card">
+    <h3>Spend by Tenant</h3>
+    @if (Snapshot.TenantSpend.IsEmpty)
+    {
+        <p>@(Snapshot.HasPriceData ? "No priced token usage in this time range." : "Spend unavailable: no price data.")</p>
+    }
+    <ul class="horizontal-bars spend-bars">
+        @foreach (var tenant in Snapshot.TenantSpend)
+        {
+            <li><span>@tenant.Name</span><div class="horizontal-track"><i class="@tenant.Color" style="width: @tenant.Width"></i></div><strong>@tenant.Amount</strong></li>
+        }
+    </ul>
+</article>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}
