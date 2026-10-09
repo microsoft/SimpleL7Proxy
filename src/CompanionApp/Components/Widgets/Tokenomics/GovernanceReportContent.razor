@@ -1,71 +1,465 @@
 @namespace CompanionApp.Components.Widgets.Tokenomics
 @rendermode InteractiveServer
 @using CompanionApp.Tokenomics
+@using System.Collections.Immutable
+@using System.Globalization
+@using System.Text
 
-<section>
-    <h3>Governance, Overrides and Exceptions</h3>
-    <p>Admin actions, approvals, and compliance tracking</p>
-    
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Total Overrides</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">142</strong>
-            <span style="font-size: 0.75rem; color: #999;">↓ 12% vs. last week</span>
-        </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Approved Exceptions</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">95</strong>
-            <span style="font-size: 0.75rem; color: #28a745;">67% approval rate</span>
-        </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Pending Approval</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">28</strong>
-            <span style="font-size: 0.75rem; color: #ffa21b;">avg 2.3 days old</span>
-        </div>
+<section class="tokenomics-section policy-report governance-report" aria-label="Governance, overrides and exceptions">
+    <div class="tokenomics-kpis">
+        @foreach (var metric in _metrics)
+        {
+            <article class="tokenomics-card kpi-card">
+                <div class="kpi-heading"><h2>@metric.Name</h2><span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span></div>
+                <p class="kpi-value routing-kpi-value">@metric.Value</p>
+                <p class="policy-kpi-caption">@metric.Caption</p>
+            </article>
+        }
+    </div>
+    <p class="policy-note">
+        Current telemetry combines administrator overrides with approved exceptions, and incident response with audit/compliance.
+        Separate flags, approval reasons, actors and dedicated audit IDs are not captured. Previous-period comparisons are unavailable.
+    </p>
+    @if (_warnings.Count > 0)
+    {
+        <p class="policy-note governance-warning" role="alert">Invalid or unavailable aggregate telemetry: @string.Join("; ", _warnings.Order(StringComparer.Ordinal))</p>
+    }
+
+    <div class="policy-chart-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Governance Evaluations Over Time</h3><p>Recorded combined conditions, @IntervalLabel in UTC; not counts of administrative approval operations</p></div>
+            <div class="policy-timeline" role="img" aria-label="@TimelineDescription">
+                <span class="policy-axis-label">Evaluations</span>
+                <div class="policy-axis-ticks" aria-hidden="true">
+                    @for (var tick = 4; tick >= 0; tick--) { <span>@(_axisMaximum * tick / 4)</span> }
+                </div>
+                <div class="policy-timeline-bars" style="@($"--policy-buckets: {Math.Max(1, _timeline.Length)}")">
+                    @for (var index = 0; index < _timeline.Length; index++)
+                    {
+                        var bucket = _timeline[index];
+                        <div class="policy-time-bucket">
+                            <div class="policy-time-stack" title="@($"{bucket.Label} UTC: {bucket.Total} governance evaluations")">
+                                @for (var category = 0; category < _categories.Length; category++)
+                                {
+                                    <span style="@($"height: {Width(bucket.Counts[category], _axisMaximum)}%; background: {CategoryColor(category)}")"
+                                          title="@($"{_categories[category]}: {bucket.Counts[category]}")"></span>
+                                }
+                            </div>
+                            <span class="policy-time-label">@(index % Math.Max(1, _timeline.Length / 6) == 0 || index == _timeline.Length - 1 ? bucket.Label : "")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="policy-legend">
+                @for (var category = 0; category < _categories.Length; category++) { <span><i style="background: @CategoryColor(category)"></i>@_categories[category]</span> }
+            </div>
+            <p class="policy-note">@Number(_timestampedEvaluations) of @Number(_events.Length) evaluations have timestamps for this chart. Empty buckets mean no recorded evaluations.</p>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Recorded Governance Conditions</h3><p>Condition categories, not override or exception reasons; reasons are not captured</p></div>
+            <div class="policy-outcome-distribution">
+                <div class="model-donut policy-donut" style="@($"--model-distribution: {_conditionGradient}")" role="img" aria-label="@ConditionDescription">
+                    <div><strong>@Number(_events.Length)</strong><span>Evaluations</span></div>
+                </div>
+                <ul class="policy-outcome-list">
+                    @for (var category = 0; category < _categories.Length; category++)
+                    {
+                        <li><i style="background: @CategoryColor(category)" aria-hidden="true"></i><span>@_categories[category]</span><strong>@Number(_categoryCounts[category]) (@Percent(_categoryCounts[category], _events.Length))</strong></li>
+                    }
+                </ul>
+            </div>
+        </article>
     </div>
 
-    <div class="report-section" style="margin-top: 2rem;">
-        <h4>Recent Admin Actions</h4>
-        <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse;">
-            <thead>
-                <tr style="border-bottom: 1px solid #e0e0e0;">
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Action</th>
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Admin</th>
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Affected User</th>
-                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Quota Override</td>
-                    <td style="padding: 0.5rem;">admin@contoso.com</td>
-                    <td style="padding: 0.5rem;">alex</td>
-                    <td style="padding: 0.5rem;"><span style="background: #d4edda; color: #155724; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Approved</span></td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Cost Limit Exception</td>
-                    <td style="padding: 0.5rem;">admin@fabrikam.com</td>
-                    <td style="padding: 0.5rem;">maria</td>
-                    <td style="padding: 0.5rem;"><span style="background: #d4edda; color: #155724; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Approved</span></td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Rate Limit Waiver</td>
-                    <td style="padding: 0.5rem;">admin@contoso.com</td>
-                    <td style="padding: 0.5rem;">sam</td>
-                    <td style="padding: 0.5rem;"><span style="background: #fff3cd; color: #856404; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Pending</span></td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f0f0f0;">
-                    <td style="padding: 0.5rem;">Policy Exception</td>
-                    <td style="padding: 0.5rem;">admin@northwind.com</td>
-                    <td style="padding: 0.5rem;">david</td>
-                    <td style="padding: 0.5rem;"><span style="background: #ffe0e0; color: #d32f2f; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Denied</span></td>
-                </tr>
-            </tbody>
-        </table>
+    <div class="tokenomics-insight-grid governance-breakdown-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Governed Requests by Tenant</h3><p>Distinct requests with recorded governance conditions; categories can overlap</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table governance-summary-table">
+                    <thead><tr><th scope="col">Tenant</th><th scope="col">Requests</th><th scope="col">Override / Exception</th><th scope="col">Quota Governance</th><th scope="col">Entitled Tenant</th></tr></thead>
+                    <tbody>
+                        @foreach (var tenant in _tenants)
+                        {
+                            <tr><td>@tenant.Name</td><td>@Number(tenant.Requests)</td><td>@Number(tenant.Overrides)</td><td>@Number(tenant.Governance)</td><td>@Number(tenant.Entitled)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_tenants.Length == 0) { <p class="policy-note governance-empty">No recorded governance conditions.</p> }
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Governed Requests by User</h3><p>Requesting users, not override actors; rate uses distinct evaluated requests</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table governance-summary-table">
+                    <thead><tr><th scope="col">User / Tenant</th><th scope="col">Governed</th><th scope="col">Evaluated</th><th scope="col">Rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var user in _users)
+                        {
+                            <tr><td>@user.User<br />@user.Tenant</td><td>@Number(user.Governed)</td><td>@Number(user.Evaluated)</td><td>@Percent(user.Governed, user.Evaluated)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Actions by Recorded Condition</h3><p>Selected policy action and winning condition; configured action is not captured</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table governance-summary-table">
+                    <thead><tr><th scope="col">Condition</th><th scope="col">Action</th><th scope="col">Evaluations</th><th scope="col">Share</th></tr></thead>
+                    <tbody>
+                        @foreach (var action in _actions)
+                        {
+                            <tr><td>@action.Condition</td><td>@action.Action</td><td>@Number(action.Count)</td><td>@Percent(action.Count, _events.Length)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
     </div>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading"><div class="policy-card-heading"><h3>Usage and Recorded Cost of Governed Traffic</h3><p>Each governed request counted once, regardless of repeated evaluations. Recorded Cost is not verified billing; currency is not captured.</p></div></div>
+        <div class="users-table-wrap">
+            <table class="users-table governance-summary-table">
+                <thead><tr><th scope="col">Tenant</th><th scope="col">Requests</th><th scope="col">Outcomes Captured</th><th scope="col">Non-2xx</th><th scope="col">Tokens Captured</th><th scope="col">Usage Coverage</th><th scope="col">Recorded Cost (event units)</th><th scope="col">Cost Coverage</th></tr></thead>
+                <tbody>
+                    @foreach (var tenant in _tenants)
+                    {
+                        <tr><td>@tenant.Name</td><td>@Number(tenant.Requests)</td><td>@Number(tenant.Outcomes)</td><td>@Number(tenant.NonSuccess)</td>
+                            <td>@TokenCount(tenant.Tokens)</td><td>@Number(tenant.UsageSamples) / @Number(tenant.Requests)</td>
+                            <td>@Cost(tenant.Cost)</td><td>@Number(tenant.CostSamples) / @Number(tenant.Requests)</td></tr>
+                    }
+                    <tr class="governance-total"><th scope="row">All governed requests</th><td>@Number(_total.Requests)</td><td>@Number(_total.Outcomes)</td><td>@Number(_total.NonSuccess)</td>
+                        <td>@TokenCount(_total.Tokens)</td><td>@Number(_total.UsageSamples) / @Number(_total.Requests)</td>
+                        <td>@Cost(_total.Cost)</td><td>@Number(_total.CostSamples) / @Number(_total.Requests)</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="policy-note">UsageAvailable must be true. Tokens are input + output; cached input tokens are not added again. Missing cost/usage is excluded, not replaced with zero. Governance signals do not prove exemption or approval.</p>
+    </article>
+
+    <article class="tokenomics-card insight-card">
+        <div class="policy-card-heading"><h3>Governance Flags and Audit Evidence</h3><p>Recorded winning conditions establish combined signals only, not a complete flag snapshot</p></div>
+        <div class="users-table-wrap">
+            <table class="users-table governance-summary-table">
+                <thead><tr><th scope="col">Requested evidence</th><th scope="col">Capture status</th><th scope="col">Available evidence / limitation</th></tr></thead>
+                <tbody>
+                    <tr><td>AdministratorOverride / ApprovedException flags</td><td>Not captured separately</td><td>AdministratorOverride condition means either flag; an approval actor/reference is not recorded.</td></tr>
+                    <tr><td>IncidentResponse / AuditInvestigation / ComplianceRequired flags</td><td>Not captured separately</td><td>DailyQuotaGovernance means at least one of these flags with daily quota exceeded; it does not identify which.</td></tr>
+                    <tr><td>PremiumTenant / EnterpriseTenant flags</td><td>Not captured separately</td><td>DailyBudgetEntitledTenant or MonthlyBudgetEntitledTenant means either tier, not a complete entitlement snapshot.</td></tr>
+                    <tr><td>Quota balance, limits and monthly-quota state under an override</td><td>Not captured</td><td>DailyQuotaGovernance identifies a daily-quota-exceeded condition; an override condition does not establish the quota state.</td></tr>
+                    <tr><td>Reason, actor, approval reference, dedicated audit ID and policy/config version</td><td>Not captured</td><td>MID and DecisionId are request/evaluation correlation IDs, not evidence of approval.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading">
+            <div class="policy-card-heading"><h3>Recent Governance Evaluations</h3><p>Deduplicated evaluations, newest first; usage/outcomes correlate to the latest in-window RequestOutcome</p></div>
+            <div class="policy-table-controls">
+                <div class="section-tabs" aria-label="Filter governance conditions">
+                    @foreach (var filter in _filters)
+                    {
+                        <button type="button" class="@(filter == _selectedFilter ? "selected" : "")" aria-pressed="@(filter == _selectedFilter ? "true" : "false")"
+                                @onclick="@(() => SelectFilter(filter))">@filter</button>
+                    }
+                </div>
+                @if (_filteredEvents.Length == 0) { <button type="button" class="export-button" disabled>Export CSV</button> }
+                else { <a class="export-button" href="@_csvHref" download="governance-overrides-exceptions.csv">Export CSV</a> }
+            </div>
+        </div>
+        <div class="users-table-wrap">
+            <table class="users-table governance-events-table">
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Tenant</th><th scope="col">Model (Requested / Selected)</th><th scope="col">Recorded Category</th><th scope="col">Reason / Actor</th><th scope="col">Condition / Action</th><th scope="col">Quota State</th><th scope="col">Tokens / Cost</th><th scope="col">Policy Outcome / HTTP Status</th><th scope="col">Correlation</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _visibleEvents)
+                    {
+                        <tr>
+                            <td>@(entry.Timestamp?.ToString("MMM d, HH:mm:ss", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@entry.Request.User<br />@entry.Request.Tenant</td><td>@Field(entry.Fields, "RequestedModel")<br />@Field(entry.Fields, "ModelAfter")</td>
+                            <td>@_categories[entry.Category]</td><td>Not captured</td>
+                            <td>@Field(entry.Fields, "PolicyCondition")<br />@Field(entry.Fields, "PolicyAction")</td><td>@QuotaState(entry.Fields)</td>
+                            <td>@TokenCount(entry.Request.Tokens)<br />@Cost(entry.Request.Cost)</td>
+                            <td>@Field(entry.Fields, "Decision")<br />@(entry.Request.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>
+                                <details class="policy-decision-details">
+                                    <summary>View IDs / Details</summary>
+                                    <dl>
+                                        <dt>Request correlation ID (MID)</dt><dd>@entry.Request.Id</dd>
+                                        <dt>Evaluation correlation ID (DecisionId)</dt><dd>@Field(entry.Fields, "DecisionId")</dd>
+                                        <dt>Evaluation sequence</dt><dd>@Field(entry.Fields, "EvaluationSequence")</dd>
+                                        <dt>Model before / after this evaluation</dt><dd>@Field(entry.Fields, "ModelBefore") / @Field(entry.Fields, "ModelAfter")</dd>
+                                        <dt>Priority before / after</dt><dd>@Field(entry.Fields, "PriorityBefore") / @Field(entry.Fields, "PriorityAfter")</dd>
+                                        <dt>Latest outcome-reported / policy-selected model</dt><dd>@entry.Request.Selected</dd>
+                                        <dt>Latest policy outcome</dt><dd>@entry.Request.Decision</dd>
+                                        <dt>Outcome time (UTC)</dt><dd>@(entry.Request.OutcomeTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured")</dd>
+                                        <dt>Individual governance flags / configured action</dt><dd>Not captured</dd>
+                                        <dt>Dedicated audit ID / approval reference / actor / reason</dt><dd>Not captured</dd>
+                                        <dt>Quota balance / limits / policy version</dt><dd>Not captured</dd>
+                                    </dl>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_filteredEvents.Length == 0) { <p class="policy-note governance-empty" role="status">No recorded governance evaluations match this selection. This does not prove that governance flags or exemptions were absent.</p> }
+        <div class="policy-pagination">
+            <span>@Number(_filteredEvents.Length) matching evaluations</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex == 0)" @onclick="() => ChangePage(-1)">Previous</button>
+            <span>Page @(_pageIndex + 1) of @PageCount</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next</button>
+        </div>
+    </article>
+    <p class="policy-note">
+        Only the winning policy condition is recorded. AdministratorOverride combines administrator override OR approved exception.
+        DailyQuotaGovernance combines incident response OR audit investigation OR compliance when daily quota is exceeded.
+        Entitled-tenant budget conditions combine premium OR enterprise. CapacityCriticalWorkload does not prove incident response: critical priority can produce it.
+        These conditions identify request policy evaluations, not administrator approval operations or proof of exemption.
+        Charts and action tables count deduplicated evaluations; KPIs and usage/cost count distinct requests. Audit rows can repeat the same request's usage, so they must not be summed.
+        Evaluation/outcome timestamps are not request arrival or approval times. All joins and attribution are limited to the selected snapshot window.
+    </p>
 </section>
 
 @code {
     [Parameter]
     public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public TokenomicsPeriod Period { get; set; } = TokenomicsPeriod.Hourly;
+
+    private sealed record GovernedRequest(string Id, string User, string Tenant, string Selected, string Decision,
+        ImmutableDictionary<string, string>[] Policies, int? Status, DateTimeOffset? OutcomeTime, decimal? Tokens, decimal? Cost);
+    private sealed record GovernanceEvaluation(GovernedRequest Request, ImmutableDictionary<string, string> Fields, DateTimeOffset? Timestamp, int Category);
+    private sealed record TenantSummary(string Name, int Requests, int Overrides, int Governance, int Entitled,
+        int Outcomes, int NonSuccess, decimal? Tokens, int UsageSamples, decimal? Cost, int CostSamples);
+
+    private const int PageSize = 10;
+    private readonly string[] _categories = ["Override / Exception", "Daily Quota Governance", "Entitled-Tenant Budget"];
+    private readonly string[] _filters = ["All Actions", "Overrides / Exceptions", "Quota Governance", "Entitled Tenants"];
+    private readonly HashSet<string> _warnings = new(StringComparer.Ordinal);
+    private GovernedRequest[] _requests = [];
+    private GovernanceEvaluation[] _events = [];
+    private GovernanceEvaluation[] _filteredEvents = [];
+    private GovernanceEvaluation[] _visibleEvents = [];
+    private TenantSummary[] _tenants = [];
+    private TenantSummary _total = new("All", 0, 0, 0, 0, 0, 0, null, 0, null, 0);
+    private (string User, string Tenant, int Governed, int Evaluated)[] _users = [];
+    private (string Condition, string Action, int Count)[] _actions = [];
+    private (string Label, int Total, int[] Counts)[] _timeline = [];
+    private (string Name, string Value, string Icon, string Tone, string Caption)[] _metrics = [];
+    private int[] _categoryCounts = [0, 0, 0];
+    private string _conditionGradient = "conic-gradient(#9ba9c1 0% 100%)";
+    private string _selectedFilter = "All Actions";
+    private string _csvHref = string.Empty;
+    private int _pageIndex;
+    private int _axisMaximum = 4;
+    private int _timestampedEvaluations;
+    private int PageCount => Math.Max(1, (_filteredEvents.Length + PageSize - 1) / PageSize);
+    private string IntervalLabel => Period switch { TokenomicsPeriod.Hourly => "per minute", TokenomicsPeriod.Daily => "per hour", _ => "per day" };
+    private string TimelineDescription => $"{Number(_events.Length)} recorded governance evaluations, {IntervalLabel} in UTC. Individual governance flags and approval reasons are not captured.";
+    private string ConditionDescription => string.Join(", ", _categories.Select((name, index) => $"{name}: {_categoryCounts[index]} evaluations"));
+
+    protected override void OnParametersSet() {
+        _warnings.Clear();
+        _requests = Snapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(BuildRequest).ToArray();
+        _events = _requests.SelectMany(request => request.Policies.Where(fields => Category(fields) >= 0)
+                .Select(fields => new GovernanceEvaluation(request, fields, Time(fields), Category(fields))))
+            .OrderByDescending(entry => entry.Timestamp).ThenByDescending(entry => Sequence(entry.Fields)).ThenBy(entry => entry.Request.Id, StringComparer.Ordinal).ToArray();
+        var governed = _requests.Where(request => request.Policies.Any(fields => Category(fields) >= 0)).ToArray();
+        var overrideRequests = governed.Count(request => HasCategory(request, 0));
+        _metrics = [
+            ("Override / Exception Requests", Number(overrideRequests), "♟", "blue", "Combined signal; distinct requests"),
+            ("Approved Exceptions", "Not captured", "✓", "green", "Cannot separate from admin overrides"),
+            ("Admin Overrides", "Not captured", "♟", "blue", "Cannot separate from approved exceptions"),
+            ("Compliance Flags", "Not captured", "⬟", "blue", "Combined with incident / audit signals"),
+            ("Incident Response", "Not captured", "!", "red", "Cannot isolate from combined conditions"),
+            ("Request Correlations", Number(governed.Length), "⌘", "blue", "MID correlations, not dedicated audit IDs")
+        ];
+        _categoryCounts = Enumerable.Range(0, _categories.Length).Select(category => _events.Count(entry => entry.Category == category)).ToArray();
+        var accumulated = 0;
+        var stops = new List<string>();
+        for (var category = 0; category < _categories.Length; category++) {
+            var start = accumulated;
+            accumulated += _categoryCounts[category];
+            if (_categoryCounts[category] > 0) stops.Add($"{CategoryColor(category)} {Width(start, _events.Length)}% {Width(accumulated, _events.Length)}%");
+        }
+        _conditionGradient = stops.Count == 0 ? "conic-gradient(#9ba9c1 0% 100%)" : $"conic-gradient({string.Join(", ", stops)})";
+        _tenants = governed.GroupBy(request => request.Tenant).Select(group => Summarize(group.Key, group.ToArray()))
+            .OrderByDescending(tenant => tenant.Requests).ThenBy(tenant => tenant.Name, StringComparer.Ordinal).ToArray();
+        _total = Summarize("All", governed);
+        _users = _requests.Where(request => request.Policies.Length > 0).GroupBy(request => (request.User, request.Tenant))
+            .Select(group => (group.Key.User, group.Key.Tenant, Governed: group.Count(request => request.Policies.Any(fields => Category(fields) >= 0)), Evaluated: group.Count()))
+            .Where(user => user.Governed > 0).OrderByDescending(user => user.Governed).ThenBy(user => user.Tenant, StringComparer.Ordinal)
+            .ThenBy(user => user.User, StringComparer.Ordinal).ToArray();
+        _actions = _events.GroupBy(entry => (Condition: Field(entry.Fields, "PolicyCondition"), Action: Field(entry.Fields, "PolicyAction")))
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key.Condition, StringComparer.Ordinal).ThenBy(group => group.Key.Action, StringComparer.Ordinal)
+            .Select(group => (group.Key.Condition, group.Key.Action, Count: group.Count())).ToArray();
+        BuildTimeline();
+        UpdateRows();
+    }
+
+    private GovernedRequest BuildRequest(IGrouping<string, ImmutableDictionary<string, string>> group) {
+        var records = group.OrderBy(Time).ThenBy(Sequence).ToArray();
+        var policies = records.Where(fields => Text(fields, "RecordKind") == "PolicyDecision")
+            .DistinctBy(fields => Text(fields, "DecisionId") ?? $"{fields["MID"]}:{Field(fields, "EvaluationSequence")}:{Field(fields, "PolicyAction")}").ToArray();
+        var latest = policies.LastOrDefault();
+        var outcome = records.LastOrDefault(fields => Text(fields, "RecordKind") == "RequestOutcome");
+        var hasUsage = false;
+        if (Text(outcome, "UsageAvailable") is { } flag) {
+            if (!bool.TryParse(flag, out hasUsage)) _warnings.Add("UsageAvailable is not a valid boolean");
+        }
+        var input = hasUsage ? TokenAmount(outcome, "InputTokens") : null;
+        var output = hasUsage ? TokenAmount(outcome, "OutputTokens") : null;
+        return new GovernedRequest(group.Key, Identity(records, "UserId"), Identity(records, "Tenant"),
+            Text(outcome, "EffectiveModel") ?? Text(latest, "ModelAfter") ?? "Not captured", Field(latest, "Decision"), policies,
+            Status(outcome), outcome is null ? null : Time(outcome),
+            input.HasValue && output.HasValue ? input.Value + output.Value : null, hasUsage ? RecordedCost(outcome) : null);
+    }
+
+    private TenantSummary Summarize(string name, GovernedRequest[] requests) {
+        var usage = requests.Where(request => request.Tokens.HasValue).ToArray();
+        var cost = requests.Where(request => request.Cost.HasValue).ToArray();
+        return new TenantSummary(name, requests.Length, requests.Count(request => HasCategory(request, 0)),
+            requests.Count(request => HasCategory(request, 1)), requests.Count(request => HasCategory(request, 2)),
+            requests.Count(request => request.Status.HasValue), requests.Count(request => request.Status.HasValue && request.Status is not (>= 200 and < 300)),
+            usage.Length == 0 ? null : usage.Sum(request => request.Tokens!.Value), usage.Length, SumCost(cost), cost.Length);
+    }
+
+    private decimal? SumCost(GovernedRequest[] requests) {
+        if (requests.Length == 0) return null;
+        try {
+            return requests.Sum(request => request.Cost!.Value);
+        }
+        catch (OverflowException) {
+            _warnings.Add("Recorded cost total exceeded numeric range");
+            return null;
+        }
+    }
+
+    private void BuildTimeline() {
+        var timed = _events.Where(entry => entry.Timestamp.HasValue).ToArray();
+        _timestampedEvaluations = timed.Length;
+        if (timed.Length == 0) {
+            _timeline = [];
+            _axisMaximum = 4;
+            return;
+        }
+        var latest = timed.Max(entry => entry.Timestamp!.Value);
+        var start = Period switch {
+            TokenomicsPeriod.Hourly => new DateTimeOffset(latest.Year, latest.Month, latest.Day, latest.Hour, 0, 0, TimeSpan.Zero),
+            TokenomicsPeriod.Daily => new DateTimeOffset(latest.Year, latest.Month, latest.Day, 0, 0, 0, TimeSpan.Zero),
+            _ => new DateTimeOffset(latest.Year, latest.Month, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var count = Period switch { TokenomicsPeriod.Hourly => 60, TokenomicsPeriod.Daily => 24, _ => DateTime.DaysInMonth(start.Year, start.Month) };
+        var buckets = timed.ToLookup(entry => Period switch {
+            TokenomicsPeriod.Hourly => entry.Timestamp!.Value.Minute,
+            TokenomicsPeriod.Daily => entry.Timestamp!.Value.Hour,
+            _ => entry.Timestamp!.Value.Day - 1
+        });
+        _timeline = Enumerable.Range(0, count).Select(index => {
+            var entries = buckets[index].ToArray();
+            var timestamp = Period switch { TokenomicsPeriod.Hourly => start.AddMinutes(index), TokenomicsPeriod.Daily => start.AddHours(index), _ => start.AddDays(index) };
+            return (Label: timestamp.ToString(Period == TokenomicsPeriod.Monthly ? "MMM d" : "HH:mm", CultureInfo.InvariantCulture),
+                Total: entries.Length, Counts: Enumerable.Range(0, _categories.Length).Select(category => entries.Count(entry => entry.Category == category)).ToArray());
+        }).ToArray();
+        _axisMaximum = Math.Max(4, (int)Math.Ceiling(_timeline.Max(bucket => bucket.Total) / 4.0) * 4);
+    }
+
+    private static int Category(IReadOnlyDictionary<string, string> fields) => Text(fields, "PolicyCondition") switch {
+        "AdministratorOverride" => 0, "DailyQuotaGovernance" => 1,
+        "MonthlyBudgetEntitledTenant" or "DailyBudgetEntitledTenant" => 2, _ => -1
+    };
+    private static bool HasCategory(GovernedRequest request, int category) => request.Policies.Any(fields => Category(fields) == category);
+    private static string QuotaState(IReadOnlyDictionary<string, string> fields) =>
+        Text(fields, "PolicyCondition") == "DailyQuotaGovernance" ? "Daily quota exceeded (condition)" : "Not captured";
+    private static string? Text(IReadOnlyDictionary<string, string>? fields, string key) =>
+        fields is not null && fields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+    private static string Field(IReadOnlyDictionary<string, string>? fields, string key) => Text(fields, key) ?? "Not captured";
+    private static string Identity(IEnumerable<ImmutableDictionary<string, string>> records, string key) =>
+        records.Select(fields => Text(fields, key)).FirstOrDefault(value => value is not null) ?? "Not captured";
+    private static int Sequence(IReadOnlyDictionary<string, string> fields) =>
+        int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0;
+    private static string Number(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    private static string TokenCount(decimal? value) => value?.ToString("N0", CultureInfo.InvariantCulture) ?? "Not captured";
+    private static string Cost(decimal? value) => value?.ToString("0.######", CultureInfo.InvariantCulture) ?? "Not captured";
+    private static string Width(int count, int total) => (total == 0 ? 0 : count * 100.0 / total).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string Percent(int count, int total) => total == 0 ? "Unavailable" : Width(count, total) + "%";
+    private static string CategoryColor(int category) => category switch { 0 => "#1976f3", 1 => "#32bf78", _ => "#f5ab28" };
+
+    private DateTimeOffset? Time(IReadOnlyDictionary<string, string> fields) {
+        var text = Text(fields, "TimestampUtc");
+        if (text is null) return null;
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)) return timestamp;
+        _warnings.Add("TimestampUtc is invalid");
+        return null;
+    }
+
+    private int? Status(IReadOnlyDictionary<string, string>? fields) {
+        if (fields is null) return null;
+        var status = TokenomicsReplayOptions.GetStatus(fields);
+        if (status is >= 100 and <= 599) return status;
+        _warnings.Add("RequestOutcome has no valid HTTP status (100-599)");
+        return null;
+    }
+
+    private decimal? TokenAmount(IReadOnlyDictionary<string, string>? fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value >= 0) return value;
+        _warnings.Add($"{key} is not a nonnegative integer");
+        return null;
+    }
+
+    private decimal? RecordedCost(IReadOnlyDictionary<string, string>? fields) {
+        var text = Text(fields, "Cost");
+        if (text is null) return null;
+        if (decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && value >= 0) return value;
+        _warnings.Add("Cost is not a nonnegative decimal");
+        return null;
+    }
+
+    private void SelectFilter(string filter) {
+        _selectedFilter = filter;
+        _pageIndex = 0;
+        UpdateRows();
+    }
+
+    private void ChangePage(int change) {
+        _pageIndex = Math.Clamp(_pageIndex + change, 0, PageCount - 1);
+        _visibleEvents = _filteredEvents.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+    }
+
+    private void UpdateRows() {
+        _filteredEvents = _events.Where(entry => _selectedFilter switch {
+            "Overrides / Exceptions" => entry.Category == 0, "Quota Governance" => entry.Category == 1,
+            "Entitled Tenants" => entry.Category == 2, _ => true
+        }).ToArray();
+        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        _visibleEvents = _filteredEvents.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+        var csv = new StringBuilder("TimestampUtc,User,Tenant,RequestedModel,ModelBefore,ModelAfter,LatestSelectedModel,PriorityBefore,PriorityAfter,RecordedCategory,PolicyCondition,PolicyAction,PolicyDecision,LatestPolicyDecision,FinalStatusCode,OutcomeTimestampUtc,Tokens,RecordedCost,QuotaState,QuotaBalance,QuotaLimit,ConfiguredAction,AdministratorOverrideFlag,ApprovedExceptionFlag,PremiumTenantFlag,EnterpriseTenantFlag,IncidentResponseFlag,AuditInvestigationFlag,ComplianceRequiredFlag,Reason,Actor,ApprovalReference,AuditCorrelationId,PolicyVersion,MID,DecisionId,EvaluationSequence\r\n");
+        foreach (var entry in _filteredEvents) {
+            string[] values = [entry.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.Request.User, entry.Request.Tenant, Field(entry.Fields, "RequestedModel"), Field(entry.Fields, "ModelBefore"), Field(entry.Fields, "ModelAfter"),
+                entry.Request.Selected, Field(entry.Fields, "PriorityBefore"), Field(entry.Fields, "PriorityAfter"), _categories[entry.Category],
+                Field(entry.Fields, "PolicyCondition"), Field(entry.Fields, "PolicyAction"), Field(entry.Fields, "Decision"), entry.Request.Decision,
+                entry.Request.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.Request.OutcomeTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.Request.Tokens?.ToString(CultureInfo.InvariantCulture) ?? "Not captured", entry.Request.Cost?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                QuotaState(entry.Fields), "Not captured", "Not captured", "Not captured", "Not captured", "Not captured",
+                "Not captured", "Not captured", "Not captured", "Not captured", "Not captured", "Not captured", "Not captured",
+                "Not captured", "Not captured", "Not captured", entry.Request.Id, Field(entry.Fields, "DecisionId"), Field(entry.Fields, "EvaluationSequence")];
+            csv.Append(string.Join(",", values.Select(CsvCell))).Append("\r\n");
+        }
+        _csvHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv.ToString());
+    }
+
+    private static string CsvCell(string value) {
+        var trimmed = value.TrimStart();
+        if (trimmed.StartsWith('=') || trimmed.StartsWith('+') || trimmed.StartsWith('-') || trimmed.StartsWith('@')
+            || value.StartsWith('\t') || value.StartsWith('\r') || value.StartsWith('\n')) value = "'" + value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
 }
