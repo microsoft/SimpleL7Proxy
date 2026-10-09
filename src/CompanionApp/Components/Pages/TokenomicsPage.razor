@@ -33,9 +33,9 @@
                     }
                 </div>
             </div>
-            <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
-            <label><span class="visually-hidden">User</span><select aria-label="User">@foreach (var user in _snapshot.UserFilters) { <option>@user</option> }</select></label>
-            <label><span class="visually-hidden">Model</span><select aria-label="Model">@foreach (var model in _snapshot.ModelFilters) { <option>@model</option> }</select></label>
+            <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant" @onchange="(ChangeEventArgs e) => SelectTenant((string?)e.Value)">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
+            <label><span class="visually-hidden">User</span><select aria-label="User" @onchange="(ChangeEventArgs e) => SelectUser((string?)e.Value)">@foreach (var user in _snapshot.UserFilters) { <option>@user</option> }</select></label>
+            <label><span class="visually-hidden">Model</span><select aria-label="Model" @onchange="(ChangeEventArgs e) => SelectModel((string?)e.Value)">@foreach (var model in _snapshot.ModelFilters) { <option>@model</option> }</select></label>
             <span class="tokenomics-appconfig-label" title="Current App Configuration label">
                 <span>AppConfig</span>
                 <strong>@(string.IsNullOrEmpty(AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel)
@@ -211,19 +211,40 @@
 @code {
     private TokenomicsDashboardSnapshot _snapshot = new();
     private TokenomicsPeriod _selectedPeriod = TokenomicsPeriod.Hourly;
+    private string? _selectedTenant;
+    private string? _selectedUser;
+    private string? _selectedModel;
     private bool _disposed;
 
     protected override void OnInitialized()
     {
         Store.Changed += OnStoreChanged;
-        _snapshot = Store.GetSnapshot(_selectedPeriod);
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
         StateHasChanged();
     }
 
     private void SelectPeriod(TokenomicsPeriod period)
     {
         _selectedPeriod = period;
-        _snapshot = Store.GetSnapshot(_selectedPeriod);
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectTenant(string? tenant)
+    {
+        _selectedTenant = string.IsNullOrEmpty(tenant) ? null : tenant;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectUser(string? user)
+    {
+        _selectedUser = string.IsNullOrEmpty(user) ? null : user;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectModel(string? model)
+    {
+        _selectedModel = string.IsNullOrEmpty(model) ? null : model;
+        _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
     }
 
     private void OnStoreChanged()
@@ -231,7 +252,7 @@
         _ = InvokeAsync(() =>
         {
             if (_disposed) return;
-            _snapshot = Store.GetSnapshot(_selectedPeriod);
+            _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
             StateHasChanged();
         });
     }
