@@ -129,13 +129,16 @@
 
 .tokenomics-dashboard {
     display: grid;
+    grid-template-columns: 1fr;
     grid-template-rows: auto auto auto 1fr auto auto;
     min-width: 0;
     gap: 0.85rem;
 }
 
 .tokenomics-section {
-    display: contents;
+    display: grid;
+    min-width: 0;
+    gap: 0.85rem;
 }
 
 .tokenomics-kpis {

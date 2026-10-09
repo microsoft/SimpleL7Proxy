@@ -217,6 +217,7 @@
     {
         Store.Changed += OnStoreChanged;
         _snapshot = Store.GetSnapshot(_selectedPeriod);
+        StateHasChanged();
     }
 
     private void SelectPeriod(TokenomicsPeriod period)
