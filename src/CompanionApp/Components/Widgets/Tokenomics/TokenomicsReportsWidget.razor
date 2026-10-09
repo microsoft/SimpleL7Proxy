@@ -7,7 +7,8 @@
     <p>Select a report to explore detailed insights</p>
     @foreach (var report in Snapshot.Reports)
     {
-        <button type="button" class="report-card" disabled title="Report navigation is a placeholder">
+        <button type="button" class="report-card @(report.Name == SelectedReport ? "selected" : string.Empty)"
+                aria-current="@(report.Name == SelectedReport ? "true" : null)" title="@report.Description">
             <span class="report-icon" aria-hidden="true">@report.Icon</span>
             <span><strong>@report.Name</strong><small>@report.Description</small></span>
             <span class="report-arrow" aria-hidden="true">›</span>
@@ -18,4 +19,7 @@
 @code {
     [Parameter]
     public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public string SelectedReport { get; set; } = string.Empty;
 }

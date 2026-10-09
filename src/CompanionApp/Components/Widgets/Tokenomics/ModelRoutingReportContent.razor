@@ -1,0 +1,63 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Model Routing and Substitution</h3>
+    <p>Analysis of requested vs selected models and associated cost impacts</p>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <div class="report-section">
+            <h4>Routing Decisions</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">Requested: gpt-4o</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        Routed to: <strong>gpt-4o (100%)</strong>
+                    </div>
+                </li>
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">Requested: gpt-4</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        Routed to: <strong>gpt-4 (72%)</strong>, gpt-4-turbo (28%)
+                    </div>
+                </li>
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">Requested: claude-3-opus</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        Routed to: <strong>claude-3-sonnet (85%)</strong>, claude-3-opus (15%)
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="report-section">
+            <h4>Cost Impact Analysis</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">Substitutions:</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        245 requests (0.47% of total)
+                    </div>
+                </li>
+                <li style="padding: 0.75rem; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-weight: 600;">Cost Savings:</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #28a745;">
+                        <strong>$156.42</strong> (8.1% reduction)
+                    </div>
+                </li>
+                <li style="padding: 0.75rem;">
+                    <span style="font-weight: 600;">Performance Impact:</span>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        Avg latency +12ms (1.8% increase)
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

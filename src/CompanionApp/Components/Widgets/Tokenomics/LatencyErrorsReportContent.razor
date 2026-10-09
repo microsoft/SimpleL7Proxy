@@ -1,0 +1,77 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Latency, Errors and Throttling</h3>
+    <p>Performance metrics, error rates, and rate limiting impact</p>
+    
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Avg Latency</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">234ms</strong>
+            <span style="font-size: 0.75rem; color: #999;">↑ 45ms vs. last week</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Error Rate</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">0.32%</strong>
+            <span style="font-size: 0.75rem; color: #28a745;">↓ 0.08% vs. last week</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">429 Throttles</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">186</strong>
+            <span style="font-size: 0.75rem; color: #dc3545;">↑ 34% vs. last week</span>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <div class="report-section">
+            <h4>Error Breakdown</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between;">
+                    <span>Timeout (504)</span>
+                    <strong>42 (0.08%)</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
+                    <span>Server Error (5xx)</span>
+                    <strong>28 (0.05%)</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
+                    <span>Bad Request (400)</span>
+                    <strong>18 (0.03%)</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
+                    <span>Other Errors</span>
+                    <strong>80 (0.16%)</strong>
+                </li>
+            </ul>
+        </div>
+
+        <div class="report-section">
+            <h4>Throttling by Tenant</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between;">
+                    <span>Contoso</span>
+                    <strong style="color: #dc3545;">82 throttles</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
+                    <span>Fabrikam</span>
+                    <strong style="color: #dc3545;">54 throttles</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
+                    <span>Northwind</span>
+                    <strong style="color: #dc3545;">32 throttles</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
+                    <span>Others</span>
+                    <strong style="color: #dc3545;">18 throttles</strong>
+                </li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

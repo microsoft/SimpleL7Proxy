@@ -1,0 +1,74 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Capacity and Queue Pressure</h3>
+    <p>System utilization, queue depth, and processing delays</p>
+    
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">System Utilization</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">72%</strong>
+            <div style="margin-top: 0.5rem; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;">
+                <div style="height: 100%; width: 72%; background: #ffa21b;"></div>
+            </div>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Avg Queue Depth</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">234</strong>
+            <span style="font-size: 0.75rem; color: #999;">requests queued</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Avg Processing Delay</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">1.8s</strong>
+            <span style="font-size: 0.75rem; color: #999;">↑ 340ms vs. baseline</span>
+        </div>
+    </div>
+
+    <div class="report-section" style="margin-top: 2rem;">
+        <h4>Capacity Trends (Last 7 Days)</h4>
+        <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
+                <span>Monday</span>
+                <div style="display: flex; gap: 1rem;">
+                    <span style="color: #999;">Queue: 156</span>
+                    <span style="color: #666;">Util: 64%</span>
+                </div>
+            </li>
+            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
+                <span>Tuesday</span>
+                <div style="display: flex; gap: 1rem;">
+                    <span style="color: #999;">Queue: 198</span>
+                    <span style="color: #666;">Util: 68%</span>
+                </div>
+            </li>
+            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
+                <span>Wednesday</span>
+                <div style="display: flex; gap: 1rem;">
+                    <span style="color: #999;">Queue: 234</span>
+                    <span style="color: #ffa21b; font-weight: 600;">Util: 72%</span>
+                </div>
+            </li>
+            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
+                <span>Thursday</span>
+                <div style="display: flex; gap: 1rem;">
+                    <span style="color: #999;">Queue: 215</span>
+                    <span style="color: #666;">Util: 71%</span>
+                </div>
+            </li>
+            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
+                <span>Friday</span>
+                <div style="display: flex; gap: 1rem;">
+                    <span style="color: #999;">Queue: 189</span>
+                    <span style="color: #666;">Util: 69%</span>
+                </div>
+            </li>
+        </ul>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

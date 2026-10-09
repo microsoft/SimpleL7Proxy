@@ -1,0 +1,71 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Governance, Overrides and Exceptions</h3>
+    <p>Admin actions, approvals, and compliance tracking</p>
+    
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Total Overrides</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">142</strong>
+            <span style="font-size: 0.75rem; color: #999;">↓ 12% vs. last week</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Approved Exceptions</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">95</strong>
+            <span style="font-size: 0.75rem; color: #28a745;">67% approval rate</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Pending Approval</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">28</strong>
+            <span style="font-size: 0.75rem; color: #ffa21b;">avg 2.3 days old</span>
+        </div>
+    </div>
+
+    <div class="report-section" style="margin-top: 2rem;">
+        <h4>Recent Admin Actions</h4>
+        <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 1px solid #e0e0e0;">
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Action</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Admin</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Affected User</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Quota Override</td>
+                    <td style="padding: 0.5rem;">admin@contoso.com</td>
+                    <td style="padding: 0.5rem;">alex</td>
+                    <td style="padding: 0.5rem;"><span style="background: #d4edda; color: #155724; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Approved</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Cost Limit Exception</td>
+                    <td style="padding: 0.5rem;">admin@fabrikam.com</td>
+                    <td style="padding: 0.5rem;">maria</td>
+                    <td style="padding: 0.5rem;"><span style="background: #d4edda; color: #155724; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Approved</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Rate Limit Waiver</td>
+                    <td style="padding: 0.5rem;">admin@contoso.com</td>
+                    <td style="padding: 0.5rem;">sam</td>
+                    <td style="padding: 0.5rem;"><span style="background: #fff3cd; color: #856404; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Pending</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Policy Exception</td>
+                    <td style="padding: 0.5rem;">admin@northwind.com</td>
+                    <td style="padding: 0.5rem;">david</td>
+                    <td style="padding: 0.5rem;"><span style="background: #ffe0e0; color: #d32f2f; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Denied</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}

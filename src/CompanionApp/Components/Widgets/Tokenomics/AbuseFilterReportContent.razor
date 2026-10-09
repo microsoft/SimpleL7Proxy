@@ -1,0 +1,111 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Abuse and Content-Filter Activity</h3>
+    <p>Jailbreak attempts, filtered responses, and security trends</p>
+    
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Flagged Requests</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">423</strong>
+            <span style="font-size: 0.75rem; color: #999;">0.81% of total</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Jailbreak Attempts</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">156</strong>
+            <span style="font-size: 0.75rem; color: #dc3545;">↑ 45% vs. last week</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Blocked</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">267</strong>
+            <span style="font-size: 0.75rem; color: #999;">63% rate</span>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <div class="report-section">
+            <h4>Violation Types</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-bottom: 1px solid #f0f0f0;">
+                    <span>Jailbreak Patterns</span>
+                    <strong style="color: #dc3545;">156</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-bottom: 1px solid #f0f0f0;">
+                    <span>Prompt Injection</span>
+                    <strong style="color: #dc3545;">89</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-bottom: 1px solid #f0f0f0;">
+                    <span>Content Filter</span>
+                    <strong style="color: #ffa21b;">108</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between;">
+                    <span>Sensitive Data Exposure</span>
+                    <strong style="color: #ffa21b;">70</strong>
+                </li>
+            </ul>
+        </div>
+
+        <div class="report-section">
+            <h4>Response Actions</h4>
+            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-bottom: 1px solid #f0f0f0;">
+                    <span>Blocked</span>
+                    <strong style="color: #dc3545;">267 (63%)</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-bottom: 1px solid #f0f0f0;">
+                    <span>Sanitized Response</span>
+                    <strong style="color: #28a745;">128 (30%)</strong>
+                </li>
+                <li style="padding: 0.75rem; display: flex; justify-content: space-between;">
+                    <span>Allowed (Low Risk)</span>
+                    <strong style="color: #666;">28 (7%)</strong>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="report-section" style="margin-top: 2rem;">
+        <h4>Recent Incidents</h4>
+        <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 1px solid #e0e0e0;">
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Timestamp</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">User</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Violation Type</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Action Taken</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var request in Snapshot.AtRiskRequests)
+                {
+                    <tr style="border-bottom: 1px solid #f0f0f0;">
+                        <td style="padding: 0.5rem;">@request.Timestamp</td>
+                        <td style="padding: 0.5rem;">@request.User</td>
+                        <td style="padding: 0.5rem;">@request.Reason</td>
+                        <td style="padding: 0.5rem;">
+                            <span style="@GetStatusBadgeStyle(request.Status)">@request.Status</span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    private string GetStatusBadgeStyle(string status)
+    {
+        return status switch
+        {
+            "Blocked" => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #ffe0e0; color: #d32f2f;",
+            "Rejected" => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #fff3cd; color: #856404;",
+            "Sanitized" => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #d4edda; color: #155724;",
+            _ => "display: inline-block; padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: 600; font-size: 0.75rem; background: #e2e3e5; color: #383d41;"
+        };
+    }
+}

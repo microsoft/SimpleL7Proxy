@@ -438,7 +438,8 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             TenantSpend = tenantSpend,
             Quotas = quotas,
             Users = users,
-            AtRiskRequests = atRiskRequests
+            AtRiskRequests = atRiskRequests,
+            Reports = TokenomicsDashboardSnapshot.Empty.Reports
         };
     }
 }

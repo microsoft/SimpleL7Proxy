@@ -1,0 +1,65 @@
+@namespace CompanionApp.Components.Widgets.Tokenomics
+@rendermode InteractiveServer
+@using CompanionApp.Tokenomics
+
+<section>
+    <h3>Policy Decisions and Outcomes</h3>
+    <p>Summary of actions taken by the system and their results</p>
+    
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Policy Actions</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">1,243</strong>
+            <span style="font-size: 0.75rem; color: #999;">↑ 22% vs. previous period</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Approved</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem; color: #28a745;">892</strong>
+            <span style="font-size: 0.75rem; color: #999;">72% of total actions</span>
+        </div>
+        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
+            <span style="font-size: 0.85rem; color: #666;">Denied</span>
+            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem; color: #dc3545;">351</strong>
+            <span style="font-size: 0.75rem; color: #999;">28% of total actions</span>
+        </div>
+    </div>
+
+    <div class="report-section" style="margin-top: 2rem;">
+        <h4>Recent Actions</h4>
+        <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 1px solid #e0e0e0;">
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Action Type</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">User</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Reason</th>
+                    <th style="text-align: left; padding: 0.5rem; font-weight: 600;">Outcome</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Rate Limit</td>
+                    <td style="padding: 0.5rem;">alex</td>
+                    <td style="padding: 0.5rem;">Exceeded hourly quota</td>
+                    <td style="padding: 0.5rem;"><span style="background: #fff3cd; color: #856404; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Throttled</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Content Filter</td>
+                    <td style="padding: 0.5rem;">maria</td>
+                    <td style="padding: 0.5rem;">Jailbreak attempt detected</td>
+                    <td style="padding: 0.5rem;"><span style="background: #ffe0e0; color: #d32f2f; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Blocked</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 0.5rem;">Budget Alert</td>
+                    <td style="padding: 0.5rem;">sam</td>
+                    <td style="padding: 0.5rem;">Approaching spend limit</td>
+                    <td style="padding: 0.5rem;"><span style="background: #d4edda; color: #155724; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem;">Notified</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+}
