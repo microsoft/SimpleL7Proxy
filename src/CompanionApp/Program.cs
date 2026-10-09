@@ -1,6 +1,7 @@
 using CompanionApp.Components;
 using CompanionApp.Components.Shared;
 using CompanionApp.Components.Shared.EventHub;
+using CompanionApp.Tokenomics;
 using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Console;
@@ -104,10 +105,6 @@ internal static class Program
         TokenomicsReplayOptions replayOptions,
         bool uiOnly)
     {
-        var eventHubSection = builder.Configuration.GetSection(EventHubMonitorOptions.SectionName);
-        var eventHubEnabled = eventHubSection.GetValue<bool>("eventhub_enabled", true);
-        var localEventFilePath = eventHubSection.GetValue<string>("LocalFilePath");
-
         builder.Services.AddRazorComponents()
             .AddInteractiveServerComponents();
         builder.Services.AddDataProtection()
@@ -136,49 +133,8 @@ internal static class Program
         builder.Services.AddSingleton<ChatConversationStore>();
         builder.Services.AddSingleton<EventHubMonitorStore>();
 
-        ConfigureTokenomicsServices(builder, replayOptions, uiOnly, eventHubEnabled, localEventFilePath);
+        TokenomicsStartup.ConfigureServices(builder, replayOptions, uiOnly);
         ConfigureOptions(builder);
-    }
-
-    private static void ConfigureTokenomicsServices(
-        WebApplicationBuilder builder,
-        TokenomicsReplayOptions replayOptions,
-        bool uiOnly,
-        bool eventHubEnabled,
-        string? localEventFilePath)
-    {
-        if (replayOptions.FileName is not null)
-        {
-            builder.Services.AddSingleton(replayOptions);
-            builder.Services.AddSingleton<TokenomicsDashboardStore>(services =>
-            {
-                var store = new TokenomicsDashboardStore(
-                    services.GetRequiredService<ILogger<TokenomicsDashboardStore>>());
-                store.Update(new TokenomicsDashboardSnapshot
-                {
-                    SnapshotLabel = "Local replay · waiting for first batch"
-                });
-                return store;
-            });
-            builder.Services.AddHostedService<TokenomicsEventReplay>();
-        }
-        else
-        {
-            builder.Services.AddSingleton<TokenomicsDashboardStore>();
-        }
-
-        builder.Services.AddSingleton<ProxyMetricsCatalog>();
-
-        if (!uiOnly
-            && replayOptions.FileName is null
-            && (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath)))
-        {
-            builder.Services.AddSingleton(replayOptions);
-            builder.Services.AddSingleton<TokenomicsEventReplay>();
-            builder.Services.AddHostedService(
-                services => services.GetRequiredService<TokenomicsEventReplay>());
-            builder.Services.AddHostedService<EventHubReader>();
-        }
     }
 
     private static void ConfigureOptions(WebApplicationBuilder builder)

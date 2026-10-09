@@ -57,13 +57,26 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         return Task.CompletedTask;
     }
 
+    public decimal RequestCost(string model, int inputTokens, int cachedTokens, int outputTokens)
+    {
+        if (Settings.ModelCostPerToken.TryGetValue(model, out var modelPricing) &&
+            modelPricing is not null)
+        {
+            return Math.Max(0, inputTokens - cachedTokens) * modelPricing.Input
+                + cachedTokens * modelPricing.CachedInput
+                + outputTokens * modelPricing.Output;
+        }
+
+        return 0m;
+    }
+
     public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
     {
         TokenomicsCondition c = await new TokenomicsCondition().CreateAsync(data, Settings, LiveMetrics, Queue);
 
         var (rulename, action) = await EvaluateAsync(data, c);
 
-        data.Tenant = data.Tenant ?? Settings.DefaultTenant;
+        data.Tenant = data.Tenant == "unknown" ? Settings.DefaultTenant : data.Tenant;
 
         data.EvaluationSequence++;
 
@@ -157,8 +170,6 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         if (!doTokenomics)
             return ("TokenomicsDisabled", TokenActionEnum.None);
 
-
-        Console.WriteLine("Tokenomics condition: " + c.ToString());
 
         if (c.AbuseDetected)
             return ("AbuseDetected", Settings.AbuseDetectedAction);

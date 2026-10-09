@@ -32,7 +32,7 @@ namespace SimpleL7Proxy.Proxy;
 // 4. Return a 502 Bad Gateway if all backends fail.
 // 5. Return a 200 OK with backend server stats if the request is for /health.
 // 6. Log telemetry data for each request.
-public class ProxyRequestHandler
+public partial class ProxyRequestHandler
 {
     private readonly WorkerContext _wrkCntxt;
     private readonly int _preferredPriority;
@@ -48,28 +48,25 @@ public class ProxyRequestHandler
     private readonly ProxyEvent s_finallyBlockErrorEvent = new ProxyEvent(18);
     private ProxyWorker _pw;
 
-    // private readonly StreamFlusher _streamFlusher;
-    // // private static bool s_readyToWork;
-    // // public static bool IsReadyToWork => s_readyToWork;
-    // private CancellationTokenSource? _asyncExpelSource;
-    // private bool _isEvictingAsyncRequest;
-    // private static List<string> s_backendKeys = [];
-    // private static FrozenSet<string> s_stripRequestHeaders = FrozenSet.Create<string>();
-    // private static FrozenSet<string> s_stripResponseHeaders = FrozenSet.Create<string>();
-
-    // private bool detectModel = false;
-
-    // //private readonly ProxyStreamWriter _proxyStreamWriter;
-    // // private readonly string _timeoutHeaderName;
-
-    // // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor
-    // // private static readonly ProxyEvent s_backendRequestAttemptEvent = new ProxyEvent(25);  // Base eventData (~20) + attempt fields (7)
-
-    public ProxyRequestHandler(
-        int id,
+    [LoggerMessage(
+        Level = LogLevel.Critical,
+        Message = "[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Model: {Rodel} Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime:T}, Lat: {ProxyTime:F3} ms, Cost: ${Cost:0.0000########################}, {FullURL}")]
+    private static partial void LogRequestCompleted(
+        ILogger logger,
+        Guid guid,
         int priority,
-        WorkerContext context,
-        CancellationToken cancellationToken)
+        int statusCode,
+        string user,
+        RequestType requestType,
+        string rodel,
+        string processor,
+        string contentLength,
+        DateTime dequeueTime,
+        double proxyTime,
+        decimal cost,
+        string fullURL);
+
+    public ProxyRequestHandler( int id, int priority, WorkerContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -79,7 +76,6 @@ public class ProxyRequestHandler
         _preferredPriority = priority;
         _cancellationToken = cancellationToken;
         _options = context.BackendOptions;
-
 
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
 
@@ -112,10 +108,7 @@ public class ProxyRequestHandler
         var healthMessage = Encoding.UTF8.GetBytes(probeMessage);
         lcontext.Response.ContentLength64 = healthMessage.Length;
 
-        await lcontext.Response.OutputStream.WriteAsync(
-            healthMessage,
-            0,
-            healthMessage.Length).ConfigureAwait(false);
+        await lcontext.Response.OutputStream.WriteAsync( healthMessage, 0, healthMessage.Length).ConfigureAwait(false);
 
         // Log probe telemetry (moved from Server.Run to ensure single-log per probe)
         var eventData = req.EventData;
@@ -392,19 +385,23 @@ public class ProxyRequestHandler
                     workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
-                    var proxyLatency = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    var proxyLatency = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds;
 
-                    _logger.LogCritical("[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Model: {Rodel} Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime}, Lat: {ProxyTime} ms, {FullURL}",
+                    // output the status for each request to the console
+                    LogRequestCompleted(
+                        _logger,
                         incomingRequest.Guid,
-                        incomingRequest.Priority, statusCodeInt,
+                        incomingRequest.Priority,
+                        statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
                         _options.DetectModel ? incomingRequest.Model ?? "N/A" : "-",
                         pr.StreamingProcessor,
-                        conlen, 
-                        incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyLatency,
-                        pr.FullURL
-                        );
+                        conlen,
+                        incomingRequest.DequeueTime.ToLocalTime(),
+                        proxyLatency,
+                        pr.UsageStats?.Cost ?? 0m,
+                        pr.FullURL);
 
                     // Log circuit breaker details when status code is -1
                     if (incomingRequest.Debug && (statusCodeInt == -1 || statusCodeInt == 503))
@@ -437,8 +434,6 @@ public class ProxyRequestHandler
                             pr.UsageStats);
 
                     }
-
-
 
                     HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     workerState = "Cleanup";

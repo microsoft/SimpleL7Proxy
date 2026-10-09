@@ -1,7 +1,8 @@
 @page "/tokenomics"
 @namespace CompanionApp.Components.Pages
 @rendermode InteractiveServer
-@inject CompanionApp.Components.Shared.TokenomicsDashboardStore Store
+@using CompanionApp.Tokenomics
+@inject TokenomicsDashboardStore Store
 @inject CompanionApp.Components.Shared.AppConfigurationScaffoldService AppConfiguration
 @implements IDisposable
 
@@ -21,7 +22,7 @@
             <div class="tokenomics-time-range">
                 <span>Time Range:</span>
                 <div class="tokenomics-period-toggle" role="radiogroup" aria-label="Display period">
-                    @foreach (var period in Enum.GetValues<CompanionApp.Components.Shared.TokenomicsPeriod>())
+                    @foreach (var period in Enum.GetValues<TokenomicsPeriod>())
                     {
                         <button type="button" role="radio"
                                 class="@(period == _selectedPeriod ? "is-selected" : string.Empty)"
@@ -208,9 +209,8 @@
 </div>
 
 @code {
-    private CompanionApp.Components.Shared.TokenomicsDashboardSnapshot _snapshot = new();
-    private CompanionApp.Components.Shared.TokenomicsPeriod _selectedPeriod =
-        CompanionApp.Components.Shared.TokenomicsPeriod.Hourly;
+    private TokenomicsDashboardSnapshot _snapshot = new();
+    private TokenomicsPeriod _selectedPeriod = TokenomicsPeriod.Hourly;
     private bool _disposed;
 
     protected override void OnInitialized()
@@ -219,7 +219,7 @@
         _snapshot = Store.GetSnapshot(_selectedPeriod);
     }
 
-    private void SelectPeriod(CompanionApp.Components.Shared.TokenomicsPeriod period)
+    private void SelectPeriod(TokenomicsPeriod period)
     {
         _selectedPeriod = period;
         _snapshot = Store.GetSnapshot(_selectedPeriod);

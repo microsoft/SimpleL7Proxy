@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.Json;
 using CompanionApp.Components.Shared;
 using CompanionApp.Components.Shared.EventHub;
+using CompanionApp.Tokenomics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -45,6 +46,39 @@ public sealed class TokenomicsReplayTests {
         }) {
             Assert.ThrowsException<ArgumentException>(() => TokenomicsReplayOptions.Parse(args));
         }
+    }
+
+    [TestMethod]
+    public void Settings_NewPeriodFields_RoundTripThroughStringFormat() {
+        var source = new TokenomicsSettings {
+            HourlyTokenLimit = 321,
+            HourlyBudgetUsd = 12.345m,
+            HourlyQuotaGovernanceAction = TokenActionEnum.IncreaseLimit,
+            MonthlyQuotaGovernanceAction = TokenActionEnum.Cap,
+            HourlyQuotaExceededAction = TokenActionEnum.Throttle,
+            HourlyBudgetExceededAction = TokenActionEnum.Reject,
+            HourlyBudgetEntitledTenantAction = TokenActionEnum.UpgradeModel
+        };
+
+        var serialized = source.ToString();
+
+        StringAssert.Contains(serialized, "HourlyTokenLimit=321");
+        StringAssert.Contains(serialized, "HourlyBudgetUsd=12.345");
+        StringAssert.Contains(serialized, "HourlyQuotaGovernanceAction=increaseLimit");
+        StringAssert.Contains(serialized, "MonthlyQuotaGovernanceAction=cap");
+        StringAssert.Contains(serialized, "HourlyQuotaExceededAction=throttle");
+        StringAssert.Contains(serialized, "HourlyBudgetExceededAction=reject");
+        StringAssert.Contains(serialized, "HourlyBudgetEntitledTenantAction=upgradeModel");
+
+        var parsed = new TokenomicsSettings();
+        Assert.IsTrue(parsed.TryParse(serialized));
+        Assert.AreEqual(source.HourlyTokenLimit, parsed.HourlyTokenLimit);
+        Assert.AreEqual(source.HourlyBudgetUsd, parsed.HourlyBudgetUsd);
+        Assert.AreEqual(source.HourlyQuotaGovernanceAction, parsed.HourlyQuotaGovernanceAction);
+        Assert.AreEqual(source.MonthlyQuotaGovernanceAction, parsed.MonthlyQuotaGovernanceAction);
+        Assert.AreEqual(source.HourlyQuotaExceededAction, parsed.HourlyQuotaExceededAction);
+        Assert.AreEqual(source.HourlyBudgetExceededAction, parsed.HourlyBudgetExceededAction);
+        Assert.AreEqual(source.HourlyBudgetEntitledTenantAction, parsed.HourlyBudgetEntitledTenantAction);
     }
 
     [TestMethod]
@@ -418,7 +452,9 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual("114,000", snapshot.TotalTokens);
         Assert.AreEqual("1,000", Metric(store, "Total Requests"));
         Assert.AreEqual("100.0%", Metric(store, "Success Rate"));
-        Assert.AreEqual("50", Metric(store, "Policy Actions"));
+        Assert.AreEqual(Enumerable.Range(950, 50).Count(index =>
+            actions[index % actions.Length] is not (TokenActionEnum.Bypass or TokenActionEnum.None)).ToString(),
+            Metric(store, "Policy Actions"));
         Assert.AreEqual(Enumerable.Range(950, 50).Count(index => actions[index % actions.Length] == TokenActionEnum.Throttle).ToString(), Metric(store, "429 Throttles"));
         Assert.AreEqual(20, snapshot.Users.Length);
         Assert.AreEqual(5, snapshot.Tenants.Length);
@@ -464,7 +500,8 @@ public sealed class TokenomicsReplayTests {
             Event("same", "PolicyDecision", action: "Throttle"),
             Event("same", "RequestOutcome", status: "429"),
             Event("same", "RequestOutcome", status: "429"),
-            Event("decision-only", "PolicyDecision", action: "Bypass", user: "only-user", tenant: "only-tenant", model: "only-model")
+            Event("decision-only", "PolicyDecision", action: "Bypass", user: "only-user", tenant: "only-tenant", model: "only-model"),
+            Event("decision-only", "RequestOutcome", status: "200", action: "Bypass", user: "only-user", tenant: "only-tenant", model: "only-model")
         };
         using var store = new TokenomicsDashboardStore();
         var clock = new ReplayClock();
@@ -476,8 +513,8 @@ public sealed class TokenomicsReplayTests {
         await replay.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
         var snapshot = store.GetSnapshot();
         Assert.AreEqual("2", Metric(store, "Total Requests"));
-        Assert.AreEqual("0.0%", Metric(store, "Success Rate"));
-        Assert.AreEqual("2", Metric(store, "Policy Actions"));
+        Assert.AreEqual("50.0%", Metric(store, "Success Rate"));
+        Assert.AreEqual("1", Metric(store, "Policy Actions"));
         Assert.AreEqual("1", Metric(store, "429 Throttles"));
         Assert.AreEqual("120", snapshot.TotalTokens);
         Assert.IsTrue(snapshot.Users.Any(user => user.Name == "only-user" && user.Total == "0"));

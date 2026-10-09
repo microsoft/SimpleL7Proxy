@@ -99,6 +99,7 @@ public sealed class TokenomicsSummaryEvent : ProxyEvent
         this["InputTokens"] = Format(usage?.InputTokens ?? 0);
         this["CachedTokens"] = Format(usage?.CachedTokens ?? 0);
         this["OutputTokens"] = Format(usage?.OutputTokens ?? 0);
+        this["Cost"] = Format(usage?.Cost ?? 0);
         this["IsJailbreakDetected"] = Format(usage?.IsJailbreakDetected ?? false);
         this["IsContentFiltered"] = Format(usage?.IsContentFiltered ?? false);
 

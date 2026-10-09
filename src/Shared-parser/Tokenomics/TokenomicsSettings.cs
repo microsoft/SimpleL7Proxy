@@ -47,9 +47,9 @@ public class TokenomicsSettings
     public string DefaultModel { get; set; } = string.Empty;
 
     /// <summary>Gets or sets input, cached-input, and output USD prices per token for each priced model; unlisted models are excluded from spend totals.</summary>
-    public Dictionary<string, ModelTokenPricing> ModelCostPerToken { get; set; } = new();
+    public Dictionary<string, ModelTokenPricing> ModelCostPerToken { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Gets or sets model lists keyed by hierarchy prefix.</summary>
-    public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new();
+    public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets or sets the action when abuse is detected.</summary>
     public TokenActionEnum AbuseDetectedAction { get; set; } = TokenActionEnum.Reject;
@@ -57,41 +57,38 @@ public class TokenomicsSettings
     /// <summary>Gets or sets the action for an administrator override or approved exception.</summary>
     public TokenActionEnum AdministratorOverrideAction { get; set; } = TokenActionEnum.Bypass;
 
-    /// <summary>Gets or sets the hourly-quota action for incident response, audit investigation, or compliance work.</summary>
+    /// <summary>Gets or sets the Hourly-quota action for incident response, audit investigation, or compliance work.</summary>
     public TokenActionEnum HourlyQuotaGovernanceAction { get; set; } = TokenActionEnum.Bypass;
-
     /// <summary>Gets or sets the daily-quota action for incident response, audit investigation, or compliance work.</summary>
     public TokenActionEnum DailyQuotaGovernanceAction { get; set; } = TokenActionEnum.Bypass;
-
-    /// <summary>Gets or sets the monthly-quota action for incident response, audit investigation, or compliance work.</summary>
-    public TokenActionEnum MonthlyQuotaGovernanceAction { get; set; } = TokenActionEnum.Reject;
+    /// <summary>Gets or sets the action for an exceeded monthly quota without an override or approved exception.</summary>
+    public TokenActionEnum MonthlyQuotaGovernanceAction  { get; set; } = TokenActionEnum.Reject;
 
     /// <summary>Gets or sets the hourly-quota action for other workloads.</summary>
     public TokenActionEnum HourlyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
-
     /// <summary>Gets or sets the daily-quota action for other workloads.</summary>
     public TokenActionEnum DailyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
-
     /// <summary>Gets or sets the monthly-quota action for other workloads.</summary>
     public TokenActionEnum MonthlyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
 
     /// <summary>Gets or sets the hourly-budget action for other tenants.</summary>
     public TokenActionEnum HourlyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
-
     /// <summary>Gets or sets the daily-budget action for other tenants.</summary>
     public TokenActionEnum DailyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
-
     /// <summary>Gets or sets the monthly-budget action for other tenants.</summary>
     public TokenActionEnum MonthlyBudgetExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
 
     /// <summary>Gets or sets the hourly-budget action for premium or enterprise tenants.</summary>
     public TokenActionEnum HourlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-
     /// <summary>Gets or sets the daily-budget action for premium or enterprise tenants.</summary>
     public TokenActionEnum DailyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-
     /// <summary>Gets or sets the monthly-budget action for premium or enterprise tenants.</summary>
     public TokenActionEnum MonthlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
+
+
+
+
+
 
     /// <summary>Gets or sets the capacity-constrained action for critical-priority or incident-response work.</summary>
     public TokenActionEnum CapacityCriticalWorkloadAction { get; set; } = TokenActionEnum.IncreasePriority;
@@ -147,7 +144,7 @@ public class TokenomicsSettings
 
 
     /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
-    /// <remarks>DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultTenant and DefaultModel use URI-escaped values. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
+    /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
     public  bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
@@ -447,7 +444,7 @@ public class TokenomicsSettings
         return true;
     }
 
-    /// <summary>Returns semicolon-separated key=value settings with a clock-formatted delay, URI-escaped model names, model hierarchies, named actions, and invariant-culture numbers.</summary>
+    /// <summary>Returns semicolon-separated key=value settings with period token limits and budgets, named actions, a clock-formatted delay, URI-escaped model names, model hierarchies, and invariant-culture numbers.</summary>
     public override string ToString() {
         var parts = new List<string>();
         foreach (var property in JsonSerializer.SerializeToElement(this, _serializerOptions).EnumerateObject()) {

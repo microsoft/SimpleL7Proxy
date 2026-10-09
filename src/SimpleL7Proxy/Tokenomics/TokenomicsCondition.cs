@@ -43,8 +43,6 @@ public sealed class TokenomicsCondition
         DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= settings.DailyTokenLimit;
         MonthlyQuotaExceeded = lm.GetMonthlyTokenBalanceAsync(Metric) >= settings.MonthlyTokenLimit;
 
-        Console.WriteLine($"DailyQuotaExceeded: {DailyQuotaExceeded}, MonthlyQuotaExceeded: {MonthlyQuotaExceeded}");
-
         //MonthlyBudgetExceeded = await lm.GetMonthlyBudgetUsageAsync(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
         //DailyBudgetExceeded = await lm.GetDailyBudgetUsageAsync(data.UserID, data.Model) >= settings.DailyBudgetUsd;
 

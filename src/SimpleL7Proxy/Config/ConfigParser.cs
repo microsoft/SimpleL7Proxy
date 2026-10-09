@@ -934,7 +934,7 @@ public static class ConfigParser
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Socket connection error: {ex.Message}");
+                Console.Error.WriteLine($"Connection Establishment: socket error: {ex.Message}");
                 s.Dispose();
                 throw;
             }

@@ -425,6 +425,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     request.WordCount = parseResult.WordCount;
                     request.OriginalModel = parseResult.SourceModel ?? "unknown";
                     request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
+                    request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
 
                     request.S7PInputTokens = (int)((double)request.WordCount * .75);
 
@@ -1481,16 +1482,18 @@ public class ProxyWorker : IConfigChangeSubscriber
                     processor.GetStats(request.EventData, proxyResponse.Headers);
 
                     // submit stats to Tokenomics
-                    if (_options.TokenomicsEnable
-                        && !string.IsNullOrWhiteSpace(request.UserID)
-                        && !string.IsNullOrWhiteSpace(request.Model))
+                    if (_options.TokenomicsEnable &&
+                        !string.IsNullOrWhiteSpace(request.UserID) && !string.IsNullOrWhiteSpace(request.Model))
                     {
                         // get model specific usage provider and populate usage stats
                         var usageProvider = ModelMap.GetUsageProvider(request.Model);
                         pr.UsageStats = LLMHandler.PopulateUsage(usageProvider,request.EventData);
 
-                        Console.WriteLine("Submitting Tokenomics metrics for request {0}: inputTokens={1}, outputTokens={2}, cachedTokens={3}, isJailbreakDetected={4}, isContentFiltered={5}",
-                            request.Guid, pr.UsageStats.InputTokens, pr.UsageStats.OutputTokens, pr.UsageStats.CachedTokens, pr.UsageStats.IsJailbreakDetected, pr.UsageStats.IsContentFiltered);
+                        pr.UsageStats.Cost = _wrkCntxt.TokenomicsHandler.RequestCost(
+                            request.Model,
+                            pr.UsageStats.InputTokens,
+                            pr.UsageStats.CachedTokens,
+                            pr.UsageStats.OutputTokens);
 
                         if ( pr.UsageStats is not null) 
                             _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
