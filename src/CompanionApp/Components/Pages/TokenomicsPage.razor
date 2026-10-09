@@ -13,14 +13,17 @@
     <header class="tokenomics-header">
         <div>
             <h1>Tokenomics
-                @if (_selectedReport == "Policy Decisions and Outcomes")
+                @if (_selectedReport != "Quota and Budget Utilization")
                 {
                     <span class="tokenomics-report-title">@_selectedReport</span>
                 }
             </h1>
-            <p>@(_selectedReport == "Policy Decisions and Outcomes"
-                ? "Actions taken, their results, and recorded policy evaluations for your AI workloads"
-                : "Usage, cost, policy and performance insights for your AI workloads")</p>
+            <p>@(_selectedReport switch {
+                "Policy Decisions and Outcomes" => "Actions taken, their results, and recorded policy evaluations for your AI workloads",
+                "Model Routing and Substitution" => "How requests are routed, when models are substituted, and the impact on performance and cost",
+                "Capacity and Queue Pressure" => "Recorded capacity, queue and quota conditions, scheduling actions, and request outcomes",
+                _ => "Usage, cost, policy and performance insights for your AI workloads"
+            })</p>
             @if (_snapshot.IsSampleData)
             {
                 <span class="sample-data-label">Sample data · not connected to a service</span>
@@ -69,6 +72,14 @@
             else if (_selectedReport == "Policy Decisions and Outcomes")
             {
                 <PolicyDecisionsReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Model Routing and Substitution")
+            {
+                <ModelRoutingReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Capacity and Queue Pressure")
+            {
+                <CapacityQueueReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
             }
         </main>
 

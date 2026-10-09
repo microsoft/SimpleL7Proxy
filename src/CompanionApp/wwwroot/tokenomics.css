@@ -628,10 +628,42 @@
 .policy-decision-details dd { margin: 0 0 0.5rem; }
 .policy-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; padding: 0.65rem 0.75rem; color: var(--muted); font-size: 0.68rem; }
 .policy-pagination > span:first-child { margin-right: auto; }
+.routing-kpi-value { overflow-wrap: anywhere; font-size: clamp(1rem, 1.5vw, 1.4rem); }
+.routing-report .routing-mappings { margin-top: 0.75rem; white-space: normal; }
+.routing-report .routing-mappings td { overflow-wrap: anywhere; }
+.routing-report .policy-outcome-list li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.routing-cost-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin: 1rem 0 0.6rem; }
+.routing-cost-summary span { display: block; color: var(--muted); font-size: 0.65rem; }
+.routing-cost-summary strong { display: block; margin-top: 0.25rem; font-size: 1rem; }
+.routing-cost-bars { display: grid; gap: 0.7rem; margin: 0.8rem 0; padding: 0; list-style: none; }
+.routing-cost-bars li { display: grid; grid-template-columns: minmax(3rem, 0.8fr) minmax(0, 1fr) auto; align-items: center; gap: 0.4rem; font-size: 0.65rem; }
+.routing-cost-bars strong { font-size: 0.6rem; font-weight: 500; }
+.routing-cost-tracks { display: grid; gap: 0.2rem; }
+.routing-cost-tracks .horizontal-track { height: 0.5rem; }
+.routing-events-table td { white-space: normal; min-width: 4rem; max-width: 12rem; overflow-wrap: anywhere; vertical-align: top; }
+.routing-report .routing-empty { padding: 0.75rem; }
+.routing-report .routing-warning { padding: 0.75rem; border: 1px solid #ef3932; border-radius: 0.35rem; color: #9d2525; }
+.capacity-missing-chart { display: grid; grid-template-columns: 1rem 2.4rem minmax(0, 1fr); height: 12rem; margin: 1rem 0 0.75rem; gap: 0.35rem; }
+.capacity-percent-axis { display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); text-align: right; font-size: 0.65rem; }
+.capacity-missing-grid { display: grid; place-items: center; min-width: 0; padding: 0.75rem; border-left: 1px solid #687da4; border-bottom: 1px solid #687da4; background: repeating-linear-gradient(to top, #e7edf6 0, #e7edf6 1px, transparent 1px, transparent 25%); }
+.capacity-missing-grid p { margin: 0; padding: 0.65rem; background: #ffffffed; color: var(--muted); text-align: center; font-size: 0.85rem; }
+.capacity-missing-grid small { display: block; max-width: 18rem; margin-top: 0.35rem; font-size: 0.7rem; }
+.capacity-queue-chart { grid-template-columns: 1rem minmax(0, 1fr) 1rem; }
+.capacity-scheduling-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+.capacity-scheduling-summary span { display: block; color: var(--muted); font-size: 0.7rem; }
+.capacity-scheduling-summary strong { display: block; margin-top: 0.3rem; font-size: 0.8rem; }
+.capacity-summary-table { margin-top: 0.75rem; white-space: normal; }
+.capacity-summary-table td { overflow-wrap: anywhere; }
+.capacity-events-table td { white-space: normal; min-width: 4rem; max-width: 12rem; overflow-wrap: anywhere; vertical-align: top; }
+.capacity-report .capacity-empty { padding: 0.75rem; }
+.capacity-report .routing-warning { padding: 0.75rem; border: 1px solid #ef3932; border-radius: 0.35rem; color: #9d2525; }
 
 @media (max-width: 900px) {
     .policy-chart-grid { grid-template-columns: minmax(0, 1fr); }
-    .policy-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
+    .policy-breakdown-grid,
+    .routing-breakdown-grid,
+    .capacity-report .capacity-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
+    .capacity-scheduling-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .report-icon { color: var(--blue); font-size: 1.4rem; font-weight: 750; line-height: 1.2; text-align: center; }
 .report-card strong { display: block; color: #064ab0; font-size: 0.74rem; line-height: 1.35; }

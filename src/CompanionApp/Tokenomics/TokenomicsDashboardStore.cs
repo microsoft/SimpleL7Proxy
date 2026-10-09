@@ -38,6 +38,11 @@ public sealed record TokenomicsDashboardSnapshot {
     public ImmutableArray<(int Rank, string User, string Model, string Reason, string Timestamp, string Status)> AtRiskRequests { get; init; } = [];
     public ImmutableArray<(string Name, string Description, string Icon)> Reports { get; init; } = [];
     public ImmutableArray<ImmutableDictionary<string, string>> PolicyDecisions { get; init; } = [];
+    /// <summary>Policy evaluations and request outcomes retained within this snapshot's time window.</summary>
+    public ImmutableArray<ImmutableDictionary<string, string>> RoutingEvents { get; init; } = [];
+    /// <summary>Current per-token prices for estimates; these are not historical billing rates.</summary>
+    public ImmutableDictionary<string, (decimal Input, decimal CachedInput, decimal Output)> RoutingPrices { get; init; } =
+        ImmutableDictionary<string, (decimal Input, decimal CachedInput, decimal Output)>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
 
     public static TokenomicsDashboardSnapshot Sample { get; } = new() {
         IsSampleData = true,
@@ -231,11 +236,23 @@ public sealed class TokenomicsDashboardStore : IDisposable {
             filteredModels = filteredModels.Where(m => m.Name == modelFilter).ToImmutableArray();
         }
 
+        var routingRequestIds = baseSnapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal)
+            .Where(group => group.Any(fields =>
+                    (tenantFilter == null || fields.GetValueOrDefault("Tenant") == tenantFilter)
+                    && (userFilter == null || fields.GetValueOrDefault("UserId") == userFilter))
+                && (modelFilter == null || group.Any(fields =>
+                    fields.GetValueOrDefault("RequestedModel") == modelFilter
+                    || fields.GetValueOrDefault("ModelBefore") == modelFilter
+                    || fields.GetValueOrDefault("ModelAfter") == modelFilter
+                    || fields.GetValueOrDefault("EffectiveModel") == modelFilter)))
+            .Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+
         // Create filtered snapshot by replacing the filtered collections
         return baseSnapshot with {
             Users = filteredUsers,
             AtRiskRequests = filteredAtRisk,
             Models = filteredModels,
+            RoutingEvents = baseSnapshot.RoutingEvents.Where(fields => routingRequestIds.Contains(fields["MID"])).ToImmutableArray(),
             PolicyDecisions = baseSnapshot.PolicyDecisions.Where(fields =>
                 (tenantFilter == null || fields.GetValueOrDefault("Tenant") == tenantFilter)
                 && (userFilter == null || fields.GetValueOrDefault("UserId") == userFilter)

@@ -1,74 +1,422 @@
 @namespace CompanionApp.Components.Widgets.Tokenomics
 @rendermode InteractiveServer
 @using CompanionApp.Tokenomics
+@using System.Collections.Immutable
+@using System.Globalization
+@using System.Text
 
-<section>
-    <h3>Capacity and Queue Pressure</h3>
-    <p>System utilization, queue depth, and processing delays</p>
-    
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">System Utilization</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">72%</strong>
-            <div style="margin-top: 0.5rem; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;">
-                <div style="height: 100%; width: 72%; background: #ffa21b;"></div>
+<section class="tokenomics-section policy-report capacity-report" aria-label="Capacity and queue pressure">
+    <div class="tokenomics-kpis">
+        @foreach (var metric in _metrics)
+        {
+            <article class="tokenomics-card kpi-card">
+                <div class="kpi-heading"><h2 title="@metric.Name">@metric.Name</h2><span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span></div>
+                <p class="kpi-value routing-kpi-value">@metric.Value</p>
+                <p class="policy-kpi-caption">@metric.Caption</p>
+            </article>
+        }
+    </div>
+    @if (_warnings.Count > 0)
+    {
+        <p class="policy-note routing-warning" role="alert">Invalid telemetry excluded: @string.Join("; ", _warnings.Order(StringComparer.Ordinal))</p>
+    }
+
+    <div class="policy-chart-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Capacity Utilization Over Time</h3><p>Utilization and the configured constraint threshold are not captured</p></div>
+            <div class="capacity-missing-chart" role="img" aria-label="Capacity utilization unavailable; no measured utilization samples or threshold were recorded">
+                <span class="policy-axis-label">Utilization (%)</span>
+                <div class="capacity-percent-axis" aria-hidden="true"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div>
+                <div class="capacity-missing-grid"><p>Not captured<br /><small>No measured utilization or threshold values in current telemetry</small></p></div>
+            </div>
+            <p class="policy-note">@_capacityEvaluationCount recorded capacity evaluations. Policy conditions are not utilization measurements.</p>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Queue Depth and Wait Time</h3><p>Queue depth, maximum length, high-depth threshold and actual wait time are not captured</p></div>
+            <div class="capacity-missing-chart capacity-queue-chart" role="img" aria-label="Queue depth and actual queue wait time unavailable">
+                <span class="policy-axis-label">Queue depth</span>
+                <div class="capacity-missing-grid"><p>Not captured<br /><small>Requested retry delay is not measured queue wait</small></p></div>
+                <span class="policy-axis-label">Wait time (ms)</span>
+            </div>
+            <p class="policy-note">@_queueEvaluationCount recorded queue evaluations. @RequestedDelayDescription</p>
+        </article>
+    </div>
+
+    <div class="tokenomics-insight-grid capacity-breakdown-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Capacity Utilization by Model</h3><p>Recorded capacity conditions grouped by requested model</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table capacity-summary-table">
+                    <thead><tr><th scope="col">Model</th><th scope="col">Flagged requests</th><th scope="col">Avg. / Peak Util.</th><th scope="col">Threshold</th></tr></thead>
+                    <tbody>
+                        @foreach (var model in _capacityModels)
+                        {
+                            <tr><td>@model.Name</td><td>@Number(model.Count)</td><td>Not captured</td><td>Not captured</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_capacityModels.Length == 0) { <p class="policy-note capacity-empty">No recorded capacity conditions in this selection.</p> }
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Queue Pressure by Tenant</h3><p>Requests with recorded queue-depth or queue-priority conditions</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table capacity-summary-table">
+                    <thead><tr><th scope="col">Tenant</th><th scope="col">Flagged requests</th><th scope="col">Avg. / Peak Depth</th><th scope="col">Max. Length</th></tr></thead>
+                    <tbody>
+                        @foreach (var tenant in _queueTenants)
+                        {
+                            <tr><td>@tenant.Name</td><td>@Number(tenant.Count)</td><td>Not captured</td><td>Not captured</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_queueTenants.Length == 0) { <p class="policy-note capacity-empty">No recorded queue conditions in this selection.</p> }
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Requests by Outcome (Capacity / Queue)</h3><p>Latest policy outcome for requests with any recorded pressure condition</p></div>
+            <div class="policy-outcome-distribution">
+                <div class="model-donut policy-donut" style="@($"--model-distribution: {_outcomeGradient}")" role="img" aria-label="@OutcomeDescription">
+                    <div><strong>@Number(_pressureRequestCount)</strong><span>Flagged Requests</span></div>
+                </div>
+                <ul class="policy-outcome-list">
+                    @foreach (var outcome in _outcomes)
+                    {
+                        <li><i class="@OutcomeClass(outcome.Name)" aria-hidden="true"></i><span>@outcome.Name</span><strong>@Number(outcome.Count) (@Percent(outcome.Count, _pressureRequestCount)%)</strong></li>
+                    }
+                </ul>
+            </div>
+        </article>
+    </div>
+
+    <article class="tokenomics-card insight-card">
+        <div class="policy-card-heading"><h3>Delay and Requeue Actions</h3><p>Evaluations and unique requests affected by recorded capacity, queue or quota conditions</p></div>
+        <div class="capacity-scheduling-summary">
+            <div><span>Delayed</span><strong>@Number(_delayedEvaluations) evaluations / @Number(_delayedRequests) requests</strong></div>
+            <div><span>Requeued</span><strong>@Number(_requeuedEvaluations) evaluations / @Number(_requeuedRequests) requests</strong></div>
+            <div><span>Avg. requested retry delay</span><strong>@(_requestedDelayAverage is { } delay ? delay.ToString("N1", CultureInfo.InvariantCulture) + " ms" : "Not captured")</strong></div>
+            <div><span>Actual delay / requeue duration</span><strong>Not captured</strong></div>
+        </div>
+    </article>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading"><div class="policy-card-heading"><h3>Outcomes and Latency by Recorded Condition</h3><p>Request outcomes, not queue-wait measurements. Unflagged requests are not proven unconstrained.</p></div></div>
+        <div class="users-table-wrap">
+            <table class="users-table capacity-comparison-table">
+                <thead><tr><th scope="col">Recorded cohort</th><th scope="col">Requests</th><th scope="col">Outcomes captured</th><th scope="col">Success rate</th><th scope="col">Non-2xx outcomes</th><th scope="col">Avg. latency (ms)</th><th scope="col">Latency samples</th></tr></thead>
+                <tbody>
+                    @foreach (var cohort in _comparisons)
+                    {
+                        <tr>
+                            <td>@cohort.Name</td><td>@Number(cohort.Requests)</td><td>@Number(cohort.Responses)</td>
+                            <td>@(cohort.Responses == 0 ? "Unavailable" : Percent(cohort.Successes, cohort.Responses) + "%")</td>
+                            <td>@Number(cohort.Responses - cohort.Successes)</td>
+                            <td>@(cohort.Latency is { } latency ? latency.ToString("N1", CultureInfo.InvariantCulture) : "Not captured")</td>
+                            <td>@Number(cohort.LatencySamples)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading">
+            <div class="policy-card-heading"><h3>Recent Capacity, Queue and Quota Events</h3><p>Individual policy evaluations, newest first; final in-window outcome is correlated by request ID</p></div>
+            <div class="policy-table-controls">
+                <div class="section-tabs" aria-label="Filter capacity and queue events">
+                    @foreach (var filter in _filters)
+                    {
+                        <button type="button" class="@(filter == _selectedFilter ? "selected" : "")" aria-pressed="@(filter == _selectedFilter ? "true" : "false")"
+                                @onclick="@(() => SelectFilter(filter))">@filter</button>
+                    }
+                </div>
+                @if (_filteredEvents.Length == 0) { <button type="button" class="export-button" disabled>Export CSV</button> }
+                else { <a class="export-button" href="@_csvHref" download="capacity-queue-events.csv">Export CSV</a> }
             </div>
         </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Avg Queue Depth</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">234</strong>
-            <span style="font-size: 0.75rem; color: #999;">requests queued</span>
+        <div class="users-table-wrap">
+            <table class="users-table capacity-events-table">
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Tenant</th><th scope="col">Model (Before / After)</th><th scope="col">Condition</th><th scope="col">Priority</th><th scope="col">Action</th><th scope="col">Queue Depth / Wait</th><th scope="col">Policy Outcome</th><th scope="col">Final Recorded Status</th><th scope="col">Tokens</th><th scope="col">Details</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _visibleEvents)
+                    {
+                        <tr>
+                            <td>@(entry.Timestamp?.ToString("MMM d, HH:mm:ss", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@entry.Request.User<br />@entry.Request.Tenant</td>
+                            <td>@Field(entry.Fields, "ModelBefore")<br />@Field(entry.Fields, "ModelAfter")</td>
+                            <td>@Field(entry.Fields, "PolicyCondition")</td>
+                            <td>@Field(entry.Fields, "PriorityBefore") / @Field(entry.Fields, "PriorityAfter")</td>
+                            <td>@Field(entry.Fields, "PolicyAction")</td>
+                            <td>Not captured</td>
+                            <td><span class="policy-outcome-text @OutcomeClass(PolicyOutcome(entry.Fields))">@PolicyOutcome(entry.Fields)</span></td>
+                            <td>@(entry.Request.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@(entry.Request.Tokens?.ToString("N0", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>
+                                <details class="policy-decision-details">
+                                    <summary>View</summary>
+                                    <dl>
+                                        <dt>Request ID</dt><dd>@entry.Request.Id</dd>
+                                        <dt>Decision ID</dt><dd>@Field(entry.Fields, "DecisionId")</dd>
+                                        <dt>Evaluation sequence</dt><dd>@Field(entry.Fields, "EvaluationSequence")</dd>
+                                        <dt>Requested model</dt><dd>@entry.Request.Original</dd>
+                                        <dt>Latest selected / outcome-reported model</dt><dd>@entry.Request.Selected</dd>
+                                        <dt>Latest policy outcome</dt><dd>@PolicyOutcome(entry.Request.LatestPolicy)</dd>
+                                        <dt>Requested retry delay (ms)</dt><dd>@(entry.RetryAfter?.ToString("N1", CultureInfo.InvariantCulture) ?? "Not captured")</dd>
+                                        <dt>Request latency (ms)</dt><dd>@(entry.Request.Latency?.ToString("N1", CultureInfo.InvariantCulture) ?? "Not captured")</dd>
+                                        <dt>Utilization / configured capacity threshold</dt><dd>Not captured</dd>
+                                        <dt>Maximum queue length / high-depth threshold</dt><dd>Not captured</dd>
+                                        <dt>Actual queue-wait / delay / requeue duration</dt><dd>Not captured</dd>
+                                        <dt>Quota limits / configured action</dt><dd>Not captured</dd>
+                                    </dl>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
         </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Avg Processing Delay</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">1.8s</strong>
-            <span style="font-size: 0.75rem; color: #999;">↑ 340ms vs. baseline</span>
+        @if (_filteredEvents.Length == 0) { <p class="policy-note capacity-empty" role="status">No recorded capacity, queue or quota evaluations match these filters.</p> }
+        <div class="policy-pagination">
+            <span>@Number(_filteredEvents.Length) matching evaluations</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex == 0)" @onclick="() => ChangePage(-1)">Previous</button>
+            <span>Page @(_pageIndex + 1) of @PageCount</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next</button>
         </div>
-    </div>
-
-    <div class="report-section" style="margin-top: 2rem;">
-        <h4>Capacity Trends (Last 7 Days)</h4>
-        <ul style="margin: 0; padding: 1rem 0; list-style: none;">
-            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
-                <span>Monday</span>
-                <div style="display: flex; gap: 1rem;">
-                    <span style="color: #999;">Queue: 156</span>
-                    <span style="color: #666;">Util: 64%</span>
-                </div>
-            </li>
-            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
-                <span>Tuesday</span>
-                <div style="display: flex; gap: 1rem;">
-                    <span style="color: #999;">Queue: 198</span>
-                    <span style="color: #666;">Util: 68%</span>
-                </div>
-            </li>
-            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
-                <span>Wednesday</span>
-                <div style="display: flex; gap: 1rem;">
-                    <span style="color: #999;">Queue: 234</span>
-                    <span style="color: #ffa21b; font-weight: 600;">Util: 72%</span>
-                </div>
-            </li>
-            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
-                <span>Thursday</span>
-                <div style="display: flex; gap: 1rem;">
-                    <span style="color: #999;">Queue: 215</span>
-                    <span style="color: #666;">Util: 71%</span>
-                </div>
-            </li>
-            <li style="padding: 0.5rem 0; display: flex; justify-content: space-between;">
-                <span>Friday</span>
-                <div style="display: flex; gap: 1rem;">
-                    <span style="color: #999;">Queue: 189</span>
-                    <span style="color: #666;">Util: 69%</span>
-                </div>
-            </li>
-        </ul>
-    </div>
+    </article>
+    <p class="policy-note">
+        Capacity and queue flags come from recorded policy conditions, not numeric measurements. Only the winning condition is recorded; other simultaneous constraints may be missing.
+        A quota hit means a recorded quota-exceeded condition, not a reconstructed balance.
+        RetryAfterMs is a requested scheduling delay, not measured queue wait. Request latency may include other processing.
+        Timestamps are evaluation/outcome times, not request arrival times. Models, policy evaluations and outcomes are correlated only within the selected time window.
+        Counts deduplicate requests; the recent table and scheduling-action counts retain individual evaluations. No unconstrained baseline or previous-period comparison is assumed.
+    </p>
 </section>
 
 @code {
     [Parameter]
     public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public TokenomicsPeriod Period { get; set; } = TokenomicsPeriod.Hourly;
+
+    private sealed record PressureRequest(string Id, string User, string Tenant, string Original, string Selected,
+        ImmutableDictionary<string, string>[] Policies, ImmutableDictionary<string, string>? LatestPolicy,
+        bool Capacity, bool Queue, bool Quota, int? Status, double? Latency, decimal? Tokens);
+    private sealed record PressureEvent(PressureRequest Request, ImmutableDictionary<string, string> Fields,
+        DateTimeOffset? Timestamp, double? RetryAfter);
+    private sealed record Comparison(string Name, int Requests, int Responses, int Successes, double? Latency, int LatencySamples);
+
+    private const int PageSize = 10;
+    private readonly HashSet<string> _capacityConditions = new(["CapacityConstrained", "CapacityCriticalWorkload", "CapacityHighPriority"], StringComparer.Ordinal);
+    private readonly HashSet<string> _queueConditions = new(["QueueDepthHigh", "QueueCriticalPriority"], StringComparer.Ordinal);
+    private readonly HashSet<string> _quotaConditions = new(["MonthlyQuotaExceeded", "DailyQuotaExceeded", "DailyQuotaGovernance"], StringComparer.Ordinal);
+    private readonly string[] _filters = ["All Events", "Constrained", "Delayed", "Requeued", "Rejected", "Quota Limits"];
+    private readonly HashSet<string> _warnings = new(StringComparer.Ordinal);
+    private PressureRequest[] _requests = [];
+    private PressureEvent[] _events = [];
+    private PressureEvent[] _filteredEvents = [];
+    private PressureEvent[] _visibleEvents = [];
+    private Comparison[] _comparisons = [];
+    private (string Name, string Value, string Icon, string Tone, string Caption)[] _metrics = [];
+    private (string Name, int Count)[] _capacityModels = [];
+    private (string Name, int Count)[] _queueTenants = [];
+    private (string Name, int Count)[] _outcomes = [];
+    private string _selectedFilter = "All Events";
+    private string _outcomeGradient = "conic-gradient(#9ba9c1 0% 100%)";
+    private string _csvHref = string.Empty;
+    private int _pageIndex;
+    private int _pressureRequestCount;
+    private int _capacityEvaluationCount;
+    private int _queueEvaluationCount;
+    private int _delayedEvaluations;
+    private int _delayedRequests;
+    private int _requeuedEvaluations;
+    private int _requeuedRequests;
+    private double? _requestedDelayAverage;
+    private int _requestedDelaySamples;
+    private int PageCount => Math.Max(1, (_filteredEvents.Length + PageSize - 1) / PageSize);
+    private string OutcomeDescription => $"{Number(_pressureRequestCount)} requests with recorded capacity or queue conditions. " +
+        string.Join(", ", _outcomes.Select(outcome => $"{outcome.Name}: {outcome.Count}"));
+    private string RequestedDelayDescription => _requestedDelayAverage is { } delay
+        ? $"Requested retry delay averaged {delay.ToString("N1", CultureInfo.InvariantCulture)} ms across {_requestedDelaySamples} scheduling evaluations."
+        : "No requested retry-delay measurements recorded.";
+
+    protected override void OnParametersSet() {
+        _warnings.Clear();
+        _requests = Snapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(BuildRequest).ToArray();
+        _events = _requests.SelectMany(request => request.Policies.Where(IsRelevant).Select(fields =>
+                new PressureEvent(request, fields, Time(fields), Milliseconds(fields, "RetryAfterMs"))))
+            .OrderByDescending(entry => entry.Timestamp).ThenByDescending(entry => Sequence(entry.Fields)).ToArray();
+        var pressure = _requests.Where(request => request.Capacity || request.Queue).ToArray();
+        _pressureRequestCount = pressure.Length;
+        _capacityEvaluationCount = _events.Count(entry => IsCapacity(entry.Fields));
+        _queueEvaluationCount = _events.Count(entry => IsQueue(entry.Fields));
+        var delayed = _events.Where(entry => Field(entry.Fields, "Decision") == "Delayed").ToArray();
+        var requeued = _events.Where(entry => Field(entry.Fields, "Decision") == "Requeued").ToArray();
+        _delayedEvaluations = delayed.Length;
+        _delayedRequests = delayed.Select(entry => entry.Request.Id).Distinct(StringComparer.Ordinal).Count();
+        _requeuedEvaluations = requeued.Length;
+        _requeuedRequests = requeued.Select(entry => entry.Request.Id).Distinct(StringComparer.Ordinal).Count();
+        var scheduledRequests = delayed.Concat(requeued).Select(entry => entry.Request.Id).Distinct(StringComparer.Ordinal).Count();
+        var requestedDelays = delayed.Concat(requeued).Where(entry => entry.RetryAfter.HasValue).Select(entry => entry.RetryAfter!.Value).ToArray();
+        _requestedDelaySamples = requestedDelays.Length;
+        _requestedDelayAverage = requestedDelays.Length == 0 ? null : requestedDelays.Average();
+        _metrics = [
+            ("Peak Capacity Utilization", "Not captured", "☷", "blue", "No measured utilization samples"),
+            ("Avg. Queue Depth", "Not captured", "♟", "blue", "No measured queue-depth samples"),
+            ("Requests Constrained", Number(_pressureRequestCount), "!", "red", "Recorded capacity / queue conditions"),
+            ("Quota Limit Hits", Number(_requests.Count(request => request.Quota)), "⊘", "red", "Requests with recorded quota conditions"),
+            ("Avg. Queue Wait Time", "Not captured", "◷", "blue", "Retry delay is not actual queue wait"),
+            ("Delay / Requeue Rate", Percent(scheduledRequests, _requests.Count(request => request.Policies.Length > 0)) + "%", "↔", "blue",
+                $"{scheduledRequests} affected requests / {_requests.Count(request => request.Policies.Length > 0)} evaluated")
+        ];
+        _capacityModels = _requests.Where(request => request.Capacity).GroupBy(request => request.Original)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => (Name: group.Key, Count: group.Count())).ToArray();
+        _queueTenants = _requests.Where(request => request.Queue).GroupBy(request => request.Tenant)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => (Name: group.Key, Count: group.Count())).ToArray();
+        _outcomes = pressure.GroupBy(request => CohortOutcome(request)).OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal).Select(group => (Name: group.Key, Count: group.Count())).ToArray();
+        var accumulated = 0;
+        var stops = new List<string>();
+        foreach (var outcome in _outcomes) {
+            var start = accumulated;
+            accumulated += outcome.Count;
+            stops.Add($"{OutcomeColor(outcome.Name)} {Percent(start, _pressureRequestCount)}% {Percent(accumulated, _pressureRequestCount)}%");
+        }
+        _outcomeGradient = stops.Count == 0 ? "conic-gradient(#9ba9c1 0% 100%)" : $"conic-gradient({string.Join(", ", stops)})";
+        _comparisons = [
+            Compare("Recorded capacity / queue condition", pressure),
+            Compare("Other recorded policy condition (state unknown)", _requests.Where(request => !request.Capacity && !request.Queue && request.Policies.Length > 0).ToArray()),
+            Compare("No policy evaluation recorded (state unknown)", _requests.Where(request => request.Policies.Length == 0).ToArray())
+        ];
+        UpdateRows();
+    }
+
+    private PressureRequest BuildRequest(IGrouping<string, ImmutableDictionary<string, string>> group) {
+        var records = group.OrderBy(fields => Time(fields)).ThenBy(Sequence).ToArray();
+        var policies = records.Where(fields => fields.GetValueOrDefault("RecordKind") == "PolicyDecision")
+            .DistinctBy(fields => Text(fields, "DecisionId") ?? $"{fields["MID"]}:{Sequence(fields)}:{Field(fields, "PolicyAction")}").ToArray();
+        var latest = policies.LastOrDefault();
+        var outcome = records.LastOrDefault(fields => fields.GetValueOrDefault("RecordKind") == "RequestOutcome");
+        var first = policies.FirstOrDefault() ?? records[0];
+        var usage = outcome is not null && Text(outcome, "UsageAvailable") is { } available && bool.TryParse(available, out var captured) && captured;
+        var input = usage ? Tokens(outcome!, "InputTokens") : null;
+        var output = usage ? Tokens(outcome!, "OutputTokens") : null;
+        return new PressureRequest(group.Key, Field(first, "UserId"), Field(first, "Tenant"),
+            Text(first, "RequestedModel") ?? Text(first, "ModelBefore") ?? "Not captured",
+            Text(outcome, "EffectiveModel") ?? Text(latest, "ModelAfter") ?? "Not captured", policies, latest,
+            policies.Any(IsCapacity), policies.Any(IsQueue), policies.Any(IsQuota),
+            outcome is null ? null : TokenomicsReplayOptions.GetStatus(outcome),
+            outcome is null ? null : Milliseconds(outcome, "LatencyMs"),
+            input.HasValue && output.HasValue ? input.Value + output.Value : null);
+    }
+
+    private static Comparison Compare(string name, PressureRequest[] requests) {
+        var responses = requests.Where(request => request.Status.HasValue).ToArray();
+        var latencies = requests.Where(request => request.Latency.HasValue).Select(request => request.Latency!.Value).ToArray();
+        return new Comparison(name, requests.Length, responses.Length, responses.Count(request => request.Status is >= 200 and < 300),
+            latencies.Length == 0 ? null : latencies.Average(), latencies.Length);
+    }
+
+    private static string CohortOutcome(PressureRequest request) {
+        var outcome = PolicyOutcome(request.LatestPolicy);
+        return outcome == "Allowed" && request.Policies.Any(fields => Field(fields, "Decision") is "Delayed" or "Requeued")
+            ? "Allowed after scheduling" : outcome;
+    }
+
+    private bool IsCapacity(ImmutableDictionary<string, string> fields) => _capacityConditions.Contains(Field(fields, "PolicyCondition"));
+    private bool IsQueue(ImmutableDictionary<string, string> fields) => _queueConditions.Contains(Field(fields, "PolicyCondition"));
+    private bool IsQuota(ImmutableDictionary<string, string> fields) => _quotaConditions.Contains(Field(fields, "PolicyCondition"));
+    private bool IsRelevant(ImmutableDictionary<string, string> fields) => IsCapacity(fields) || IsQueue(fields) || IsQuota(fields);
+
+    private void SelectFilter(string filter) {
+        _selectedFilter = filter;
+        _pageIndex = 0;
+        UpdateRows();
+    }
+
+    private void ChangePage(int change) {
+        _pageIndex = Math.Clamp(_pageIndex + change, 0, PageCount - 1);
+        _visibleEvents = _filteredEvents.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+    }
+
+    private void UpdateRows() {
+        _filteredEvents = _events.Where(entry => _selectedFilter switch {
+            "Constrained" => IsCapacity(entry.Fields) || IsQueue(entry.Fields),
+            "Delayed" => Field(entry.Fields, "Decision") == "Delayed",
+            "Requeued" => Field(entry.Fields, "Decision") == "Requeued",
+            "Rejected" => Field(entry.Fields, "Decision") == "Rejected",
+            "Quota Limits" => IsQuota(entry.Fields),
+            _ => true
+        }).ToArray();
+        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        _visibleEvents = _filteredEvents.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+        var csv = new StringBuilder("TimestampUtc,User,Tenant,RequestedModel,ModelBefore,ModelAfter,LatestSelectedModel,PriorityBefore,PriorityAfter,Condition,Action,PolicyOutcome,LatestPolicyOutcome,FinalRecordedStatus,Tokens,RequestLatencyMs,RequestedRetryAfterMs,CapacityUtilization,CapacityThreshold,QueueDepth,MaxQueueLength,HighDepthThreshold,QueueWaitMs,QuotaLimit,ConfiguredAction,MID,DecisionId,EvaluationSequence\r\n");
+        foreach (var entry in _filteredEvents) {
+            string[] values = [entry.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.Request.User, entry.Request.Tenant, entry.Request.Original, Field(entry.Fields, "ModelBefore"), Field(entry.Fields, "ModelAfter"),
+                entry.Request.Selected, Field(entry.Fields, "PriorityBefore"), Field(entry.Fields, "PriorityAfter"),
+                Field(entry.Fields, "PolicyCondition"), Field(entry.Fields, "PolicyAction"), PolicyOutcome(entry.Fields),
+                PolicyOutcome(entry.Request.LatestPolicy), entry.Request.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.Request.Tokens?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.Request.Latency?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                entry.RetryAfter?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                "Not captured", "Not captured", "Not captured", "Not captured", "Not captured", "Not captured", "Not captured", "Not captured",
+                entry.Request.Id, Field(entry.Fields, "DecisionId"), Field(entry.Fields, "EvaluationSequence")];
+            csv.Append(string.Join(",", values.Select(CsvCell))).Append("\r\n");
+        }
+        _csvHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv.ToString());
+    }
+
+    private double? Milliseconds(IReadOnlyDictionary<string, string> fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) && value >= 0) return value;
+        _warnings.Add($"{key} is not a finite nonnegative duration");
+        return null;
+    }
+
+    private decimal? Tokens(IReadOnlyDictionary<string, string> fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value)) return value;
+        _warnings.Add($"{key} is not a nonnegative integer");
+        return null;
+    }
+
+    private DateTimeOffset? Time(IReadOnlyDictionary<string, string> fields) {
+        var text = Text(fields, "TimestampUtc");
+        if (text is null) return null;
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)) return timestamp;
+        _warnings.Add("TimestampUtc is invalid");
+        return null;
+    }
+
+    private static int Sequence(IReadOnlyDictionary<string, string> fields) =>
+        int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0;
+    private static string? Text(IReadOnlyDictionary<string, string>? fields, string key) =>
+        fields is not null && fields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+    private static string Field(IReadOnlyDictionary<string, string>? fields, string key) => Text(fields, key) ?? "Not captured";
+    private static string Number(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    private static string Percent(int count, int total) => (total == 0 ? 0 : count * 100.0 / total).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string PolicyOutcome(IReadOnlyDictionary<string, string>? fields) =>
+        Field(fields, "Decision") is var outcome && outcome == "AllowedWithChanges" ? "Modified" : Field(fields, "Decision");
+    private static string OutcomeClass(string outcome) => outcome switch {
+        "Allowed" or "Allowed after scheduling" => "policy-allowed", "Rejected" => "policy-rejected",
+        "Delayed" => "policy-delayed", "Requeued" => "policy-requeued", "Modified" => "policy-modified",
+        "Throttled" => "policy-throttled", _ => "policy-unknown"
+    };
+    private static string OutcomeColor(string outcome) => outcome switch {
+        "Allowed" or "Allowed after scheduling" => "#32bf78", "Rejected" => "#f2554b",
+        "Delayed" => "#f5ab28", "Requeued" => "#9255eb", "Modified" => "#398cf1", "Throttled" => "#d44a96", _ => "#9ba9c1"
+    };
+    private static string CsvCell(string value) {
+        var trimmed = value.TrimStart();
+        if (trimmed.StartsWith('=') || trimmed.StartsWith('+') || trimmed.StartsWith('-') || trimmed.StartsWith('@')
+            || value.StartsWith('\t') || value.StartsWith('\r') || value.StartsWith('\n')) value = "'" + value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
 }

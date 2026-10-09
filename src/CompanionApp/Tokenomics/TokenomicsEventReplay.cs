@@ -440,6 +440,9 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             Users = users,
             AtRiskRequests = atRiskRequests,
             PolicyDecisions = decisions.OrderByDescending(fields => Timestamp(fields)).ToImmutableArray(),
+            RoutingEvents = summaries.ToImmutableArray(),
+            RoutingPrices = prices.ToImmutableDictionary(entry => entry.Key,
+                entry => (entry.Value.Input, entry.Value.CachedInput, entry.Value.Output), StringComparer.OrdinalIgnoreCase),
             Reports = TokenomicsDashboardSnapshot.Empty.Reports
         };
     }
