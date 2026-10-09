@@ -72,53 +72,113 @@
                         <p>Token usage and spend across your organization</p>
                     </div>
                     <div class="section-tabs" aria-label="Dashboard view">
-                        <span class="selected">Overview</span><span>Tokens</span><span>Spend</span><span>Limits</span><span>At Risk</span>
+                        <button type="button" class="@(_selectedQuotaTab == "overview" ? "selected" : "")" @onclick="() => SelectQuotaTab(_overview)">Overview</button><button type="button" class="@(_selectedQuotaTab == "tokens" ? "selected" : "")" @onclick="() => SelectQuotaTab(_tokens)">Tokens</button><button type="button" class="@(_selectedQuotaTab == "spend" ? "selected" : "")" @onclick="() => SelectQuotaTab(_spend)">Spend</button><button type="button" class="@(_selectedQuotaTab == "limits" ? "selected" : "")" @onclick="() => SelectQuotaTab(_limits)">Limits</button><button type="button" class="@(_selectedQuotaTab == "atrisk" ? "selected" : "")" @onclick="() => SelectQuotaTab(_atrisk)">At Risk</button>
                     </div>
                 </div>
                 <article class="tokenomics-card trend-card">
-                    <h3>@(_snapshot.SpendAxisTicks.IsEmpty ? "Token Usage Trend" : "Token Usage and Spend Trend")</h3>
-                    <div class="trend-plot" role="img" aria-label="@_snapshot.TrendDescription">
-                        <div class="trend-y-label">Tokens</div>
-                        <div class="trend-grid">
-                            <div class="trend-y-ticks" aria-hidden="true">@foreach (var tick in _snapshot.TokenAxisTicks) { <span>@tick</span> }</div>
-                            <div class="trend-bars" style="@($"--trend-columns: {Math.Max(1, _snapshot.Trend.Length)}")">
-                                @foreach (var point in _snapshot.Trend)
-                                {
-                                    <div class="trend-day">
-                                        <div class="bar-area">
-                                            <div class="trend-bar">
-                                                <span class="bar-input" style="height: @((point.InputNet / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
-                                                <span class="bar-cached" style="height: @((point.Cached / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
-                                                <span class="bar-output" style="height: @((point.Output / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
-                                            </div>
-                                        </div>
-                                        <span class="trend-date">@point.Date</span>
-                                    </div>
-                                }
-                                <svg class="trend-line" viewBox="0 0 800 160" preserveAspectRatio="none" aria-hidden="true">
-                                    <polyline points="@string.Join(" ", _snapshot.SpendLine.Select(point => $"{point.X},{point.Y}"))" />
-                                    @foreach (var point in _snapshot.SpendLine)
+                    @if (_selectedQuotaTab == "overview")
+                    {
+                        <h3>@(_snapshot.SpendAxisTicks.IsEmpty ? "Token Usage Trend" : "Token Usage and Spend Trend")</h3>
+                        <div class="trend-plot" role="img" aria-label="@_snapshot.TrendDescription">
+                            <div class="trend-y-label">Tokens</div>
+                            <div class="trend-grid">
+                                <div class="trend-y-ticks" aria-hidden="true">@foreach (var tick in _snapshot.TokenAxisTicks) { <span>@tick</span> }</div>
+                                <div class="trend-bars" style="@($"--trend-columns: {Math.Max(1, _snapshot.Trend.Length)}")">
+                                    @foreach (var point in _snapshot.Trend)
                                     {
-                                        <circle cx="@point.X" cy="@point.Y" r="3" />
+                                        <div class="trend-day">
+                                            <div class="bar-area">
+                                                <div class="trend-bar">
+                                                    <span class="bar-input" style="height: @((point.InputNet / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                                                    <span class="bar-cached" style="height: @((point.Cached / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                                                    <span class="bar-output" style="height: @((point.Output / _snapshot.TokenAxisMaximum * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                                                </div>
+                                            </div>
+                                            <span class="trend-date">@point.Date</span>
+                                        </div>
                                     }
-                                </svg>
+                                    <svg class="trend-line" viewBox="0 0 800 160" preserveAspectRatio="none" aria-hidden="true">
+                                        <polyline points="@string.Join(" ", _snapshot.SpendLine.Select(point => $"{point.X},{point.Y}"))" />
+                                        @foreach (var point in _snapshot.SpendLine)
+                                        {
+                                            <circle cx="@point.X" cy="@point.Y" r="3" />
+                                        }
+                                    </svg>
+                                </div>
+                                <div class="trend-right-ticks" aria-hidden="true">@foreach (var tick in _snapshot.SpendAxisTicks) { <span>@tick</span> }</div>
                             </div>
-                            <div class="trend-right-ticks" aria-hidden="true">@foreach (var tick in _snapshot.SpendAxisTicks) { <span>@tick</span> }</div>
+                            @if (!_snapshot.SpendAxisTicks.IsEmpty)
+                            {
+                                <div class="trend-x-label">Spend (USD)</div>
+                            }
                         </div>
-                        @if (!_snapshot.SpendAxisTicks.IsEmpty)
-                        {
-                            <div class="trend-x-label">Spend (USD)</div>
-                        }
-                    </div>
-                    <div class="trend-legend">
-                        <span><i class="legend-input"></i>Input tokens (excl. cached)</span>
-                        <span><i class="legend-output"></i>Output tokens</span>
-                        <span><i class="legend-cached"></i>Cached input tokens</span>
-                        @if (!_snapshot.SpendAxisTicks.IsEmpty)
-                        {
-                            <span><i class="legend-spend"></i>Spend (USD)</span>
-                        }
-                    </div>
+                        <div class="trend-legend">
+                            <span><i class="legend-input"></i>Input tokens (excl. cached)</span>
+                            <span><i class="legend-output"></i>Output tokens</span>
+                            <span><i class="legend-cached"></i>Cached input tokens</span>
+                            @if (!_snapshot.SpendAxisTicks.IsEmpty)
+                            {
+                                <span><i class="legend-spend"></i>Spend (USD)</span>
+                            }
+                        </div>
+                    }
+                    else if (_selectedQuotaTab == "atrisk")
+                    {
+                        <h3>At Risk Requests</h3>
+                        <div class="trend-plot">
+                            @if (_snapshot.AtRiskRequests.IsEmpty)
+                            {
+                                <p style="padding: 2rem; text-align: center; color: #666;">No at-risk requests in this time range.</p>
+                            }
+                            else
+                            {
+                                <table class="at-risk-table" style="width: 100%; font-size: 0.875rem;">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th>Model</th>
+                                            <th>Reason</th>
+                                            <th>Timestamp</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var request in _snapshot.AtRiskRequests)
+                                        {
+                                            <tr>
+                                                <td>@request.User</td>
+                                                <td>@request.Model</td>
+                                                <td>@request.Reason</td>
+                                                <td>@request.Timestamp</td>
+                                                <td>@request.Status</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                    }
+                    else if (_selectedQuotaTab == "tokens")
+                    {
+                        <h3>Token Usage Details</h3>
+                        <div class="trend-plot">
+                            <p style="padding: 2rem; text-align: center; color: #666;">Token usage breakdown by period and tenant. See Token Usage by Model card below for more details.</p>
+                        </div>
+                    }
+                    else if (_selectedQuotaTab == "spend")
+                    {
+                        <h3>Spend Breakdown</h3>
+                        <div class="trend-plot">
+                            <p style="padding: 2rem; text-align: center; color: #666;">Spend details by tenant. See Spend by Tenant card below for more details.</p>
+                        </div>
+                    }
+                    else if (_selectedQuotaTab == "limits")
+                    {
+                        <h3>Quota and Limits</h3>
+                        <div class="trend-plot">
+                            <p style="padding: 2rem; text-align: center; color: #666;">Quota utilization by tenant. See Quota Utilization card below for more details.</p>
+                        </div>
+                    }
                 </article>
 
                 <div class="tokenomics-insight-grid">
@@ -214,7 +274,14 @@
     private string? _selectedTenant;
     private string? _selectedUser;
     private string? _selectedModel;
+    private string _selectedQuotaTab = "overview";
     private bool _disposed;
+    
+    private const string _overview = "overview";
+    private const string _tokens = "tokens";
+    private const string _spend = "spend";
+    private const string _limits = "limits";
+    private const string _atrisk = "atrisk";
 
     protected override void OnInitialized()
     {
@@ -245,6 +312,12 @@
     {
         _selectedModel = string.IsNullOrEmpty(model) ? null : model;
         _snapshot = Store.GetSnapshot(_selectedPeriod, _selectedTenant, _selectedUser, _selectedModel);
+    }
+
+    private void SelectQuotaTab(string tab)
+    {
+        _selectedQuotaTab = tab;
+        StateHasChanged();
     }
 
     private void OnStoreChanged()
