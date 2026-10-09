@@ -1,77 +1,514 @@
 @namespace CompanionApp.Components.Widgets.Tokenomics
 @rendermode InteractiveServer
 @using CompanionApp.Tokenomics
+@using System.Collections.Immutable
+@using System.Globalization
+@using System.Text
 
-<section>
-    <h3>Latency, Errors and Throttling</h3>
-    <p>Performance metrics, error rates, and rate limiting impact</p>
-    
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Avg Latency</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">234ms</strong>
-            <span style="font-size: 0.75rem; color: #999;">↑ 45ms vs. last week</span>
-        </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">Error Rate</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">0.32%</strong>
-            <span style="font-size: 0.75rem; color: #28a745;">↓ 0.08% vs. last week</span>
-        </div>
-        <div class="metric-card" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; background: #f9f9f9;">
-            <span style="font-size: 0.85rem; color: #666;">429 Throttles</span>
-            <strong style="font-size: 1.5rem; display: block; margin-top: 0.5rem;">186</strong>
-            <span style="font-size: 0.75rem; color: #dc3545;">↑ 34% vs. last week</span>
-        </div>
+<section class="tokenomics-section policy-report latency-report" aria-label="Latency, errors and throttling">
+    <div class="tokenomics-kpis">
+        @foreach (var metric in _metrics)
+        {
+            <article class="tokenomics-card kpi-card">
+                <div class="kpi-heading"><h2>@metric.Name</h2><span class="kpi-icon @metric.Tone" aria-hidden="true">@metric.Icon</span></div>
+                <p class="kpi-value routing-kpi-value">@metric.Value</p>
+                <p class="policy-kpi-caption">@metric.Caption</p>
+            </article>
+        }
+    </div>
+    <p class="policy-note">@WindowDescription Normal-period baseline and previous-period comparisons: Not captured.</p>
+    @if (_warnings.Count > 0)
+    {
+        <p class="policy-note latency-warning" role="alert">Invalid telemetry excluded: @string.Join("; ", _warnings.Order(StringComparer.Ordinal))</p>
+    }
+
+    <div class="policy-chart-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Latency Over Time</h3><p>Nearest-rank request latency percentiles (ms), @IntervalLabel in UTC</p></div>
+            <div class="latency-line-chart">
+                <span class="policy-axis-label">Latency (ms)</span>
+                <div class="policy-axis-ticks" aria-hidden="true">
+                    @for (var tick = 4; tick >= 0; tick--) { <span>@Number(_latencyAxisMaximum * tick / 4)</span> }
+                </div>
+                <div class="latency-chart-plot">
+                    <svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="@LatencyDescription">
+                        @for (var tick = 0; tick <= 4; tick++) { <line x1="0" y1="@(tick * 40)" x2="600" y2="@(tick * 40)" class="latency-grid-line" /> }
+                        @for (var series = 0; series < _percentiles.Length; series++)
+                        {
+                            @for (var index = 0; index < _timeline.Length; index++)
+                            {
+                                var value = _timeline[index].Latencies[series];
+                                var previous = index == 0 ? null : _timeline[index - 1].Latencies[series];
+                                @if (value.HasValue)
+                                {
+                                    @if (previous.HasValue)
+                                    {
+                                        <line x1="@X(index - 1)" y1="@Y(previous.Value, _latencyAxisMaximum)"
+                                              x2="@X(index)" y2="@Y(value.Value, _latencyAxisMaximum)" stroke="@SeriesColor(series)" class="latency-series-line" />
+                                    }
+                                    <circle cx="@X(index)" cy="@Y(value.Value, _latencyAxisMaximum)" r="2.2" fill="@SeriesColor(series)">
+                                        <title>@($"{_timeline[index].Label} UTC: P{_percentiles[series]} {Milliseconds(value)}, {_timeline[index].Samples} latency samples")</title>
+                                    </circle>
+                                }
+                            }
+                        }
+                    </svg>
+                    <div class="latency-time-labels" style="@($"--latency-buckets: {Math.Max(1, _timeline.Length)}")">
+                        @for (var index = 0; index < _timeline.Length; index++)
+                        {
+                            <span>@(ShowLabel(index) ? _timeline[index].Label : "")</span>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="policy-legend">
+                @for (var series = 0; series < _percentiles.Length; series++) { <span><i style="background: @SeriesColor(series)"></i>P@_percentiles[series]</span> }
+            </div>
+            <p class="policy-note">@Number(_latencySamples) latency samples; gaps mean no measured samples, not zero latency.</p>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Error Rate and Throttling Over Time</h3><p>Percentage of recorded outcomes, @IntervalLabel in UTC</p></div>
+            <div class="latency-line-chart">
+                <span class="policy-axis-label">Outcome rate (%)</span>
+                <div class="policy-axis-ticks" aria-hidden="true">
+                    @for (var tick = 4; tick >= 0; tick--) { <span>@Number(_rateAxisMaximum * tick / 4)%</span> }
+                </div>
+                <div class="latency-chart-plot">
+                    <svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="@RateDescription">
+                        @for (var tick = 0; tick <= 4; tick++) { <line x1="0" y1="@(tick * 40)" x2="600" y2="@(tick * 40)" class="latency-grid-line" /> }
+                        @for (var series = 0; series < 2; series++)
+                        {
+                            @for (var index = 0; index < _timeline.Length; index++)
+                            {
+                                var value = _timeline[index].Rates[series];
+                                var previous = index == 0 ? null : _timeline[index - 1].Rates[series];
+                                @if (value.HasValue)
+                                {
+                                    @if (previous.HasValue)
+                                    {
+                                        <line x1="@X(index - 1)" y1="@Y(previous.Value, _rateAxisMaximum)"
+                                              x2="@X(index)" y2="@Y(value.Value, _rateAxisMaximum)" stroke="@RateColor(series)" class="latency-series-line" />
+                                    }
+                                    <circle cx="@X(index)" cy="@Y(value.Value, _rateAxisMaximum)" r="2.2" fill="@RateColor(series)">
+                                        <title>@($"{_timeline[index].Label} UTC: {(series == 0 ? "Errors excluding 429" : "429s")} {value.Value.ToString("0.##", CultureInfo.InvariantCulture)}%, {_timeline[index].Responses} recorded outcomes")</title>
+                                    </circle>
+                                }
+                            }
+                        }
+                    </svg>
+                    <div class="latency-time-labels" style="@($"--latency-buckets: {Math.Max(1, _timeline.Length)}")">
+                        @for (var index = 0; index < _timeline.Length; index++) { <span>@(ShowLabel(index) ? _timeline[index].Label : "")</span> }
+                    </div>
+                </div>
+            </div>
+            <div class="policy-legend"><span><i style="background: #f2554b"></i>Errors (4xx/5xx excluding 429)</span><span><i style="background: #f5ab28"></i>Throttled (429)</span></div>
+            <p class="policy-note">Empty outcome buckets are gaps; recorded buckets with no failures have a genuine 0% rate.</p>
+        </article>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
-        <div class="report-section">
-            <h4>Error Breakdown</h4>
-            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between;">
-                    <span>Timeout (504)</span>
-                    <strong>42 (0.08%)</strong>
-                </li>
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
-                    <span>Server Error (5xx)</span>
-                    <strong>28 (0.05%)</strong>
-                </li>
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
-                    <span>Bad Request (400)</span>
-                    <strong>18 (0.03%)</strong>
-                </li>
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
-                    <span>Other Errors</span>
-                    <strong>80 (0.16%)</strong>
-                </li>
+    <div class="tokenomics-insight-grid latency-breakdown-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Request Outcomes</h3><p>One latest recorded outcome per request; missing outcomes are separate</p></div>
+            <div class="policy-outcome-distribution">
+                <div class="model-donut policy-donut" style="@($"--model-distribution: {_outcomeGradient}")" role="img" aria-label="@OutcomeDescription">
+                    <div><strong>@Number(_requests.Length)</strong><span>Total Requests</span></div>
+                </div>
+                <ul class="policy-outcome-list">
+                    @for (var index = 0; index < _outcomes.Length; index++)
+                    {
+                        var outcome = _outcomes[index];
+                        <li><i style="background: @OutcomeColor(index)" aria-hidden="true"></i><span>@outcome.Name</span><strong>@Number(outcome.Count) (@Percent(outcome.Count, _requests.Length))</strong></li>
+                    }
+                </ul>
+            </div>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Error Codes (4xx and 5xx)</h3><p>Final recorded HTTP errors, including policy-generated 429s</p></div>
+            <ul class="policy-breakdown-bars">
+                @foreach (var status in _statuses.Where(status => status.Code >= 400))
+                {
+                    <li><span>@StatusLabel(status.Code)</span><span class="horizontal-track"><i style="@($"width: {Width(status.Count, _errorCodeMaximum)}%; background: {(status.Code == 429 ? "#f2554b" : "#f5ab28")}")"></i></span><strong>@Number(status.Count)</strong></li>
+                }
             </ul>
-        </div>
-
-        <div class="report-section">
-            <h4>Throttling by Tenant</h4>
-            <ul style="margin: 0; padding: 1rem 0; list-style: none;">
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between;">
-                    <span>Contoso</span>
-                    <strong style="color: #dc3545;">82 throttles</strong>
-                </li>
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
-                    <span>Fabrikam</span>
-                    <strong style="color: #dc3545;">54 throttles</strong>
-                </li>
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
-                    <span>Northwind</span>
-                    <strong style="color: #dc3545;">32 throttles</strong>
-                </li>
-                <li style="padding: 0.75rem; display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0;">
-                    <span>Others</span>
-                    <strong style="color: #dc3545;">18 throttles</strong>
-                </li>
-            </ul>
-        </div>
+            @if (_errorCodeMaximum == 0) { <p class="policy-note latency-empty">No recorded 4xx or 5xx outcomes.</p> }
+            <details class="latency-status-details">
+                <summary>All HTTP status codes</summary>
+                <ul class="latency-status-list">
+                    @foreach (var status in _statuses) { <li><span>@StatusLabel(status.Code)</span><strong>@Number(status.Count) (@Percent(status.Count, _recordedOutcomes))</strong></li> }
+                </ul>
+                @if (_statuses.Length == 0) { <p class="policy-note">No recorded HTTP outcomes.</p> }
+            </details>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Latency and Throttling by Model</h3><p>Outcome-reported model; policy-selected fallback when absent</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table latency-summary-table">
+                    <thead><tr><th scope="col">Model</th><th scope="col">Requests / Outcomes</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Samples</th><th scope="col">Errors</th><th scope="col">429s / Rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var model in _models)
+                        {
+                            <tr><td>@model.Name</td><td>@Number(model.Requests) / @Number(model.Responses)</td>
+                                <td>@Duration(model.P50)</td><td>@Duration(model.P95)</td><td>@Duration(model.P99)</td><td>@Number(model.Samples)</td>
+                                <td>@Number(model.Errors) (@Percent(model.Errors, model.Responses))</td><td>@Number(model.Throttles) (@Percent(model.Throttles, model.Responses))</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
     </div>
+
+    <div class="tokenomics-insight-grid latency-bottom-grid">
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Tenants by Errors and Throttling</h3><p>Rates use captured outcomes, not missing requests</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table latency-summary-table">
+                    <thead><tr><th scope="col">Tenant</th><th scope="col">Requests / Outcomes</th><th scope="col">Errors / Rate</th><th scope="col">429s / Rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var tenant in _tenants)
+                        {
+                            <tr><td>@tenant.Name</td><td>@Number(tenant.Requests) / @Number(tenant.Responses)</td>
+                                <td>@Number(tenant.Errors) (@Percent(tenant.Errors, tenant.Responses))</td><td>@Number(tenant.Throttles) (@Percent(tenant.Throttles, tenant.Responses))</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>Latency by Tenant</h3><p>P50 / P95 / P99 latency in milliseconds</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table latency-summary-table">
+                    <thead><tr><th scope="col">Tenant</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Samples</th></tr></thead>
+                    <tbody>
+                        @foreach (var tenant in _tenants)
+                        {
+                            <tr><td>@tenant.Name</td><td>@Duration(tenant.P50)</td><td>@Duration(tenant.P95)</td><td>@Duration(tenant.P99)</td><td>@Number(tenant.Samples)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+        <article class="tokenomics-card insight-card">
+            <div class="policy-card-heading"><h3>User-Level 429s</h3><p>User and tenant identity; one latest outcome per request</p></div>
+            <div class="users-table-wrap">
+                <table class="users-table latency-summary-table">
+                    <thead><tr><th scope="col">User / Tenant</th><th scope="col">Requests / Outcomes</th><th scope="col">429s</th><th scope="col">Rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var user in _users)
+                        {
+                            <tr><td>@user.User<br />@user.Tenant</td><td>@Number(user.Stats.Requests) / @Number(user.Stats.Responses)</td>
+                                <td>@Number(user.Stats.Throttles)</td><td>@Percent(user.Stats.Throttles, user.Stats.Responses)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </div>
+
+    <article class="tokenomics-card users-card">
+        <div class="policy-recent-heading">
+            <div class="policy-card-heading"><h3>Recent Errors and Throttling Events</h3><p>Latest recorded failed or throttled requests, newest outcome first</p></div>
+            <div class="policy-table-controls">
+                <div class="section-tabs" aria-label="Filter failures">
+                    @foreach (var filter in _filters)
+                    {
+                        <button type="button" class="@(filter == _selectedFilter ? "selected" : "")" aria-pressed="@(filter == _selectedFilter ? "true" : "false")"
+                                @onclick="@(() => SelectFilter(filter))">@filter</button>
+                    }
+                </div>
+                @if (_filteredRows.Length == 0) { <button type="button" class="export-button" disabled>Export CSV</button> }
+                else { <a class="export-button" href="@_csvHref" download="latency-errors-throttling.csv">Export CSV</a> }
+            </div>
+        </div>
+        <div class="users-table-wrap">
+            <table class="users-table latency-events-table">
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Tenant</th><th scope="col">Model</th><th scope="col">Status</th><th scope="col">Latency (ms)</th><th scope="col">Source</th><th scope="col">Policy-Requested Delay (ms)</th><th scope="col">Details</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _visibleRows)
+                    {
+                        <tr><td>@(row.OutcomeTime?.ToString("MMM d, HH:mm:ss", CultureInfo.InvariantCulture) ?? "Not captured")</td>
+                            <td>@row.User<br />@row.Tenant</td><td>@row.Model</td><td>@row.Status</td><td>@Duration(row.Latency)</td><td>@row.Source</td>
+                            <td>@Duration(row.RequestedDelay)</td>
+                            <td>
+                                <details class="policy-decision-details">
+                                    <summary>View</summary>
+                                    <dl>
+                                        <dt>Request ID</dt><dd>@row.Id</dd><dt>Outcome ID</dt><dd>@row.OutcomeId</dd>
+                                        <dt>Latest policy outcome</dt><dd>@row.Decision</dd>
+                                        <dt>Policy delay evaluation time (UTC)</dt><dd>@(row.DelayTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured")</dd>
+                                        <dt>Backend response received</dt><dd>@row.BackendResponse</dd>
+                                        <dt>Backend Retry-After header / throttle time / wake time</dt><dd>Not captured</dd>
+                                        <dt>Error</dt><dd>@row.Error</dd>
+                                    </dl>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_filteredRows.Length == 0) { <p class="policy-note latency-empty" role="status">No recorded HTTP errors or throttles match this selection.</p> }
+        <div class="policy-pagination">
+            <span>@Number(_filteredRows.Length) matching requests</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex == 0)" @onclick="() => ChangePage(-1)">Previous</button>
+            <span>Page @(_pageIndex + 1) of @PageCount</span>
+            <button type="button" class="export-button" disabled="@(_pageIndex + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next</button>
+        </div>
+    </article>
+    <p class="policy-note">
+        Total requests counts distinct MIDs in the selected snapshot, including policy-only requests.
+        HTTP distributions and rates use each request's latest recorded valid status; missing outcomes are neither successes nor errors.
+        Error rate means 4xx/5xx excluding 429; throttling rate means HTTP 429, not merely a Throttled policy decision.
+        Latency percentiles use finite nonnegative LatencyMs samples, including measured zero, across both backend and policy-generated outcomes.
+        Percentiles use nearest rank (ceil(percentile * sample count)); latency sample coverage is shown separately.
+        RetryAfterMs is a policy-requested scheduling delay, not a backend Retry-After header or actual wait.
+        TimestampUtc is outcome/evaluation time, not request arrival or throttle onset. All correlations are limited to this snapshot's time window.
+        No normal-period baseline is recorded; no baseline or historical comparison is inferred.
+    </p>
 </section>
 
 @code {
     [Parameter]
     public TokenomicsDashboardSnapshot Snapshot { get; set; } = new();
+
+    [Parameter]
+    public TokenomicsPeriod Period { get; set; } = TokenomicsPeriod.Hourly;
+
+    private sealed record RequestResult(string Id, string User, string Tenant, string Model, DateTimeOffset? OutcomeTime,
+        int? Status, double? Latency, string Source, string BackendResponse, string OutcomeId, string Decision,
+        double? RequestedDelay, DateTimeOffset? DelayTime, string Error);
+    private sealed record GroupStats(string Name, int Requests, int Responses, int Errors, int Throttles,
+        int Samples, double? P50, double? P95, double? P99);
+    private sealed record TimeBucket(string Label, int Responses, int Samples, double?[] Latencies, double?[] Rates);
+
+    private const int PageSize = 10;
+    private readonly int[] _percentiles = [50, 90, 95, 99];
+    private readonly string[] _filters = ["All Failures", "429 Throttles", "4xx Errors", "5xx Errors"];
+    private readonly HashSet<string> _warnings = new(StringComparer.Ordinal);
+    private RequestResult[] _requests = [];
+    private RequestResult[] _filteredRows = [];
+    private RequestResult[] _visibleRows = [];
+    private GroupStats[] _models = [];
+    private GroupStats[] _tenants = [];
+    private (string User, string Tenant, GroupStats Stats)[] _users = [];
+    private TimeBucket[] _timeline = [];
+    private (string Name, string Value, string Icon, string Tone, string Caption)[] _metrics = [];
+    private (string Name, int Count)[] _outcomes = [];
+    private (int Code, int Count)[] _statuses = [];
+    private string _outcomeGradient = "conic-gradient(#9ba9c1 0% 100%)";
+    private string _selectedFilter = "All Failures";
+    private string _csvHref = string.Empty;
+    private int _pageIndex;
+    private int _recordedOutcomes;
+    private int _latencySamples;
+    private int _errorCodeMaximum;
+    private double _latencyAxisMaximum = 1;
+    private double _rateAxisMaximum = 5;
+    private DateTimeOffset? _firstOutcomeTime;
+    private DateTimeOffset? _lastOutcomeTime;
+    private int PageCount => Math.Max(1, (_filteredRows.Length + PageSize - 1) / PageSize);
+    private string IntervalLabel => Period switch { TokenomicsPeriod.Hourly => "per minute", TokenomicsPeriod.Daily => "per hour", _ => "per day" };
+    private string WindowDescription => _firstOutcomeTime is { } start && _lastOutcomeTime is { } end
+        ? $"{Period} selection. Recorded outcome times: {start:yyyy-MM-dd HH:mm:ss} to {end:yyyy-MM-dd HH:mm:ss} UTC."
+        : $"{Period} selection. No timestamped request outcomes recorded.";
+    private string LatencyDescription => $"{Number(_latencySamples)} measured latency samples, {IntervalLabel}. Missing buckets are gaps. {_latencyAxisMaximum.ToString(CultureInfo.InvariantCulture)} ms axis maximum.";
+    private string RateDescription => $"{Number(_recordedOutcomes)} captured HTTP outcomes, {IntervalLabel}. Errors exclude 429; throttles are HTTP 429.";
+    private string OutcomeDescription => string.Join(", ", _outcomes.Select(outcome => $"{outcome.Name}: {outcome.Count} requests"));
+
+    protected override void OnParametersSet() {
+        _warnings.Clear();
+        _requests = Snapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(BuildRequest)
+            .OrderByDescending(row => row.OutcomeTime).ThenBy(row => row.Id, StringComparer.Ordinal).ToArray();
+        var stats = Summarize("All requests", _requests);
+        _recordedOutcomes = stats.Responses;
+        _latencySamples = stats.Samples;
+        _metrics = [
+            ("Total Requests", Number(stats.Requests), "▣", "blue", $"{Number(stats.Responses)} recorded HTTP outcomes"),
+            ("P50 Latency", Milliseconds(stats.P50), "◷", "blue", $"{Number(stats.Samples)} measured latency samples"),
+            ("P95 Latency", Milliseconds(stats.P95), "◷", "blue", "Nearest-rank percentile; milliseconds"),
+            ("P99 Latency", Milliseconds(stats.P99), "◷", "blue", "Nearest-rank percentile; milliseconds"),
+            ("Error Rate", Percent(stats.Errors, stats.Responses), "!", "red", $"{Number(stats.Errors)} 4xx/5xx errors excluding 429"),
+            ("Throttled Requests", Percent(stats.Throttles, stats.Responses), "!", "red", $"{Number(stats.Throttles)} recorded HTTP 429s")
+        ];
+        _models = _requests.GroupBy(row => row.Model).Select(group => Summarize(group.Key, group))
+            .OrderByDescending(group => group.Requests).ThenBy(group => group.Name, StringComparer.Ordinal).ToArray();
+        _tenants = _requests.GroupBy(row => row.Tenant).Select(group => Summarize(group.Key, group))
+            .OrderByDescending(group => group.Errors + group.Throttles).ThenByDescending(group => group.Requests)
+            .ThenBy(group => group.Name, StringComparer.Ordinal).ToArray();
+        _users = _requests.GroupBy(row => (row.User, row.Tenant))
+            .Select(group => (group.Key.User, group.Key.Tenant, Stats: Summarize(group.Key.User, group)))
+            .OrderByDescending(group => group.Stats.Throttles).ThenByDescending(group => group.Stats.Requests)
+            .ThenBy(group => group.Tenant, StringComparer.Ordinal).ThenBy(group => group.User, StringComparer.Ordinal).ToArray();
+        _statuses = _requests.Where(row => row.Status.HasValue).GroupBy(row => row.Status!.Value)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key).Select(group => (Code: group.Key, Count: group.Count())).ToArray();
+        _errorCodeMaximum = _statuses.Where(status => status.Code >= 400).Select(status => status.Count).DefaultIfEmpty().Max();
+        _outcomes = [
+            ("Successful (2xx)", _requests.Count(row => row.Status is >= 200 and < 300)),
+            ("Client errors (4xx, not 429)", _requests.Count(row => row.Status is >= 400 and < 500 and not 429)),
+            ("Throttled (429)", stats.Throttles),
+            ("Server errors (5xx)", _requests.Count(row => row.Status is >= 500 and < 600)),
+            ("Other HTTP outcomes", _requests.Count(row => row.Status is >= 100 and < 200 or >= 300 and < 400)),
+            ("Outcome not captured", stats.Requests - stats.Responses)
+        ];
+        var accumulated = 0;
+        var stops = new List<string>();
+        for (var index = 0; index < _outcomes.Length; index++) {
+            var start = accumulated;
+            accumulated += _outcomes[index].Count;
+            if (_outcomes[index].Count > 0) stops.Add($"{OutcomeColor(index)} {Width(start, stats.Requests)}% {Width(accumulated, stats.Requests)}%");
+        }
+        _outcomeGradient = stops.Count == 0 ? "conic-gradient(#9ba9c1 0% 100%)" : $"conic-gradient({string.Join(", ", stops)})";
+        BuildTimeline();
+        UpdateRows();
+    }
+
+    private RequestResult BuildRequest(IGrouping<string, ImmutableDictionary<string, string>> group) {
+        var records = group.OrderBy(Time).ThenBy(fields =>
+            int.TryParse(fields.GetValueOrDefault("EvaluationSequence"), out var sequence) ? sequence : 0).ToArray();
+        var policies = records.Where(fields => Text(fields, "RecordKind") == "PolicyDecision").ToArray();
+        var latestPolicy = policies.LastOrDefault();
+        var outcome = records.LastOrDefault(fields => Text(fields, "RecordKind") == "RequestOutcome");
+        var delayRecord = policies.LastOrDefault(fields => fields.ContainsKey("RetryAfterMs"));
+        return new RequestResult(group.Key, Identity(records, "UserId"), Identity(records, "Tenant"),
+            Text(outcome, "EffectiveModel") ?? Text(latestPolicy, "ModelAfter") ?? "Not captured",
+            outcome is null ? null : Time(outcome), Status(outcome), DurationField(outcome, "LatencyMs"),
+            Field(outcome, "OutcomeSource"), Field(outcome, "BackendResponseReceived"), Field(outcome, "OutcomeId"),
+            Field(latestPolicy, "Decision"), DurationField(delayRecord, "RetryAfterMs"),
+            delayRecord is null ? null : Time(delayRecord), Field(outcome, "Error"));
+    }
+
+    private static GroupStats Summarize(string name, IEnumerable<RequestResult> requests) {
+        var rows = requests.ToArray();
+        var samples = rows.Where(row => row.Latency.HasValue).Select(row => row.Latency!.Value).Order().ToArray();
+        return new GroupStats(name, rows.Length, rows.Count(row => row.Status.HasValue), rows.Count(row => IsError(row.Status)),
+            rows.Count(row => row.Status == 429), samples.Length, Percentile(samples, 50), Percentile(samples, 95), Percentile(samples, 99));
+    }
+
+    private void BuildTimeline() {
+        var timed = _requests.Where(row => row.OutcomeTime.HasValue).ToArray();
+        _firstOutcomeTime = timed.Length == 0 ? null : timed.Min(row => row.OutcomeTime!.Value);
+        _lastOutcomeTime = timed.Length == 0 ? null : timed.Max(row => row.OutcomeTime!.Value);
+        if (_lastOutcomeTime is not { } latest) {
+            _timeline = [];
+            _latencyAxisMaximum = 1;
+            _rateAxisMaximum = 5;
+            return;
+        }
+        var start = Period switch {
+            TokenomicsPeriod.Hourly => new DateTimeOffset(latest.Year, latest.Month, latest.Day, latest.Hour, 0, 0, TimeSpan.Zero),
+            TokenomicsPeriod.Daily => new DateTimeOffset(latest.Year, latest.Month, latest.Day, 0, 0, 0, TimeSpan.Zero),
+            _ => new DateTimeOffset(latest.Year, latest.Month, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var count = Period switch { TokenomicsPeriod.Hourly => 60, TokenomicsPeriod.Daily => 24, _ => DateTime.DaysInMonth(start.Year, start.Month) };
+        var buckets = timed.ToLookup(row => Period switch {
+            TokenomicsPeriod.Hourly => row.OutcomeTime!.Value.Minute,
+            TokenomicsPeriod.Daily => row.OutcomeTime!.Value.Hour,
+            _ => row.OutcomeTime!.Value.Day - 1
+        });
+        _timeline = Enumerable.Range(0, count).Select(index => {
+            var rows = buckets[index].ToArray();
+            var samples = rows.Where(row => row.Latency.HasValue).Select(row => row.Latency!.Value).Order().ToArray();
+            var stats = Summarize("", rows);
+            var time = Period switch { TokenomicsPeriod.Hourly => start.AddMinutes(index), TokenomicsPeriod.Daily => start.AddHours(index), _ => start.AddDays(index) };
+            var label = time.ToString(Period == TokenomicsPeriod.Monthly ? "MMM d" : "HH:mm", CultureInfo.InvariantCulture);
+            return new TimeBucket(label, stats.Responses, samples.Length,
+                _percentiles.Select(percentile => Percentile(samples, percentile)).ToArray(),
+                [Rate(stats.Errors, stats.Responses), Rate(stats.Throttles, stats.Responses)]);
+        }).ToArray();
+        var maximum = _timeline.SelectMany(bucket => bucket.Latencies).Where(value => value.HasValue).Select(value => value!.Value).DefaultIfEmpty().Max();
+        _latencyAxisMaximum = Math.Max(1, maximum);
+        var rateMaximum = _timeline.SelectMany(bucket => bucket.Rates).Where(value => value.HasValue).Select(value => value!.Value).DefaultIfEmpty().Max();
+        _rateAxisMaximum = Math.Max(5, Math.Ceiling(rateMaximum / 5) * 5);
+    }
+
+    private static double? Percentile(double[] sortedSamples, int percentile) =>
+        sortedSamples.Length == 0 ? null : sortedSamples[Math.Max(0, (int)Math.Ceiling(percentile / 100.0 * sortedSamples.Length) - 1)];
+    private static bool IsError(int? status) => status is >= 400 and < 600 and not 429;
+    private static double? Rate(int count, int total) => total == 0 ? null : count * 100.0 / total;
+    private static string Percent(int count, int total) => Rate(count, total)?.ToString("0.##", CultureInfo.InvariantCulture) is { } value ? value + "%" : "Unavailable";
+    private static string Width(int count, int total) => (Rate(count, total) ?? 0).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string Number(double value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    private static string Duration(double? value) => value?.ToString("N1", CultureInfo.InvariantCulture) ?? "Not captured";
+    private static string Milliseconds(double? value) => value.HasValue ? Duration(value) + " ms" : "Not captured";
+    private static string? Text(IReadOnlyDictionary<string, string>? fields, string key) =>
+        fields is not null && fields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+    private static string Field(IReadOnlyDictionary<string, string>? fields, string key) => Text(fields, key) ?? "Not captured";
+    private static string Identity(IEnumerable<ImmutableDictionary<string, string>> records, string key) =>
+        records.Select(fields => Text(fields, key)).FirstOrDefault(value => value is not null) ?? "Not captured";
+
+    private int? Status(IReadOnlyDictionary<string, string>? fields) {
+        if (fields is null) return null;
+        var status = TokenomicsReplayOptions.GetStatus(fields);
+        if (status is >= 100 and <= 599) return status;
+        _warnings.Add("RequestOutcome has no valid HTTP status (100-599)");
+        return null;
+    }
+
+    private double? DurationField(IReadOnlyDictionary<string, string>? fields, string key) {
+        var text = Text(fields, key);
+        if (text is null) return null;
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) && value >= 0) return value;
+        _warnings.Add($"{key} is not a finite nonnegative duration");
+        return null;
+    }
+
+    private DateTimeOffset? Time(IReadOnlyDictionary<string, string> fields) {
+        var text = Text(fields, "TimestampUtc");
+        if (text is null) return null;
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)) return timestamp;
+        _warnings.Add("TimestampUtc is invalid");
+        return null;
+    }
+
+    private bool ShowLabel(int index) => index % Math.Max(1, _timeline.Length / 6) == 0 || index == _timeline.Length - 1;
+    private string X(int index) => (_timeline.Length <= 1 ? 300 : 3 + index * 594.0 / (_timeline.Length - 1)).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string Y(double value, double maximum) => (157 - value / maximum * 154).ToString("0.###", CultureInfo.InvariantCulture);
+    private static string SeriesColor(int index) => index switch { 0 => "#1976f3", 1 => "#32bf78", 2 => "#f5ab28", _ => "#f2554b" };
+    private static string RateColor(int index) => index == 0 ? "#f2554b" : "#f5ab28";
+    private static string OutcomeColor(int index) => index switch { 0 => "#32bf78", 1 => "#f5ab28", 2 => "#f2554b", 3 => "#9255eb", 4 => "#398cf1", _ => "#9ba9c1" };
+    private static string StatusLabel(int status) => status switch {
+        200 => "200 OK", 400 => "400 Bad Request", 401 => "401 Unauthorized", 403 => "403 Forbidden",
+        404 => "404 Not Found", 408 => "408 Request Timeout", 429 => "429 Too Many Requests",
+        500 => "500 Internal Server Error", 502 => "502 Bad Gateway", 503 => "503 Service Unavailable", 504 => "504 Gateway Timeout",
+        _ => status.ToString(CultureInfo.InvariantCulture)
+    };
+
+    private void SelectFilter(string filter) {
+        _selectedFilter = filter;
+        _pageIndex = 0;
+        UpdateRows();
+    }
+
+    private void ChangePage(int change) {
+        _pageIndex = Math.Clamp(_pageIndex + change, 0, PageCount - 1);
+        _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+    }
+
+    private void UpdateRows() {
+        _filteredRows = _requests.Where(row => _selectedFilter switch {
+            "429 Throttles" => row.Status == 429,
+            "4xx Errors" => row.Status is >= 400 and < 500 and not 429,
+            "5xx Errors" => row.Status is >= 500 and < 600,
+            _ => row.Status is >= 400 and < 600
+        }).ToArray();
+        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
+        var csv = new StringBuilder("TimestampUtc,User,Tenant,Model,StatusCode,LatencyMs,OutcomeSource,BackendResponseReceived,LatestPolicyDecision,PolicyRequestedDelayMs,DelayEvaluationTimestampUtc,BackendRetryAfter,ThrottleTimestampUtc,WakeTimestampUtc,Error,MID,OutcomeId\r\n");
+        foreach (var row in _filteredRows) {
+            string[] values = [row.OutcomeTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
+                row.User, row.Tenant, row.Model, row.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                row.Latency?.ToString(CultureInfo.InvariantCulture) ?? "Not captured", row.Source, row.BackendResponse, row.Decision,
+                row.RequestedDelay?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
+                row.DelayTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
+                "Not captured", "Not captured", "Not captured", row.Error, row.Id, row.OutcomeId];
+            csv.Append(string.Join(",", values.Select(CsvCell))).Append("\r\n");
+        }
+        _csvHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv.ToString());
+    }
+
+    private static string CsvCell(string value) {
+        var trimmed = value.TrimStart();
+        if (trimmed.StartsWith('=') || trimmed.StartsWith('+') || trimmed.StartsWith('-') || trimmed.StartsWith('@')
+            || value.StartsWith('\t') || value.StartsWith('\r') || value.StartsWith('\n')) value = "'" + value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
 }

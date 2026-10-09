@@ -22,6 +22,7 @@
                 "Policy Decisions and Outcomes" => "Actions taken, their results, and recorded policy evaluations for your AI workloads",
                 "Model Routing and Substitution" => "How requests are routed, when models are substituted, and the impact on performance and cost",
                 "Capacity and Queue Pressure" => "Recorded capacity, queue and quota conditions, scheduling actions, and request outcomes",
+                "Latency, Errors and Throttling" => "Performance, reliability and recorded rate-limiting outcomes for your AI workloads",
                 _ => "Usage, cost, policy and performance insights for your AI workloads"
             })</p>
             @if (_snapshot.IsSampleData)
@@ -80,6 +81,10 @@
             else if (_selectedReport == "Capacity and Queue Pressure")
             {
                 <CapacityQueueReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
+            }
+            else if (_selectedReport == "Latency, Errors and Throttling")
+            {
+                <LatencyErrorsReportContent Snapshot="_snapshot" Period="_selectedPeriod" />
             }
         </main>
 

@@ -657,12 +657,32 @@
 .capacity-events-table td { white-space: normal; min-width: 4rem; max-width: 12rem; overflow-wrap: anywhere; vertical-align: top; }
 .capacity-report .capacity-empty { padding: 0.75rem; }
 .capacity-report .routing-warning { padding: 0.75rem; border: 1px solid #ef3932; border-radius: 0.35rem; color: #9d2525; }
+.latency-line-chart { display: grid; grid-template-columns: 1rem 2.5rem minmax(0, 1fr); height: 13rem; margin: 1rem 0 0.8rem; }
+.latency-chart-plot { display: grid; grid-template-rows: minmax(0, 1fr) 1.3rem; min-width: 0; }
+.latency-chart-plot svg { display: block; width: 100%; height: 100%; border-left: 1px solid #687da4; border-bottom: 1px solid #687da4; }
+.latency-grid-line { stroke: #e7edf6; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.latency-series-line { stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.latency-time-labels { display: grid; grid-template-columns: repeat(var(--latency-buckets), minmax(0, 1fr)); color: var(--muted); font-size: 0.6rem; }
+.latency-time-labels span { position: relative; width: max-content; padding-top: 0.25rem; transform: translateX(-50%); }
+.latency-time-labels span:first-child { transform: none; }
+.latency-time-labels span:last-child { left: 100%; transform: translateX(-100%); }
+.latency-summary-table { margin-top: 0.75rem; white-space: normal; }
+.latency-summary-table td { overflow-wrap: anywhere; }
+.latency-events-table td { white-space: normal; min-width: 4rem; max-width: 12rem; overflow-wrap: anywhere; vertical-align: top; }
+.latency-status-details { margin-top: 1rem; font-size: 0.7rem; }
+.latency-status-details summary { color: var(--blue); cursor: pointer; }
+.latency-status-list { display: grid; gap: 0.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.latency-status-list li { display: flex; justify-content: space-between; gap: 0.5rem; }
+.latency-report .latency-empty { padding: 0.75rem; }
+.latency-report .latency-warning { padding: 0.75rem; border: 1px solid #ef3932; border-radius: 0.35rem; color: #9d2525; }
 
 @media (max-width: 900px) {
     .policy-chart-grid { grid-template-columns: minmax(0, 1fr); }
     .policy-breakdown-grid,
     .routing-breakdown-grid,
     .capacity-report .capacity-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
+    .latency-report .latency-breakdown-grid,
+    .latency-report .latency-bottom-grid { grid-template-columns: minmax(0, 1fr); }
     .capacity-scheduling-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .report-icon { color: var(--blue); font-size: 1.4rem; font-weight: 750; line-height: 1.2; text-align: center; }
