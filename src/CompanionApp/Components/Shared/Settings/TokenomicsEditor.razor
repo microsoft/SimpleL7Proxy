@@ -88,7 +88,17 @@
                 Some edits need correction. Select the relevant settings summary to review field errors; invalid values have not been applied to the draft.
             </div>
         }
-        <div id="tokenomics-expanded-panel" class="tokenomics-expanded-panel" role="region" aria-labelledby="@($"tokenomics-summary-{_expandedWidget}")">
+        @if (_expandedWidget is not null)
+        {
+        <div class="config-modal-backdrop tokenomics-widget-backdrop" @onclick="@(() => _expandedWidget = null)">
+        <div id="tokenomics-expanded-panel" class="config-modal tokenomics-widget-popup" role="dialog" aria-modal="true"
+             aria-labelledby="@($"tokenomics-summary-{_expandedWidget}")" @onclick:stopPropagation="true">
+            <div class="tokenomics-widget-popup-toolbar">
+                <span>Changes stay local until Save changes is selected on the configuration page.</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-dialog-cancel
+                        @onclick="@(() => _expandedWidget = null)">Close</button>
+            </div>
+            <div class="tokenomics-widget-popup-body">
             @if (_expandedWidget == "limits")
             {
             <TokenomicsLimitsBudgetsSettingsWidget FieldContent="@(name => RenderField(name, true))" />
@@ -120,7 +130,10 @@
                         OnCachedInputChanged="@(change => SetModelCostAsync(change.Row, null, null, change.Value, null))"
                         OnOutputChanged="@(change => SetModelCostAsync(change.Row, null, null, null, change.Value))" />
             }
+            </div>
         </div>
+        </div>
+        }
     }
 }
 
@@ -154,7 +167,7 @@
 
     private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
     private readonly List<ModelCostRow> _modelCosts = new();
-    private string _expandedWidget = "limits";
+    private string? _expandedWidget;
     private static string CompactNumber(decimal value) =>
         value != 0 && value % 1000 == 0
             ? $"{(value / 1000).ToString("0.##", CultureInfo.InvariantCulture)}K"
