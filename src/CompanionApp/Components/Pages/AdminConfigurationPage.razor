@@ -251,9 +251,12 @@
         <div class="config-section-grid" aria-label="Configuration sections loading">
             @foreach (var section in new[] {
                 (Name: "Async", Icon: "bi-gear-fill"), (Name: "CircuitBreaker", Icon: "bi-shield-fill"),
+                (Name: "Backend Resilience", Icon: "bi-shield-fill-check"),
                 (Name: "HealthProbe", Icon: "bi-activity"), (Name: "Hosts", Icon: "bi-database-fill"),
+                (Name: "Header Policy", Icon: "bi-card-checklist"),
                 (Name: "Identity & Access", Icon: "bi-shield-check"), (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"),
                 (Name: "Logging", Icon: "bi-file-earmark-text-fill"), (Name: "Request", Icon: "bi-arrow-left-right"),
+                (Name: "Request Processing", Icon: "bi-cpu-fill"),
                 (Name: "Response", Icon: "bi-arrow-return-left"), (Name: "Server", Icon: "bi-hdd-stack-fill")
             })
             {
@@ -314,10 +317,14 @@
                 <HeaderContent>
                         <div>
                             <div class="d-flex align-items-center flex-wrap gap-2">
+                                @if (IsRequestProcessingSection)
+                                {
+                                    <span class="bi bi-arrow-left-right fs-4 text-primary" aria-hidden="true"></span>
+                                }
                                 <h2 class="h5 mb-0">@SelectedSection</h2>
                                 @if (SelectedSection != "Local change review")
                                 {
-                                    <ConfigurationHelp Section="@SelectedSection" />
+                                    <ConfigurationHelp Section="@(IsRequestProcessingSection ? "Request" : SelectedSection)" />
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
                                     || (SelectedSection.ToLowerInvariant() is "identity & access" or "request" or "response" or "server"
@@ -342,6 +349,14 @@
                             else if (IsLoadBalancingSection)
                             {
                                 <span class="small text-muted">@LoadBalancingEditor.Summary(SelectedSettings)</span>
+                            }
+                            else if (IsRequestProcessingSection)
+                            {
+                                <span class="small text-muted">Configure timeouts, headers, and request prioritization.</span>
+                            }
+                            else if (IsPlaceholderSection)
+                            {
+                                <span class="small text-muted">Dummy value</span>
                             }
                             else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
                             {
@@ -377,7 +392,8 @@
                         </div>
                 </HeaderContent>
                 <EditorContent>
-                        @if (!string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
+                        @if (!string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
+                            && !IsRequestProcessingSection)
                         {
                             <ConfigurationExplanation Section="@SelectedSection" />
                         }
@@ -440,6 +456,10 @@
                         {
                             <RequestEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
+                        else if (IsRequestProcessingSection)
+                        {
+                            <RequestProcessingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
                         else if (string.Equals(SelectedSection, "Response", StringComparison.OrdinalIgnoreCase))
                         {
                             <ResponseEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
@@ -447,6 +467,10 @@
                         else if (string.Equals(SelectedSection, "Server", StringComparison.OrdinalIgnoreCase))
                         {
                             <ServerEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
+                        else if (IsPlaceholderSection)
+                        {
+                            <p class="mb-0">Dummy value</p>
                         }
                         else
                         {
@@ -597,6 +621,8 @@
         .Where(setting => !string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))
         .GroupBy(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)
             ? "Identity & Access"
+            : RequestProcessingEditor.IsRequestProcessingSetting(setting)
+                ? "Request Processing"
             : setting.Section, StringComparer.OrdinalIgnoreCase)
         .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
 
@@ -843,10 +869,20 @@
             ? Array.Empty<AppConfigurationScaffoldSetting>()
             : string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
                 ? Settings.Where(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)).ToList()
-                : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)).ToList();
+                : IsRequestProcessingSection
+                    ? Settings.Where(RequestProcessingEditor.IsRequestProcessingSetting).ToList()
+                    : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)
+                        && (!string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase)
+                            || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
     }
 
     private bool IsHostSection => string.Equals(SelectedSection, "Hosts", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsRequestProcessingSection =>
+        string.Equals(SelectedSection, "Request Processing", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsPlaceholderSection => SelectedSection?.ToLowerInvariant() is
+        "header policy" or "backend resilience";
 
     private static bool IsHealthProbeSectionName(string section) =>
         string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);

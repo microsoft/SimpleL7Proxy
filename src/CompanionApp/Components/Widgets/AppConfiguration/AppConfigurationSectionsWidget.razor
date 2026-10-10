@@ -8,6 +8,9 @@
             case "async":
                 <AppConfigurationAsyncWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
+            case "backend resilience":
+                <AppConfigurationBackendResilienceWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
             case "identity & access":
                 <AppConfigurationIdentityAccessWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
@@ -16,6 +19,9 @@
                 break;
             case "healthprobe":
                 <AppConfigurationHealthProbeWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "header policy":
+                <AppConfigurationHeaderPolicyWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
             case "hosts":
                 <AppConfigurationHostsWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
@@ -28,6 +34,9 @@
                 break;
             case "request":
                 <AppConfigurationRequestWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "request processing":
+                <AppConfigurationRequestProcessingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
             case "response":
                 <AppConfigurationResponseWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
@@ -43,6 +52,18 @@
     @if (!Groups.Any(group => string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase)))
     {
         <AppConfigurationHostsWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Hosts"))" />
+    }
+    @if (!Groups.Any(group => string.Equals(group.Key, "Request Processing", StringComparison.OrdinalIgnoreCase)))
+    {
+        <AppConfigurationRequestProcessingWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Request Processing"))" />
+    }
+    @if (!Groups.Any(group => string.Equals(group.Key, "Header Policy", StringComparison.OrdinalIgnoreCase)))
+    {
+        <AppConfigurationHeaderPolicyWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Header Policy"))" />
+    }
+    @if (!Groups.Any(group => string.Equals(group.Key, "Backend Resilience", StringComparison.OrdinalIgnoreCase)))
+    {
+        <AppConfigurationBackendResilienceWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Backend Resilience"))" />
     }
 </div>
 

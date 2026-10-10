@@ -1,0 +1,553 @@
+@namespace CompanionApp.Components.Shared
+@using System.Globalization
+@using SimpleL7Proxy.Config
+
+@{
+    var timeoutSetting = FindSetting(Settings, "DefaultTimeout");
+    var ttlSetting = FindSetting(Settings, "DefaultTTLSecs");
+    var defaultPrioritySetting = FindSetting(Settings, "Priority:DefaultPriority");
+    var priorityHeaderSetting = FindSetting(Settings, "Headers:PriorityKeyHeader");
+    var priorityKeysSetting = FindSetting(Settings, "Priority:PriorityKeys");
+    var priorityValuesSetting = FindSetting(Settings, "Priority:PriorityValues");
+    var priorityWorkerSetting = FindSetting(Settings, "Priority:PriorityWorker");
+    var timeoutValue = timeoutSetting is null
+        ? -1L
+        : ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = timeoutSetting.DraftValue },
+            "value",
+            -1L);
+    var ttlValue = ttlSetting is null
+        ? -1L
+        : ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = ttlSetting.DraftValue },
+            "value",
+            -1L);
+    var priorityRows = BuildPriorityRows(Settings);
+    var mappedPriorities = priorityRows
+        .Where(row => int.TryParse(row.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        .GroupBy(row => row.Value, StringComparer.Ordinal)
+        .Select(group => group.First())
+        .ToList();
+}
+
+<div class="request-processing-editor">
+    <div class="request-processing-info" role="note">
+        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+        <div>
+            <p>Request processing controls how incoming requests are interpreted and prepared for routing. Model detection is handled by Tokenomics.</p>
+            <a href="https://github.com/microsoft/SimpleL7Proxy/blob/main/docs/reference/advanced-configuration.md#priority-mapping"
+               target="_blank" rel="noopener noreferrer">
+                Learn more <span class="bi bi-box-arrow-up-right" aria-hidden="true"></span>
+            </a>
+        </div>
+    </div>
+
+    <section class="request-processing-section" aria-labelledby="request-processing-timeouts">
+        <div class="request-processing-section-heading">
+            <h3 id="request-processing-timeouts">Timeouts</h3>
+            <p>Set the default timeout for requests and a time-to-live (TTL) for cached results.</p>
+        </div>
+        <div class="request-processing-field-grid">
+            @if (timeoutSetting is not null)
+            {
+                <div class="request-processing-field @(timeoutSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@timeoutSetting.Key">Default timeout (ms)</label>
+                        <ConfigurationHelp Section="Request" Topic="@timeoutSetting.Name" />
+                    </div>
+                    <div class="request-processing-value-with-unit">
+                        <input id="@timeoutSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@(timeoutValue >= 0 ? timeoutValue.ToString(CultureInfo.InvariantCulture) : string.Empty)"
+                               @oninput="@(args => SetSettingValueAsync(timeoutSetting, args.Value?.ToString()))" />
+                        <span>@DurationLabel(timeoutSetting.DraftValue, milliseconds: true)</span>
+                    </div>
+                </div>
+            }
+            @if (ttlSetting is not null)
+            {
+                <div class="request-processing-field @(ttlSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@ttlSetting.Key">Default TTL (seconds)</label>
+                        <ConfigurationHelp Section="Request" Topic="@ttlSetting.Name" />
+                    </div>
+                    <div class="request-processing-value-with-unit">
+                        <input id="@ttlSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@(ttlValue >= 0 ? ttlValue.ToString(CultureInfo.InvariantCulture) : string.Empty)"
+                               @oninput="@(args => SetSettingValueAsync(ttlSetting, args.Value?.ToString()))" />
+                        <span>@DurationLabel(ttlSetting.DraftValue, milliseconds: false)</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="request-processing-section request-processing-priority-section" aria-labelledby="request-processing-priorities">
+        <div class="request-processing-section-heading">
+            <h3 id="request-processing-priorities">Request Prioritization</h3>
+            <p>Control how request priorities are determined and mapped to internal values.</p>
+        </div>
+        <div class="request-processing-field-grid">
+            @if (defaultPrioritySetting is not null)
+            {
+                <div class="request-processing-field @(defaultPrioritySetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@defaultPrioritySetting.Key">Default priority</label>
+                        <ConfigurationHelp Section="Request" Topic="@defaultPrioritySetting.Name" />
+                    </div>
+                    <select id="@defaultPrioritySetting.Key" class="form-select"
+                            value="@defaultPrioritySetting.DraftValue"
+                            @onchange="@(args => SetSettingValueAsync(defaultPrioritySetting, args.Value?.ToString()))">
+                        @if (!mappedPriorities.Any(row => string.Equals(row.Value, defaultPrioritySetting.DraftValue, StringComparison.Ordinal)))
+                        {
+                            <option value="@defaultPrioritySetting.DraftValue">@defaultPrioritySetting.DraftValue</option>
+                        }
+                        @foreach (var row in mappedPriorities)
+                        {
+                            <option value="@row.Value">@PriorityOptionLabel(row)</option>
+                        }
+                    </select>
+                </div>
+            }
+            @if (priorityHeaderSetting is not null)
+            {
+                <div class="request-processing-field @(priorityHeaderSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@priorityHeaderSetting.Key">Priority header name</label>
+                        <ConfigurationHelp Section="Request" Topic="@priorityHeaderSetting.Name" />
+                    </div>
+                    <input id="@priorityHeaderSetting.Key" class="form-control" type="text" autocomplete="off"
+                           @bind:get="priorityHeaderSetting.DraftValue"
+                           @bind:set="@(value => SetSettingValueAsync(priorityHeaderSetting, value))"
+                           @bind:event="oninput" />
+                </div>
+            }
+        </div>
+
+        <div class="request-priority-mapping @((priorityKeysSetting?.IsChanged == true || priorityValuesSetting?.IsChanged == true || priorityWorkerSetting?.IsChanged == true) ? "config-field-changed" : string.Empty)">
+            <div class="request-priority-mapping-heading">
+                <div>
+                    <h4>Priority mapping</h4>
+                    <p>Define the priority levels recognized from requests and how they map to internal values and worker allocation.</p>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                        disabled="@(priorityKeysSetting is null || priorityValuesSetting is null || priorityWorkerSetting is null)"
+                        @onclick="StartAddingPriority">
+                    <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add priority
+                </button>
+            </div>
+
+            @if (_editingPriorityIndex is not null)
+            {
+                <form class="request-priority-edit-form" @onsubmit="SavePriorityAsync" @onsubmit:preventDefault="true">
+                    <h5>@(_editingPriorityIndex == -1 ? "Add priority" : "Edit priority")</h5>
+                    <div class="request-priority-edit-grid">
+                        <div>
+                            <label class="form-label" for="request-priority-name">Priority name</label>
+                            <input id="request-priority-name" class="form-control form-control-sm" autocomplete="off"
+                                   @bind="_priorityName" @bind:event="oninput" />
+                        </div>
+                        <div>
+                            <label class="form-label" for="request-priority-value">Value</label>
+                            <input id="request-priority-value" class="form-control form-control-sm" type="number" step="1"
+                                   @bind="_priorityValue" @bind:event="oninput" />
+                        </div>
+                        <div>
+                            <label class="form-label" for="request-priority-workers">Worker weight</label>
+                            <input id="request-priority-workers" class="form-control form-control-sm" type="number" min="0" step="1"
+                                   @bind="_priorityWorkerWeight" @bind:event="oninput" />
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_priorityEditError))
+                    {
+                        <div class="text-danger small" role="alert">@_priorityEditError</div>
+                    }
+                    <div class="request-priority-edit-actions">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="CancelPriorityEdit">Cancel</button>
+                        <button class="btn btn-sm btn-primary" type="submit">Save priority</button>
+                    </div>
+                </form>
+            }
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle request-priority-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Priority name</th>
+                            <th scope="col">Value <ConfigurationHelp Section="Request" Topic="Priority:PriorityValues" /></th>
+                            <th scope="col">Worker weight <ConfigurationHelp Section="Request" Topic="Priority:PriorityWorker" /></th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (priorityRows.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="4" class="text-muted">No priority mappings configured.</td>
+                            </tr>
+                        }
+                        @for (var index = 0; index < priorityRows.Count; index++)
+                        {
+                            var rowIndex = index;
+                            var row = priorityRows[index];
+                            <tr>
+                                <td>@(string.IsNullOrWhiteSpace(row.Name) ? "(missing)" : row.Name)</td>
+                                <td>@(string.IsNullOrWhiteSpace(row.Value) ? "(missing)" : row.Value)</td>
+                                <td>@row.WorkerWeight</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-link" type="button"
+                                            title="@($"Edit {row.Name} priority")" aria-label="@($"Edit {row.Name} priority")"
+                                            @onclick="@(() => StartEditingPriority(rowIndex, row))">
+                                        <span class="bi bi-pencil" aria-hidden="true"></span>
+                                    </button>
+                                    <button class="btn btn-sm btn-link text-danger" type="button"
+                                            title="@($"Delete {row.Name} priority")" aria-label="@($"Delete {row.Name} priority")"
+                                            @onclick="@(() => DeletePriorityAsync(rowIndex))">
+                                        <span class="bi bi-trash" aria-hidden="true"></span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</div>
+
+<style>
+    .request-processing-editor { color: #071c61; }
+    .request-processing-info { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1rem; padding: 0.85rem 1rem; border: 1px solid #86b7fe; border-radius: 6px; background: #e8f2ff; color: #38558b; }
+    .request-processing-info > .bi { flex: 0 0 auto; margin-top: 0.1rem; color: #0d6efd; font-size: 1.35rem; }
+    .request-processing-info p { margin: 0 0 0.35rem; }
+    .request-processing-info a { font-weight: 600; }
+    .request-processing-section { padding: 0.25rem 0 1rem; }
+    .request-processing-section + .request-processing-section { padding-top: 1rem; border-top: 1px solid #dce5f2; }
+    .request-processing-section-heading { margin-bottom: 0.75rem; }
+    .request-processing-section-heading h3 { margin: 0; color: #071c61; font-size: 1.05rem; font-weight: 700; }
+    .request-processing-section-heading p { margin: 0.2rem 0 0; color: #596c96; font-size: 0.82rem; }
+    .request-processing-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+    .request-processing-field { min-width: 0; padding: 0.75rem; border-radius: 6px; background: #f5f7fb; box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.05); }
+    .request-processing-field.config-field-changed, .request-priority-mapping.config-field-changed { background: rgba(255, 204, 0, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.18); }
+    .request-processing-field .config-setting-heading { margin-bottom: 0.4rem; }
+    .request-processing-field .config-setting-heading label { color: #38558b; font-size: 0.78rem; font-weight: 600; }
+    .request-processing-value-with-unit { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.65rem; }
+    .request-processing-value-with-unit > span { color: #596c96; font-size: 0.78rem; white-space: nowrap; }
+    .request-processing-priority-section { padding-bottom: 0; }
+    .request-priority-mapping { margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background: #f7f9fc; box-shadow: inset 0 0 0 1px #dce5f2; }
+    .request-priority-mapping-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+    .request-priority-mapping-heading h4 { margin: 0; color: #071c61; font-size: 0.9rem; font-weight: 700; }
+    .request-priority-mapping-heading p { max-width: 34rem; margin: 0.15rem 0 0; color: #596c96; font-size: 0.76rem; }
+    .request-priority-edit-form { margin-bottom: 0.75rem; padding: 0.75rem; border: 1px solid #cbdcf1; border-radius: 6px; background: #fff; }
+    .request-priority-edit-form h5 { margin: 0 0 0.65rem; font-size: 0.9rem; }
+    .request-priority-edit-grid { display: grid; grid-template-columns: minmax(0, 1fr) repeat(2, minmax(7rem, 0.55fr)); gap: 0.65rem; }
+    .request-priority-edit-grid .form-label { margin-bottom: 0.25rem; color: #38558b; font-size: 0.75rem; font-weight: 600; }
+    .request-priority-edit-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.65rem; }
+    .request-priority-table { margin-bottom: 0; border-color: #dce5f2; }
+    .request-priority-table th { color: #38558b; font-size: 0.75rem; white-space: nowrap; }
+    .request-priority-table td { color: #071c61; }
+    .request-priority-table .btn-link { padding: 0.25rem 0.4rem; text-decoration: none; }
+
+    @@media (max-width: 767.98px) {
+        .request-processing-field-grid, .request-priority-edit-grid { grid-template-columns: minmax(0, 1fr); }
+        .request-processing-value-with-unit { grid-template-columns: minmax(0, 1fr); gap: 0.3rem; }
+        .request-priority-mapping-heading { flex-direction: column; }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private int? _editingPriorityIndex;
+    private string _priorityName = string.Empty;
+    private string _priorityValue = string.Empty;
+    private string _priorityWorkerWeight = "0";
+    private string? _priorityEditError;
+
+    public static bool IsRequestProcessingSetting(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(setting.Section, "Request", StringComparison.OrdinalIgnoreCase)
+        && setting.Name.ToLowerInvariant() is
+            "defaulttimeout"
+            or "defaultttlsecs"
+            or "headers:prioritykeyheader"
+            or "priority:defaultpriority"
+            or "priority:prioritykeys"
+            or "priority:priorityvalues"
+            or "priority:priorityworker";
+
+    public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var settingsList = settings.ToList();
+        var timeout = FindSetting(settingsList, "DefaultTimeout")?.DraftValue;
+        var ttl = FindSetting(settingsList, "DefaultTTLSecs")?.DraftValue;
+        var priorityCount = SplitCsv(FindSetting(settingsList, "Priority:PriorityKeys")?.DraftValue).Count;
+
+        if (string.IsNullOrWhiteSpace(timeout) && string.IsNullOrWhiteSpace(ttl) && priorityCount == 0)
+        {
+            return "Not configured";
+        }
+
+        return $"timeout {ShortDurationLabel(timeout, milliseconds: true)} · TTL {ShortDurationLabel(ttl, milliseconds: false)} · {priorityCount} {(priorityCount == 1 ? "priority" : "priorities")}";
+    }
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static List<PriorityRow> BuildPriorityRows(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var settingsList = settings.ToList();
+        var names = SplitCsv(FindSetting(settingsList, "Priority:PriorityKeys")?.DraftValue);
+        var values = SplitCsv(FindSetting(settingsList, "Priority:PriorityValues")?.DraftValue);
+        var workers = ParseWorkerWeights(FindSetting(settingsList, "Priority:PriorityWorker")?.DraftValue);
+        var count = Math.Max(names.Count, values.Count);
+        var rows = new List<PriorityRow>(count);
+
+        for (var index = 0; index < count; index++)
+        {
+            var name = index < names.Count ? names[index] : string.Empty;
+            var value = index < values.Count ? values[index] : string.Empty;
+            var workerWeight = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var priorityValue)
+                && workers.TryGetValue(priorityValue, out var configuredWeight)
+                    ? configuredWeight
+                    : 0;
+            rows.Add(new PriorityRow(name, value, workerWeight));
+        }
+
+        return rows;
+    }
+
+    private static List<string> SplitCsv(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        if (normalized.StartsWith('[') && normalized.EndsWith(']'))
+        {
+            normalized = normalized[1..^1];
+        }
+
+        return normalized
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(token => token.Trim().Trim('"'))
+            .ToList();
+    }
+
+    private static Dictionary<int, int> ParseWorkerWeights(string? value)
+    {
+        var weights = new Dictionary<int, int>();
+        foreach (var token in SplitCsv(value))
+        {
+            var separator = token.IndexOf(':');
+            if (separator <= 0
+                || !int.TryParse(token[..separator], NumberStyles.Integer, CultureInfo.InvariantCulture, out var priority)
+                || !int.TryParse(token[(separator + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var weight))
+            {
+                continue;
+            }
+
+            weights[priority] = weight;
+        }
+
+        return weights;
+    }
+
+    private static string PriorityOptionLabel(PriorityRow row)
+    {
+        if (string.IsNullOrWhiteSpace(row.Name))
+        {
+            return row.Value;
+        }
+
+        var label = char.ToUpperInvariant(row.Name[0]) + row.Name[1..];
+        return $"{label} ({row.Value})";
+    }
+
+    private static string DurationLabel(string? value, bool milliseconds)
+    {
+        const string settingName = "value";
+        var amount = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { [settingName] = value ?? string.Empty },
+            settingName,
+            -1L);
+        if (amount < 0)
+        {
+            return string.Empty;
+        }
+
+        var day = milliseconds ? 86_400_000L : 86_400L;
+        var hour = milliseconds ? 3_600_000L : 3_600L;
+        var minute = milliseconds ? 60_000L : 60L;
+        if (amount >= day && amount % day == 0)
+        {
+            return ParenthesizedDuration(amount / day, "day");
+        }
+        if (amount >= hour && amount % hour == 0)
+        {
+            return ParenthesizedDuration(amount / hour, "hour");
+        }
+        if (amount >= minute && amount % minute == 0)
+        {
+            return ParenthesizedDuration(amount / minute, "minute");
+        }
+
+        return ParenthesizedDuration(milliseconds ? amount / 1_000d : amount, "second");
+    }
+
+    private static string ParenthesizedDuration(double amount, string unit) =>
+        $"({amount.ToString("0.###", CultureInfo.InvariantCulture)} {unit}{(amount == 1 ? string.Empty : "s")})";
+
+    private static string ShortDurationLabel(string? value, bool milliseconds)
+    {
+        const string settingName = "value";
+        var amount = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { [settingName] = value ?? string.Empty },
+            settingName,
+            -1L);
+        if (amount < 0)
+        {
+            return "--";
+        }
+
+        var hour = milliseconds ? 3_600_000L : 3_600L;
+        var minute = milliseconds ? 60_000L : 60L;
+        if (amount >= hour && amount % hour == 0)
+        {
+            return $"{(amount / hour).ToString(CultureInfo.InvariantCulture)} hr";
+        }
+        if (amount >= minute && amount % minute == 0)
+        {
+            return $"{(amount / minute).ToString(CultureInfo.InvariantCulture)} min";
+        }
+
+        var seconds = milliseconds ? amount / 1_000d : amount;
+        return $"{seconds.ToString("0.###", CultureInfo.InvariantCulture)} sec";
+    }
+
+    private async Task SetSettingValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+
+    private void StartAddingPriority()
+    {
+        _editingPriorityIndex = -1;
+        _priorityName = string.Empty;
+        _priorityValue = string.Empty;
+        _priorityWorkerWeight = "0";
+        _priorityEditError = null;
+    }
+
+    private void StartEditingPriority(int index, PriorityRow row)
+    {
+        _editingPriorityIndex = index;
+        _priorityName = row.Name;
+        _priorityValue = row.Value;
+        _priorityWorkerWeight = row.WorkerWeight.ToString(CultureInfo.InvariantCulture);
+        _priorityEditError = null;
+    }
+
+    private void CancelPriorityEdit()
+    {
+        _editingPriorityIndex = null;
+        _priorityEditError = null;
+    }
+
+    private async Task SavePriorityAsync()
+    {
+        var name = _priorityName.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            _priorityEditError = "Priority name is required.";
+            return;
+        }
+        if (name.Contains(','))
+        {
+            _priorityEditError = "Priority name cannot contain a comma.";
+            return;
+        }
+        if (!int.TryParse(_priorityValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        {
+            _priorityEditError = "Value must be an integer.";
+            return;
+        }
+        if (!int.TryParse(_priorityWorkerWeight, NumberStyles.Integer, CultureInfo.InvariantCulture, out var workerWeight)
+            || workerWeight < 0)
+        {
+            _priorityEditError = "Worker weight must be zero or a positive integer.";
+            return;
+        }
+
+        var rows = BuildPriorityRows(Settings);
+        var editingIndex = _editingPriorityIndex ?? -1;
+        if (rows.Where((_, index) => index != editingIndex)
+            .Any(row => string.Equals(row.Name, name, StringComparison.Ordinal)))
+        {
+            _priorityEditError = "Priority name must be unique.";
+            return;
+        }
+
+        var updatedRow = new PriorityRow(name, value.ToString(CultureInfo.InvariantCulture), workerWeight);
+        if (editingIndex == -1)
+        {
+            rows.Add(updatedRow);
+        }
+        else if (editingIndex >= 0 && editingIndex < rows.Count)
+        {
+            rows[editingIndex] = updatedRow;
+        }
+        else
+        {
+            _priorityEditError = "The selected priority is no longer available.";
+            return;
+        }
+
+        for (var index = 0; index < rows.Count; index++)
+        {
+            if (index != editingIndex
+                && string.Equals(rows[index].Value, updatedRow.Value, StringComparison.Ordinal))
+            {
+                rows[index] = rows[index] with { WorkerWeight = workerWeight };
+            }
+        }
+
+        await ApplyPriorityRowsAsync(rows);
+        CancelPriorityEdit();
+    }
+
+    private async Task DeletePriorityAsync(int index)
+    {
+        var rows = BuildPriorityRows(Settings);
+        if (index < 0 || index >= rows.Count)
+        {
+            return;
+        }
+
+        rows.RemoveAt(index);
+        await ApplyPriorityRowsAsync(rows);
+        CancelPriorityEdit();
+    }
+
+    private async Task ApplyPriorityRowsAsync(IReadOnlyList<PriorityRow> rows)
+    {
+        var keysSetting = FindSetting(Settings, "Priority:PriorityKeys");
+        var valuesSetting = FindSetting(Settings, "Priority:PriorityValues");
+        var workersSetting = FindSetting(Settings, "Priority:PriorityWorker");
+        if (keysSetting is null || valuesSetting is null || workersSetting is null)
+        {
+            _priorityEditError = "Priority mapping settings are unavailable.";
+            return;
+        }
+
+        keysSetting.DraftValue = string.Join(',', rows.Select(row => row.Name));
+        valuesSetting.DraftValue = string.Join(',', rows.Select(row => row.Value));
+        workersSetting.DraftValue = string.Join(',', rows
+            .Where(row => row.WorkerWeight > 0
+                && int.TryParse(row.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+            .GroupBy(row => row.Value, StringComparer.Ordinal)
+            .Select(group => $"{group.Key}:{group.First().WorkerWeight}"));
+        await OnChanged.InvokeAsync();
+    }
+
+    private sealed record PriorityRow(string Name, string Value, int WorkerWeight);
+}
