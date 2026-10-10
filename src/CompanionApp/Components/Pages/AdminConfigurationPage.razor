@@ -27,7 +27,7 @@
 
 <div class="app-configuration-page">
 <div class="config-admin-shell @(!_editingLabel ? "config-selection-shell" : string.Empty)">
-    @if (_editingLabel || IsLoading)
+    @if (IsLoading || HasLoadError)
     {
         <div class="config-load-banner" role="status" aria-live="polite" aria-atomic="true">
             @if (IsLoading)
@@ -254,8 +254,7 @@
                 (Name: "HealthProbe", Icon: "bi-activity"), (Name: "Hosts", Icon: "bi-database-fill"),
                 (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"), (Name: "Logging", Icon: "bi-file-earmark-text-fill"),
                 (Name: "Profiles", Icon: "bi-sliders"), (Name: "Request", Icon: "bi-arrow-left-right"),
-                (Name: "Response", Icon: "bi-arrow-return-left"), (Name: "Server", Icon: "bi-hdd-stack-fill"),
-                (Name: "Tokenomics", Icon: "bi-database-fill")
+                (Name: "Response", Icon: "bi-arrow-return-left"), (Name: "Server", Icon: "bi-hdd-stack-fill")
             })
             {
                 <AppConfigurationSectionWidget Section="@(section.Name)" Icon="@(section.Icon)" IsLoading="true">
@@ -266,15 +265,52 @@
                 </AppConfigurationSectionWidget>
             }
         </div>
+        <section class="config-tokenomics-page tokenomics-configuration" aria-labelledby="tokenomics-configuration-heading">
+            <h2 id="tokenomics-configuration-heading" class="h5">Tokenomics</h2>
+            <div class="tokenomics-summary-grid" aria-label="Tokenomics settings loading">
+                @foreach (var name in new[] { "Limits & Budgets", "Request Priority", "Capacity & Queues", "Model Routing", "Model Costs" })
+                {
+                    <button type="button" class="tokenomics-summary-card @(name is "Model Routing" or "Model Costs" ? "tokenomics-summary-wide" : null)" disabled
+                            aria-label="@($"{name} settings loading")">
+                        <span class="tokenomics-summary-heading">@name</span>
+                        <span class="config-skeleton-line" aria-hidden="true"></span>
+                        <span class="config-skeleton-line config-skeleton-short" aria-hidden="true"></span>
+                    </button>
+                }
+            </div>
+        </section>
     }
     @if (_editingLabel && Settings.Count > 0)
     {
-        <AppConfigurationSectionsWidget Groups="VisibleGroups" IsLoading="IsLoading" IsHidden="IsTokenomicsSection" OnSelected="SelectSection" />
+        <AppConfigurationSectionsWidget Groups="VisibleGroups" IsLoading="IsLoading" OnSelected="SelectSection" />
+
+        <div class="tokenomics-configuration">
+            <section class="config-tokenomics-page tokenomics-configuration" aria-label="Tokenomics configuration" aria-busy="@(IsLoading ? "true" : "false")">
+                <CascadingValue TValue="bool" Name="ShowConfigurationDetails" Value="_showConfigurationDetails">
+                    <fieldset class="config-tokenomics-fields" disabled="@IsLoading">
+                        <ConfigurationExplanation Section="Tokenomics" />
+                        <TokenomicsEditor Settings="@(Settings.Where(setting => IsTokenomicsSectionName(setting.Section)).ToList())"
+                            OnChanged="StateHasChanged" @key="Settings" />
+                    </fieldset>
+                </CascadingValue>
+            </section>
+            <div class="config-tokenomics-save-bar">
+                <div class="config-tokenomics-save-status" role="status">
+                    <span class="bi @(HasPendingChanges ? "bi-pencil-square" : "bi-check-circle-fill")" aria-hidden="true"></span>
+                    <span>@(HasPendingChanges ? $"{ChangedCount} unsaved configuration changes" : "No unsaved configuration changes")</span>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" disabled="@(IsLoading || !HasPendingChanges)"
+                            title="Discard all local changes for this configuration" @onclick="ResetAll">Discard</button>
+                    <button type="button" class="btn btn-primary" disabled="@(IsLoading || !HasPendingChanges)" @onclick="UpdateSettingsAsync">Save changes</button>
+                </div>
+            </div>
+        </div>
 
         @if (SelectedSection is not null)
         {
             <CascadingValue TValue="bool" Name="ShowConfigurationDetails" Value="_showConfigurationDetails">
-            <AppConfigurationSectionWidget Section="@SelectedSection" IsExpanded="true" IsInline="IsTokenomicsSection" OnClose="CloseSection">
+            <AppConfigurationSectionWidget Section="@SelectedSection" IsExpanded="true" OnClose="CloseSection">
                 <HeaderContent>
                         <div>
                             <div class="d-flex align-items-center flex-wrap gap-2">
@@ -295,10 +331,6 @@
                             {
                                 <span class="small text-muted">@ChangedCount @(ChangedCount == 1 ? "setting changed" : "settings changed")</span>
                             }
-                            else if (IsTokenomicsSection)
-                            {
-                                <span class="small text-muted">All settings for @LabelDisplay(Label). Changes remain local until Update is selected.</span>
-                            }
                             else if (IsHealthProbeSection)
                             {
                                 <span class="small text-muted">@(HealthProbeSetting is { } probe && HealthProbeEditor.IsEnabled(probe) ? "Enabled" : "Disabled")</span>
@@ -311,7 +343,7 @@
                             {
                                 <span class="small text-muted">@LoadBalancingEditor.Summary(SelectedSettings)</span>
                             }
-                            else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase) && !IsTokenomicsSection)
+                            else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
                             {
                                 <span class="small text-muted">@SelectedSettings.Count settings</span>
                             }
@@ -341,16 +373,7 @@
                                     <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset all
                                 </button>
                             }
-                            @if (IsTokenomicsSection)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" @onclick="CloseSection">
-                                    <span class="bi bi-arrow-left me-1" aria-hidden="true"></span>Back to configuration
-                                </button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
-                            }
+                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
                         </div>
                 </HeaderContent>
                 <EditorContent>
@@ -393,21 +416,6 @@
                             {
                                 <HealthProbeEditor Setting="probe" OnChanged="StateHasChanged" />
                             }
-                        }
-                        else if (IsTokenomicsSection)
-                        {
-                            <TokenomicsEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
-                            <div class="config-tokenomics-save-bar">
-                                <div class="config-tokenomics-save-status" role="status">
-                                    <span class="bi @(HasPendingChanges ? "bi-pencil-square" : "bi-check-circle-fill")" aria-hidden="true"></span>
-                                    <span>@(HasPendingChanges ? $"{ChangedCount} unsaved configuration changes" : "No unsaved configuration changes")</span>
-                                </div>
-                                <div class="d-flex gap-2">
-                                    <button type="button" class="btn btn-outline-secondary" disabled="@(IsLoading || !HasPendingChanges)"
-                                            title="Discard all local changes for this configuration" @onclick="ResetAll">Discard</button>
-                                    <button type="button" class="btn btn-primary" disabled="@(IsLoading || !HasPendingChanges)" @onclick="UpdateSettingsAsync">Save changes</button>
-                                </div>
-                            </div>
                         }
                         else if (IsCircuitBreakerSection)
                         {
@@ -841,8 +849,6 @@
     private static bool IsTokenomicsSectionName(string section) =>
         string.Equals(section, "Tokenomics", StringComparison.OrdinalIgnoreCase);
 
-    private bool IsTokenomicsSection => IsTokenomicsSectionName(SelectedSection ?? string.Empty);
-
     private static bool IsCircuitBreakerSectionName(string section) =>
         string.Equals(section, "CircuitBreaker", StringComparison.OrdinalIgnoreCase);
 
@@ -1088,6 +1094,8 @@
         {
             Reset(setting);
         }
+        // Recreate persistent editors to discard buffered invalid input as well as saved drafts.
+        Settings = Settings.ToList();
     }
 
     private Task ResetToDefaultsAsync()

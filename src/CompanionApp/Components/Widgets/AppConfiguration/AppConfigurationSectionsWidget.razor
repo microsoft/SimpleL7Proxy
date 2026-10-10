@@ -1,7 +1,7 @@
 @namespace CompanionApp.Components.Widgets.AppConfiguration
 
 <div class="config-section-grid" hidden="@IsHidden">
-    @foreach (var group in Groups)
+    @foreach (var group in Groups.Where(group => !string.Equals(group.Key, "Tokenomics", StringComparison.OrdinalIgnoreCase)))
     {
         @switch (group.Key.ToLowerInvariant())
         {
@@ -34,9 +34,6 @@
                 break;
             case "server":
                 <AppConfigurationServerWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "tokenomics":
-                <AppConfigurationTokenomicsWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
             default:
                 <AppConfigurationGenericWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />

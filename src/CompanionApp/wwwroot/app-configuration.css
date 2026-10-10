@@ -1,5 +1,22 @@
 .app-configuration-page { min-width: 0; }
 
+:where(.app-configuration-page) .config-tokenomics-fields {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+:where(.app-configuration-page) .config-tokenomics-page {
+    border: 1px solid #cbdcf1;
+    border-radius: 6px;
+    background: #edf4fc;
+}
+
+:where(.app-configuration-page) .tokenomics-summary-card:disabled {
+    cursor: default;
+}
+
 :where(.app-configuration-page) .config-section-grid[hidden] { display: none; }
 :where(.app-configuration-page) .config-load-banner { display: flex; align-items: center; gap: 1rem; min-height: 5rem; margin: 1rem; padding: 1rem 1.25rem; border-radius: 6px; background: #e0edff; color: #071c61; }
 :where(.app-configuration-page) .config-load-banner strong { font-size: 1rem; }

@@ -21,8 +21,16 @@ You need:
 4. Extract the ZIP file and open the extracted directory:
 
 ```bash
+# Make deploy directory
 mkdir simplel7proxy-deployment
+
+# Download the zip
+wget "https://github.com/microsoft/SimpleL7Proxy/raw/refs/heads/main/deployment/deploy.zip"
+
+# extract the contents
 unzip deploy.zip -d simplel7proxy-deployment
+
+# Change directory for deployment
 cd simplel7proxy-deployment
 ```
 
