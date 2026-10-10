@@ -1,75 +1,51 @@
 @namespace CompanionApp.Components.Widgets.AppConfiguration
-@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
 <div class="config-section-grid" hidden="@IsHidden">
     @foreach (var group in Groups)
     {
-                var icon = group.Key switch {
-                    "Async" => "bi-gear-fill", "CircuitBreaker" => "bi-shield-fill", "HealthProbe" => "bi-activity",
-                    "Hosts" or "Tokenomics" => "bi-database-fill", "LoadBalancing" => "bi-diagram-3-fill",
-                    "Logging" => "bi-file-earmark-text-fill", "Profiles" => "bi-sliders",
-                    "Request" => "bi-arrow-left-right", "Response" => "bi-arrow-return-left",
-                    "Server" => "bi-hdd-stack-fill", _ => "bi-gear"
-                };
-        <AppConfigurationSectionWidget Section="@group.Key" Icon="@icon" ChangedCount="@group.Count(setting => setting.IsChanged)"
-            IsLoading="IsLoading" IsInline="@(string.Equals(group.Key, "Tokenomics", StringComparison.OrdinalIgnoreCase))"
-            Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{group.Key}"] ?? $"Edit {group.Key} settings.")'
-            OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key">
-            <SummaryContent>
-                    @if (string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta">@group.Count() @(group.Count() == 1 ? "host" : "hosts")</span>
-                    }
-                    else if (string.Equals(group.Key, "HealthProbe", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta">@(group.FirstOrDefault() is { } probe && HealthProbeEditor.IsEnabled(probe) ? "Enabled" : "Disabled")</span>
-                    }
-                    else if (string.Equals(group.Key, "Tokenomics", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta">@(TokenomicsEditor.IsEnabled(group) ? "Enabled" : "Disabled")</span>
-                    }
-                    else if (string.Equals(group.Key, "CircuitBreaker", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta">@CircuitBreakerEditor.Summary(group)</span>
-                    }
-                    else if (string.Equals(group.Key, "LoadBalancing", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta">@LoadBalancingEditor.Summary(group)</span>
-                    }
-                    else if (string.Equals(group.Key, "Logging", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta text-break">@LoggingEditor.Summary(group)</span>
-                    }
-                    else if (string.Equals(group.Key, "Response", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var defaultStatusCodes = new HashSet<int> { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 };
-                        var nonDefaultCount = group.Count(setting =>
-                        {
-                            var values = setting.DraftValue.Trim().Trim('[', ']')
-                                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                .Select(value => value.Trim().Trim('"'))
-                                .Where(value => value.Length > 0)
-                                .ToArray();
-                            return setting.Name.Equals("AcceptableStatusCodes", StringComparison.OrdinalIgnoreCase)
-                                ? !defaultStatusCodes.SetEquals(values.Select(value => int.TryParse(value, out var statusCode) ? statusCode : -1))
-                                : setting.Name.Equals("StripResponseHeaders", StringComparison.OrdinalIgnoreCase) && values.Length > 0;
-                        });
-                        <span class="config-box-meta">@(nonDefaultCount == 0 ? "Defaults" : $"{nonDefaultCount} non-default {(nonDefaultCount == 1 ? "setting" : "settings")}")</span>
-                    }
-                    else
-                    {
-                        <span class="config-box-meta">@group.Count() settings</span>
-                    }
-            </SummaryContent>
-        </AppConfigurationSectionWidget>
+        @switch (group.Key.ToLowerInvariant())
+        {
+            case "async":
+                <AppConfigurationAsyncWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "circuitbreaker":
+                <AppConfigurationCircuitBreakerWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "healthprobe":
+                <AppConfigurationHealthProbeWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "hosts":
+                <AppConfigurationHostsWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "loadbalancing":
+                <AppConfigurationLoadBalancingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "logging":
+                <AppConfigurationLoggingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "profiles":
+                <AppConfigurationProfilesWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "request":
+                <AppConfigurationRequestWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "response":
+                <AppConfigurationResponseWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "server":
+                <AppConfigurationServerWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            case "tokenomics":
+                <AppConfigurationTokenomicsWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+            default:
+                <AppConfigurationGenericWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
+        }
     }
     @if (!Groups.Any(group => string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase)))
     {
-        <AppConfigurationSectionWidget Section="Hosts" Icon="bi-database-fill" IsLoading="IsLoading"
-            Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:Hosts"] ?? "Edit Hosts settings.")'
-            OnSelected="@(() => OnSelected.InvokeAsync("Hosts"))">
-            <SummaryContent><span class="config-box-meta">0 hosts</span></SummaryContent>
-        </AppConfigurationSectionWidget>
+        <AppConfigurationHostsWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Hosts"))" />
     }
 </div>
 
