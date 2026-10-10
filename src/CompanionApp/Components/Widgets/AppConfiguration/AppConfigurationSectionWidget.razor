@@ -1,0 +1,49 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+
+@if (!IsExpanded)
+{
+    <div class="config-section-tile">
+        <button type="button" class="config-section-box @(ChangedCount > 0 ? "is-changed" : string.Empty)"
+                title="@Tooltip" disabled="@IsLoading" aria-label="@(IsLoading ? $"{Section} settings loading" : null)"
+                aria-haspopup="@(IsInline || IsLoading ? null : "dialog")" @onclick="OnSelected">
+            <span class="config-box-icon bi @Icon" aria-hidden="true"></span>
+            <span class="config-box-chevron bi bi-chevron-right" aria-hidden="true"></span>
+            <span class="config-box-title">@Section</span>
+            @SummaryContent
+            @if (ChangedCount > 0)
+            {
+                <span class="badge text-bg-warning config-box-badge">@ChangedCount changed</span>
+            }
+        </button>
+        @if (!IsLoading)
+        {
+            <div class="config-section-help"><ConfigurationHelp Section="@Section" /></div>
+        }
+    </div>
+}
+else
+{
+    <div class="@(IsInline ? "config-tokenomics-page tokenomics-configuration" : "config-modal-backdrop")"
+         @onclick="@(() => IsInline ? Task.CompletedTask : OnClose.InvokeAsync())">
+        <div class="@(IsInline ? "config-tokenomics-content" : "config-modal")" @onclick:stopPropagation="true"
+             role="@(IsInline ? "region" : "dialog")" aria-modal="@(IsInline ? null : "true")" aria-label="@($"{Section} settings")">
+            <div class="config-modal-header">@HeaderContent</div>
+            <div class="config-modal-body">@EditorContent</div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Section { get; set; } = string.Empty;
+    [Parameter] public string Icon { get; set; } = "bi-gear";
+    [Parameter] public string? Tooltip { get; set; }
+    [Parameter] public int ChangedCount { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool IsExpanded { get; set; }
+    [Parameter] public bool IsInline { get; set; }
+    [Parameter] public RenderFragment? SummaryContent { get; set; }
+    [Parameter] public RenderFragment? HeaderContent { get; set; }
+    [Parameter] public RenderFragment? EditorContent { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}
