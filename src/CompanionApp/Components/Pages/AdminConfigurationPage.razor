@@ -252,8 +252,8 @@
             @foreach (var section in new[] {
                 (Name: "Async", Icon: "bi-gear-fill"), (Name: "CircuitBreaker", Icon: "bi-shield-fill"),
                 (Name: "HealthProbe", Icon: "bi-activity"), (Name: "Hosts", Icon: "bi-database-fill"),
-                (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"), (Name: "Logging", Icon: "bi-file-earmark-text-fill"),
-                (Name: "Profiles", Icon: "bi-sliders"), (Name: "Request", Icon: "bi-arrow-left-right"),
+                (Name: "Identity & Access", Icon: "bi-shield-check"), (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"),
+                (Name: "Logging", Icon: "bi-file-earmark-text-fill"), (Name: "Request", Icon: "bi-arrow-left-right"),
                 (Name: "Response", Icon: "bi-arrow-return-left"), (Name: "Server", Icon: "bi-hdd-stack-fill")
             })
             {
@@ -320,7 +320,7 @@
                                     <ConfigurationHelp Section="@SelectedSection" />
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
-                                    || (SelectedSection.ToLowerInvariant() is "profiles" or "request" or "response" or "server"
+                                    || (SelectedSection.ToLowerInvariant() is "identity & access" or "request" or "response" or "server"
                                         && SelectedSettings.Any(setting => RequiresRestart(setting.Mode))))
                                 {
                                     <span class='badge @(SelectedSettings.Any(setting => setting.IsChanged && RequiresRestart(setting.Mode)) ? "text-bg-warning" : "text-bg-light")'
@@ -377,7 +377,10 @@
                         </div>
                 </HeaderContent>
                 <EditorContent>
-                        <ConfigurationExplanation Section="@SelectedSection" />
+                        @if (!string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
+                        {
+                            <ConfigurationExplanation Section="@SelectedSection" />
+                        }
                         @if (SelectedSection == "Local change review")
                         {
                             @if (ChangedCount == 0)
@@ -429,9 +432,9 @@
                         {
                             <LoggingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
-                        else if (string.Equals(SelectedSection, "Profiles", StringComparison.OrdinalIgnoreCase))
+                        else if (string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
                         {
-                            <ProfilesEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                            <IdentityAccessEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase))
                         {
@@ -592,7 +595,9 @@
 
     private IEnumerable<IGrouping<string, AppConfigurationScaffoldSetting>> VisibleGroups => Settings
         .Where(setting => !string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))
-        .GroupBy(setting => setting.Section, StringComparer.OrdinalIgnoreCase)
+        .GroupBy(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)
+            ? "Identity & Access"
+            : setting.Section, StringComparer.OrdinalIgnoreCase)
         .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
 
     private IReadOnlyList<AppConfigurationScaffoldSetting> ChangedSettings => Settings
@@ -836,7 +841,9 @@
     {
         _selectedSettings = SelectedSection is null
             ? Array.Empty<AppConfigurationScaffoldSetting>()
-            : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)).ToList();
+            : string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
+                ? Settings.Where(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)).ToList()
+                : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     private bool IsHostSection => string.Equals(SelectedSection, "Hosts", StringComparison.OrdinalIgnoreCase);

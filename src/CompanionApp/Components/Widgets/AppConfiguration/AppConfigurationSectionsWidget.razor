@@ -8,6 +8,9 @@
             case "async":
                 <AppConfigurationAsyncWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
+            case "identity & access":
+                <AppConfigurationIdentityAccessWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                break;
             case "circuitbreaker":
                 <AppConfigurationCircuitBreakerWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
@@ -22,9 +25,6 @@
                 break;
             case "logging":
                 <AppConfigurationLoggingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "profiles":
-                <AppConfigurationProfilesWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
             case "request":
                 <AppConfigurationRequestWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />

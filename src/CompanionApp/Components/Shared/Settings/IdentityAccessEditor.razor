@@ -1,0 +1,566 @@
+@namespace CompanionApp.Components.Shared
+
+<div class="identity-access-editor">
+    <div class="identity-access-tabs" role="tablist" aria-label="Identity and access settings" aria-orientation="vertical">
+        <button id="identity-tab-authentication" type="button" role="tab"
+                class="@(_selectedView == "authentication" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "authentication" ? "true" : "false")"
+                aria-controls="identity-panel-authentication"
+                @onclick='@(() => SelectView("authentication"))'>
+            <span class="bi bi-key-fill" aria-hidden="true"></span>
+            <span>Authentication</span>
+        </button>
+        <button id="identity-tab-applications" type="button" role="tab"
+                class="@(_selectedView == "applications" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "applications" ? "true" : "false")"
+                aria-controls="identity-panel-applications"
+                @onclick='@(() => SelectView("applications"))'>
+            <span class="bi bi-grid-fill" aria-hidden="true"></span>
+            <span>Application Access</span>
+        </button>
+        <button id="identity-tab-profiles" type="button" role="tab"
+                class="@(_selectedView == "profiles" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "profiles" ? "true" : "false")"
+                aria-controls="identity-panel-profiles"
+                @onclick='@(() => SelectView("profiles"))'>
+            <span class="bi bi-person" aria-hidden="true"></span>
+            <span>User Profiles</span>
+        </button>
+        <button id="identity-tab-suspended" type="button" role="tab"
+                class="@(_selectedView == "suspended" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "suspended" ? "true" : "false")"
+                aria-controls="identity-panel-suspended"
+                @onclick='@(() => SelectView("suspended"))'>
+            <span class="bi bi-slash-circle" aria-hidden="true"></span>
+            <span>Suspended Users</span>
+        </button>
+    </div>
+
+    @if (_selectedView == "authentication")
+    {
+        var configSetting = FindSetting("Auth:Config");
+        var primaryKeySetting = FindSetting("Auth:Key1");
+        var secondaryKeySetting = FindSetting("Auth:Key2");
+        <section id="identity-panel-authentication" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-authentication">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>Authentication</h3>
+                    <p>Configure how clients authenticate with the proxy.</p>
+                </div>
+                <label class="identity-access-switch form-switch">
+                    <input class="form-check-input" type="checkbox" checked="@AuthenticationEnabled"
+                           disabled="@(configSetting is null)" @onchange="SetAuthenticationEnabledAsync" />
+                    <span>Require authentication</span>
+                </label>
+            </div>
+            <ConfigurationExplanation Section="Identity & Access" Topic="Authentication" />
+
+            <fieldset class="identity-access-fieldset" disabled="@(!AuthenticationEnabled || configSetting is null)">
+                <legend>Authentication method</legend>
+                <label class="identity-access-method" for="identity-auth-key">
+                    <input id="identity-auth-key" class="form-check-input" type="radio" name="identity-auth-method"
+                           checked='@IsAuthenticationMode("key")'
+                           @onchange="@(() => SetAuthenticationModeAsync("key"))" />
+                    <span>
+                        <strong>API key</strong>
+                        <small>Clients provide a static key in the request header.</small>
+                    </span>
+                </label>
+                <label class="identity-access-method" for="identity-auth-oauth">
+                    <input id="identity-auth-oauth" class="form-check-input" type="radio" name="identity-auth-method"
+                           checked='@IsAuthenticationMode("oauth2")'
+                           @onchange="@(() => SetAuthenticationModeAsync("oauth2"))" />
+                    <span>
+                        <strong>OAuth token</strong>
+                        <small>Clients provide a signed bearer token, such as one issued by Microsoft Entra ID.</small>
+                    </span>
+                </label>
+                <label class="identity-access-method" for="identity-auth-mixed">
+                    <input id="identity-auth-mixed" class="form-check-input" type="radio" name="identity-auth-method"
+                           checked='@IsAuthenticationMode("mixed")'
+                           @onchange="@(() => SetAuthenticationModeAsync("mixed"))" />
+                    <span>
+                        <strong>Mixed</strong>
+                        <small>Clients can use either an API key or an OAuth token. Both settings sections are shown.</small>
+                    </span>
+                </label>
+            </fieldset>
+
+            @if (UsesApiKey)
+            {
+                <fieldset class="identity-access-fieldset" disabled="@(!AuthenticationEnabled)">
+                    <legend>API key settings</legend>
+                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
+                        <div class="config-setting-heading">
+                            <label for="identity-auth-header">API key header name</label>
+                            <ConfigurationHelp Section="Profiles" Topic="Auth:Config" />
+                        </div>
+                        <input id="identity-auth-header" class="form-control" type="text" autocomplete="off"
+                               value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />
+                    </div>
+                    @if (primaryKeySetting is not null)
+                    {
+                        <div class="identity-access-form-row @(primaryKeySetting.IsChanged ? "config-field-changed" : string.Empty)">
+                            <div class="config-setting-heading">
+                                <label for="@primaryKeySetting.Key">Primary key</label>
+                                <ConfigurationHelp Section="Profiles" Topic="@primaryKeySetting.Name" />
+                            </div>
+                            <div>
+                                <div class="input-group">
+                                    <input id="@primaryKeySetting.Key" class="form-control" autocomplete="off"
+                                           type="@(_showPrimaryKey ? "text" : "password")"
+                                           @bind:get="primaryKeySetting.DraftValue"
+                                           @bind:set="@(value => SetSettingValueAsync(primaryKeySetting, value))"
+                                           @bind:event="oninput" />
+                                    <button class="btn btn-outline-secondary" type="button"
+                                            aria-label="@(_showPrimaryKey ? "Hide primary key" : "Show primary key")"
+                                            aria-pressed="@(_showPrimaryKey ? "true" : "false")"
+                                            @onclick="@(() => _showPrimaryKey = !_showPrimaryKey)">
+                                        <span class="bi @(_showPrimaryKey ? "bi-eye-slash" : "bi-eye")" aria-hidden="true"></span>
+                                    </button>
+                                </div>
+                                @if (primaryKeySetting.IsChanged)
+                                {
+                                    <div class="identity-access-change">
+                                        <span>Current: (hidden)</span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="@(() => RevertAsync(primaryKeySetting))">Revert</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (secondaryKeySetting is not null)
+                    {
+                        <div class="identity-access-form-row @(secondaryKeySetting.IsChanged ? "config-field-changed" : string.Empty)">
+                            <div class="config-setting-heading">
+                                <label for="@secondaryKeySetting.Key">Secondary key <span>Optional</span></label>
+                                <ConfigurationHelp Section="Profiles" Topic="@secondaryKeySetting.Name" />
+                            </div>
+                            <div>
+                                <div class="input-group">
+                                    <input id="@secondaryKeySetting.Key" class="form-control" autocomplete="off"
+                                           type="@(_showSecondaryKey ? "text" : "password")"
+                                           @bind:get="secondaryKeySetting.DraftValue"
+                                           @bind:set="@(value => SetSettingValueAsync(secondaryKeySetting, value))"
+                                           @bind:event="oninput" />
+                                    <button class="btn btn-outline-secondary" type="button"
+                                            aria-label="@(_showSecondaryKey ? "Hide secondary key" : "Show secondary key")"
+                                            aria-pressed="@(_showSecondaryKey ? "true" : "false")"
+                                            @onclick="@(() => _showSecondaryKey = !_showSecondaryKey)">
+                                        <span class="bi @(_showSecondaryKey ? "bi-eye-slash" : "bi-eye")" aria-hidden="true"></span>
+                                    </button>
+                                </div>
+                                @if (secondaryKeySetting.IsChanged)
+                                {
+                                    <div class="identity-access-change">
+                                        <span>Current: (hidden)</span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="@(() => RevertAsync(secondaryKeySetting))">Revert</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </fieldset>
+            }
+
+            @if (UsesOAuth)
+            {
+                <fieldset class="identity-access-fieldset" disabled="@(!AuthenticationEnabled)">
+                    <legend>OAuth token settings</legend>
+                    @if (string.IsNullOrWhiteSpace(OAuthIssuer) || string.IsNullOrWhiteSpace(OAuthAudience))
+                    {
+                        <div class="alert alert-warning py-2" role="alert">
+                            OAuth authentication requires an issuer and at least one audience before the configuration is saved.
+                        </div>
+                    }
+                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
+                        <div class="config-setting-heading">
+                            <label for="identity-oauth-header">Bearer token header</label>
+                            <ConfigurationHelp Section="Profiles" Topic="Auth:Config" />
+                        </div>
+                        <input id="identity-oauth-header" class="form-control" type="text" autocomplete="off"
+                               value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />
+                    </div>
+                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
+                        <label for="identity-oauth-issuer">Issuer URL</label>
+                        <input id="identity-oauth-issuer" class="form-control" type="url" autocomplete="off"
+                               value="@OAuthIssuer" @oninput="SetOAuthIssuerAsync" />
+                    </div>
+                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
+                        <label for="identity-oauth-audience">Audience</label>
+                        <input id="identity-oauth-audience" class="form-control" type="text" autocomplete="off"
+                               value="@OAuthAudience" @oninput="SetOAuthAudienceAsync" />
+                    </div>
+                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
+                        <label for="identity-oauth-metadata">Metadata address <span>Optional</span></label>
+                        <input id="identity-oauth-metadata" class="form-control" type="url" autocomplete="off"
+                               placeholder="Derived from the issuer URL"
+                               value="@OAuthMetadataAddress" @oninput="SetOAuthMetadataAddressAsync" />
+                    </div>
+                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
+                        <label for="identity-oauth-skew">Clock skew (minutes)</label>
+                        <input id="identity-oauth-skew" class="form-control" type="number" min="0" step="1"
+                               value="@OAuthClockSkewMinutes" @oninput="SetOAuthClockSkewAsync" />
+                    </div>
+                </fieldset>
+            }
+
+            @if (configSetting is { IsChanged: true })
+            {
+                <div class="identity-access-config-change">
+                    <span>Authentication settings have local changes.</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="@(() => RevertAsync(configSetting))">Revert authentication</button>
+                </div>
+            }
+        </section>
+    }
+    else if (_selectedView == "applications")
+    {
+        var enabledSetting = FindSetting("Auth:ValidateAppIDEnabled");
+        var applicationSettings = Settings.Where(setting =>
+            setting.Name.StartsWith("Auth:", StringComparison.OrdinalIgnoreCase)
+            && setting.Name.ToLowerInvariant() is not ("auth:config" or "auth:key1" or "auth:key2" or "auth:validateappidenabled"))
+            .ToList();
+        <section id="identity-panel-applications" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-applications">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>Application Access</h3>
+                    <p>Restrict access to application IDs from an approved source.</p>
+                </div>
+                <label class="identity-access-switch form-switch">
+                    <input class="form-check-input" type="checkbox" checked="@ApplicationAccessEnabled(Settings)"
+                           disabled="@(enabledSetting is null)"
+                           @onchange="@(args => SetBooleanSettingAsync(enabledSetting, args.Value is true))" />
+                    <span>Validate application IDs</span>
+                </label>
+            </div>
+            <ConfigurationExplanation Section="Identity & Access" Topic="Application Access" />
+            @if (ApplicationAccessEnabled(Settings) && !UserProfilesEnabled(Settings))
+            {
+                <div class="alert alert-warning py-2" role="alert">
+                    Application ID validation also requires User Profiles to be enabled.
+                </div>
+            }
+            <fieldset disabled="@(!ApplicationAccessEnabled(Settings))">
+                <ConfigurationFields Settings="applicationSettings" OnChanged="OnChanged" />
+            </fieldset>
+            @if (enabledSetting is { IsChanged: true })
+            {
+                <div class="identity-access-config-change">
+                    <span>Application validation has local changes.</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="@(() => RevertAsync(enabledSetting))">Revert validation</button>
+                </div>
+            }
+        </section>
+    }
+    else if (_selectedView == "profiles")
+    {
+        var enabledSetting = FindSetting("User:UseProfiles");
+        var profileSettings = Settings.Where(setting =>
+            (setting.Name.StartsWith("User:", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(setting.Name, "User:UseProfiles", StringComparison.OrdinalIgnoreCase))
+            || !setting.Name.Contains(':'))
+            .ToList();
+        <section id="identity-panel-profiles" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-profiles">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>User Profiles</h3>
+                    <p>Load caller profiles and control how requests map to them.</p>
+                </div>
+                <label class="identity-access-switch form-switch">
+                    <input class="form-check-input" type="checkbox" checked="@UserProfilesEnabled(Settings)"
+                           disabled="@(enabledSetting is null)"
+                           @onchange="@(args => SetBooleanSettingAsync(enabledSetting, args.Value is true))" />
+                    <span>Enable user profiles</span>
+                </label>
+            </div>
+            <ConfigurationExplanation Section="Identity & Access" Topic="User Profiles" />
+            <ConfigurationFields Settings="profileSettings" OnChanged="OnChanged" />
+            @if (enabledSetting is { IsChanged: true })
+            {
+                <div class="identity-access-config-change">
+                    <span>User profile enablement has local changes.</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="@(() => RevertAsync(enabledSetting))">Revert enablement</button>
+                </div>
+            }
+        </section>
+    }
+    else
+    {
+        var suspendedSettings = Settings.Where(setting =>
+            setting.Name.StartsWith("SuspendedUser:", StringComparison.OrdinalIgnoreCase)).ToList();
+        <section id="identity-panel-suspended" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-suspended">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>Suspended Users</h3>
+                    <p>Block callers listed in a suspended-user configuration source.</p>
+                </div>
+            </div>
+            <ConfigurationExplanation Section="Identity & Access" Topic="Suspended Users" />
+            <ConfigurationFields Settings="suspendedSettings" OnChanged="OnChanged" />
+        </section>
+    }
+</div>
+
+<style>
+    .identity-access-editor { display: grid; grid-template-columns: 12rem minmax(0, 1fr); min-height: 32rem; color: #071c61; }
+    .identity-access-tabs { display: flex; flex-direction: column; gap: 0.35rem; padding-right: 1rem; border-right: 1px solid #dce5f2; }
+    .identity-access-tabs button { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3rem; padding: 0.7rem 0.8rem; border: 0; border-radius: 8px; background: transparent; color: #071c61; text-align: left; }
+    .identity-access-tabs button:hover { background: #f1f6fd; }
+    .identity-access-tabs button.is-selected { background: #e2efff; color: #0066cc; }
+    .identity-access-tabs button:focus-visible { outline: 2px solid #1976f3; outline-offset: 2px; }
+    .identity-access-tabs .bi { width: 1.5rem; flex: 0 0 1.5rem; font-size: 1.2rem; text-align: center; }
+    .identity-access-panel { min-width: 0; padding-left: 1.25rem; }
+    .identity-access-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #dce5f2; }
+    .identity-access-panel-heading h3 { margin: 0; color: #071c61; font-size: 1.25rem; font-weight: 700; }
+    .identity-access-panel-heading p { margin: 0.3rem 0 0; color: #596c96; font-size: 0.875rem; }
+    .identity-access-switch { display: inline-flex; align-items: center; gap: 0.65rem; flex: 0 0 auto; margin: 0; white-space: nowrap; }
+    .identity-access-switch .form-check-input { width: 2.5rem; height: 1.35rem; margin: 0; }
+    .identity-access-fieldset { min-width: 0; margin: 0; padding: 1rem 0; border: 0; border-bottom: 1px solid #dce5f2; }
+    .identity-access-fieldset:disabled { opacity: 0.58; }
+    .identity-access-fieldset legend { float: none; width: auto; margin: 0 0 0.75rem; color: #071c61; font-size: 1rem; font-weight: 700; }
+    .identity-access-method { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.4rem 0.55rem; border-radius: 8px; cursor: pointer; }
+    .identity-access-method:hover { background: #f4f8ff; }
+    .identity-access-method .form-check-input { flex: 0 0 auto; margin-top: 0.25rem; }
+    .identity-access-method span { display: flex; flex-direction: column; gap: 0.15rem; }
+    .identity-access-method small { color: #596c96; }
+    .identity-access-form-row { display: grid; grid-template-columns: minmax(9rem, 0.45fr) minmax(14rem, 1fr); gap: 1rem; align-items: center; margin: 0 -0.6rem; padding: 0.6rem; border-radius: 8px; }
+    .identity-access-form-row > label, .identity-access-form-row .config-setting-heading > label { margin: 0; color: #071c61; font-size: 0.875rem; font-weight: 500; text-transform: none; letter-spacing: normal; }
+    .identity-access-form-row label > span { margin-left: 0.25rem; color: #596c96; font-size: 0.75rem; font-weight: 400; }
+    .identity-access-form-row .config-setting-heading { align-items: center; }
+    .identity-access-form-row.config-field-changed { background: rgba(255, 204, 0, 0.12); }
+    .identity-access-change, .identity-access-config-change { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.4rem; color: #596c96; font-size: 0.78rem; }
+    .identity-access-config-change { margin-top: 0.85rem; padding: 0.65rem 0.75rem; border-radius: 8px; background: rgba(255, 204, 0, 0.12); }
+    .identity-access-panel > .configuration-fields-grid, .identity-access-panel > fieldset > .configuration-fields-grid { margin-top: 1rem; }
+
+    @@media (max-width: 767.98px) {
+        .identity-access-editor { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+        .identity-access-tabs { flex-direction: row; overflow-x: auto; margin-bottom: 1rem; padding: 0 0 0.75rem; border-right: 0; border-bottom: 1px solid #dce5f2; }
+        .identity-access-tabs button { width: auto; flex: 0 0 auto; white-space: nowrap; }
+        .identity-access-panel { padding-left: 0; }
+        .identity-access-panel-heading { flex-direction: column; }
+        .identity-access-form-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string _selectedView = "authentication";
+    private bool _showPrimaryKey;
+    private bool _showSecondaryKey;
+
+    private AppConfigurationScaffoldSetting? AuthenticationConfigSetting => FindSetting("Auth:Config");
+
+    private bool AuthenticationEnabled =>
+        bool.TryParse(AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "enabled"), out var enabled) && enabled;
+
+    private string AuthenticationMode => NormalizeAuthenticationMode(
+        AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "mode"));
+
+    private string AuthenticationHeader =>
+        AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "header") is { Length: > 0 } header
+            ? header
+            : "S7P-KEY";
+
+    private bool UsesApiKey => AuthenticationMode is "key" or "mixed";
+    private bool UsesOAuth => AuthenticationMode is "oauth2" or "mixed";
+    private string OAuthIssuer => AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "issuer");
+    private string OAuthAudience => AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "audience", "audiences");
+    private string OAuthMetadataAddress => AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "metadataaddress");
+    private string OAuthClockSkewMinutes =>
+        AuthenticationConfigValue(AuthenticationConfigSetting?.DraftValue, "clockskewminutes") is { Length: > 0 } value ? value : "1";
+
+    public static string AuthenticationSummary(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var rawConfig = FindSetting(settings, "Auth:Config")?.DraftValue;
+        if (!bool.TryParse(AuthenticationConfigValue(rawConfig, "enabled"), out var enabled) || !enabled)
+        {
+            return "Disabled";
+        }
+
+        return NormalizeAuthenticationMode(AuthenticationConfigValue(rawConfig, "mode")) switch
+        {
+            "oauth2" => "OAuth token",
+            "mixed" => "Mixed",
+            "none" => "Disabled",
+            _ => "API key",
+        };
+    }
+
+    public static bool ApplicationAccessEnabled(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        bool.TryParse(FindSetting(settings, "Auth:ValidateAppIDEnabled")?.DraftValue, out var enabled) && enabled;
+
+    public static bool UserProfilesEnabled(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        bool.TryParse(FindSetting(settings, "User:UseProfiles")?.DraftValue, out var enabled) && enabled;
+
+    public static string SuspendedUsersSummary(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        string.IsNullOrWhiteSpace(FindSetting(settings, "SuspendedUser:ConfigUrl")?.DraftValue)
+            ? "Not configured"
+            : "Configured";
+
+    private void SelectView(string view) => _selectedView = view;
+
+    private bool IsAuthenticationMode(string mode) =>
+        string.Equals(AuthenticationMode, mode, StringComparison.OrdinalIgnoreCase);
+
+    private AppConfigurationScaffoldSetting? FindSetting(string name) => FindSetting(Settings, name);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private async Task SetAuthenticationEnabledAsync(ChangeEventArgs args)
+    {
+        var enabled = args.Value is true;
+        if (enabled && AuthenticationMode == "none")
+        {
+            await UpdateAuthenticationConfigAsync(("enabled", "true"), ("mode", "key"));
+            return;
+        }
+
+        await UpdateAuthenticationConfigAsync(("enabled", enabled ? "true" : "false"));
+    }
+
+    private Task SetAuthenticationModeAsync(string mode) =>
+        UpdateAuthenticationConfigAsync(("mode", mode));
+
+    private Task SetAuthenticationHeaderAsync(ChangeEventArgs args) =>
+        UpdateAuthenticationConfigAsync(("header", args.Value?.ToString() ?? string.Empty));
+
+    private Task SetOAuthIssuerAsync(ChangeEventArgs args) =>
+        UpdateAuthenticationConfigAsync(("issuer", args.Value?.ToString() ?? string.Empty));
+
+    private Task SetOAuthAudienceAsync(ChangeEventArgs args) =>
+        UpdateAuthenticationConfigAsync(("audience", args.Value?.ToString() ?? string.Empty));
+
+    private Task SetOAuthMetadataAddressAsync(ChangeEventArgs args) =>
+        UpdateAuthenticationConfigAsync(("metadataaddress", args.Value?.ToString() ?? string.Empty));
+
+    private Task SetOAuthClockSkewAsync(ChangeEventArgs args) =>
+        UpdateAuthenticationConfigAsync(("clockskewminutes", args.Value?.ToString() ?? string.Empty));
+
+    private async Task UpdateAuthenticationConfigAsync(params (string Key, string Value)[] updates)
+    {
+        if (AuthenticationConfigSetting is not { } setting)
+        {
+            return;
+        }
+
+        var segments = AuthenticationConfigSegments(setting.DraftValue);
+        foreach (var update in updates)
+        {
+            SetAuthenticationConfigSegment(segments, update.Key, update.Value);
+        }
+
+        setting.DraftValue = string.Join(';', segments);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetBooleanSettingAsync(AppConfigurationScaffoldSetting? setting, bool enabled)
+    {
+        if (setting is null)
+        {
+            return;
+        }
+
+        setting.DraftValue = enabled ? "true" : "false";
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetSettingValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RevertAsync(AppConfigurationScaffoldSetting setting)
+    {
+        setting.RevertDraft();
+        await OnChanged.InvokeAsync();
+    }
+
+    private static string NormalizeAuthenticationMode(string? mode) =>
+        mode?.Trim().ToLowerInvariant() switch
+        {
+            "oauth" or "oauth2" => "oauth2",
+            "mixed" => "mixed",
+            "none" => "none",
+            _ => "key",
+        };
+
+    private static List<string> AuthenticationConfigSegments(string? rawConfig)
+    {
+        if (string.IsNullOrWhiteSpace(rawConfig))
+        {
+            return new List<string>();
+        }
+
+        var separator = rawConfig.Contains(';') ? ';' : ',';
+        return rawConfig.Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToList();
+    }
+
+    private static string AuthenticationConfigValue(string? rawConfig, string key, params string[] aliases)
+    {
+        var acceptedKeys = aliases.Prepend(key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var segments = AuthenticationConfigSegments(rawConfig);
+        for (var index = segments.Count - 1; index >= 0; index--)
+        {
+            var separatorIndex = segments[index].IndexOf('=');
+            if (separatorIndex <= 0 || !acceptedKeys.Contains(segments[index][..separatorIndex].Trim()))
+            {
+                continue;
+            }
+
+            return segments[index][(separatorIndex + 1)..].Trim();
+        }
+
+        return string.Empty;
+    }
+
+    private static void SetAuthenticationConfigSegment(List<string> segments, string key, string value)
+    {
+        var acceptedKeys = key.Equals("audience", StringComparison.OrdinalIgnoreCase)
+            ? new HashSet<string>(["audience", "audiences"], StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>([key], StringComparer.OrdinalIgnoreCase);
+        var replacementIndex = -1;
+
+        for (var index = 0; index < segments.Count; index++)
+        {
+            var separatorIndex = segments[index].IndexOf('=');
+            if (separatorIndex <= 0 || !acceptedKeys.Contains(segments[index][..separatorIndex].Trim()))
+            {
+                continue;
+            }
+
+            if (replacementIndex < 0)
+            {
+                replacementIndex = index;
+                segments[index] = $"{key}={value}";
+            }
+            else
+            {
+                segments.RemoveAt(index);
+                index--;
+            }
+        }
+
+        if (replacementIndex < 0)
+        {
+            segments.Add($"{key}={value}");
+        }
+    }
+}

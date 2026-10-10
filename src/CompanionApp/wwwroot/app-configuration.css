@@ -277,6 +277,66 @@
     color: #596c96;
 }
 
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) 1rem;
+    align-content: start;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 13rem;
+    padding: 1rem 1rem 2rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-icon,
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-title,
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-chevron {
+    position: static;
+    grid-row: 1;
+    transform: none;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-icon {
+    grid-column: 1;
+    font-size: 1.25rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-title {
+    grid-column: 2;
+    font-size: 1rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-chevron {
+    grid-column: 3;
+}
+
+:where(.app-configuration-page) .identity-access-summary {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    color: #071c61;
+}
+
+:where(.app-configuration-page) .identity-access-summary-grid {
+    display: grid;
+    grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+    gap: 0.35rem 1rem;
+    font-size: 0.85rem;
+}
+
+:where(.app-configuration-page) .identity-access-summary-grid strong {
+    min-width: 0;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-badge {
+    grid-column: 1 / -1;
+    grid-row: 3;
+}
+
 :where(.app-configuration-page) .config-box-badge {
     margin-top: 0.25rem;
 }
