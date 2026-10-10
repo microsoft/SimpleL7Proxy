@@ -5,9 +5,8 @@
     <button type="button" id="tokenomics-summary-routing" class="tokenomics-summary-card tokenomics-summary-wide @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
         <span class="tokenomics-summary-heading"><span class="bi bi-box-fill" aria-hidden="true"></span><span>Model Routing</span></span>
-        <span class="tokenomics-summary-description">Manage model selection, hierarchy, and fallback behavior</span>
+        <span class="tokenomics-summary-description">Model selection, hierarchy, and fallback behavior</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit model routing")</span>
     </button>
 }
 else
@@ -39,6 +38,6 @@ else
     [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
     [Parameter] public bool IsSummary { get; set; }
     [Parameter] public bool IsSelected { get; set; }
-    [Parameter] public string Summary { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? Summary { get; set; }
     [Parameter] public EventCallback OnSelected { get; set; }
 }

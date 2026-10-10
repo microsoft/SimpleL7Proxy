@@ -4,9 +4,8 @@
     <button type="button" id="tokenomics-summary-costs" class="tokenomics-summary-card tokenomics-summary-wide @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
         <span class="tokenomics-summary-heading"><span class="bi bi-currency-dollar" aria-hidden="true"></span><span>Model Costs</span></span>
-        <span class="tokenomics-summary-description">Set per-model costs and manage the model list</span>
+        <span class="tokenomics-summary-description">Per-token pricing used for spend tracking</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit model costs")</span>
     </button>
 }
 else
@@ -144,7 +143,7 @@ else
 @code {
     [Parameter] public bool IsSummary { get; set; }
     [Parameter] public bool IsSelected { get; set; }
-    [Parameter] public string Summary { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? Summary { get; set; }
     [Parameter] public EventCallback OnSelected { get; set; }
     [Parameter] public string Search { get; set; } = string.Empty;
     [Parameter] public int Page { get; set; }

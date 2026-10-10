@@ -6,9 +6,8 @@
     <button type="button" id="tokenomics-summary-limits" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
         <span class="tokenomics-summary-heading"><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><span>Limits &amp; Budgets</span></span>
-        <span class="tokenomics-summary-description">Token and budget limits across each period</span>
+        <span class="tokenomics-summary-description">Token and spend limits by time period</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit limits & budgets")</span>
     </button>
 }
 else
@@ -55,7 +54,7 @@ else
     [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
     [Parameter] public bool IsSummary { get; set; }
     [Parameter] public bool IsSelected { get; set; }
-    [Parameter] public string Summary { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? Summary { get; set; }
     [Parameter] public EventCallback OnSelected { get; set; }
 
     private static readonly (string Label, string[] Names)[] NumericRows = {

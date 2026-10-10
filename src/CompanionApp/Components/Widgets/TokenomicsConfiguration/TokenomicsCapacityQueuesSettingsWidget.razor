@@ -5,9 +5,8 @@
     <button type="button" id="tokenomics-summary-capacity" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
         <span class="tokenomics-summary-heading"><span class="bi bi-diagram-3-fill" aria-hidden="true"></span><span>Capacity &amp; Queues</span></span>
-        <span class="tokenomics-summary-description">Capacity, queue, and scheduling thresholds</span>
+        <span class="tokenomics-summary-description">Capacity, queue, delay, and large-context handling</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit capacity & queues")</span>
     </button>
 }
 else
@@ -40,6 +39,6 @@ else
     [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
     [Parameter] public bool IsSummary { get; set; }
     [Parameter] public bool IsSelected { get; set; }
-    [Parameter] public string Summary { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? Summary { get; set; }
     [Parameter] public EventCallback OnSelected { get; set; }
 }

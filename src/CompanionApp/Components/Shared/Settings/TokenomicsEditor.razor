@@ -35,20 +35,52 @@
     {
         <div class="tokenomics-summary-grid" role="group" aria-label="Select Tokenomics settings to edit">
             <TokenomicsLimitsBudgetsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
-                Summary="@($"Hourly / daily / monthly tokens: {FormatValue(_options.HourlyTokenLimit)} / {FormatValue(_options.DailyTokenLimit)} / {FormatValue(_options.MonthlyTokenLimit)}. Budgets (USD): {FormatValue(_options.HourlyBudgetUsd)} / {FormatValue(_options.DailyBudgetUsd)} / {FormatValue(_options.MonthlyBudgetUsd)}.")"
-                OnSelected="@(() => _expandedWidget = "limits")" />
+                OnSelected="@(() => _expandedWidget = "limits")">
+                <Summary>
+                    <span><strong>Tokens:</strong> @CompactNumber(_options.HourlyTokenLimit) hourly · @CompactNumber(_options.DailyTokenLimit) daily · @CompactNumber(_options.MonthlyTokenLimit) monthly</span>
+                    <span><strong>Budgets:</strong> $@CompactNumber(_options.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DailyBudgetUsd) daily · $@CompactNumber(_options.MonthlyBudgetUsd) monthly</span>
+                    <span><strong>On exceed:</strong> @PeriodActions(_options.HourlyQuotaExceededAction, _options.DailyQuotaExceededAction, _options.MonthlyQuotaExceededAction)</span>
+                </Summary>
+            </TokenomicsLimitsBudgetsSettingsWidget>
             <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
-                Summary="@($"Critical priority: {FormatValue(_options.CriticalPriority)}. High priority: {FormatValue(_options.HighPriority)}. Default action: {FieldLabel(_options.DefaultAction.ToString())}.")"
-                OnSelected="@(() => _expandedWidget = "priority")" />
+                OnSelected="@(() => _expandedWidget = "priority")">
+                <Summary>
+                    <span><strong>Priority levels:</strong> Critical @FormatValue(_options.CriticalPriority) · High @FormatValue(_options.HighPriority)</span>
+                    <span><strong>Critical:</strong> @SummaryAction(_options.CriticalPriorityAction) · <strong>Entitled:</strong> @SummaryAction(_options.TenantEntitlementAction)</span>
+                    <span><strong>Governance:</strong> @SummaryAction(_options.GovernanceWorkloadAction) · <strong>Default:</strong> @SummaryAction(_options.DefaultAction)</span>
+                </Summary>
+            </TokenomicsRequestPrioritySettingsWidget>
             <TokenomicsCapacityQueuesSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "capacity")"
-                Summary="@($"Capacity threshold: {FormatValue(_options.CapacityConstraintThresholdPercent)}%. Queue threshold: {FormatValue(_options.HighQueueDepthThreshold)}. Delay: {FormatValue(_options.DelayDuration, nameof(TokenomicsSettings.DelayDuration))}. Large context: {FormatValue(_options.LargeContextThreshold)} tokens.")"
-                OnSelected="@(() => _expandedWidget = "capacity")" />
+                OnSelected="@(() => _expandedWidget = "capacity")">
+                <Summary>
+                    <span><strong>Constrained at:</strong> @FormatValue(_options.CapacityConstraintThresholdPercent)% capacity · @_options.HighQueueDepthThreshold.ToString("0.00", CultureInfo.InvariantCulture) queue depth</span>
+                    <span><strong>Large context:</strong> @_options.LargeContextThreshold.ToString("N0", CultureInfo.InvariantCulture)+ tokens · <strong>Delay:</strong> @(( _options.DelayDuration / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sec</span>
+                    <span><strong>When constrained:</strong> @SummaryAction(_options.CapacityConstrainedAction); @( _options.CapacityCriticalWorkloadAction == TokenActionEnum.IncreasePriority ? "critical work gets higher priority" : $"critical work: {SummaryAction(_options.CapacityCriticalWorkloadAction)}")</span>
+                </Summary>
+            </TokenomicsCapacityQueuesSettingsWidget>
             <TokenomicsModelRoutingSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "routing")"
-                Summary="@($"Default model: {(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)}. {_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count()} models in hierarchy. Unavailable model action: {FieldLabel(_options.PreferredModelUnavailableAction.ToString())}. Replacement action: {FieldLabel(_options.PreferredModelReplacementAction.ToString())}.")"
-                OnSelected="@(() => _expandedWidget = "routing")" />
+                OnSelected="@(() => _expandedWidget = "routing")">
+                <Summary>
+                    <span><strong>Default model:</strong> <span class="tokenomics-summary-model" title="@_options.DefaultModel">@(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)</span></span>
+                    <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
+                    <span><strong>Fallback:</strong> @SummaryAction(_options.PreferredModelReplacementAction) when permitted · otherwise @FieldLabel(_options.PreferredModelUnavailableAction.ToString())</span>
+                </Summary>
+            </TokenomicsModelRoutingSettingsWidget>
             <TokenomicsModelCostsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "costs")"
-                Summary="@($"{_options.ModelCostPerToken.Count} models with configured input, cached input, and output prices (USD/token).")"
-                OnSelected="@(() => _expandedWidget = "costs")" />
+                OnSelected="@(() => _expandedWidget = "costs")">
+                <Summary>
+                    @if (_options.ModelCostPerToken.Count == 0)
+                    {
+                        <span><strong>No model pricing configured</strong></span>
+                        <span>Models without pricing are excluded from spend totals.</span>
+                    }
+                    else
+                    {
+                        <span><strong>@_options.ModelCostPerToken.Count @(_options.ModelCostPerToken.Count == 1 ? "model priced" : "models priced")</strong></span>
+                        <span>Input, cached-input, and output rates configured per token.</span>
+                    }
+                </Summary>
+            </TokenomicsModelCostsSettingsWidget>
         </div>
         @if (_fieldErrors.Count > 0 || _modelCosts.Any(row => row.ModelError is not null || row.InputCostError is not null || row.CachedInputCostError is not null || row.OutputCostError is not null))
         {
@@ -123,6 +155,20 @@
     private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
     private readonly List<ModelCostRow> _modelCosts = new();
     private string _expandedWidget = "limits";
+    private static string CompactNumber(decimal value) =>
+        value != 0 && value % 1000 == 0
+            ? $"{(value / 1000).ToString("0.##", CultureInfo.InvariantCulture)}K"
+            : value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string SummaryAction(TokenActionEnum action) {
+        var label = FieldLabel(action.ToString());
+        return char.ToUpperInvariant(label[0]) + label[1..];
+    }
+
+    private static string PeriodActions(TokenActionEnum hourly, TokenActionEnum daily, TokenActionEnum monthly) =>
+        hourly == daily && daily == monthly
+            ? SummaryAction(hourly)
+            : $"{SummaryAction(hourly)} hourly · {SummaryAction(daily)} daily · {SummaryAction(monthly)} monthly";
     private string _modelSearch = string.Empty;
     private int _modelPage = 1;
     private int _modelPageSize = 50;
