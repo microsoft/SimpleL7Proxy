@@ -33,12 +33,43 @@
     }
     else
     {
-        <div class="tokenomics-settings-grid">
+        <div class="tokenomics-summary-grid" role="group" aria-label="Select Tokenomics settings to edit">
+            <TokenomicsQuotaBudgetSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
+                Summary="@($"Hourly / daily / monthly tokens: {FormatValue(_options.HourlyTokenLimit)} / {FormatValue(_options.DailyTokenLimit)} / {FormatValue(_options.MonthlyTokenLimit)}. Budgets (USD): {FormatValue(_options.HourlyBudgetUsd)} / {FormatValue(_options.DailyBudgetUsd)} / {FormatValue(_options.MonthlyBudgetUsd)}.")"
+                OnSelected="@(() => _expandedWidget = "limits")" />
+            <TokenomicsCapacityQueueSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "capacity")"
+                Summary="@($"Capacity threshold: {FormatValue(_options.CapacityConstraintThresholdPercent)}%. Queue threshold: {FormatValue(_options.HighQueueDepthThreshold)}. Delay: {FormatValue(_options.DelayDuration, nameof(TokenomicsSettings.DelayDuration))}.")"
+                OnSelected="@(() => _expandedWidget = "capacity")" />
+            <TokenomicsPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
+                Summary="@($"Critical priority: {FormatValue(_options.CriticalPriority)}. High priority: {FormatValue(_options.HighPriority)}. Default action: {FieldLabel(_options.DefaultAction.ToString())}.")"
+                OnSelected="@(() => _expandedWidget = "priority")" />
+            <TokenomicsModelRoutingSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "costs")"
+                Summary="@($"Default model: {(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)}. {_options.ModelHierarchy.Count} hierarchy rules. {_options.ModelCostPerToken.Count} priced models.")"
+                OnSelected="@(() => _expandedWidget = "costs")" />
+        </div>
+        @if (_fieldErrors.Count > 0 || _modelCosts.Any(row => row.ModelError is not null || row.InputCostError is not null || row.CachedInputCostError is not null || row.OutputCostError is not null))
+        {
+            <div class="alert alert-warning py-2" role="alert">
+                Some edits need correction. Select the relevant settings summary to review field errors; invalid values have not been applied to the draft.
+            </div>
+        }
+        <div id="tokenomics-expanded-panel" class="tokenomics-expanded-panel" role="region" aria-labelledby="@($"tokenomics-summary-{_expandedWidget}")">
+            @if (_expandedWidget == "limits")
+            {
             <TokenomicsQuotaBudgetSettingsWidget FieldContent="@(name => RenderField(name, true))" />
+            }
+            else if (_expandedWidget == "capacity")
+            {
             <TokenomicsCapacityQueueSettingsWidget NumericNames="@(NumericForTab("capacity").Select(property => property.Name))"
                 ActionNames="@(ActionsForTab("capacity").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
+            }
+            else if (_expandedWidget == "priority")
+            {
             <TokenomicsPrioritySettingsWidget NumericNames="@(NumericForTab("priority").Select(property => property.Name))"
                 ActionNames="@(ActionsForTab("priority").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
+            }
+            else if (_expandedWidget == "costs")
+            {
             <TokenomicsModelRoutingSettingsWidget NumericNames="@(NumericForTab("costs").Select(property => property.Name))"
                 ActionNames="@(ActionsForTab("costs").Select(property => property.Name))" FieldContent="@(name => RenderField(name))">
                 <ModelCostsContent>
@@ -53,6 +84,7 @@
                         OnOutputChanged="@(change => SetModelCostAsync(change.Row, null, null, null, change.Value))" />
                 </ModelCostsContent>
             </TokenomicsModelRoutingSettingsWidget>
+            }
         </div>
     }
 }
@@ -87,6 +119,7 @@
 
     private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
     private readonly List<ModelCostRow> _modelCosts = new();
+    private string _expandedWidget = "limits";
     private string _modelSearch = string.Empty;
     private int _modelPage = 1;
     private int _modelPageSize = 50;
