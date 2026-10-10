@@ -2,19 +2,19 @@
 
 @if (IsSummary)
 {
-    <button type="button" id="tokenomics-summary-capacity" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
+    <button type="button" id="tokenomics-summary-priority" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
-        <span class="tokenomics-summary-heading"><span class="bi bi-diagram-3-fill" aria-hidden="true"></span><span>2. Capacity &amp; Queue Management</span></span>
-        <span class="tokenomics-summary-description">Capacity, queue, and scheduling thresholds</span>
+        <span class="tokenomics-summary-heading"><span class="bi bi-lightning-fill" aria-hidden="true"></span><span>Request Priority</span></span>
+        <span class="tokenomics-summary-description">Priority thresholds and governance actions</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Select to edit")</span>
+        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit request priority")</span>
     </button>
 }
 else
 {
-<article class="tokenomics-settings-card tokenomics-card-capacity">
-    <header><span class="bi bi-diagram-3-fill" aria-hidden="true"></span><div><h3>2. Capacity &amp; Queue Management</h3><p>Configure capacity, queue and large-context thresholds.</p></div></header>
-    <section id="tokenomics-panel-capacity" class="tokenomics-tab-panel" aria-label="Capacity settings">
+<article class="tokenomics-settings-card tokenomics-card-priority">
+    <header><span class="bi bi-lightning-fill" aria-hidden="true"></span><div><h3>Request Priority</h3><p>Configure request priority and governance actions.</p></div></header>
+    <section id="tokenomics-panel-priority" class="tokenomics-tab-panel" aria-label="Priority settings">
         <div class="config-newhost-grid">
             @foreach (var name in NumericNames)
             {
@@ -22,7 +22,7 @@ else
             }
         </div>
         <details class="tokenomics-action-group" open>
-            <summary>Capacity and queue actions</summary>
+            <summary>Priority and governance actions</summary>
             <div class="tokenomics-inline-actions" aria-label="Policy actions">
                 @foreach (var name in ActionNames)
                 {

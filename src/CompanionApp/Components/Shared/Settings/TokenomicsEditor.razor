@@ -34,17 +34,20 @@
     else
     {
         <div class="tokenomics-summary-grid" role="group" aria-label="Select Tokenomics settings to edit">
-            <TokenomicsQuotaBudgetSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
+            <TokenomicsLimitsBudgetsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
                 Summary="@($"Hourly / daily / monthly tokens: {FormatValue(_options.HourlyTokenLimit)} / {FormatValue(_options.DailyTokenLimit)} / {FormatValue(_options.MonthlyTokenLimit)}. Budgets (USD): {FormatValue(_options.HourlyBudgetUsd)} / {FormatValue(_options.DailyBudgetUsd)} / {FormatValue(_options.MonthlyBudgetUsd)}.")"
                 OnSelected="@(() => _expandedWidget = "limits")" />
-            <TokenomicsCapacityQueueSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "capacity")"
-                Summary="@($"Capacity threshold: {FormatValue(_options.CapacityConstraintThresholdPercent)}%. Queue threshold: {FormatValue(_options.HighQueueDepthThreshold)}. Delay: {FormatValue(_options.DelayDuration, nameof(TokenomicsSettings.DelayDuration))}.")"
-                OnSelected="@(() => _expandedWidget = "capacity")" />
-            <TokenomicsPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
+            <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
                 Summary="@($"Critical priority: {FormatValue(_options.CriticalPriority)}. High priority: {FormatValue(_options.HighPriority)}. Default action: {FieldLabel(_options.DefaultAction.ToString())}.")"
                 OnSelected="@(() => _expandedWidget = "priority")" />
-            <TokenomicsModelRoutingSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "costs")"
-                Summary="@($"Default model: {(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)}. {_options.ModelHierarchy.Count} hierarchy rules. {_options.ModelCostPerToken.Count} priced models.")"
+            <TokenomicsCapacityQueuesSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "capacity")"
+                Summary="@($"Capacity threshold: {FormatValue(_options.CapacityConstraintThresholdPercent)}%. Queue threshold: {FormatValue(_options.HighQueueDepthThreshold)}. Delay: {FormatValue(_options.DelayDuration, nameof(TokenomicsSettings.DelayDuration))}. Large context: {FormatValue(_options.LargeContextThreshold)} tokens.")"
+                OnSelected="@(() => _expandedWidget = "capacity")" />
+            <TokenomicsModelRoutingSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "routing")"
+                Summary="@($"Default model: {(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)}. {_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count()} models in hierarchy. Unavailable model action: {FieldLabel(_options.PreferredModelUnavailableAction.ToString())}. Replacement action: {FieldLabel(_options.PreferredModelReplacementAction.ToString())}.")"
+                OnSelected="@(() => _expandedWidget = "routing")" />
+            <TokenomicsModelCostsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "costs")"
+                Summary="@($"{_options.ModelCostPerToken.Count} models with configured input, cached input, and output prices (USD/token).")"
                 OnSelected="@(() => _expandedWidget = "costs")" />
         </div>
         @if (_fieldErrors.Count > 0 || _modelCosts.Any(row => row.ModelError is not null || row.InputCostError is not null || row.CachedInputCostError is not null || row.OutputCostError is not null))
@@ -56,23 +59,25 @@
         <div id="tokenomics-expanded-panel" class="tokenomics-expanded-panel" role="region" aria-labelledby="@($"tokenomics-summary-{_expandedWidget}")">
             @if (_expandedWidget == "limits")
             {
-            <TokenomicsQuotaBudgetSettingsWidget FieldContent="@(name => RenderField(name, true))" />
+            <TokenomicsLimitsBudgetsSettingsWidget FieldContent="@(name => RenderField(name, true))" />
             }
             else if (_expandedWidget == "capacity")
             {
-            <TokenomicsCapacityQueueSettingsWidget NumericNames="@(NumericForTab("capacity").Select(property => property.Name))"
+            <TokenomicsCapacityQueuesSettingsWidget NumericNames="@(NumericForTab("capacity").Select(property => property.Name))"
                 ActionNames="@(ActionsForTab("capacity").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
             }
             else if (_expandedWidget == "priority")
             {
-            <TokenomicsPrioritySettingsWidget NumericNames="@(NumericForTab("priority").Select(property => property.Name))"
+            <TokenomicsRequestPrioritySettingsWidget NumericNames="@(NumericForTab("priority").Select(property => property.Name))"
                 ActionNames="@(ActionsForTab("priority").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
+            }
+            else if (_expandedWidget == "routing")
+            {
+            <TokenomicsModelRoutingSettingsWidget NumericNames="@(NumericForTab("routing").Select(property => property.Name))"
+                ActionNames="@(ActionsForTab("routing").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
             }
             else if (_expandedWidget == "costs")
             {
-            <TokenomicsModelRoutingSettingsWidget NumericNames="@(NumericForTab("costs").Select(property => property.Name))"
-                ActionNames="@(ActionsForTab("costs").Select(property => property.Name))" FieldContent="@(name => RenderField(name))">
-                <ModelCostsContent>
                     <TokenomicsModelCostsSettingsWidget Search="@_modelSearch" Page="_modelPage" PageSize="_modelPageSize"
                         PageCount="ModelPageCount" TotalCount="_modelCosts.Count" FilteredCount="FilteredModelCostCount"
                         ResultSummary="@ModelResultSummary" Rows="VisibleModelCosts" IsChanged="IsModelCostChanged"
@@ -82,8 +87,6 @@
                         OnInputChanged="@(change => SetModelCostAsync(change.Row, null, change.Value, null, null))"
                         OnCachedInputChanged="@(change => SetModelCostAsync(change.Row, null, null, change.Value, null))"
                         OnOutputChanged="@(change => SetModelCostAsync(change.Row, null, null, null, change.Value))" />
-                </ModelCostsContent>
-            </TokenomicsModelRoutingSettingsWidget>
             }
         </div>
     }
@@ -192,7 +195,7 @@
             or nameof(TokenomicsSettings.LargeContextThreshold)
             or nameof(TokenomicsSettings.DelayDuration),
         "priority" => property.Name is nameof(TokenomicsSettings.CriticalPriority) or nameof(TokenomicsSettings.HighPriority),
-        "costs" => property.Name is nameof(TokenomicsSettings.DefaultModel) or nameof(TokenomicsSettings.ModelHierarchy),
+        "routing" => property.Name is nameof(TokenomicsSettings.DefaultModel) or nameof(TokenomicsSettings.ModelHierarchy),
         _ => false,
     });
 
@@ -227,7 +230,7 @@
             or nameof(TokenomicsSettings.TenantEntitlementAction)
             or nameof(TokenomicsSettings.GovernanceWorkloadAction) => "priority",
         nameof(TokenomicsSettings.PreferredModelReplacementAction)
-            or nameof(TokenomicsSettings.PreferredModelUnavailableAction) => "costs",
+            or nameof(TokenomicsSettings.PreferredModelUnavailableAction) => "routing",
         _ => throw new InvalidOperationException($"No Tokenomics tab is assigned to action '{name}'.")
     };
 

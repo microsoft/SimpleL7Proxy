@@ -1,4 +1,19 @@
 @namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+@if (IsSummary)
+{
+    <button type="button" id="tokenomics-summary-costs" class="tokenomics-summary-card tokenomics-summary-wide @(IsSelected ? "is-selected" : null)"
+            aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
+        <span class="tokenomics-summary-heading"><span class="bi bi-currency-dollar" aria-hidden="true"></span><span>Model Costs</span></span>
+        <span class="tokenomics-summary-description">Set per-model costs and manage the model list</span>
+        <span class="tokenomics-summary-values">@Summary</span>
+        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit model costs")</span>
+    </button>
+}
+else
+{
+<article class="tokenomics-settings-card tokenomics-card-costs">
+    <header><span class="bi bi-currency-dollar" aria-hidden="true"></span><div><h3>Model Costs</h3><p>Define input, cached input, and output costs for each model.</p></div></header>
+    <section id="tokenomics-panel-costs" class="tokenomics-tab-panel" aria-label="Model costs settings">
 <div class="tokenomics-model-toolbar">
     <div class="tokenomics-model-search">
         <span class="bi bi-search" aria-hidden="true"></span>
@@ -122,7 +137,15 @@ else
     </nav>
 }
 
+    </section>
+</article>
+}
+
 @code {
+    [Parameter] public bool IsSummary { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public string Summary { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnSelected { get; set; }
     [Parameter] public string Search { get; set; } = string.Empty;
     [Parameter] public int Page { get; set; }
     [Parameter] public int PageSize { get; set; }
@@ -130,8 +153,8 @@ else
     [Parameter] public int TotalCount { get; set; }
     [Parameter] public int FilteredCount { get; set; }
     [Parameter] public string ResultSummary { get; set; } = string.Empty;
-    [Parameter, EditorRequired] public IEnumerable<TokenomicsEditor.ModelCostRow> Rows { get; set; } = Array.Empty<TokenomicsEditor.ModelCostRow>();
-    [Parameter, EditorRequired] public Func<TokenomicsEditor.ModelCostRow, bool> IsChanged { get; set; } = default!;
+    [Parameter] public IEnumerable<TokenomicsEditor.ModelCostRow> Rows { get; set; } = Array.Empty<TokenomicsEditor.ModelCostRow>();
+    [Parameter] public Func<TokenomicsEditor.ModelCostRow, bool> IsChanged { get; set; } = default!;
     [Parameter] public EventCallback<ChangeEventArgs> OnSearchChanged { get; set; }
     [Parameter] public EventCallback<ChangeEventArgs> OnPageSizeChanged { get; set; }
     [Parameter] public EventCallback<int> OnPageChanged { get; set; }

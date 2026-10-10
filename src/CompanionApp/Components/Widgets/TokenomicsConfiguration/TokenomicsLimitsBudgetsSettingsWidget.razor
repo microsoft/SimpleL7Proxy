@@ -5,17 +5,17 @@
 {
     <button type="button" id="tokenomics-summary-limits" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
-        <span class="tokenomics-summary-heading"><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><span>1. Quota &amp; Budget</span></span>
+        <span class="tokenomics-summary-heading"><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><span>Limits &amp; Budgets</span></span>
         <span class="tokenomics-summary-description">Token and budget limits across each period</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Select to edit")</span>
+        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit limits & budgets")</span>
     </button>
 }
 else
 {
 <article class="tokenomics-settings-card tokenomics-card-limits">
-    <header><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><div><h3>1. Quota &amp; Budget</h3><p>Set token and budget limits and actions when limits are reached.</p></div></header>
-    <section id="tokenomics-panel-limits" class="tokenomics-tab-panel" aria-label="Quota and budget settings">
+    <header><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><div><h3>Limits &amp; Budgets</h3><p>Set token and budget limits and actions when limits are reached.</p></div></header>
+    <section id="tokenomics-panel-limits" class="tokenomics-tab-panel" aria-label="Limits and budgets settings">
         <div class="tokenomics-period-matrix" role="group" aria-label="Quota and budget by period">
             <div class="tokenomics-period-matrix-header" aria-hidden="true">
                 <span>Limit</span><span>Hourly</span><span>Daily</span><span>Monthly</span>

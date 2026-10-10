@@ -2,21 +2,20 @@
 
 @if (IsSummary)
 {
-    <button type="button" id="tokenomics-summary-costs" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
+    <button type="button" id="tokenomics-summary-routing" class="tokenomics-summary-card tokenomics-summary-wide @(IsSelected ? "is-selected" : null)"
             aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
-        <span class="tokenomics-summary-heading"><span class="bi bi-database-fill" aria-hidden="true"></span><span>4. Model Routing &amp; Costs</span></span>
-        <span class="tokenomics-summary-description">Default model, routing hierarchy, and pricing</span>
+        <span class="tokenomics-summary-heading"><span class="bi bi-box-fill" aria-hidden="true"></span><span>Model Routing</span></span>
+        <span class="tokenomics-summary-description">Manage model selection, hierarchy, and fallback behavior</span>
         <span class="tokenomics-summary-values">@Summary</span>
-        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Select to edit")</span>
+        <span class="tokenomics-summary-status">@(IsSelected ? "Currently editing" : "Edit model routing")</span>
     </button>
 }
 else
 {
-<article class="tokenomics-settings-card tokenomics-card-costs">
-    <header><span class="bi bi-database-fill" aria-hidden="true"></span><div><h3>4. Model Routing &amp; Costs</h3><p>Manage model selection, hierarchy and per-token prices.</p></div></header>
-    <section id="tokenomics-panel-costs" class="tokenomics-tab-panel tokenomics-routing-costs" aria-label="Model routing and costs">
+<article class="tokenomics-settings-card tokenomics-card-routing">
+    <header><span class="bi bi-box-fill" aria-hidden="true"></span><div><h3>Model Routing</h3><p>Manage model selection, hierarchy, and fallback behavior.</p></div></header>
+    <section id="tokenomics-panel-routing" class="tokenomics-tab-panel" aria-label="Model routing settings">
         <div class="tokenomics-routing-pane">
-            <h4 class="h6">Model Routing</h4>
             <div class="config-newhost-grid">
                 @foreach (var name in NumericNames)
                 {
@@ -30,10 +29,6 @@ else
                 }
             </div>
         </div>
-        <div class="tokenomics-costs-pane">
-            <h4 class="h6">Model Costs</h4>
-            @ModelCostsContent
-        </div>
     </section>
 </article>
 }
@@ -42,7 +37,6 @@ else
     [Parameter] public IEnumerable<string> NumericNames { get; set; } = Array.Empty<string>();
     [Parameter] public IEnumerable<string> ActionNames { get; set; } = Array.Empty<string>();
     [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
-    [Parameter] public RenderFragment ModelCostsContent { get; set; } = default!;
     [Parameter] public bool IsSummary { get; set; }
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public string Summary { get; set; } = string.Empty;
