@@ -1,0 +1,55 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+@using SimpleL7Proxy.Tokenomics
+
+<article class="tokenomics-settings-card tokenomics-card-limits">
+    <header><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><div><h3>1. Quota &amp; Budget</h3><p>Set token and budget limits and actions when limits are reached.</p></div></header>
+    <section id="tokenomics-panel-limits" class="tokenomics-tab-panel" aria-label="Quota and budget settings">
+        <div class="tokenomics-period-matrix" role="group" aria-label="Quota and budget by period">
+            <div class="tokenomics-period-matrix-header" aria-hidden="true">
+                <span>Limit</span><span>Hourly</span><span>Daily</span><span>Monthly</span>
+            </div>
+            @foreach (var row in NumericRows)
+            {
+                <div class="tokenomics-period-matrix-row" @key="row.Label">
+                    <div class="tokenomics-period-row-label">@row.Label</div>
+                    @foreach (var name in row.Names)
+                    {
+                        @FieldContent(name)
+                    }
+                </div>
+            }
+            <details class="tokenomics-action-group" open>
+                <summary>Actions when limits are reached</summary>
+                <div class="tokenomics-period-matrix-header" aria-hidden="true">
+                    <span>Condition</span><span>Hourly</span><span>Daily</span><span>Monthly</span>
+                </div>
+                @foreach (var row in ActionRows)
+                {
+                    <div class="tokenomics-period-matrix-row" @key="row.Label">
+                        <div class="tokenomics-period-row-label">@row.Label</div>
+                        @foreach (var name in row.Names)
+                        {
+                            @FieldContent(name)
+                        }
+                    </div>
+                }
+            </details>
+        </div>
+    </section>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public RenderFragment<string> FieldContent { get; set; } = default!;
+
+    private static readonly (string Label, string[] Names)[] NumericRows = {
+        ("Token limit (tokens)", new[] { nameof(TokenomicsSettings.HourlyTokenLimit), nameof(TokenomicsSettings.DailyTokenLimit), nameof(TokenomicsSettings.MonthlyTokenLimit) }),
+        ("Budget (USD)", new[] { nameof(TokenomicsSettings.HourlyBudgetUsd), nameof(TokenomicsSettings.DailyBudgetUsd), nameof(TokenomicsSettings.MonthlyBudgetUsd) })
+    };
+
+    private static readonly (string Label, string[] Names)[] ActionRows = {
+        ("Quota governance action", new[] { nameof(TokenomicsSettings.HourlyQuotaGovernanceAction), nameof(TokenomicsSettings.DailyQuotaGovernanceAction), nameof(TokenomicsSettings.MonthlyQuotaGovernanceAction) }),
+        ("Quota exceeded action", new[] { nameof(TokenomicsSettings.HourlyQuotaExceededAction), nameof(TokenomicsSettings.DailyQuotaExceededAction), nameof(TokenomicsSettings.MonthlyQuotaExceededAction) }),
+        ("Budget exceeded action", new[] { nameof(TokenomicsSettings.HourlyBudgetExceededAction), nameof(TokenomicsSettings.DailyBudgetExceededAction), nameof(TokenomicsSettings.MonthlyBudgetExceededAction) }),
+        ("Entitled tenant action", new[] { nameof(TokenomicsSettings.HourlyBudgetEntitledTenantAction), nameof(TokenomicsSettings.DailyBudgetEntitledTenantAction), nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction) })
+    };
+}

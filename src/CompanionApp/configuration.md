@@ -27,9 +27,15 @@ Confirm the proxy uses that same store and label through `AZURE_APPCONFIG_ENDPOI
 
 ## Edit an existing configuration
 
-1. Open **Config > Proxy Configuration** (`/admin/configuration`). Confirm **App Configuration URL**, then select **Refresh** if the configurations have not loaded. Use **App Configuration settings** to reveal the URL again when the header is collapsed.
-2. Select the **Update** action, choose the exact **Starting configuration (label)**, and select **Continue**. This opens an editor; it does not write to Azure.
+1. Open **Config > Proxy Configuration** (`/admin/configuration`). The page loads the configured `CompanionApp.AppConfigurationEndpoint` and opens **Configuration Details** for the exact `CompanionApp.AppConfigurationLabel`. Loading does not write to Azure; an empty label selects unlabeled settings.
+   While loading, the page shows a loading banner above grey, non-interactive section cards. The same Details layout becomes colored and interactive when loading finishes; placeholder cards do not contain downloaded values.
+2. Confirm the label in the header. To edit another label, select **Back to Configurations**, then **Update**, choose the **Starting configuration (label)**, and select **Continue**. Use **App Configuration settings** to inspect the endpoint. The refresh button reloads the current label and is disabled while local changes are pending; **Last loaded** is the download time, not the store's last modification time.
 3. Open the relevant section, such as **Hosts**, **Request**, or **Logging**. Edit values and close the section to retain them as local drafts. Saving a host dialog also stages the value locally.
+   **Tokenomics** opens an in-page editor with Quota & Budget and Capacity & Queue Management in the first row, followed by Request Priority and Model Routing & Costs. Quota and budget share one period matrix; model routing and model costs appear side by side. Narrow screens stack the cards and routing/cost panels. Policy-action groups start expanded and can be collapsed. Back to configuration retains drafts. The bottom **Save changes** button uses the same explicit **Update** flow; **Discard** restores all loaded values for the current configuration, including changes outside Tokenomics.
+
+   The display is composed from [Tokenomics configuration widgets](Components/Widgets/TokenomicsConfiguration/). [TokenomicsEditor](Components/Shared/Settings/TokenomicsEditor.razor) retains draft parsing, validation, model pricing, search, pagination, and change callbacks; the configuration page retains label navigation and cloud saves. Widgets inherit the page's interactive render mode rather than starting separate interactive roots.
+
+   All editor layout, field, card, and save-bar styles are centralized in [tokenomics-configuration.css](wwwroot/tokenomics-configuration.css), loaded through `Assets` in [App.razor](Components/App.razor), like the `/tokenomics` stylesheet. Selectors are scoped beneath `.tokenomics-configuration` so editor styling does not alter reports or other configuration sections. Shared documentation-help styling remains in its existing shared component.
 4. Select the **settings changed** button to review the staged changes. Check the target label before publishing.
 5. Select the editor's **Update** button. CompanionApp writes the changed keys, gives `Warm:Sentinel` a new value under the same label, then downloads and compares the saved values.
 6. Wait for **Updated and verified** and check the old/new sentinel values in the status message. This confirms the values in the store, not that every running proxy has applied them.
@@ -38,6 +44,7 @@ Confirm the proxy uses that same store and label through `AZURE_APPCONFIG_ENDPOI
 
 ## Create or duplicate a configuration
 
+- From **Configuration Details**, select **Back to Configurations**. Resolve any unsaved-change prompt before switching.
 - Select **New**, enter a unique label, and edit the generated proxy defaults.
 - Select **Duplicate**, choose a source label, and enter a new label to copy an existing configuration.
 
@@ -56,6 +63,7 @@ See [Change and verify proxy settings](../../docs/how-to/configure-app-configura
 | Symptom | Check |
 | --- | --- |
 | Proxy Configuration reports authentication failure or Azure `403` | Check the identity in the same environment as the app, the store endpoint, data-plane role assignments, and private-network access. Data Reader cannot publish changes. |
+| The configured default label was not found | Check `CompanionApp.AppConfigurationLabel`, including case. The page keeps configuration selection available; it does not open a different label or create the missing label automatically. Select an existing configuration or explicitly create one with **New**. |
 | No proxy settings appear for a label | Match the label's case and check that the store contains published `Warm:` or `Cold:` keys. New stores can use **New**; existing labels without `Warm:Sentinel` need that key under the same label before Update. |
 | Update succeeds but proxy behavior is unchanged | Check the proxy's store and label, then the warm sentinel log or cold-setting restart requirement. See [App Configuration troubleshooting](../../docs/how-to/configure-app-configuration.md#troubleshoot-setting-changes). |
 

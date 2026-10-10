@@ -1,0 +1,33 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+
+<article class="tokenomics-settings-card tokenomics-card-costs">
+    <header><span class="bi bi-database-fill" aria-hidden="true"></span><div><h3>4. Model Routing &amp; Costs</h3><p>Manage model selection, hierarchy and per-token prices.</p></div></header>
+    <section id="tokenomics-panel-costs" class="tokenomics-tab-panel tokenomics-routing-costs" aria-label="Model routing and costs">
+        <div class="tokenomics-routing-pane">
+            <h4 class="h6">Model Routing</h4>
+            <div class="config-newhost-grid">
+                @foreach (var name in NumericNames)
+                {
+                    @FieldContent(name)
+                }
+            </div>
+            <div class="tokenomics-inline-actions tokenomics-cost-actions" aria-label="Model routing actions">
+                @foreach (var name in ActionNames)
+                {
+                    @FieldContent(name)
+                }
+            </div>
+        </div>
+        <div class="tokenomics-costs-pane">
+            <h4 class="h6">Model Costs</h4>
+            @ModelCostsContent
+        </div>
+    </section>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<string> NumericNames { get; set; } = Array.Empty<string>();
+    [Parameter, EditorRequired] public IEnumerable<string> ActionNames { get; set; } = Array.Empty<string>();
+    [Parameter, EditorRequired] public RenderFragment<string> FieldContent { get; set; } = default!;
+    [Parameter, EditorRequired] public RenderFragment ModelCostsContent { get; set; } = default!;
+}

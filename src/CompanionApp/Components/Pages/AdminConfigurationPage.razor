@@ -25,13 +25,37 @@
 </SectionContent>
 
 <div class="config-admin-shell @(!_editingLabel ? "config-selection-shell" : string.Empty)">
+    @if (_editingLabel || IsLoading)
+    {
+        <div class="config-load-banner" role="status" aria-live="polite" aria-atomic="true">
+            @if (IsLoading)
+            {
+                <span class="spinner-border config-load-spinner" aria-hidden="true"></span>
+                <div>
+                    <strong>@(StatusMessage.StartsWith("Updating", StringComparison.Ordinal) ? "Updating configuration..." : "Loading configuration...")</strong>
+                    <p>@StatusMessage</p>
+                </div>
+            }
+            else
+            {
+                <span class="bi @(HasLoadError ? "bi-exclamation-triangle" : "bi-check-circle") config-load-indicator" aria-hidden="true"></span>
+                <div>
+                    <strong>@(HasLoadError ? "Configuration could not be refreshed" : "Configuration ready")</strong>
+                    <p>@(HasLoadError ? StatusMessage : $"Configure {LabelDisplay(Label)} using the sections below.")</p>
+                </div>
+            }
+        </div>
+    }
+    <div class="config-details-surface @(IsLoading ? "is-loading" : string.Empty)"
+         aria-busy="@(IsLoading ? "true" : "false")" inert="@(IsLoading ? string.Empty : null)">
     @if (_editingLabel)
     {
         <div class="config-label-toolbar">
+            <h2 class="config-details-heading">Configuration Details</h2>
             <button class="btn btn-outline-secondary" type="button" disabled="@IsLoading" @onclick="BackToLabelsAsync">
-                <span class="bi bi-chevron-left me-1" aria-hidden="true"></span>Back to Labels
+                <span class="bi bi-chevron-left me-1" aria-hidden="true"></span>Back to Configurations
             </button>
-            <h2 class="h5 mb-0 text-break">@LabelDisplay(Label)</h2>
+            <span class="config-current-label text-break">@LabelDisplay(Label)</span>
             @if (HasPendingChanges)
             {
                 <span class="badge text-bg-warning">Unsaved Changes</span>
@@ -40,10 +64,29 @@
             {
                 <span class="badge text-bg-secondary">New Label</span>
             }
+            <div class="config-connection-actions ms-auto">
+                <span class="config-connection-caption">App Config:</span>
+                <button class="btn btn-outline-secondary config-icon-button" type="button" title="App Configuration settings" aria-label="App Configuration settings"
+                        aria-expanded="@(_showEndpointSettings ? "true" : "false")" aria-controls="config-connection-form"
+                        disabled="@IsLoading" @onclick="() => _showEndpointSettings = !_showEndpointSettings">
+                    <span class="bi bi-gear" aria-hidden="true"></span>
+                </button>
+                <button class="btn btn-outline-secondary config-icon-button" type="button"
+                        title="@(HasPendingChanges ? "Save or discard local changes before refreshing." : "Refresh the current configuration.")" aria-label="Refresh current configuration"
+                        disabled="@(IsLoading || HasPendingChanges)" @onclick="LoadSettingsAsync">
+                    <span class="bi bi-arrow-clockwise" aria-hidden="true"></span>
+                </button>
+                @if (IsLoading || Settings.Count > 0)
+                {
+                    <button class="btn btn-outline-warning text-nowrap" type="button" disabled="@IsLoading" @onclick="ResetToDefaultsAsync">
+                        <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset to defaults
+                    </button>
+                }
+            </div>
         </div>
     }
     <div class="config-header-bar @(!_editingLabel && LabelsReady && !_showEndpointSettings ? "config-header-collapsed" : string.Empty)">
-        @if (LabelsReady)
+        @if (LabelsReady && !_editingLabel)
         {
             <div class="config-connection-actions">
                 <span class="config-connection-caption">App Config:</span>
@@ -58,7 +101,7 @@
                 </button>
             </div>
         }
-        @if (!LabelsReady || _showEndpointSettings)
+        @if ((!LabelsReady && !_editingLabel) || _showEndpointSettings)
         {
         <div id="config-connection-form" class="config-header-row">
         <div class="config-header-endpoint">
@@ -84,7 +127,11 @@
         {
         <div class="config-header-row">
         <span class="small config-header-status @(HasLoadError ? "text-danger" : "text-muted")" role="status">
-            @if (_editingLabel && !IsLoading && !HasLoadError && Settings.Count > 0)
+            @if (_editingLabel && IsLoading)
+            {
+                <text>Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "Loading...")</text>
+            }
+            else if (_editingLabel && !HasLoadError && Settings.Count > 0)
             {
                 @if (!string.IsNullOrEmpty(StatusMessage))
                 {
@@ -104,9 +151,14 @@
             {
                 <button class="btn btn-outline-secondary" type="button" @onclick='() => SelectSection("Hosts")'><span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add Host</button>
             }
-            <button class="btn btn-sm btn-outline-warning text-nowrap" type="button" @onclick="ResetToDefaultsAsync">
-                <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset to defaults
-            </button>
+        }
+        @if (_editingLabel && _lastLoadedAtUtc is { } loadedAt)
+        {
+            <span class="config-last-loaded">Last loaded: @loadedAt.ToString("MMM d, yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) UTC</span>
+        }
+        else if (_editingLabel)
+        {
+            <span class="config-last-loaded">Last loaded: --</span>
         }
         @if (_editingLabel && HasPendingChanges)
         {
@@ -192,16 +244,49 @@
         </section>
     }
 
+    @if (_editingLabel && IsLoading && Settings.Count == 0)
+    {
+        <div class="config-section-grid" aria-label="Configuration sections loading">
+            @foreach (var section in new[] {
+                (Name: "Async", Icon: "bi-gear-fill"), (Name: "CircuitBreaker", Icon: "bi-shield-fill"),
+                (Name: "HealthProbe", Icon: "bi-activity"), (Name: "Hosts", Icon: "bi-database-fill"),
+                (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"), (Name: "Logging", Icon: "bi-file-earmark-text-fill"),
+                (Name: "Profiles", Icon: "bi-sliders"), (Name: "Request", Icon: "bi-arrow-left-right"),
+                (Name: "Response", Icon: "bi-arrow-return-left"), (Name: "Server", Icon: "bi-hdd-stack-fill"),
+                (Name: "Tokenomics", Icon: "bi-database-fill")
+            })
+            {
+                <div class="config-section-tile">
+                    <button type="button" class="config-section-box" disabled aria-label="@($"{section.Name} settings loading")">
+                        <span class="config-box-icon bi @(section.Icon)" aria-hidden="true"></span>
+                        <span class="config-box-chevron bi bi-chevron-right" aria-hidden="true"></span>
+                        <span class="config-box-title">@(section.Name)</span>
+                        <span class="config-skeleton-line" aria-hidden="true"></span>
+                        <span class="config-skeleton-line config-skeleton-short" aria-hidden="true"></span>
+                    </button>
+                </div>
+            }
+        </div>
+    }
     @if (_editingLabel && Settings.Count > 0)
     {
-        <div class="config-section-grid">
+        <div class="config-section-grid" hidden="@IsTokenomicsSection">
             @foreach (var group in VisibleGroups)
             {
                 var changedInSection = group.Count(setting => setting.IsChanged);
+                var icon = group.Key switch {
+                    "Async" => "bi-gear-fill", "CircuitBreaker" => "bi-shield-fill", "HealthProbe" => "bi-activity",
+                    "Hosts" or "Tokenomics" => "bi-database-fill", "LoadBalancing" => "bi-diagram-3-fill",
+                    "Logging" => "bi-file-earmark-text-fill", "Profiles" => "bi-sliders",
+                    "Request" => "bi-arrow-left-right", "Response" => "bi-arrow-return-left",
+                    "Server" => "bi-hdd-stack-fill", _ => "bi-gear"
+                };
                 <div class="config-section-tile">
                 <button type="button" class="config-section-box @(changedInSection > 0 ? "is-changed" : string.Empty)"
                     title='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{group.Key}"] ?? $"Edit {group.Key} settings.")'
-                        @onclick="() => SelectSection(group.Key)">
+                        disabled="@IsLoading" @onclick="() => SelectSection(group.Key)">
+                    <span class="config-box-icon bi @icon" aria-hidden="true"></span>
+                    <span class="config-box-chevron bi bi-chevron-right" aria-hidden="true"></span>
                     <span class="config-box-title">@group.Key</span>
                     @if (string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase))
                     {
@@ -260,7 +345,9 @@
                 <div class="config-section-tile">
                 <button type="button" class="config-section-box"
                     title='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:Hosts"] ?? "Edit Hosts settings.")'
-                        @onclick='() => SelectSection("Hosts")'>
+                        disabled="@IsLoading" @onclick='() => SelectSection("Hosts")'>
+                    <span class="config-box-icon bi bi-database-fill" aria-hidden="true"></span>
+                    <span class="config-box-chevron bi bi-chevron-right" aria-hidden="true"></span>
                     <span class="config-box-title">Hosts</span>
                     <span class="config-box-meta">0 hosts</span>
                 </button>
@@ -272,8 +359,9 @@
         @if (SelectedSection is not null)
         {
             <CascadingValue TValue="bool" Name="ShowConfigurationDetails" Value="_showConfigurationDetails">
-            <div class="config-modal-backdrop" @onclick="CloseSection">
-                <div class="config-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@SelectedSection settings">
+            <div class="@(IsTokenomicsSection ? "config-tokenomics-page tokenomics-configuration" : "config-modal-backdrop")" @onclick="@(() => { if (!IsTokenomicsSection) CloseSection(); })">
+                <div class="@(IsTokenomicsSection ? "config-tokenomics-content" : "config-modal")" @onclick:stopPropagation="true"
+                     role="@(IsTokenomicsSection ? "region" : "dialog")" aria-modal="@(IsTokenomicsSection ? null : "true")" aria-label="@SelectedSection settings">
                     <div class="config-modal-header">
                         <div>
                             <div class="d-flex align-items-center flex-wrap gap-2">
@@ -293,6 +381,10 @@
                             @if (SelectedSection == "Local change review")
                             {
                                 <span class="small text-muted">@ChangedCount @(ChangedCount == 1 ? "setting changed" : "settings changed")</span>
+                            }
+                            else if (IsTokenomicsSection)
+                            {
+                                <span class="small text-muted">All settings for @LabelDisplay(Label). Changes remain local until Update is selected.</span>
                             }
                             else if (IsHealthProbeSection)
                             {
@@ -336,7 +428,16 @@
                                     <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset all
                                 </button>
                             }
-                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
+                            @if (IsTokenomicsSection)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" @onclick="CloseSection">
+                                    <span class="bi bi-arrow-left me-1" aria-hidden="true"></span>Back to configuration
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
+                            }
                         </div>
                     </div>
                     <div class="config-modal-body">
@@ -383,6 +484,17 @@
                         else if (IsTokenomicsSection)
                         {
                             <TokenomicsEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                            <div class="config-tokenomics-save-bar">
+                                <div class="config-tokenomics-save-status" role="status">
+                                    <span class="bi @(HasPendingChanges ? "bi-pencil-square" : "bi-check-circle-fill")" aria-hidden="true"></span>
+                                    <span>@(HasPendingChanges ? $"{ChangedCount} unsaved configuration changes" : "No unsaved configuration changes")</span>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-outline-secondary" disabled="@(IsLoading || !HasPendingChanges)"
+                                            title="Discard all local changes for this configuration" @onclick="ResetAll">Discard</button>
+                                    <button type="button" class="btn btn-primary" disabled="@(IsLoading || !HasPendingChanges)" @onclick="UpdateSettingsAsync">Save changes</button>
+                                </div>
+                            </div>
                         }
                         else if (IsCircuitBreakerSection)
                         {
@@ -481,6 +593,7 @@
             </CascadingValue>
         }
     }
+    </div>
 </div>
 
 <dialog @ref="_labelDialog" class="config-label-dialog" aria-labelledby="label-dialog-title">
@@ -516,7 +629,25 @@
 </dialog>
 
 <style>
-    .config-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 1rem 0; }
+    .config-section-grid[hidden] { display: none; }
+    .config-load-banner { display: flex; align-items: center; gap: 1rem; min-height: 5rem; margin: 1rem; padding: 1rem 1.25rem; border-radius: 6px; background: #e0edff; color: #071c61; }
+    .config-load-banner strong { font-size: 1rem; }
+    .config-load-banner p { margin: 0.3rem 0 0; color: #596c96; font-size: 0.85rem; overflow-wrap: anywhere; }
+    .config-load-spinner { flex-shrink: 0; width: 2.25rem; height: 2.25rem; color: #1976f3; }
+    .config-load-indicator { flex-shrink: 0; width: 2.25rem; font-size: 2rem; color: #1976f3; }
+    .config-details-surface { transition: filter 0.2s ease, opacity 0.2s ease; }
+    .config-details-surface.is-loading { filter: grayscale(1); opacity: 0.55; pointer-events: none; }
+    .config-skeleton-line { display: block; width: 80%; height: 0.55rem; margin-top: 0.15rem; border-radius: 2px; background: #b9c1ce; }
+    .config-skeleton-short { width: 55%; }
+    @@media (prefers-reduced-motion: reduce) {
+        .config-details-surface { transition: none; }
+        .config-load-spinner { animation: none; }
+    }
+    .config-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 0.85rem 1rem; }
+    .config-details-heading { margin: 0; padding-left: 0.65rem; border-left: 4px solid #1976f3; color: #071c61; font-size: 1.3rem; font-weight: 750; }
+    .config-current-label { color: #071c61; font-size: 1.2rem; font-weight: 650; }
+    .config-last-loaded { margin-left: auto; color: #596c96; font-size: 0.75rem; }
+    .config-label-toolbar .btn-outline-secondary { color: #38558b; border-color: #dce5f2; background: #ffffff80; }
     .config-label-toolbar .btn, .config-label-dialog .btn { min-height: 44px; }
     .config-admin-shell.config-selection-shell { margin: 0; max-width: 64rem; color: #1d1d1f; }
     .config-selection-shell .config-header-bar { padding: 0 0 1.5rem; background: transparent; border-bottom-color: #d2d2d7; }
@@ -608,6 +739,8 @@
 
     .config-admin-shell {
         margin: -0.25rem -0.75rem 0;
+        background: #f4f7fb;
+        color: #071c61;
     }
 
     .config-header-bar {
@@ -617,8 +750,8 @@
         width: 100%;
         min-width: 0;
         padding: 0.75rem 1rem;
-        border-bottom: 1px solid #dee2e6;
-        background: #f8f9fa;
+        border-bottom: 1px solid #dce5f2;
+        background: #edf3fb;
     }
 
     .config-header-row {
@@ -685,12 +818,13 @@
         flex: 1;
         min-width: 0;
         padding-right: 2.75rem;
+        padding-left: 4rem;
     }
 
     .config-section-help {
         position: absolute;
-        top: 0.65rem;
-        right: 0.65rem;
+        bottom: 0.35rem;
+        right: 0.5rem;
     }
 
     .config-setting-heading {
@@ -706,15 +840,18 @@
     }
 
     .config-section-box {
+        position: relative;
         display: flex;
         flex-direction: column;
         align-items: flex-start;
         gap: 0.25rem;
-        min-height: 5rem;
-        padding: 0.85rem 1rem;
-        border: 1px solid #d7dce1;
+        justify-content: center;
+        min-height: 6rem;
+        padding: 1rem;
+        border: 1px solid #dce5f2;
         border-radius: 6px;
-        background: #fff;
+        background: linear-gradient(115deg, #fff, #f7faff);
+        color: #071c61;
         text-align: left;
         cursor: pointer;
         transition: border-color 0.15s, box-shadow 0.15s;
@@ -723,6 +860,13 @@
     .config-section-box:hover {
         border-color: #86b7fe;
         box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+    }
+    .config-box-icon { position: absolute; left: 1.1rem; top: 50%; transform: translateY(-50%); color: #1976f3; font-size: 1.8rem; }
+    .config-box-chevron { position: absolute; right: 1.15rem; top: 50%; transform: translateY(-50%); color: #1976f3; font-size: 1rem; }
+    .config-section-box:focus-visible { outline: 3px solid #1976f3; outline-offset: 2px; }
+    .config-section-box:disabled { opacity: 0.65; cursor: wait; }
+    @@media (min-width: 1200px) {
+        .config-section-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     }
 
     .config-section-box.is-changed {
@@ -736,7 +880,7 @@
 
     .config-box-meta {
         font-size: 0.85rem;
-        color: #6c757d;
+        color: #596c96;
     }
 
     .config-box-badge {
@@ -1365,6 +1509,7 @@
     private bool _showConfigurationDetails;
     private bool _configurationHelpLoaded;
     private DateTime? _dataReadyAtUtc;
+    private DateTime? _lastLoadedAtUtc;
     private System.Timers.Timer? _uiTimer;
     private CancellationTokenSource? _statusClearCancellation;
     private TimeSpan _elapsed;
@@ -1402,17 +1547,13 @@
 
     protected override void OnInitialized()
     {
-        Endpoint = AppConfiguration.CachedEndpoint ?? AppConfiguration.DefaultEndpoint;
-        Label = AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel;
-        AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
-
-        if (AppConfiguration.CachedSettings != null
-            && string.Equals(AppConfiguration.CachedEndpoint, Endpoint, StringComparison.OrdinalIgnoreCase))
-        {
-            _allSettings = AppConfiguration.CachedSettings.Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false }).ToList();
-            _loadedEndpoint = Endpoint.Trim();
-            StatusMessage = $"{AvailableLabels.Count} labels loaded from cache.";
-        }
+        Endpoint = AppConfiguration.DefaultEndpoint;
+        Label = AppConfiguration.DefaultLabel;
+        _editingLabel = !string.IsNullOrWhiteSpace(Endpoint);
+        IsLoading = _editingLabel;
+        StatusMessage = string.IsNullOrWhiteSpace(Endpoint)
+            ? "Configure an App Configuration endpoint, then refresh to load its configurations."
+            : $"Loading the configured default label {LabelDisplay(Label)}...";
     }
 
     private async Task LoadSettingsAsync()
@@ -1427,7 +1568,22 @@
         try
         {
             _allSettings = (await AppConfiguration.LoadAsync(Endpoint.Trim())).ToList();
+            if (_disposed) return;
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
+            _loadedEndpoint = Endpoint.Trim();
+            _lastLoadedAtUtc = DateTime.UtcNow;
+            if (_editingLabel)
+            {
+                if (!AvailableLabels.Contains(Label, StringComparer.Ordinal))
+                {
+                    var missingLabel = Label;
+                    ShowLabels();
+                    HasLoadError = true;
+                    StatusMessage = $"Configuration {LabelDisplay(missingLabel)} was not found. Select an existing configuration or explicitly create a new one.";
+                    return;
+                }
+                OpenLabel(Label);
+            }
             if (!AvailableLabels.Contains(Label, StringComparer.Ordinal))
             {
                 Label = AvailableLabels.Contains(AppConfiguration.DefaultLabel, StringComparer.Ordinal)
@@ -1436,7 +1592,7 @@
             }
             _loadedEndpoint = Endpoint.Trim();
             _showEndpointSettings = false;
-            Settings.Clear();
+            if (!_editingLabel) Settings.Clear();
 
             var totalMs = stopwatch.ElapsedMilliseconds;
             var source = AppConfiguration.LastLoadFromDisk ? "disk cache · " : string.Empty;
@@ -1463,6 +1619,10 @@
         }
         finally
         {
+            if (HasLoadError && _lastLoadedAtUtc is null)
+            {
+                _editingLabel = false;
+            }
             stopwatch.Stop();
             _elapsed = stopwatch.Elapsed;
             IsLoading = false;
@@ -1483,6 +1643,7 @@
         {
             var result = await AppConfiguration.UpdateAsync(Endpoint.Trim(), Label, Settings, createLabel: _newLabelDraft);
             _allSettings = result.Settings.ToList();
+            _lastLoadedAtUtc = DateTime.UtcNow;
             _newLabelDraft = false;
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
             ApplyLabelFilter();
@@ -1821,9 +1982,23 @@
             }
             if (_disposed) return;
             _configurationHelpLoaded = true;
-            if (_loadedEndpoint is null && !string.IsNullOrWhiteSpace(Endpoint))
+            if (!string.IsNullOrWhiteSpace(Endpoint))
             {
                 await LoadSettingsAsync();
+                if (_disposed) return;
+                if (!HasLoadError)
+                {
+                    if (AvailableLabels.Contains(AppConfiguration.DefaultLabel, StringComparer.Ordinal))
+                    {
+                        OpenLabel(AppConfiguration.DefaultLabel);
+                    }
+                    else
+                    {
+                        HasLoadError = true;
+                        _dataReadyAtUtc = null;
+                        StatusMessage = $"Configured default label {LabelDisplay(AppConfiguration.DefaultLabel)} was not found. Select an existing configuration or explicitly create a new one.";
+                    }
+                }
             }
             if (_disposed) return;
             StateHasChanged();

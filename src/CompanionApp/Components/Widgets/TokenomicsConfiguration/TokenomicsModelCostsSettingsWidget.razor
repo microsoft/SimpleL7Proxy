@@ -1,0 +1,145 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+<div class="tokenomics-model-toolbar">
+    <div class="tokenomics-model-search">
+        <span class="bi bi-search" aria-hidden="true"></span>
+        <label class="visually-hidden" for="tokenomics-model-search">Search models</label>
+        <input id="tokenomics-model-search" class="form-control form-control-sm" type="search"
+               placeholder="Search models" value="@Search" @oninput="OnSearchChanged" />
+    </div>
+    <span class="small text-muted text-nowrap" role="status">@ResultSummary</span>
+    <label class="tokenomics-page-size">
+        <span>Rows</span>
+        <select class="form-select form-select-sm" value="@PageSize" @onchange="OnPageSizeChanged">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+        </select>
+    </label>
+    <ConfigurationHelp Section="Tokenomics" Topic="ModelCostPerToken" />
+    <button class="btn btn-sm btn-primary text-nowrap" type="button" @onclick="OnAdd">
+        <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add model
+    </button>
+</div>
+@if (TotalCount == 0)
+{
+    <p class="small text-muted mb-0">No model costs configured.</p>
+}
+else if (FilteredCount == 0)
+{
+    <div class="tokenomics-model-empty">
+        <p class="small text-muted mb-0">No models match "@Search".</p>
+        <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="OnClearSearch">Clear search</button>
+    </div>
+}
+else
+{
+    <div class="table-responsive tokenomics-model-table-wrap">
+        <table class="table table-sm align-middle tokenomics-model-table mb-0">
+            <thead>
+                <tr>
+                    <th scope="col">Model</th>
+                    <th scope="col">Input USD/token</th>
+                    <th scope="col">Cached input USD/token</th>
+                    <th scope="col">Output USD/token</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Rows)
+                {
+                    <tr class="@(IsChanged(row) ? "config-row-changed" : string.Empty)" @key="row.Id">
+                        <td>
+                            <label class="visually-hidden" for="@($"tokenomics-model-{row.Id}")">Model</label>
+                            <input id="@($"tokenomics-model-{row.Id}")" class="form-control form-control-sm" value="@row.Model"
+                                   aria-invalid="@(row.ModelError is null ? "false" : "true")"
+                                   @onchange="args => OnModelChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                            @if (row.ModelError is not null)
+                            {
+                                <span class="small text-danger" role="alert">@row.ModelError</span>
+                            }
+                        </td>
+                        <td>
+                            <label class="visually-hidden" for="@($"tokenomics-input-cost-{row.Id}")">Input USD per token for @row.Model</label>
+                            <input id="@($"tokenomics-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                   value="@row.InputCost" aria-invalid="@(row.InputCostError is null ? "false" : "true")"
+                                   @onchange="args => OnInputChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                            @if (row.InputCostError is not null)
+                            {
+                                <span class="small text-danger" role="alert">@row.InputCostError</span>
+                            }
+                        </td>
+                        <td>
+                            <label class="visually-hidden" for="@($"tokenomics-cached-input-cost-{row.Id}")">Cached input USD per token for @row.Model</label>
+                            <input id="@($"tokenomics-cached-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                   value="@row.CachedInputCost" aria-invalid="@(row.CachedInputCostError is null ? "false" : "true")"
+                                   @onchange="args => OnCachedInputChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                            @if (row.CachedInputCostError is not null)
+                            {
+                                <span class="small text-danger" role="alert">@row.CachedInputCostError</span>
+                            }
+                        </td>
+                        <td>
+                            <label class="visually-hidden" for="@($"tokenomics-output-cost-{row.Id}")">Output USD per token for @row.Model</label>
+                            <input id="@($"tokenomics-output-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
+                                   value="@row.OutputCost" aria-invalid="@(row.OutputCostError is null ? "false" : "true")"
+                                   @onchange="args => OnOutputChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                            @if (row.OutputCostError is not null)
+                            {
+                                <span class="small text-danger" role="alert">@row.OutputCostError</span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-danger tokenomics-remove-model" type="button" title="Remove model cost"
+                                    aria-label="@($"Remove model cost for {row.Model}")" @onclick="() => OnRemove.InvokeAsync(row)">
+                                <span class="bi bi-trash" aria-hidden="true"></span>
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <nav class="tokenomics-model-pagination" aria-label="Model costs pages">
+        <span class="small text-muted">Page @Page of @PageCount</span>
+        <div class="btn-group" role="group" aria-label="Pagination controls">
+            <button class="btn btn-sm btn-outline-secondary" type="button" title="First page" aria-label="First page"
+                    disabled="@(Page == 1)" @onclick="() => OnPageChanged.InvokeAsync(1)">
+                <span class="bi bi-chevron-bar-left" aria-hidden="true"></span>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" title="Previous page" aria-label="Previous page"
+                    disabled="@(Page == 1)" @onclick="() => OnPageChanged.InvokeAsync(Page - 1)">
+                <span class="bi bi-chevron-left" aria-hidden="true"></span>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" title="Next page" aria-label="Next page"
+                    disabled="@(Page == PageCount)" @onclick="() => OnPageChanged.InvokeAsync(Page + 1)">
+                <span class="bi bi-chevron-right" aria-hidden="true"></span>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" title="Last page" aria-label="Last page"
+                    disabled="@(Page == PageCount)" @onclick="() => OnPageChanged.InvokeAsync(PageCount)">
+                <span class="bi bi-chevron-bar-right" aria-hidden="true"></span>
+            </button>
+        </div>
+    </nav>
+}
+
+@code {
+    [Parameter] public string Search { get; set; } = string.Empty;
+    [Parameter] public int Page { get; set; }
+    [Parameter] public int PageSize { get; set; }
+    [Parameter] public int PageCount { get; set; }
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public int FilteredCount { get; set; }
+    [Parameter] public string ResultSummary { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IEnumerable<TokenomicsEditor.ModelCostRow> Rows { get; set; } = Array.Empty<TokenomicsEditor.ModelCostRow>();
+    [Parameter, EditorRequired] public Func<TokenomicsEditor.ModelCostRow, bool> IsChanged { get; set; } = default!;
+    [Parameter] public EventCallback<ChangeEventArgs> OnSearchChanged { get; set; }
+    [Parameter] public EventCallback<ChangeEventArgs> OnPageSizeChanged { get; set; }
+    [Parameter] public EventCallback<int> OnPageChanged { get; set; }
+    [Parameter] public EventCallback OnAdd { get; set; }
+    [Parameter] public EventCallback OnClearSearch { get; set; }
+    [Parameter] public EventCallback<TokenomicsEditor.ModelCostRow> OnRemove { get; set; }
+    [Parameter] public EventCallback<(TokenomicsEditor.ModelCostRow Row, string? Value)> OnModelChanged { get; set; }
+    [Parameter] public EventCallback<(TokenomicsEditor.ModelCostRow Row, string? Value)> OnInputChanged { get; set; }
+    [Parameter] public EventCallback<(TokenomicsEditor.ModelCostRow Row, string? Value)> OnCachedInputChanged { get; set; }
+    [Parameter] public EventCallback<(TokenomicsEditor.ModelCostRow Row, string? Value)> OnOutputChanged { get; set; }
+}

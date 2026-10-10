@@ -1,0 +1,28 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+
+<article class="tokenomics-settings-card tokenomics-card-priority">
+    <header><span class="bi bi-lightning-fill" aria-hidden="true"></span><div><h3>3. Request Priority</h3><p>Configure request priority and governance actions.</p></div></header>
+    <section id="tokenomics-panel-priority" class="tokenomics-tab-panel" aria-label="Priority settings">
+        <div class="config-newhost-grid">
+            @foreach (var name in NumericNames)
+            {
+                @FieldContent(name)
+            }
+        </div>
+        <details class="tokenomics-action-group" open>
+            <summary>Priority and governance actions</summary>
+            <div class="tokenomics-inline-actions" aria-label="Policy actions">
+                @foreach (var name in ActionNames)
+                {
+                    @FieldContent(name)
+                }
+            </div>
+        </details>
+    </section>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<string> NumericNames { get; set; } = Array.Empty<string>();
+    [Parameter, EditorRequired] public IEnumerable<string> ActionNames { get; set; } = Array.Empty<string>();
+    [Parameter, EditorRequired] public RenderFragment<string> FieldContent { get; set; } = default!;
+}
