@@ -193,7 +193,7 @@ These rules validate incoming request shape before processing and help enforce c
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
 | <small>`Request:RequiredHeaders`</small> | <small>`RequiredHeaders`</small> | <small>`[]`</small> | Rejects requests missing policy-required headers. |
-| <small>`Request:Headers:ValidateHeaders`</small> | <small>`ValidateHeaders`</small> | <small>`{}`</small> | Enforces specific header key/value expectations. |
+| <small>`Request:Headers:ValidateHeaders`</small> | <small>`ValidateHeaders`</small> | <small>`[]`</small> | Applies JSON validation rules with exact or trailing-wildcard allowlists and optional mapped allowlist headers. Legacy `SourceHeader=AllowlistHeader` mappings remain valid. |
 | <small>`Profiles:User:ConfigRequired`</small> | <small>`UserConfigRequired`</small> | <small>`false`</small> | Enables fail-closed behavior when profile source is unavailable. |
 | <small>`Request:DisallowedHeaders`</small> | <small>`DisallowedHeaders`</small> | <small>`[]`</small> | Removes forbidden headers from incoming requests. |
 

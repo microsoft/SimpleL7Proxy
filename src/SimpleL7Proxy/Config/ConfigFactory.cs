@@ -312,6 +312,12 @@ public static class ConfigFactory
     return (a, b) switch
     {
       (int[] la, int[] lb) => la.SequenceEqual(lb),
+      (IList<HeaderValidationRule> la, IList<HeaderValidationRule> lb) =>
+          la.Count == lb.Count && la.Zip(lb).All(pair =>
+              string.Equals(pair.First.HeaderName, pair.Second.HeaderName, StringComparison.Ordinal)
+              && pair.First.MatchType == pair.Second.MatchType
+              && pair.First.AllowedValues.SequenceEqual(pair.Second.AllowedValues, StringComparer.Ordinal)
+              && string.Equals(pair.First.AllowedValuesHeader, pair.Second.AllowedValuesHeader, StringComparison.Ordinal)),
       (IList<string> la, IList<string> lb) => la.SequenceEqual(lb),
       (IList<int> la, IList<int> lb) => la.SequenceEqual(lb),
       (IDictionary<string, string> da, IDictionary<string, string> db) =>
@@ -384,6 +390,7 @@ public static class ConfigFactory
       {
         string s => s,
         int[] arr => string.Join(", ", arr),
+        IEnumerable<HeaderValidationRule> rules => ConfigParser.SerializeHeaderValidationRules(rules),
         IEnumerable<string> list => string.Join(", ", list),
         IEnumerable<int> list => string.Join(", ", list),
         IDictionary<string, string> dict => string.Join(", ", dict.Select(kvp => $"{kvp.Key}={kvp.Value}")),

@@ -6,7 +6,6 @@
     var timeoutSetting = FindSetting(Settings, "DefaultTimeout");
     var ttlSetting = FindSetting(Settings, "DefaultTTLSecs");
     var defaultPrioritySetting = FindSetting(Settings, "Priority:DefaultPriority");
-    var priorityHeaderSetting = FindSetting(Settings, "Headers:PriorityKeyHeader");
     var priorityKeysSetting = FindSetting(Settings, "Priority:PriorityKeys");
     var priorityValuesSetting = FindSetting(Settings, "Priority:PriorityValues");
     var priorityWorkerSetting = FindSetting(Settings, "Priority:PriorityWorker");
@@ -106,19 +105,6 @@
                             <option value="@row.Value">@PriorityOptionLabel(row)</option>
                         }
                     </select>
-                </div>
-            }
-            @if (priorityHeaderSetting is not null)
-            {
-                <div class="request-processing-field @(priorityHeaderSetting.IsChanged ? "config-field-changed" : string.Empty)">
-                    <div class="config-setting-heading">
-                        <label for="@priorityHeaderSetting.Key">Priority header name</label>
-                        <ConfigurationHelp Section="Request" Topic="@priorityHeaderSetting.Name" />
-                    </div>
-                    <input id="@priorityHeaderSetting.Key" class="form-control" type="text" autocomplete="off"
-                           @bind:get="priorityHeaderSetting.DraftValue"
-                           @bind:set="@(value => SetSettingValueAsync(priorityHeaderSetting, value))"
-                           @bind:event="oninput" />
                 </div>
             }
         </div>
@@ -269,7 +255,6 @@
         && setting.Name.ToLowerInvariant() is
             "defaulttimeout"
             or "defaultttlsecs"
-            or "headers:prioritykeyheader"
             or "priority:defaultpriority"
             or "priority:prioritykeys"
             or "priority:priorityvalues"

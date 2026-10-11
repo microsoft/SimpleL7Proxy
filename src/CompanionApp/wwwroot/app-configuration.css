@@ -410,6 +410,32 @@ body:has(.app-configuration-page .config-modal-backdrop) {
     scrollbar-width: thin;
 }
 
+@media (min-width: 601px) {
+    :where(.app-configuration-page) .config-modal-backdrop:has(.header-set-editor, .header-validation-editor) {
+        --header-editor-top: clamp(1.5rem, 6dvh, 4rem);
+        align-items: flex-start;
+        padding-top: var(--header-editor-top);
+    }
+
+    :where(.app-configuration-page) .config-modal-backdrop:has(.header-set-editor, .header-validation-editor) > .config-modal {
+        max-height: calc(100dvh - var(--header-editor-top) - clamp(0.75rem, 3vw, 2rem));
+    }
+
+    :where(.app-configuration-page) .config-modal-backdrop:has(.header-set-editor .header-set-form) > .config-modal {
+        height: min(44rem, calc(100dvh - var(--header-editor-top) - clamp(0.75rem, 3vw, 2rem)));
+    }
+
+    :where(.app-configuration-page) .config-modal:has(.header-set-editor .header-set-form) > .config-modal-body {
+        flex: 1 1 auto;
+    }
+}
+
+:where(.app-configuration-page) .config-modal:has(.header-set-editor) > .config-modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 :where(.app-configuration-page) .config-modal-body::-webkit-scrollbar,
 :where(.app-configuration-page) .config-label-dialog::-webkit-scrollbar {
     width: 8px;

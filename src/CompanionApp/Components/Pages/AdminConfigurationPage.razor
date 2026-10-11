@@ -253,7 +253,7 @@
                 (Name: "Async", Icon: "bi-gear-fill"), (Name: "CircuitBreaker", Icon: "bi-shield-fill"),
                 (Name: "Backend Resilience", Icon: "bi-shield-fill-check"),
                 (Name: "HealthProbe", Icon: "bi-activity"), (Name: "Hosts", Icon: "bi-database-fill"),
-                (Name: "Header Policy", Icon: "bi-card-checklist"),
+                (Name: "Header Policy", Icon: "bi-file-earmark-text-fill"),
                 (Name: "Identity & Access", Icon: "bi-shield-check"), (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"),
                 (Name: "Logging", Icon: "bi-file-earmark-text-fill"), (Name: "Request", Icon: "bi-arrow-left-right"),
                 (Name: "Request Processing", Icon: "bi-cpu-fill"),
@@ -317,14 +317,18 @@
                 <HeaderContent>
                         <div>
                             <div class="d-flex align-items-center flex-wrap gap-2">
-                                @if (IsRequestProcessingSection)
+                                @if (IsHeaderPolicySection)
+                                {
+                                    <span class="bi bi-file-earmark-text-fill fs-4 text-primary" aria-hidden="true"></span>
+                                }
+                                else if (IsRequestProcessingSection)
                                 {
                                     <span class="bi bi-arrow-left-right fs-4 text-primary" aria-hidden="true"></span>
                                 }
-                                <h2 class="h5 mb-0">@SelectedSection</h2>
+                                <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
                                 @if (SelectedSection != "Local change review")
                                 {
-                                    <ConfigurationHelp Section="@(IsRequestProcessingSection ? "Request" : SelectedSection)" />
+                                    <ConfigurationHelp Section="@(IsRequestProcessingSection || IsHeaderPolicySection ? "Request" : SelectedSection)" />
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
                                     || (SelectedSection.ToLowerInvariant() is "identity & access" or "request" or "response" or "server"
@@ -350,9 +354,23 @@
                             {
                                 <span class="small text-muted">@LoadBalancingEditor.Summary(SelectedSettings)</span>
                             }
+                            else if (IsHeaderPolicySection)
+                            {
+                                @if (_selectedHeaderPolicySet is null)
+                                {
+                                    <span class="small text-muted">Control headers accepted from clients, forwarded to backends, and returned to clients.</span>
+                                }
+                                else
+                                {
+                                    <span class="small">
+                                        <strong class="d-block">@HeaderPolicyEditor.HeaderSetTitle(_selectedHeaderPolicySet)</strong>
+                                        <span class="text-muted">@HeaderPolicyEditor.HeaderSetDescription(_selectedHeaderPolicySet)</span>
+                                    </span>
+                                }
+                            }
                             else if (IsRequestProcessingSection)
                             {
-                                <span class="small text-muted">Configure timeouts, headers, and request prioritization.</span>
+                                <span class="small text-muted">Configure timeouts and request prioritization.</span>
                             }
                             else if (IsPlaceholderSection)
                             {
@@ -388,12 +406,13 @@
                                     <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset all
                                 </button>
                             }
-                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
+                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSectionOrHeaderSet"></button>
                         </div>
                 </HeaderContent>
                 <EditorContent>
                         @if (!string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
-                            && !IsRequestProcessingSection)
+                            && !IsRequestProcessingSection
+                            && !IsHeaderPolicySection)
                         {
                             <ConfigurationExplanation Section="@SelectedSection" />
                         }
@@ -451,6 +470,10 @@
                         else if (string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
                         {
                             <IdentityAccessEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
+                        else if (IsHeaderPolicySection)
+                        {
+                            <HeaderPolicyEditor Settings="SelectedSettings" @bind-SelectedHeaderSet="_selectedHeaderPolicySet" OnChanged="StateHasChanged" />
                         }
                         else if (string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase))
                         {
@@ -604,6 +627,7 @@
     private string _draftLabelName = string.Empty;
     private string? _duplicateSource;
     private IReadOnlyList<AppConfigurationScaffoldSetting> _selectedSettings = Array.Empty<AppConfigurationScaffoldSetting>();
+    private string? _selectedHeaderPolicySet;
     private ElementReference _labelDialog;
     private ElementReference _leaveDialog;
     private IJSObjectReference? _dialogModule;
@@ -621,6 +645,8 @@
         .Where(setting => !string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))
         .GroupBy(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)
             ? "Identity & Access"
+            : HeaderPolicyEditor.IsHeaderPolicySetting(setting)
+                ? "Header Policy"
             : RequestProcessingEditor.IsRequestProcessingSetting(setting)
                 ? "Request Processing"
             : setting.Section, StringComparer.OrdinalIgnoreCase)
@@ -846,11 +872,24 @@
     private void SelectSection(string section)
     {
         SelectedSection = section;
+        _selectedHeaderPolicySet = null;
         RefreshSelectedSettings();
+    }
+
+    private void CloseSectionOrHeaderSet()
+    {
+        if (IsHeaderPolicySection && _selectedHeaderPolicySet is not null)
+        {
+            _selectedHeaderPolicySet = null;
+            return;
+        }
+
+        CloseSection();
     }
 
     private void CloseSection()
     {
+        _selectedHeaderPolicySet = null;
         SelectedSection = null;
         _selectedSettings = Array.Empty<AppConfigurationScaffoldSetting>();
     }
@@ -869,11 +908,14 @@
             ? Array.Empty<AppConfigurationScaffoldSetting>()
             : string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
                 ? Settings.Where(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)).ToList()
-                : IsRequestProcessingSection
-                    ? Settings.Where(RequestProcessingEditor.IsRequestProcessingSetting).ToList()
-                    : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)
-                        && (!string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase)
-                            || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
+                : IsHeaderPolicySection
+                    ? Settings.Where(HeaderPolicyEditor.IsHeaderPolicySetting).ToList()
+                    : IsRequestProcessingSection
+                        ? Settings.Where(RequestProcessingEditor.IsRequestProcessingSetting).ToList()
+                        : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)
+                            && !HeaderPolicyEditor.IsHeaderPolicySetting(setting)
+                            && (!string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase)
+                                || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
     }
 
     private bool IsHostSection => string.Equals(SelectedSection, "Hosts", StringComparison.OrdinalIgnoreCase);
@@ -881,8 +923,11 @@
     private bool IsRequestProcessingSection =>
         string.Equals(SelectedSection, "Request Processing", StringComparison.OrdinalIgnoreCase);
 
+    private bool IsHeaderPolicySection =>
+        string.Equals(SelectedSection, "Header Policy", StringComparison.OrdinalIgnoreCase);
+
     private bool IsPlaceholderSection => SelectedSection?.ToLowerInvariant() is
-        "header policy" or "backend resilience";
+        "backend resilience";
 
     private static bool IsHealthProbeSectionName(string section) =>
         string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);

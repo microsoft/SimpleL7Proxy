@@ -3,7 +3,7 @@
 Reject or sanitize incoming requests before they enter the queue — return **417** if a required header is missing or fails a value rule, **403** if an App ID is not in the allowlist or inbound key/OAuth authentication fails.
 
 **TL;DR**
-- Set `RequiredHeaders` for mandatory headers and `ValidateHeaders` for value allowlists; missing or invalid → 417.
+- Set `RequiredHeaders` for mandatory headers and `ValidateHeaders` for inline or profile-backed value allowlists; missing or invalid → 417.
 - Set `ValidateAuthConfig` to require either a shared key or a signed OAuth2 bearer token; missing or invalid → 403.
 - Set `ValidateAuthAppID=true` + `ValidateAuthAppIDUrl` to block unknown Entra app IDs; unknown → 403.
 
@@ -15,7 +15,7 @@ All settings are **Warm** — changes are hot-reloaded through Azure App Configu
 |---|---|---|---|
 | `RequiredHeaders` | `List<string>` | `[]` | Headers that must be non-empty; first missing header → 417. |
 | `DisallowedHeaders` | `List<string>` | `[]` | Headers stripped from the request before forwarding to the backend. |
-| `ValidateHeaders` | `Dictionary<string,string>` | `{}` | Rules: `SourceHeader=AllowlistHeader`. Value of `SourceHeader` must appear in the comma-separated list in `AllowlistHeader`. Supports `*` suffix for prefix matching. |
+| `ValidateHeaders` | `List<HeaderValidationRule>` | `[]` | JSON rules with a source header, exact or prefix-wildcard match type, inline allowed values, and an optional mapped allowlist header. Legacy `SourceHeader=AllowlistHeader` mappings remain supported. |
 | `ValidateAuthAppID` | `bool` | `false` | Enable App ID allowlisting (step 2, after inbound auth). |
 | `ValidateAuthAppIDUrl` | `string` | `""` | URL or `file:auth.json` for the App ID allowlist. Requires `UseProfiles=true`. |
 | `ValidateAuthAppIDHeader` | `string` | `X-MS-CLIENT-PRINCIPAL-ID` | Request header containing the caller's Entra App ID. |
@@ -42,7 +42,7 @@ OAuth values inside `ValidateAuthConfig` use semicolon-separated `key=value` pai
 | `claim` / `requiredclaim` | none | Optional required claim in `name:value` form. |
 
 > [!NOTE]
-> **Auto-population side effect:** Setting `ValidateHeaders=SourceHeader=AllowlistHeader` automatically adds both headers to `RequiredHeaders` **and** adds `AllowlistHeader` to `DisallowedHeaders`. The allowlist header is injected by the user profile service and must not reach the backend.
+> **Mapped-header side effect:** A validation rule with `allowedValuesHeader` automatically adds both headers to `RequiredHeaders` **and** adds the mapped allowlist header to `DisallowedHeaders`. The allowlist header is injected by the user profile service and must not reach the backend.
 
 ## Validation Execution Order
 
@@ -109,15 +109,32 @@ DisallowedHeaders=X-Internal-RouteKey,X-Admin-Override
 Common use: remove allowlist headers that the user profile service injects (see Scenario 3) so the backend never receives them.
 
 > [!WARNING]
-> When you set `ValidateHeaders`, the allowlist header is **automatically** added to `DisallowedHeaders`. Only add headers here manually for headers that have no corresponding `ValidateHeaders` rule.
+> When a `ValidateHeaders` rule maps to another header, that allowlist header is **automatically** added to `DisallowedHeaders`. Inline-only rules do not add a disallowed header.
 
 ---
 
-## Scenario 3: Validate Header Values Against a Per-User Allowlist
+<a id="scenario-3-validate-header-values-against-a-per-user-allowlist"></a>
 
-**The most powerful pattern: each user has their own allowlist, injected at runtime by the user profile service.**
+## Scenario 3: Validate Header Values Against an Allowlist
 
-`ValidateHeaders` maps a *source header* (sent by the client) to an *allowlist header* (populated from the user's stored profile). The proxy checks that the source header value appears in the comma-separated allowlist. Prefix matching is supported with a trailing `*`.
+**Use inline values for a shared allowlist, or map the rule to a profile header for caller-specific values.**
+
+Each rule requires a source header and one or more inline values. `exact` compares the entire value case-insensitively. `prefixWildcard` additionally interprets one trailing `*` as a prefix wildcard. An optional `allowedValuesHeader` contributes comma-separated values populated during profile enrichment.
+
+### Use a shared inline allowlist
+
+```env
+ValidateHeaders='[{"headerName":"X-Region","matchType":"exact","allowedValues":["eastus","westus"]}]'
+```
+
+This rule accepts `X-Region: eastus` and `X-Region: WESTUS`. A missing `X-Region` or any other value returns 417.
+
+> [!TIP]
+> Use the Companion App Header Policy editor to generate the canonical JSON. Do not hand-edit JSON unless the UI is unavailable.
+
+### Use a profile-backed allowlist
+
+The proxy combines inline values with the comma-separated values in `allowedValuesHeader`. The legacy mapping syntax remains valid and creates a mapped prefix-wildcard rule without inline values.
 
 ### How it works
 
@@ -129,6 +146,7 @@ Common use: remove allowlist headers that the user profile service injects (see 
 ### Configuration
 
 ```env
+# Backward-compatible mapping syntax:
 ValidateHeaders=X-Requested-Model=S7PAllowedModels
 
 # This single line automatically adds:

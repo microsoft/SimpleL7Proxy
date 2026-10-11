@@ -26,7 +26,11 @@ public sealed class Test1 : IRegressionTestMetadata
             ["request-body-caching"] = new(
                 "Request Lifecycle",
                 "Request body caching",
-                "Ensures backend retries reuse the cached request body without reading the incoming stream again.")
+                "Ensures backend retries reuse the cached request body without reading the incoming stream again."),
+            ["header-validation"] = new(
+                "Request & Response Handling",
+                "Header validation rules",
+                "Preserves legacy mapped allowlists while supporting inline exact and prefix-wildcard values.")
         };
 
     [TestInitialize]
@@ -39,6 +43,139 @@ public sealed class Test1 : IRegressionTestMetadata
     public void TestCleanup()
     {
         // This method is called after each test method.
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "header-validation",
+        "Legacy mapped allowlists remain compatible",
+        "The SourceHeader=AllowlistHeader format must produce a prefix-wildcard rule and retain required/disallowed header side effects.")]
+    public void HeaderValidationRules_LegacyMapping_RemainsCompatible()
+    {
+        var options = ConfigParser.ApplyEnv(
+            new Dictionary<string, string>
+            {
+                ["ValidateHeaders"] = "X-Requested-Model=X-Allowed-Models"
+            },
+            new ProxyConfig());
+
+        Assert.AreEqual(1, options.ValidateHeaders.Count);
+        var rule = options.ValidateHeaders[0];
+        Assert.AreEqual("X-Requested-Model", rule.HeaderName);
+        Assert.AreEqual(HeaderValidationMatchType.PrefixWildcard, rule.MatchType);
+        Assert.AreEqual(0, rule.AllowedValues.Count);
+        Assert.AreEqual("X-Allowed-Models", rule.AllowedValuesHeader);
+        CollectionAssert.Contains(options.RequiredHeaders, "X-Requested-Model");
+        CollectionAssert.Contains(options.RequiredHeaders, "X-Allowed-Models");
+        CollectionAssert.Contains(options.DisallowedHeaders, "X-Allowed-Models");
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "header-validation",
+        "Inline validation rules round-trip through configuration",
+        "Exact and prefix-wildcard rules must retain their allowed values and optional mapped allowlist header.")]
+    public void HeaderValidationRules_JsonRules_RoundTrip()
+    {
+        var expected = new List<HeaderValidationRule>
+        {
+            new()
+            {
+                HeaderName = "X-Region",
+                MatchType = HeaderValidationMatchType.Exact,
+                AllowedValues = ["eastus", "westus"]
+            },
+            new()
+            {
+                HeaderName = "X-Requested-Model",
+                MatchType = HeaderValidationMatchType.PrefixWildcard,
+                AllowedValues = ["gpt-4*", "o1"],
+                AllowedValuesHeader = "X-Allowed-Models"
+            }
+        };
+
+        var serialized = ConfigParser.SerializeHeaderValidationRules(expected);
+        var actual = ConfigParser.ParseHeaderValidationRules(serialized);
+
+        Assert.AreEqual(2, actual.Count);
+        Assert.AreEqual(HeaderValidationMatchType.Exact, actual[0].MatchType);
+        CollectionAssert.AreEqual(new[] { "eastus", "westus" }, actual[0].AllowedValues);
+        Assert.AreEqual(HeaderValidationMatchType.PrefixWildcard, actual[1].MatchType);
+        CollectionAssert.AreEqual(new[] { "gpt-4*", "o1" }, actual[1].AllowedValues);
+        Assert.AreEqual("X-Allowed-Models", actual[1].AllowedValuesHeader);
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "header-validation",
+        "Derived mapped headers refresh without stale entries",
+        "Changing a mapped validation rule must remove previously derived required/disallowed headers and add the new rule headers.")]
+    public void HeaderValidationRules_Refresh_ReplacesDerivedHeaders()
+    {
+        var options = ConfigParser.ApplyEnv(
+            new Dictionary<string, string>
+            {
+                ["ValidateHeaders"] = "X-Requested-Model=X-Allowed-Models"
+            },
+            new ProxyConfig());
+        options.ValidateHeaders = ConfigParser.ParseHeaderValidationRules(
+            """
+            [
+              {
+                "headerName": "X-Region",
+                "matchType": "exact",
+                "allowedValues": ["eastus"]
+              }
+            ]
+            """);
+
+        ConfigParser.ApplyDerivedSettings(
+            options,
+            typeof(ProxyConfig).GetProperty(nameof(ProxyConfig.ValidateHeaders))!);
+
+        CollectionAssert.DoesNotContain(options.RequiredHeaders, "X-Requested-Model");
+        CollectionAssert.DoesNotContain(options.RequiredHeaders, "X-Allowed-Models");
+        CollectionAssert.DoesNotContain(options.DisallowedHeaders, "X-Allowed-Models");
+        CollectionAssert.Contains(options.RequiredHeaders, "X-Region");
+
+        var layeredOptions = ConfigParser.ApplyEnv(
+            new Dictionary<string, string>
+            {
+                ["RequiredHeaders"] = "X-Allowed-Models",
+                ["ValidateHeaders"] = "[]"
+            },
+            ConfigParser.ApplyEnv(
+                new Dictionary<string, string>
+                {
+                    ["ValidateHeaders"] = "X-Requested-Model=X-Allowed-Models"
+                },
+                new ProxyConfig()));
+
+        CollectionAssert.Contains(layeredOptions.RequiredHeaders, "X-Allowed-Models");
+        CollectionAssert.DoesNotContain(layeredOptions.RequiredHeaders, "X-Requested-Model");
+        CollectionAssert.DoesNotContain(layeredOptions.DisallowedHeaders, "X-Allowed-Models");
+    }
+
+    [TestMethod]
+    [RegressionTestCase(
+        "header-validation",
+        "Unsupported wildcard positions are rejected",
+        "Prefix wildcard rules must reject leading or middle wildcards instead of silently applying unexpected matching.")]
+    public void HeaderValidationRules_InvalidWildcard_Throws()
+    {
+        var exception = Assert.ThrowsException<FormatException>(() =>
+            ConfigParser.ParseHeaderValidationRules(
+                """
+                [
+                  {
+                    "headerName": "X-Requested-Model",
+                    "matchType": "prefixWildcard",
+                    "allowedValues": ["gpt-*-preview"]
+                  }
+                ]
+                """));
+
+        StringAssert.Contains(exception.Message, "one wildcard only at the end");
     }
 
     [TestMethod]

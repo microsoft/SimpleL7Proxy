@@ -1,0 +1,869 @@
+@namespace CompanionApp.Components.Shared
+@using SimpleL7Proxy.Config
+
+@{
+    var requiredHeaders = FindSetting(Settings, "RequiredHeaders");
+    var blockedHeaders = FindSetting(Settings, "DisallowedHeaders");
+    var validatedHeaders = FindSetting(Settings, "Headers:ValidateHeaders");
+    var priorityHeader = FindSetting(Settings, "Headers:PriorityKeyHeader");
+    var timeoutHeader = FindSetting(Settings, "Headers:TimeoutHeader");
+    var ttlHeader = FindSetting(Settings, "Headers:TTLHeader");
+    var asyncModeHeader = FindSetting(Settings, "Headers:AsyncMode");
+    var uniqueUserHeaders = FindSetting(Settings, "Headers:UniqueUserHeaders");
+    var strippedRequestHeaders = FindSetting(Settings, "StripRequestHeaders");
+    var strippedResponseHeaders = FindSetting(Settings, "StripResponseHeaders");
+    var selectedHeaderSetting = string.IsNullOrWhiteSpace(SelectedHeaderSet)
+        ? null
+        : FindSetting(Settings, SelectedHeaderSet);
+    var isValidationHeaderSet = IsValidationHeaderSet(selectedHeaderSetting?.Name);
+    var selectedHeaders = isValidationHeaderSet
+        ? []
+        : ParseHeaderValues(selectedHeaderSetting?.DraftValue);
+    var validationRules = ParseValidationRules(validatedHeaders?.DraftValue, out var validationParseError);
+
+    var proxyHeaderSettings = new[] { priorityHeader, timeoutHeader, ttlHeader, asyncModeHeader, uniqueUserHeaders }
+        .OfType<AppConfigurationScaffoldSetting>()
+        .ToList();
+}
+
+<div class="header-policy-editor">
+    @if (selectedHeaderSetting is null)
+    {
+        <div class="header-policy-info" role="note">
+            <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+            <div>
+                <p>Headers control what metadata is accepted, added, removed, or forwarded between clients and backends. Use the sections below to configure your header policy.</p>
+                <a href="https://github.com/microsoft/SimpleL7Proxy/blob/main/docs/reference/configuration.md"
+                   target="_blank" rel="noopener noreferrer">
+                    Learn more <span class="bi bi-box-arrow-up-right" aria-hidden="true"></span>
+                </a>
+            </div>
+        </div>
+
+        <section class="header-policy-section" aria-labelledby="header-policy-flow-heading">
+            <h3 id="header-policy-flow-heading">Header flow</h3>
+            <div class="header-policy-flow" role="img" aria-label="Client headers enter the proxy, are forwarded to the backend, and response headers return through the proxy to the client.">
+                <div class="header-policy-flow-row">
+                    <div class="header-policy-flow-node">
+                        <strong>Client</strong>
+                        <span>Incoming headers</span>
+                    </div>
+                    <span class="bi bi-arrow-right header-policy-flow-arrow" aria-hidden="true"></span>
+                    <div class="header-policy-flow-node header-policy-flow-node-active">
+                        <strong>Proxy</strong>
+                        <span>Validate, add, remove</span>
+                    </div>
+                    <span class="bi bi-arrow-right header-policy-flow-arrow" aria-hidden="true"></span>
+                    <div class="header-policy-flow-node">
+                        <strong>Backend</strong>
+                        <span>Forwarded headers</span>
+                    </div>
+                </div>
+                <div class="header-policy-return-flow">
+                    <span class="bi bi-arrow-return-left" aria-hidden="true"></span>
+                    <div class="header-policy-flow-node">
+                        <strong>Response</strong>
+                        <span>Headers to client</span>
+                    </div>
+                    <span class="bi bi-arrow-return-left" aria-hidden="true"></span>
+                </div>
+            </div>
+        </section>
+
+        <section class="header-policy-section" aria-labelledby="header-policy-summary-heading">
+            <h3 id="header-policy-summary-heading">Summary</h3>
+            <div class="header-policy-summary-grid">
+                <button type="button" class="header-policy-summary-card" disabled="@(requiredHeaders is null)"
+                        @onclick="() => OpenHeaderSetAsync(requiredHeaders)">
+                    <span>Required headers</span>
+                    <strong>@CountValues(requiredHeaders)</strong>
+                    <small>Headers must be present</small>
+                </button>
+                <button type="button" class="header-policy-summary-card" disabled="@(validatedHeaders is null)"
+                        @onclick="() => OpenHeaderSetAsync(validatedHeaders)">
+                    <span>Validated headers</span>
+                    <strong>@(validationParseError is null ? validationRules.Count.ToString() : "!")</strong>
+                    <small>Values must match an allowlist</small>
+                </button>
+                <button type="button" class="header-policy-summary-card" disabled="@(blockedHeaders is null)"
+                        @onclick="() => OpenHeaderSetAsync(blockedHeaders)">
+                    <span>Blocked headers</span>
+                    <strong>@CountValues(blockedHeaders)</strong>
+                    <small>Removed from requests</small>
+                </button>
+                <button type="button" class="header-policy-summary-card" disabled="@(strippedRequestHeaders is null)"
+                        @onclick="() => OpenHeaderSetAsync(strippedRequestHeaders)">
+                    <span>Removed before backend</span>
+                    <strong>@CountValues(strippedRequestHeaders)</strong>
+                    <small>Stripped from requests</small>
+                </button>
+                <button type="button" class="header-policy-summary-card" disabled="@(strippedResponseHeaders is null)"
+                        @onclick="() => OpenHeaderSetAsync(strippedResponseHeaders)">
+                    <span>Removed before client</span>
+                    <strong>@CountValues(strippedResponseHeaders)</strong>
+                    <small>Stripped from responses</small>
+                </button>
+            </div>
+        </section>
+
+        @if (validationParseError is not null)
+        {
+            <div class="alert alert-danger py-2" role="alert">
+                <strong>Validated headers could not be read.</strong> @validationParseError
+            </div>
+        }
+
+        <section class="header-policy-section" aria-labelledby="header-policy-proxy-heading">
+            <div class="header-policy-section-heading">
+                <h3 id="header-policy-proxy-heading">Common proxy headers</h3>
+                <p>Configure the request headers used for priority, timeout, TTL, asynchronous mode, and user identity.</p>
+            </div>
+            <ConfigurationFields Settings="proxyHeaderSettings" OnChanged="OnChanged" />
+        </section>
+
+        <div class="header-policy-info header-policy-info-compact" role="note">
+            <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+            <p>Choose a summary card to configure the headers in that policy set.</p>
+        </div>
+    }
+    else if (isValidationHeaderSet)
+    {
+        <div class="header-validation-editor">
+            @if (validationParseError is not null)
+            {
+                <div class="alert alert-danger" role="alert">
+                    <strong>Validated headers could not be read.</strong> @validationParseError
+                </div>
+            }
+            else if (_isEditingValidationRule)
+            {
+                <form @onsubmit="SaveValidationRuleAsync" @onsubmit:preventDefault="true">
+                    <div class="header-set-info" role="note">
+                        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                        <p>Requests must contain all headers in this set, and each header value must match one of the allowed values. Header names and values are case-insensitive.</p>
+                    </div>
+
+                    <div class="header-validation-layout">
+                        <div class="header-validation-fields">
+                            <div>
+                                <label class="form-label" for="validation-header-name">Header name <span class="text-danger">*</span></label>
+                                <input id="validation-header-name" class="form-control" autocomplete="off"
+                                       placeholder="X-Requested-Model"
+                                       @bind="_validationHeaderName" @bind:event="oninput" />
+                                <div class="form-text">Name of the header to validate.</div>
+                            </div>
+
+                            <fieldset class="header-validation-match">
+                                <legend>Match type <span class="bi bi-question-circle text-primary" title="Exact matching compares the full value. Prefix wildcard matching enables a trailing * wildcard." aria-hidden="true"></span></legend>
+                                <div class="header-validation-match-options">
+                                    <label for="validation-match-exact">
+                                        <span>
+                                            <input id="validation-match-exact" class="form-check-input" type="radio"
+                                                   name="validation-match-type"
+                                                   checked="@(_validationMatchType == HeaderValidationMatchType.Exact)"
+                                                   @onchange="_ => _validationMatchType = HeaderValidationMatchType.Exact" />
+                                            <strong>Exact match</strong>
+                                        </span>
+                                        <small>Header value must exactly match one of the allowed values.</small>
+                                    </label>
+                                    <label for="validation-match-prefix">
+                                        <span>
+                                            <input id="validation-match-prefix" class="form-check-input" type="radio"
+                                                   name="validation-match-type"
+                                                   checked="@(_validationMatchType == HeaderValidationMatchType.PrefixWildcard)"
+                                                   @onchange="_ => _validationMatchType = HeaderValidationMatchType.PrefixWildcard" />
+                                            <strong>Prefix wildcard</strong>
+                                        </span>
+                                        <small>A trailing * is treated as a wildcard (e.g. gpt-4*).</small>
+                                    </label>
+                                </div>
+                            </fieldset>
+
+                            <div>
+                                <label class="form-label" for="validation-allowed-values">Allowed values <span class="text-danger">*</span></label>
+                                <textarea id="validation-allowed-values" class="form-control" rows="3"
+                                          placeholder="gpt-4o,gpt-4.1"
+                                          @bind="_validationAllowedValues" @bind:event="oninput"></textarea>
+                                <div class="form-text">Comma-separated list of allowed values. Spaces are trimmed.</div>
+                            </div>
+
+                            <div>
+                                <label class="form-label" for="validation-allowlist-header">
+                                    Map to another header (optional)
+                                    <span class="bi bi-question-circle text-primary" title="Values from this header are added to the allowlist after profile enrichment." aria-hidden="true"></span>
+                                </label>
+                                <input id="validation-allowlist-header" class="form-control" autocomplete="off"
+                                       placeholder="e.g., X-Requested-Model=X-Allowed-Models"
+                                       @bind="_validationAllowedValuesHeader" @bind:event="oninput" />
+                                <div class="form-text">If configured, values from the mapped header are added to this rule's allowlist.</div>
+                            </div>
+                        </div>
+
+                        <aside class="header-validation-help" aria-label="Header validation behavior">
+                            <h3>How it works <span class="bi bi-question-circle text-primary" aria-hidden="true"></span></h3>
+                            <ol>
+                                <li>
+                                    <span>1</span>
+                                    <div>
+                                        <strong>Exact match</strong>
+                                        <p>Allowed value: <code>gpt-4o</code></p>
+                                        <p>Matches: <code>gpt-4o</code>, <code>GPT-4O</code></p>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span>2</span>
+                                    <div>
+                                        <strong>Prefix wildcard</strong>
+                                        <p>Allowed value: <code>gpt-4*</code></p>
+                                        <p>Matches: <code>gpt-4o</code>, <code>gpt-4.1</code></p>
+                                        <p>Only a trailing <code>*</code> is interpreted as a wildcard.</p>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span>3</span>
+                                    <div>
+                                        <strong>Map to another header (optional)</strong>
+                                        <p>Example: <code>X-Requested-Model=X-Allowed-Models</code></p>
+                                        <p>Values from <code>X-Allowed-Models</code> are added to the configured allowlist.</p>
+                                    </div>
+                                </li>
+                            </ol>
+
+                            <h3>Limitations <span class="bi bi-question-circle text-primary" aria-hidden="true"></span></h3>
+                            <ul>
+                                <li>Contains or suffix matching is not supported</li>
+                                <li>Leading or middle wildcards are not supported</li>
+                                <li>Regular expressions are not supported</li>
+                                <li>Numeric comparisons are not supported</li>
+                                <li>AND conditions within one rule are not supported</li>
+                            </ul>
+                        </aside>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_headerSetError))
+                    {
+                        <div class="alert alert-danger py-2 mt-3" role="alert">@_headerSetError</div>
+                    }
+
+                    <div class="header-validation-actions">
+                        <div>
+                            @if (_editingValidationRuleIndex.HasValue)
+                            {
+                                <button type="button" class="btn btn-outline-danger" @onclick="RemoveValidationRuleAsync">
+                                    <span class="bi bi-trash me-1" aria-hidden="true"></span>Remove header
+                                </button>
+                            }
+                        </div>
+                        <div>
+                            <button type="button" class="btn btn-outline-secondary" @onclick="CancelValidationRuleAsync">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save</button>
+                        </div>
+                    </div>
+                </form>
+            }
+            else
+            {
+                <div class="header-set-info" role="note">
+                    <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                    <p>Select a validated header to edit its allowlist and matching behavior.</p>
+                </div>
+
+                <section class="header-set-section" aria-labelledby="validated-header-list-heading">
+                    <div class="header-set-list-heading">
+                        <h3 id="validated-header-list-heading">Headers (@validationRules.Count)</h3>
+                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="StartAddingValidationRule">
+                            <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add header
+                        </button>
+                    </div>
+                    <div class="table-responsive header-set-list-scroll">
+                        <table class="table table-sm align-middle header-set-table">
+                            <thead>
+                                <tr><th scope="col">Name</th></tr>
+                            </thead>
+                            <tbody>
+                                @for (var index = 0; index < validationRules.Count; index++)
+                                {
+                                    var ruleIndex = index;
+                                    var rule = validationRules[index];
+                                    <tr>
+                                        <td>
+                                            <button type="button" class="validation-rule-link"
+                                                    @onclick="() => EditValidationRule(ruleIndex)">
+                                                @rule.HeaderName
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="header-set-editor">
+            <div class="header-set-info" role="note">
+                <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                <p>@HeaderSetGuidance(selectedHeaderSetting.Name)</p>
+            </div>
+
+            <section class="header-set-section" aria-labelledby="header-set-list-heading">
+                <div class="header-set-list-heading">
+                    <h3 id="header-set-list-heading">Headers (@selectedHeaders.Count)</h3>
+                    <button type="button" class="btn btn-sm btn-outline-primary" @onclick="StartAddingHeader">
+                        <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add header
+                    </button>
+                </div>
+
+                <div class="table-responsive header-set-list-scroll">
+                    <table class="table table-sm align-middle header-set-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Name</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (selectedHeaders.Count == 0)
+                            {
+                                <tr>
+                                    <td class="text-muted">
+                                        No headers are configured in this set.
+                                    </td>
+                                </tr>
+                            }
+                            @foreach (var header in selectedHeaders)
+                            {
+                                <tr>
+                                    <td class="font-monospace">@header</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            @if (_isAddingHeader)
+            {
+                <form class="header-set-form" @onsubmit="SaveHeaderAsync" @onsubmit:preventDefault="true">
+                    <h3>Add header</h3>
+                    <div class="header-set-form-grid">
+                        <div>
+                            <label class="form-label" for="header-set-name">Header name <span class="text-danger">*</span></label>
+                            <input id="header-set-name" class="form-control" autocomplete="off"
+                                   placeholder="e.g., X-Client-Version"
+                                   @bind="_headerName" @bind:event="oninput" />
+                        </div>
+                        <div class="header-set-add-behavior">
+                            <strong>Action</strong>
+                            <span>@HeaderSetBehavior(selectedHeaderSetting.Name)</span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_headerSetError))
+                    {
+                        <div class="text-danger small mt-2" role="alert">@_headerSetError</div>
+                    }
+                    <div class="header-set-form-actions">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="CancelAddHeader">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add</button>
+                    </div>
+                </form>
+            }
+
+            <div class="header-set-info header-set-info-compact" role="note">
+                <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                <p>Headers are matched by name only. Values are not used.</p>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .header-policy-editor { color: #071c61; }
+    .header-policy-info, .header-set-info { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1rem; padding: 0.85rem 1rem; border: 1px solid #86b7fe; border-radius: 6px; background: #e8f2ff; color: #38558b; }
+    .header-policy-info > .bi, .header-set-info > .bi { flex: 0 0 auto; margin-top: 0.1rem; color: #0d6efd; font-size: 1.35rem; }
+    .header-policy-info p, .header-set-info p { margin: 0; }
+    .header-policy-info > div p { margin-bottom: 0.35rem; }
+    .header-policy-info a { font-weight: 600; }
+    .header-policy-info-compact { margin: 0.25rem 0 0; }
+    .header-policy-section { padding: 0.25rem 0 1rem; }
+    .header-policy-section + .header-policy-section { padding-top: 1rem; border-top: 1px solid #dce5f2; }
+    .header-policy-section > h3, .header-policy-section-heading h3 { margin: 0 0 0.75rem; color: #071c61; font-size: 1.05rem; font-weight: 700; }
+    .header-policy-section-heading { margin-bottom: 0.75rem; }
+    .header-policy-section-heading h3 { margin-bottom: 0; }
+    .header-policy-section-heading p { margin: 0.2rem 0 0; color: #596c96; font-size: 0.82rem; }
+    .header-policy-flow { padding: 0.85rem; border: 1px solid #dce5f2; border-radius: 6px; background: #fbfcff; }
+    .header-policy-flow-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.75rem; }
+    .header-policy-flow-node { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 0.65rem; border: 1px solid #d8e0ed; border-radius: 6px; background: #fff; text-align: center; }
+    .header-policy-flow-node strong { font-size: 0.88rem; }
+    .header-policy-flow-node span { margin-top: 0.15rem; color: #596c96; font-size: 0.76rem; }
+    .header-policy-flow-node-active { border-color: #5aa2ff; background: #eef6ff; }
+    .header-policy-flow-arrow { color: #1683ff; font-size: 1.25rem; }
+    .header-policy-return-flow { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 0.85rem; color: #1683ff; }
+    .header-policy-return-flow .header-policy-flow-node { min-width: 10rem; color: #071c61; }
+    .header-policy-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.65rem; }
+    .header-policy-summary-card { display: flex; flex-direction: column; min-width: 0; padding: 0.75rem; border: 1px solid #dce5f2; border-radius: 6px; background: #f8faff; color: inherit; text-align: left; cursor: pointer; }
+    .header-policy-summary-card:hover { border-color: #86b7fe; background: #eef6ff; }
+    .header-policy-summary-card:focus-visible { outline: 3px solid rgba(13, 110, 253, 0.3); outline-offset: 2px; }
+    .header-policy-summary-card:disabled { cursor: not-allowed; opacity: 0.65; }
+    .header-policy-summary-card > span { font-size: 0.78rem; font-weight: 600; }
+    .header-policy-summary-card > strong { margin: 0.15rem 0; color: #071c61; font-size: 1.5rem; line-height: 1.1; }
+    .header-policy-summary-card > small { color: #596c96; font-size: 0.72rem; }
+    .header-set-editor { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+    .header-set-editor > .header-set-info { flex: 0 0 auto; }
+    .header-set-section { margin-bottom: 1rem; }
+    .header-set-editor .header-set-section { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+    .header-policy-editor:has(> .header-set-editor .header-set-form) { display: flex; flex: 1 1 auto; min-height: 0; height: 100%; }
+    .header-set-editor:has(.header-set-form) { height: 100%; overflow: hidden; }
+    .header-set-editor:has(.header-set-form) .header-set-section { flex-basis: 0; overflow: hidden; }
+    .header-set-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.65rem; }
+    .header-set-list-heading h3, .header-set-form h3 { margin: 0; color: #071c61; font-size: 1rem; font-weight: 700; }
+    .header-set-list-scroll { flex: 1 1 auto; min-height: 0; max-height: min(18rem, 40dvh); overflow: auto; scrollbar-color: rgba(60, 60, 67, 0.28) transparent; scrollbar-width: thin; }
+    .header-set-list-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .header-set-list-scroll::-webkit-scrollbar-track { background: transparent; }
+    .header-set-list-scroll::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(60, 60, 67, 0.28); background-clip: padding-box; }
+    .header-set-table { min-width: 28rem; margin-bottom: 0; border: 1px solid #dce5f2; }
+    .header-set-table th { position: sticky; top: 0; z-index: 1; color: #071c61; background: #f3f6fb; }
+    .header-set-form { flex: 0 0 auto; margin: 1rem 0; padding: 0.85rem; border: 1px solid #dce5f2; border-radius: 6px; background: #f6f8fc; }
+    .header-set-form-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(12rem, 1fr); align-items: end; gap: 1rem; margin-top: 0.85rem; }
+    .header-set-add-behavior { display: flex; flex-direction: column; min-height: 2.4rem; padding-bottom: 0.35rem; }
+    .header-set-add-behavior span { color: #596c96; font-size: 0.78rem; }
+    .header-set-form-actions { display: flex; justify-content: flex-end; gap: 0.65rem; margin-top: 0.85rem; }
+    .header-set-info-compact { flex: 0 0 auto; margin: 1rem 0 0; }
+    .header-validation-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(18rem, 1fr); gap: 1.25rem; }
+    .header-validation-fields { display: flex; flex-direction: column; gap: 1.35rem; padding-right: 1.25rem; border-right: 1px solid #dce5f2; }
+    .header-validation-fields .form-label { margin-bottom: 0.35rem; font-weight: 700; }
+    .header-validation-fields .form-text { color: #6b7da5; }
+    .header-validation-match { margin: 0; padding: 0; border: 0; }
+    .header-validation-match legend { width: auto; margin-bottom: 0.55rem; color: #071c61; font-size: 0.875rem; font-weight: 700; }
+    .header-validation-match-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .header-validation-match-options label { display: flex; flex-direction: column; gap: 0.3rem; cursor: pointer; }
+    .header-validation-match-options label > span { display: flex; align-items: center; gap: 0.55rem; }
+    .header-validation-match-options small { padding-left: 1.9rem; color: #596c96; line-height: 1.35; }
+    .header-validation-help { padding: 1rem; border: 1px solid #e0e6f0; border-radius: 8px; background: #f7f8fb; }
+    .header-validation-help h3 { margin: 0 0 0.75rem; color: #071c61; font-size: 0.9rem; font-weight: 700; }
+    .header-validation-help h3:not(:first-child) { margin-top: 1.2rem; }
+    .header-validation-help ol { display: flex; flex-direction: column; gap: 0.85rem; margin: 0; padding: 0; list-style: none; }
+    .header-validation-help ol li { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0.6rem; }
+    .header-validation-help ol li > span { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: #6d7d9c; color: #fff; font-size: 0.75rem; font-weight: 700; }
+    .header-validation-help p { margin: 0.2rem 0 0; color: #596c96; font-size: 0.78rem; line-height: 1.45; }
+    .header-validation-help code { padding: 0.08rem 0.28rem; border-radius: 4px; background: #e6e9ef; color: #3b4b6b; }
+    .header-validation-help ul { margin: 0; padding-left: 1.15rem; color: #3d517d; font-size: 0.8rem; line-height: 1.65; }
+    .header-validation-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #dce5f2; }
+    .header-validation-actions > div:last-child { display: flex; gap: 0.65rem; }
+    .validation-rule-link { width: 100%; padding: 0; border: 0; background: transparent; color: #0d6efd; font-family: var(--bs-font-monospace); text-align: left; }
+    .validation-rule-link:hover { text-decoration: underline; }
+    .validation-rule-link:focus-visible { outline: 3px solid rgba(13, 110, 253, 0.3); outline-offset: 2px; }
+    @@media (max-width: 767.98px) {
+        .header-policy-flow-row { grid-template-columns: minmax(0, 1fr); }
+        .header-policy-flow-arrow { transform: rotate(90deg); justify-self: center; }
+        .header-policy-return-flow > .bi { display: none; }
+        .header-policy-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .header-set-form-grid { grid-template-columns: minmax(0, 1fr); }
+        .header-validation-layout { grid-template-columns: minmax(0, 1fr); }
+        .header-validation-fields { padding-right: 0; padding-bottom: 1rem; border-right: 0; border-bottom: 1px solid #dce5f2; }
+        .header-validation-match-options { grid-template-columns: minmax(0, 1fr); }
+        .header-validation-actions { align-items: stretch; flex-direction: column; }
+        .header-validation-actions > div:last-child { justify-content: flex-end; }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public string? SelectedHeaderSet { get; set; }
+    [Parameter] public EventCallback<string?> SelectedHeaderSetChanged { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string? _activeHeaderSet;
+    private bool _isAddingHeader;
+    private string _headerName = string.Empty;
+    private string? _headerSetError;
+    private bool _isEditingValidationRule;
+    private int? _editingValidationRuleIndex;
+    private string _validationHeaderName = string.Empty;
+    private HeaderValidationMatchType _validationMatchType = HeaderValidationMatchType.Exact;
+    private string _validationAllowedValues = string.Empty;
+    private string _validationAllowedValuesHeader = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(_activeHeaderSet, SelectedHeaderSet, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _activeHeaderSet = SelectedHeaderSet;
+        _isAddingHeader = false;
+        _headerName = string.Empty;
+        _headerSetError = null;
+        _isEditingValidationRule = false;
+        _editingValidationRuleIndex = null;
+        _validationHeaderName = string.Empty;
+        _validationMatchType = HeaderValidationMatchType.Exact;
+        _validationAllowedValues = string.Empty;
+        _validationAllowedValuesHeader = string.Empty;
+
+        if (!IsValidationHeaderSet(SelectedHeaderSet))
+        {
+            return;
+        }
+
+        var setting = FindSetting(Settings, SelectedHeaderSet!);
+        var rules = ParseValidationRules(setting?.DraftValue, out var parseError);
+        if (parseError is not null)
+        {
+            _headerSetError = parseError;
+            return;
+        }
+
+        if (rules.Count == 0)
+        {
+            LoadValidationRule(null, null);
+        }
+    }
+
+    public static bool IsHeaderPolicySetting(AppConfigurationScaffoldSetting setting)
+    {
+        if (string.Equals(setting.Section, "Response", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(setting.Name, "StripResponseHeaders", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(setting.Section, "Request", StringComparison.OrdinalIgnoreCase)
+            && setting.Name.ToLowerInvariant() is
+                "disallowedheaders"
+                or "headers:asyncmode"
+                or "headers:prioritykeyheader"
+                or "headers:timeoutheader"
+                or "headers:ttlheader"
+                or "headers:uniqueuserheaders"
+                or "headers:validateheaders"
+                or "requiredheaders"
+                or "striprequestheaders";
+    }
+
+    public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var settingsList = settings.ToList();
+        var required = CountValues(FindSetting(settingsList, "RequiredHeaders"));
+        var blocked = CountValues(FindSetting(settingsList, "DisallowedHeaders"));
+        var validated = ParseValidationRules(
+            FindSetting(settingsList, "Headers:ValidateHeaders")?.DraftValue,
+            out _).Count;
+        var requestStripped = CountValues(FindSetting(settingsList, "StripRequestHeaders"));
+        var responseStripped = CountValues(FindSetting(settingsList, "StripResponseHeaders"));
+        return $"{required} required · {validated} validated · {blocked} blocked · {requestStripped} backend strip · {responseStripped} client strip";
+    }
+
+    public static string HeaderSetTitle(string? name) => name?.ToLowerInvariant() switch
+    {
+        "requiredheaders" => "Required headers",
+        "headers:validateheaders" => "Validated headers",
+        "disallowedheaders" => "Blocked headers",
+        "striprequestheaders" => "Headers removed before backend",
+        "stripresponseheaders" => "Headers removed before client",
+        _ => "Header set",
+    };
+
+    public static string HeaderSetDescription(string? name) => name?.ToLowerInvariant() switch
+    {
+        "requiredheaders" => "Define headers that must be present in the request.",
+        "headers:validateheaders" => "Define headers to validate and the allowed values they must contain.",
+        "disallowedheaders" => "Define client headers that the proxy removes from incoming requests.",
+        "striprequestheaders" => "Define headers removed before a request is forwarded to a backend.",
+        "stripresponseheaders" => "Define headers removed before a response is returned to the client.",
+        _ => "Configure the headers in this policy set.",
+    };
+
+    private static string HeaderSetGuidance(string name) => name.ToLowerInvariant() switch
+    {
+        "requiredheaders" => "Every header in this set must be present or the request is rejected. Header names are case-insensitive.",
+        "disallowedheaders" => "Every header in this set is removed from the incoming request. Header names are case-insensitive.",
+        "striprequestheaders" => "Every header in this set is removed before the request is forwarded to a backend. Header names are case-insensitive.",
+        "stripresponseheaders" => "Every header in this set is removed before the response is returned to the client. Header names are case-insensitive.",
+        _ => "Header names are case-insensitive.",
+    };
+
+    private static string HeaderSetBehavior(string name) => name.ToLowerInvariant() switch
+    {
+        "requiredheaders" => "Reject request when missing",
+        "disallowedheaders" => "Remove from incoming request",
+        "striprequestheaders" => "Remove before backend",
+        "stripresponseheaders" => "Remove before client",
+        _ => "Apply header policy",
+    };
+
+    private async Task OpenHeaderSetAsync(AppConfigurationScaffoldSetting? setting)
+    {
+        if (setting is null)
+        {
+            _headerSetError = "This header set is not available in the current configuration.";
+            return;
+        }
+
+        await SelectedHeaderSetChanged.InvokeAsync(setting.Name);
+    }
+
+    private void StartAddingValidationRule() =>
+        LoadValidationRule(null, null);
+
+    private void EditValidationRule(int index)
+    {
+        var setting = FindSetting(Settings, "Headers:ValidateHeaders");
+        var rules = ParseValidationRules(setting?.DraftValue, out var parseError);
+        if (parseError is not null)
+        {
+            _headerSetError = parseError;
+            return;
+        }
+        if (index < 0 || index >= rules.Count)
+        {
+            _headerSetError = "The selected validation rule could not be found. Reopen the editor and try again.";
+            return;
+        }
+
+        LoadValidationRule(rules[index], index);
+    }
+
+    private void LoadValidationRule(HeaderValidationRule? rule, int? index)
+    {
+        _isEditingValidationRule = true;
+        _editingValidationRuleIndex = index;
+        _validationHeaderName = rule?.HeaderName ?? string.Empty;
+        _validationMatchType = rule?.MatchType ?? HeaderValidationMatchType.Exact;
+        _validationAllowedValues = rule is null ? string.Empty : string.Join(',', rule.AllowedValues);
+        _validationAllowedValuesHeader = rule?.AllowedValuesHeader ?? string.Empty;
+        _headerSetError = null;
+    }
+
+    private async Task CancelValidationRuleAsync()
+    {
+        var setting = FindSetting(Settings, "Headers:ValidateHeaders");
+        var rules = ParseValidationRules(setting?.DraftValue, out _);
+        if (rules.Count > 0)
+        {
+            _isEditingValidationRule = false;
+            _editingValidationRuleIndex = null;
+            _headerSetError = null;
+            return;
+        }
+
+        await SelectedHeaderSetChanged.InvokeAsync(null);
+    }
+
+    private async Task SaveValidationRuleAsync()
+    {
+        var setting = FindSetting(Settings, "Headers:ValidateHeaders");
+        if (setting is null)
+        {
+            _headerSetError = "The validated headers setting is no longer available.";
+            return;
+        }
+
+        var rules = ParseValidationRules(setting.DraftValue, out var parseError);
+        if (parseError is not null)
+        {
+            _headerSetError = parseError;
+            return;
+        }
+
+        var headerName = _validationHeaderName.Trim();
+        if (!ConfigParser.IsValidHeaderName(headerName))
+        {
+            _headerSetError = "Enter a valid HTTP header name without spaces, colons, or commas.";
+            return;
+        }
+
+        var allowedValues = ParseAllowedValues(_validationAllowedValues);
+        if (allowedValues.Count == 0)
+        {
+            _headerSetError = "Enter at least one allowed value.";
+            return;
+        }
+
+        string? allowedValuesHeader = null;
+        var mapValue = _validationAllowedValuesHeader.Trim();
+        if (mapValue.Length > 0)
+        {
+            var separatorIndex = mapValue.IndexOf('=');
+            if (separatorIndex >= 0)
+            {
+                var mappedSource = mapValue[..separatorIndex].Trim();
+                allowedValuesHeader = mapValue[(separatorIndex + 1)..].Trim();
+                if (!string.Equals(mappedSource, headerName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _headerSetError = "The mapped source must match the header name.";
+                    return;
+                }
+            }
+            else
+            {
+                allowedValuesHeader = mapValue;
+            }
+
+            if (!ConfigParser.IsValidHeaderName(allowedValuesHeader))
+            {
+                _headerSetError = "Enter a valid mapped HTTP header name.";
+                return;
+            }
+        }
+
+        var duplicateIndex = rules.FindIndex(rule =>
+            string.Equals(rule.HeaderName, headerName, StringComparison.OrdinalIgnoreCase));
+        if (duplicateIndex >= 0 && duplicateIndex != _editingValidationRuleIndex)
+        {
+            _headerSetError = $"{headerName} already has a validation rule.";
+            return;
+        }
+
+        var rule = new HeaderValidationRule
+        {
+            HeaderName = headerName,
+            MatchType = _validationMatchType,
+            AllowedValues = allowedValues,
+            AllowedValuesHeader = allowedValuesHeader
+        };
+
+        if (_editingValidationRuleIndex is int index && index >= 0 && index < rules.Count)
+        {
+            rules[index] = rule;
+        }
+        else
+        {
+            rules.Add(rule);
+        }
+
+        try
+        {
+            setting.DraftValue = ConfigParser.SerializeHeaderValidationRules(rules);
+        }
+        catch (FormatException ex)
+        {
+            _headerSetError = ex.Message;
+            return;
+        }
+
+        _headerSetError = null;
+        await OnChanged.InvokeAsync();
+        await SelectedHeaderSetChanged.InvokeAsync(null);
+    }
+
+    private async Task RemoveValidationRuleAsync()
+    {
+        var setting = FindSetting(Settings, "Headers:ValidateHeaders");
+        var rules = ParseValidationRules(setting?.DraftValue, out var parseError);
+        if (setting is null || parseError is not null)
+        {
+            _headerSetError = parseError ?? "The validated headers setting is no longer available.";
+            return;
+        }
+        if (_editingValidationRuleIndex is not int index || index < 0 || index >= rules.Count)
+        {
+            _headerSetError = "The selected validation rule could not be found. Reopen the editor and try again.";
+            return;
+        }
+
+        rules.RemoveAt(index);
+        setting.DraftValue = ConfigParser.SerializeHeaderValidationRules(rules);
+        _headerSetError = null;
+        await OnChanged.InvokeAsync();
+        await SelectedHeaderSetChanged.InvokeAsync(null);
+    }
+
+    private void StartAddingHeader()
+    {
+        _isAddingHeader = true;
+        _headerName = string.Empty;
+        _headerSetError = null;
+    }
+
+    private void CancelAddHeader()
+    {
+        _isAddingHeader = false;
+        _headerName = string.Empty;
+        _headerSetError = null;
+    }
+
+    private async Task SaveHeaderAsync()
+    {
+        var setting = FindSetting(Settings, SelectedHeaderSet ?? string.Empty);
+        if (setting is null)
+        {
+            _headerSetError = "The selected header set is no longer available.";
+            return;
+        }
+
+        var headerName = _headerName.Trim();
+        if (!IsValidHeaderName(headerName))
+        {
+            _headerSetError = "Enter a valid HTTP header name without spaces, colons, or commas.";
+            return;
+        }
+
+        var headers = ParseHeaderValues(setting.DraftValue);
+        var duplicateIndex = headers.FindIndex(header =>
+            string.Equals(header, headerName, StringComparison.OrdinalIgnoreCase));
+        if (duplicateIndex >= 0)
+        {
+            _headerSetError = $"{headerName} is already in this header set.";
+            return;
+        }
+
+        headers.Add(headerName);
+        setting.DraftValue = System.Text.Json.JsonSerializer.Serialize(headers);
+        _isAddingHeader = false;
+        _headerName = string.Empty;
+        _headerSetError = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private static bool IsValidHeaderName(string value) =>
+        ConfigParser.IsValidHeaderName(value);
+
+    private static bool IsValidationHeaderSet(string? name) =>
+        string.Equals(name, "Headers:ValidateHeaders", StringComparison.OrdinalIgnoreCase);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static List<string> ParseHeaderValues(string? rawValue)
+    {
+        var value = (rawValue ?? string.Empty).Trim();
+        if (value.StartsWith('[') && value.EndsWith(']'))
+        {
+            value = value[1..^1];
+        }
+
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(item => item.Trim().Trim('"'))
+            .Where(item => item.Length > 0)
+            .ToList();
+    }
+
+    private static List<string> ParseAllowedValues(string value) =>
+        value.Split([',', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(item => item.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static List<HeaderValidationRule> ParseValidationRules(string? rawValue, out string? error)
+    {
+        try
+        {
+            error = null;
+            return ConfigParser.ParseHeaderValidationRules(rawValue);
+        }
+        catch (FormatException ex)
+        {
+            error = ex.Message;
+            return [];
+        }
+    }
+
+    private static int CountValues(AppConfigurationScaffoldSetting? setting) =>
+        ParseHeaderValues(setting?.DraftValue).Count;
+
+}

@@ -1,9 +1,9 @@
 @namespace CompanionApp.Components.Widgets.AppConfiguration
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
-<AppConfigurationSectionWidget Section="@Section" Icon="bi-card-checklist" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-file-earmark-text-fill" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
     IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit header policy settings.")' OnSelected="OnSelected">
-    <SummaryContent><span class="config-box-meta">Dummy value</span></SummaryContent>
+    <SummaryContent><span class="config-box-meta text-break">@HeaderPolicyEditor.Summary(Settings)</span></SummaryContent>
 </AppConfigurationSectionWidget>
 
 @code {

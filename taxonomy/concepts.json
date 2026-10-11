@@ -809,14 +809,14 @@
       "name": "Header Validation Rule",
       "domain_id": "d04",
       "subdomain_id": "sd04-02",
-      "definition": "ValidateHeaders mapping SourceHeader=AllowlistHeader. The source header value must appear in the comma-separated allowlist header injected from the user profile. Supports * suffix for prefix matching.",
+      "definition": "ValidateHeaders rules compare a source header against inline allowed values and an optional comma-separated allowlist header injected from the user profile. Rules support case-insensitive exact matching and one trailing * for prefix matching. Legacy SourceHeader=AllowlistHeader mappings remain supported.",
       "key_settings": ["ValidateHeaders"],
       "on_failure_code": 417,
       "on_failure_label": "InvalidHeader",
       "reload_type": "Warm",
       "side_effects": [
-        "auto-adds SourceHeader and AllowlistHeader to RequiredHeaders",
-        "auto-adds AllowlistHeader to DisallowedHeaders"
+        "auto-adds SourceHeader to RequiredHeaders",
+        "when mapped, auto-adds AllowlistHeader to RequiredHeaders and DisallowedHeaders"
       ],
       "related_concept_ids": ["c-user-profile", "c-required-headers", "c-disallowed-headers"],
       "docs": ["how-to/configure-security.md", "reference/advanced-configuration.md"]
@@ -1524,7 +1524,7 @@
     { "name": "ValidateAuthConfig",    "type": "string", "reload": "Warm",   "default": "enabled=false, mode=none, header=S7P-KEY", "concept_ids":["c-inbound-key-validation","c-inbound-oauth-validation"] },
     { "name": "ValidateAuthKey1",      "type": "string", "reload": "Warm",   "default": "",      "concept_ids":["c-inbound-key-validation"] },
     { "name": "ValidateAuthKey2",      "type": "string", "reload": "Warm",   "default": "",      "concept_ids":["c-inbound-key-validation"] },
-    { "name": "ValidateHeaders",       "type": "Dictionary<string,string>","reload":"Warm","default": {}, "format":"SourceHeader=AllowlistHeader", "concept_ids":["c-header-validation-rule"] },
+    { "name": "ValidateHeaders",       "type": "HeaderValidationRule[]","reload":"Warm","default": [], "format":"JSON rules; legacy SourceHeader=AllowlistHeader accepted", "concept_ids":["c-header-validation-rule"] },
     { "name": "UserProfileHeader",     "type": "string", "reload": "Warm",   "default": "X-UserProfile", "concept_ids": ["c-user-profile"] },
     { "name": "DependancyHeaders",     "type": "string[]","reload": "Warm",  "default": ["Backend-Host","Host-URL","Status","Duration","Error","Message","Request-Date","backendLog","retry-after"], "concept_ids": ["c-proxy-event"] },
     { "name": "DetectModel",           "type": "bool",   "reload": "Warm",   "default": true,    "concept_ids": ["c-proxy-event"] },
