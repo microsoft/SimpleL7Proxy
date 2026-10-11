@@ -40,7 +40,6 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("DependancyHeaders", "DependancyHeaders"),
-        ("DetectModel", "DetectModel"),
         ("DisallowedHeaders", "DisallowedHeaders"),
         ("EnvPluginClass", "EnvPluginClass"),
         ("HealthProbeSidecar", "HealthProbeSidecar"),

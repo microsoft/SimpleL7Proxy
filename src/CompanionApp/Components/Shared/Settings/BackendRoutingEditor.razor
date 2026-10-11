@@ -1,0 +1,220 @@
+@namespace CompanionApp.Components.Shared
+@using System.Globalization
+@using SimpleL7Proxy.Config
+
+@{
+    var iterationModeSetting = FindSetting(Settings, "IterationMode");
+    var selectionModeSetting = FindSetting(Settings, "Mode");
+    var maxAttemptsSetting = FindSetting(Settings, "MultiPass:MaxAttempts");
+    var pollIntervalSetting = FindSetting(Settings, "PollInterval");
+    var pollTimeoutSetting = FindSetting(Settings, "PollTimeout");
+    var sharedIteratorTtlSetting = FindSetting(Settings, "SharedIteratorTTLSeconds");
+    var cleanupIntervalSetting = FindSetting(Settings, "SharedIteratorCleanupIntervalSeconds");
+}
+
+<div class="proxy-settings-editor">
+    <div class="proxy-settings-info" role="note">
+        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+        <p>Configure how the proxy selects, attempts, monitors, and reuses backend targets.</p>
+    </div>
+
+    <section class="proxy-settings-section" aria-labelledby="backend-routing-selection-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="backend-routing-selection-heading">Backend selection</h3>
+            <p>Choose how one request iterates through available backends and how each backend is ranked.</p>
+        </div>
+        <div class="proxy-settings-field-grid">
+            @if (iterationModeSetting is not null)
+            {
+                <div class="proxy-settings-field @(iterationModeSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@iterationModeSetting.Key">Backend iteration</label>
+                        <ConfigurationHelp Section="LoadBalancing" Topic="@iterationModeSetting.Name" />
+                    </div>
+                    <select id="@iterationModeSetting.Key" class="form-select"
+                            value="@iterationModeSetting.DraftValue"
+                            @onchange="@(args => SetSettingValueAsync(iterationModeSetting, args.Value?.ToString()))">
+                        @if (!IterationModeChoices.Any(choice => string.Equals(choice.Value, iterationModeSetting.DraftValue, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            <option value="@iterationModeSetting.DraftValue">@iterationModeSetting.DraftValue</option>
+                        }
+                        @foreach (var choice in IterationModeChoices)
+                        {
+                            <option value="@choice.Value">@choice.Label</option>
+                        }
+                    </select>
+                    <p>Single pass attempts each selected backend once; multiple pass can retry the selection cycle.</p>
+                </div>
+            }
+            @if (selectionModeSetting is not null)
+            {
+                <div class="proxy-settings-field @(selectionModeSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@selectionModeSetting.Key">Selection strategy</label>
+                        <ConfigurationHelp Section="LoadBalancing" Topic="@selectionModeSetting.Name" />
+                    </div>
+                    <select id="@selectionModeSetting.Key" class="form-select"
+                            value="@selectionModeSetting.DraftValue"
+                            @onchange="@(args => SetSettingValueAsync(selectionModeSetting, args.Value?.ToString()))">
+                        @if (!SelectionModeChoices.Any(choice => string.Equals(choice.Value, selectionModeSetting.DraftValue, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            <option value="@selectionModeSetting.DraftValue">@selectionModeSetting.DraftValue</option>
+                        }
+                        @foreach (var choice in SelectionModeChoices)
+                        {
+                            <option value="@choice.Value">@choice.Label</option>
+                        }
+                    </select>
+                    <p>Metric or ordering rule used to choose the next eligible backend.</p>
+                </div>
+            }
+            @if (maxAttemptsSetting is not null)
+            {
+                <div class="proxy-settings-field @(maxAttemptsSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@maxAttemptsSetting.Key">Maximum attempts</label>
+                        <ConfigurationHelp Section="LoadBalancing" Topic="@maxAttemptsSetting.Name" />
+                    </div>
+                    <input id="@maxAttemptsSetting.Key" class="form-control" type="number" min="0" step="1"
+                           value="@NumericDraft(maxAttemptsSetting)"
+                           @oninput="@(args => SetSettingValueAsync(maxAttemptsSetting, args.Value?.ToString()))" />
+                    <p>Maximum attempts in multiple-pass mode. Set to 0 for no attempt-count limit.</p>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="proxy-settings-section" aria-labelledby="backend-routing-monitoring-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="backend-routing-monitoring-heading">Polling and shared iterators</h3>
+            <p>Control backend health polling and cleanup of reusable routing iterators.</p>
+        </div>
+        <div class="proxy-settings-field-grid">
+            @if (pollIntervalSetting is not null)
+            {
+                <div class="proxy-settings-field @(pollIntervalSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@pollIntervalSetting.Key">Poll interval</label>
+                        <ConfigurationHelp Section="Server" Topic="@pollIntervalSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@pollIntervalSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(pollIntervalSetting)"
+                               @oninput="@(args => SetSettingValueAsync(pollIntervalSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">ms</span>
+                    </div>
+                    <p>Delay between backend health-poll cycles.</p>
+                </div>
+            }
+            @if (pollTimeoutSetting is not null)
+            {
+                <div class="proxy-settings-field @(pollTimeoutSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@pollTimeoutSetting.Key">Poll timeout</label>
+                        <ConfigurationHelp Section="Server" Topic="@pollTimeoutSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@pollTimeoutSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(pollTimeoutSetting)"
+                               @oninput="@(args => SetSettingValueAsync(pollTimeoutSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">ms</span>
+                    </div>
+                    <p>Maximum time allowed for one backend health poll.</p>
+                </div>
+            }
+            @if (sharedIteratorTtlSetting is not null)
+            {
+                <div class="proxy-settings-field @(sharedIteratorTtlSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@sharedIteratorTtlSetting.Key">Shared iterator TTL</label>
+                        <ConfigurationHelp Section="Server" Topic="@sharedIteratorTtlSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@sharedIteratorTtlSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(sharedIteratorTtlSetting)"
+                               @oninput="@(args => SetSettingValueAsync(sharedIteratorTtlSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">seconds</span>
+                    </div>
+                    <p>Idle lifetime of a shared backend iterator.</p>
+                </div>
+            }
+            @if (cleanupIntervalSetting is not null)
+            {
+                <div class="proxy-settings-field @(cleanupIntervalSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@cleanupIntervalSetting.Key">Cleanup interval</label>
+                        <ConfigurationHelp Section="Server" Topic="@cleanupIntervalSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@cleanupIntervalSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(cleanupIntervalSetting)"
+                               @oninput="@(args => SetSettingValueAsync(cleanupIntervalSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">seconds</span>
+                    </div>
+                    <p>Frequency for removing stale shared iterators.</p>
+                </div>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private static readonly HashSet<string> LoadBalancingSettingNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "IterationMode",
+        "Mode",
+        "MultiPass:MaxAttempts",
+    };
+
+    private static readonly HashSet<string> ServerSettingNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PollInterval",
+        "PollTimeout",
+        "SharedIteratorTTLSeconds",
+        "SharedIteratorCleanupIntervalSeconds",
+    };
+
+    private static readonly (string Value, string Label)[] IterationModeChoices =
+    {
+        ("SinglePass", "Single pass"),
+        ("MultiPass", "Multiple pass"),
+    };
+
+    private static readonly (string Value, string Label)[] SelectionModeChoices =
+    {
+        ("Latency", "Latency"),
+        ("TimeToFirstByte", "Time to first byte"),
+        ("RoundRobin", "Round robin"),
+        ("PriorityGroup", "Priority group"),
+        ("Random", "Random"),
+    };
+
+    public static bool IsBackendRoutingSetting(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(setting.Section, "LoadBalancing", StringComparison.OrdinalIgnoreCase)
+            && LoadBalancingSettingNames.Contains(setting.Name)
+        || string.Equals(setting.Section, "Server", StringComparison.OrdinalIgnoreCase)
+            && ServerSettingNames.Contains(setting.Name);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string NumericDraft(AppConfigurationScaffoldSetting setting)
+    {
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue ? string.Empty : value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private async Task SetSettingValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+}

@@ -1,0 +1,251 @@
+@namespace CompanionApp.Components.Shared
+@using System.Globalization
+@using SimpleL7Proxy.Config
+
+@{
+    var portSetting = FindSetting(Settings, "Port");
+    var workersSetting = FindSetting(Settings, "Workers");
+    var maxQueueLengthSetting = FindSetting(Settings, "MaxQueueLength");
+    var maxUndrainedEventsSetting = FindSetting(Settings, "MaxUndrainedEvents");
+    var healthProbeSetting = FindSetting(Settings, "Sidecar");
+    var gracePeriodSetting = FindSetting(Settings, "TerminationGracePeriodSeconds");
+    var garbageCollectionSetting = FindSetting(Settings, "GC2InternalSecs");
+    var streamFlushSetting = FindSetting(Settings, "StreamFlushInterval");
+}
+
+<div class="proxy-settings-editor">
+    <div class="proxy-settings-info" role="note">
+        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+        <p>Configure the proxy listener, request capacity, health reporting, and process lifecycle.</p>
+    </div>
+
+    <section class="proxy-settings-section" aria-labelledby="proxy-runtime-capacity-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="proxy-runtime-capacity-heading">Listener and capacity</h3>
+            <p>Set the listening port and the amount of concurrent and queued work the proxy can accept.</p>
+        </div>
+        <div class="proxy-settings-field-grid">
+            @if (portSetting is not null)
+            {
+                <div class="proxy-settings-field @(portSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@portSetting.Key">Port</label>
+                        <ConfigurationHelp Section="Server" Topic="@portSetting.Name" />
+                    </div>
+                    <input id="@portSetting.Key" class="form-control" type="number" min="1" max="65535" step="1"
+                           value="@NumericDraft(portSetting)"
+                           @oninput="@(args => SetSettingValueAsync(portSetting, args.Value?.ToString()))" />
+                    <p>TCP port used by the proxy listener.</p>
+                </div>
+            }
+            @if (workersSetting is not null)
+            {
+                <div class="proxy-settings-field @(workersSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@workersSetting.Key">Workers</label>
+                        <ConfigurationHelp Section="Server" Topic="@workersSetting.Name" />
+                    </div>
+                    <input id="@workersSetting.Key" class="form-control" type="number" min="1" step="1"
+                           value="@NumericDraft(workersSetting)"
+                           @oninput="@(args => SetSettingValueAsync(workersSetting, args.Value?.ToString()))" />
+                    <p>Concurrent proxy workers available to process requests.</p>
+                </div>
+            }
+            @if (maxQueueLengthSetting is not null)
+            {
+                <div class="proxy-settings-field @(maxQueueLengthSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@maxQueueLengthSetting.Key">Maximum queue length</label>
+                        <ConfigurationHelp Section="Server" Topic="@maxQueueLengthSetting.Name" />
+                    </div>
+                    <input id="@maxQueueLengthSetting.Key" class="form-control" type="number" min="0" step="1"
+                           value="@NumericDraft(maxQueueLengthSetting)"
+                           @oninput="@(args => SetSettingValueAsync(maxQueueLengthSetting, args.Value?.ToString()))" />
+                    <p>Maximum number of requests waiting for a worker.</p>
+                </div>
+            }
+            @if (maxUndrainedEventsSetting is not null)
+            {
+                <div class="proxy-settings-field @(maxUndrainedEventsSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@maxUndrainedEventsSetting.Key">Maximum undrained events</label>
+                        <ConfigurationHelp Section="Server" Topic="@maxUndrainedEventsSetting.Name" />
+                    </div>
+                    <input id="@maxUndrainedEventsSetting.Key" class="form-control" type="number" min="0" step="1"
+                           value="@NumericDraft(maxUndrainedEventsSetting)"
+                           @oninput="@(args => SetSettingValueAsync(maxUndrainedEventsSetting, args.Value?.ToString()))" />
+                    <p>Event backlog allowed before the proxy applies backpressure.</p>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="proxy-settings-section" aria-labelledby="proxy-runtime-lifecycle-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="proxy-runtime-lifecycle-heading">Health and shutdown</h3>
+            <p>Configure sidecar health reporting and graceful process termination.</p>
+        </div>
+        <div class="proxy-settings-field-grid">
+            @if (healthProbeSetting is not null)
+            {
+                <div class="proxy-settings-field @(healthProbeSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="proxy-runtime-health-probe">Health probe sidecar</label>
+                        <ConfigurationHelp Section="HealthProbe" Topic="@healthProbeSetting.Name" />
+                    </div>
+                    <div class="form-check form-switch proxy-settings-switch">
+                        <input id="proxy-runtime-health-probe" class="form-check-input" type="checkbox"
+                               checked="@HealthProbeEnabled(healthProbeSetting)"
+                               @onchange="@(args => SetHealthProbeEnabledAsync(healthProbeSetting, args))" />
+                        <label class="form-check-label" for="proxy-runtime-health-probe">
+                            @(HealthProbeEnabled(healthProbeSetting) ? "Enabled" : "Disabled")
+                        </label>
+                    </div>
+                    <p>Publish health state through the configured sidecar endpoint.</p>
+                </div>
+                <div class="proxy-settings-field @(healthProbeSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="proxy-runtime-health-probe-url">Health probe URL</label>
+                        <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL" />
+                    </div>
+                    <input id="proxy-runtime-health-probe-url" class="form-control" type="url"
+                           placeholder="http://localhost:9000"
+                           value="@HealthProbeField(healthProbeSetting, "url")"
+                           @oninput="@(args => SetHealthProbeUrlAsync(healthProbeSetting, args.Value?.ToString()))" />
+                    <p>Sidecar endpoint that receives proxy health updates.</p>
+                </div>
+            }
+            @if (gracePeriodSetting is not null)
+            {
+                <div class="proxy-settings-field @(gracePeriodSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@gracePeriodSetting.Key">Termination grace period</label>
+                        <ConfigurationHelp Section="Server" Topic="@gracePeriodSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@gracePeriodSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(gracePeriodSetting)"
+                               @oninput="@(args => SetSettingValueAsync(gracePeriodSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">seconds</span>
+                    </div>
+                    <p>Time available to drain requests before shutdown completes.</p>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="proxy-settings-section" aria-labelledby="proxy-runtime-advanced-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="proxy-runtime-advanced-heading">Advanced runtime settings</h3>
+            <p>Tune garbage collection and streamed-response flushing.</p>
+        </div>
+        <div class="proxy-settings-field-grid">
+            @if (garbageCollectionSetting is not null)
+            {
+                <div class="proxy-settings-field @(garbageCollectionSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@garbageCollectionSetting.Key">Generation 2 collection interval</label>
+                        <ConfigurationHelp Section="Server" Topic="@garbageCollectionSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@garbageCollectionSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(garbageCollectionSetting)"
+                               @oninput="@(args => SetSettingValueAsync(garbageCollectionSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">seconds</span>
+                    </div>
+                </div>
+            }
+            @if (streamFlushSetting is not null)
+            {
+                <div class="proxy-settings-field @(streamFlushSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@streamFlushSetting.Key">Stream flush interval</label>
+                        <ConfigurationHelp Section="Server" Topic="@streamFlushSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@streamFlushSetting.Key" class="form-control" type="number" min="0" step="1"
+                               value="@NumericDraft(streamFlushSetting)"
+                               @oninput="@(args => SetSettingValueAsync(streamFlushSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">ms</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private static readonly HashSet<string> ServerSettingNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Port",
+        "Workers",
+        "MaxQueueLength",
+        "MaxUndrainedEvents",
+        "TerminationGracePeriodSeconds",
+        "GC2InternalSecs",
+        "StreamFlushInterval",
+    };
+
+    public static bool IsProxyRuntimeSetting(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(setting.Section, "Server", StringComparison.OrdinalIgnoreCase)
+            && ServerSettingNames.Contains(setting.Name)
+        || string.Equals(setting.Section, "HealthProbe", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(setting.Name, "Sidecar", StringComparison.OrdinalIgnoreCase);
+
+    public static bool HealthProbeEnabled(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(HealthProbeField(setting, "Enabled"), "true", StringComparison.OrdinalIgnoreCase);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string NumericDraft(AppConfigurationScaffoldSetting setting)
+    {
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue ? string.Empty : value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string HealthProbeField(AppConfigurationScaffoldSetting setting, string key)
+    {
+        foreach (var token in (setting.DraftValue ?? string.Empty).Split(
+            new[] { ',', ';' },
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var equals = token.IndexOf('=');
+            if (equals > 0 && string.Equals(token[..equals].Trim(), key, StringComparison.OrdinalIgnoreCase))
+            {
+                return token[(equals + 1)..].Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private async Task SetSettingValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetHealthProbeEnabledAsync(AppConfigurationScaffoldSetting setting, ChangeEventArgs args)
+    {
+        SetHealthProbeValue(setting, args.Value is bool isChecked && isChecked, HealthProbeField(setting, "url"));
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetHealthProbeUrlAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        SetHealthProbeValue(setting, HealthProbeEnabled(setting), value ?? string.Empty);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static void SetHealthProbeValue(AppConfigurationScaffoldSetting setting, bool enabled, string url) =>
+        setting.DraftValue = $"Enabled={(enabled ? "true" : "false")};url={url}";
+}

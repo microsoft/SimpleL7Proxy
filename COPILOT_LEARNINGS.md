@@ -185,3 +185,4 @@
 - The persisted dependency-header key is intentionally spelled `DependancyHeaders`. Present it as “Dependency headers” in the UI, but do not rename the App Configuration path, config name, or runtime property.
 - Dependency headers are diagnostic field selectors for failed backend attempts; they are not added to or forwarded with backend requests. Header Policy diagrams and descriptions must keep that distinction explicit.
 - When the user provides an existing diagram asset, use that asset directly instead of recreating it in HTML/CSS unless the user explicitly requests a native implementation.
+- App Configuration section rules can remap `Security:*` settings into the Server UI group. Virtual-group predicates for stable settings such as `IgnoreSSLCert` must recognize the setting name/key rather than assuming `setting.Section` remains `Security`.

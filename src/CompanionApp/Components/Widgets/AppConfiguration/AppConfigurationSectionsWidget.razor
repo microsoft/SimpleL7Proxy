@@ -1,7 +1,25 @@
 @namespace CompanionApp.Components.Widgets.AppConfiguration
 
+@{
+    var groups = Groups.ToList();
+    var proxyRuntimeSettings = GroupSettings(groups, "Proxy Runtime");
+    var backendRoutingSettings = GroupSettings(groups, "Backend Routing");
+    var securityExtensionsSettings = GroupSettings(groups, "Security & Extensions");
+}
+
+<div class="config-section-grid config-proxy-section-grid" hidden="@IsHidden" aria-label="Proxy configuration">
+    <AppConfigurationProxyRuntimeWidget Settings="proxyRuntimeSettings" IsLoading="IsLoading"
+        OnSelected="@(() => OnSelected.InvokeAsync("Proxy Runtime"))" @key='"Proxy Runtime"' />
+    <AppConfigurationBackendRoutingWidget Settings="backendRoutingSettings" IsLoading="IsLoading"
+        OnSelected="@(() => OnSelected.InvokeAsync("Backend Routing"))" @key='"Backend Routing"' />
+    <AppConfigurationSecurityExtensionsWidget Settings="securityExtensionsSettings" IsLoading="IsLoading"
+        OnSelected="@(() => OnSelected.InvokeAsync("Security & Extensions"))" @key='"Security & Extensions"' />
+</div>
+
 <div class="config-section-grid" hidden="@IsHidden">
-    @foreach (var group in Groups.Where(group => !string.Equals(group.Key, "Tokenomics", StringComparison.OrdinalIgnoreCase)))
+    @foreach (var group in groups.Where(group =>
+        !string.Equals(group.Key, "Tokenomics", StringComparison.OrdinalIgnoreCase)
+        && !IsProxyConfigurationGroup(group.Key)))
     {
         @switch (group.Key.ToLowerInvariant())
         {
@@ -49,19 +67,19 @@
                 break;
         }
     }
-    @if (!Groups.Any(group => string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase)))
+    @if (!groups.Any(group => string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase)))
     {
         <AppConfigurationHostsWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Hosts"))" />
     }
-    @if (!Groups.Any(group => string.Equals(group.Key, "Request Processing", StringComparison.OrdinalIgnoreCase)))
+    @if (!groups.Any(group => string.Equals(group.Key, "Request Processing", StringComparison.OrdinalIgnoreCase)))
     {
         <AppConfigurationRequestProcessingWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Request Processing"))" />
     }
-    @if (!Groups.Any(group => string.Equals(group.Key, "Header Policy", StringComparison.OrdinalIgnoreCase)))
+    @if (!groups.Any(group => string.Equals(group.Key, "Header Policy", StringComparison.OrdinalIgnoreCase)))
     {
         <AppConfigurationHeaderPolicyWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Header Policy"))" />
     }
-    @if (!Groups.Any(group => string.Equals(group.Key, "Backend Resilience", StringComparison.OrdinalIgnoreCase)))
+    @if (!groups.Any(group => string.Equals(group.Key, "Backend Resilience", StringComparison.OrdinalIgnoreCase)))
     {
         <AppConfigurationBackendResilienceWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Backend Resilience"))" />
     }
@@ -72,4 +90,16 @@
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public bool IsHidden { get; set; }
     [Parameter] public EventCallback<string> OnSelected { get; set; }
+
+    private static IReadOnlyList<AppConfigurationScaffoldSetting> GroupSettings(
+        IEnumerable<IGrouping<string, AppConfigurationScaffoldSetting>> groups,
+        string name)
+    {
+        var group = groups.FirstOrDefault(group =>
+            string.Equals(group.Key, name, StringComparison.OrdinalIgnoreCase));
+        return group is null ? Array.Empty<AppConfigurationScaffoldSetting>() : group.ToList();
+    }
+
+    private static bool IsProxyConfigurationGroup(string name) =>
+        name.ToLowerInvariant() is "proxy runtime" or "backend routing" or "security & extensions";
 }

@@ -1,0 +1,75 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+@using System.Globalization
+@using SimpleL7Proxy.Config
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+@{
+    var settings = Settings.ToList();
+    var iterationMode = FindSetting(settings, "IterationMode")?.DraftValue;
+}
+
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-diagram-3-fill" ChangedCount="@settings.Count(setting => setting.IsChanged)"
+    IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit backend routing settings.")' OnSelected="OnSelected">
+    <SummaryContent>
+        <span class="proxy-configuration-summary">
+            <span class="proxy-configuration-description">Select, attempt, and communicate with backend targets.</span>
+            <span class="proxy-configuration-summary-grid">
+                <span>Backend iteration</span><strong>@DisplayIterationMode(iterationMode)</strong>
+                <span>Selection strategy</span><strong>@DisplaySelectionMode(FindSetting(settings, "Mode")?.DraftValue)</strong>
+                <span>Max attempts</span><strong>@(string.Equals(iterationMode, "MultiPass", StringComparison.OrdinalIgnoreCase) ? DisplayNumber(settings, "MultiPass:MaxAttempts") : "—")</strong>
+                <span>Poll interval</span><strong>@DisplayNumber(settings, "PollInterval", "ms")</strong>
+                <span>Poll timeout</span><strong>@DisplayNumber(settings, "PollTimeout", "ms")</strong>
+                <span>Shared iterator TTL</span><strong>@DisplayNumber(settings, "SharedIteratorTTLSeconds", "sec")</strong>
+                <span>Cleanup interval</span><strong>@DisplayNumber(settings, "SharedIteratorCleanupIntervalSeconds", "sec")</strong>
+            </span>
+            <span class="proxy-configuration-summary-footer">Includes additional routing options (0).</span>
+        </span>
+    </SummaryContent>
+</AppConfigurationSectionWidget>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Backend Routing";
+    [Parameter] public IEnumerable<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string DisplayIterationMode(string? value) => value?.ToLowerInvariant() switch
+    {
+        "singlepass" => "Single pass",
+        "multipass" => "Multiple pass",
+        _ => string.IsNullOrWhiteSpace(value) ? "—" : value,
+    };
+
+    private static string DisplaySelectionMode(string? value) => value?.ToLowerInvariant() switch
+    {
+        "timetofirstbyte" => "Time to first byte",
+        "roundrobin" => "Round robin",
+        "prioritygroup" => "Priority group",
+        _ => string.IsNullOrWhiteSpace(value) ? "—" : value,
+    };
+
+    private static string DisplayNumber(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name,
+        string? unit = null)
+    {
+        var setting = FindSetting(settings, name);
+        if (setting is null)
+        {
+            return "—";
+        }
+
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue
+            ? setting.DraftValue
+            : $"{value.ToString("N0", CultureInfo.InvariantCulture)}{(unit is null ? string.Empty : $" {unit}")}";
+    }
+}

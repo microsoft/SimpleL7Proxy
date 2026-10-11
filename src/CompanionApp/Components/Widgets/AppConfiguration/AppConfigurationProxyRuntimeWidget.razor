@@ -1,0 +1,66 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+@using System.Globalization
+@using SimpleL7Proxy.Config
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+@{
+    var settings = Settings.ToList();
+    var healthProbe = FindSetting(settings, "Sidecar");
+    var advancedCount = settings.Count(setting =>
+        setting.Name.Equals("GC2InternalSecs", StringComparison.OrdinalIgnoreCase)
+        || setting.Name.Equals("StreamFlushInterval", StringComparison.OrdinalIgnoreCase));
+}
+
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-gear-fill" ChangedCount="@settings.Count(setting => setting.IsChanged)"
+    IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit proxy runtime settings.")' OnSelected="OnSelected">
+    <SummaryContent>
+        <span class="proxy-configuration-summary">
+            <span class="proxy-configuration-description">Process settings, health reporting, and runtime behavior.</span>
+            <span class="proxy-configuration-summary-grid">
+                <span>Port</span><strong>@DisplayNumber(settings, "Port")</strong>
+                <span>Workers</span><strong>@DisplayNumber(settings, "Workers")</strong>
+                <span>Max queue length</span><strong>@DisplayNumber(settings, "MaxQueueLength")</strong>
+                <span>Max undrained events</span><strong>@DisplayNumber(settings, "MaxUndrainedEvents")</strong>
+                <span>Health probe</span>
+                <strong>
+                    <span class="proxy-configuration-status-dot @(healthProbe is not null && ProxyRuntimeEditor.HealthProbeEnabled(healthProbe) ? "is-enabled" : string.Empty)" aria-hidden="true"></span>
+                    @(healthProbe is not null && ProxyRuntimeEditor.HealthProbeEnabled(healthProbe) ? "Enabled" : "Disabled")
+                </strong>
+                <span>Grace period</span><strong>@DisplayNumber(settings, "TerminationGracePeriodSeconds", "sec")</strong>
+            </span>
+            <span class="proxy-configuration-summary-footer">Includes advanced runtime settings (@advancedCount).</span>
+        </span>
+    </SummaryContent>
+</AppConfigurationSectionWidget>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Proxy Runtime";
+    [Parameter] public IEnumerable<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string DisplayNumber(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name,
+        string? unit = null)
+    {
+        var setting = FindSetting(settings, name);
+        if (setting is null)
+        {
+            return "—";
+        }
+
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue
+            ? setting.DraftValue
+            : $"{value.ToString("N0", CultureInfo.InvariantCulture)}{(unit is null ? string.Empty : $" {unit}")}";
+    }
+}
