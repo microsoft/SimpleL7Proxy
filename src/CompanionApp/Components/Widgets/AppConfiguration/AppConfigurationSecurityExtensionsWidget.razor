@@ -12,16 +12,11 @@
     IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit security and extension settings.")' OnSelected="OnSelected">
     <SummaryContent>
         <span class="proxy-configuration-summary">
-            <span class="proxy-configuration-description">Backend connection security and extensibility.</span>
-            <span class="proxy-configuration-summary-grid">
-                <span>Validate backend certificates</span>
-                <strong>
-                    <span class="proxy-configuration-status-dot @(validateCertificates ? "is-enabled" : string.Empty)" aria-hidden="true"></span>
-                    @(validateCertificates ? "Enabled" : "Disabled")
-                </strong>
-                <span>Request preprocessor plugins</span><strong>@PluginSummary(settings)</strong>
+            <span class="proxy-configuration-description">Backend trust and custom request processing.</span>
+            <span class="proxy-configuration-summary-lines">
+                <span>Backend certificate validation @(validateCertificates ? "enabled" : "disabled")</span>
+                <span>@PluginSummary(settings)</span>
             </span>
-            <span class="proxy-configuration-summary-footer">Includes additional options (0).</span>
         </span>
     </SummaryContent>
 </AppConfigurationSectionWidget>
@@ -45,9 +40,9 @@
             .Length;
         return count switch
         {
-            0 => "None configured",
-            1 => "1 configured",
-            _ => $"{count} configured",
+            0 => "No request preprocessors configured",
+            1 => "1 request preprocessor configured",
+            _ => $"{count} request preprocessors configured",
         };
     }
 }

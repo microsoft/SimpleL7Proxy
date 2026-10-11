@@ -12,17 +12,12 @@
     IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit backend routing settings.")' OnSelected="OnSelected">
     <SummaryContent>
         <span class="proxy-configuration-summary">
-            <span class="proxy-configuration-description">Select, attempt, and communicate with backend targets.</span>
-            <span class="proxy-configuration-summary-grid">
-                <span>Backend iteration</span><strong>@DisplayIterationMode(iterationMode)</strong>
-                <span>Selection strategy</span><strong>@DisplaySelectionMode(FindSetting(settings, "Mode")?.DraftValue)</strong>
-                <span>Max attempts</span><strong>@(string.Equals(iterationMode, "MultiPass", StringComparison.OrdinalIgnoreCase) ? DisplayNumber(settings, "MultiPass:MaxAttempts") : "—")</strong>
-                <span>Poll interval</span><strong>@DisplayNumber(settings, "PollInterval", "ms")</strong>
-                <span>Poll timeout</span><strong>@DisplayNumber(settings, "PollTimeout", "ms")</strong>
-                <span>Shared iterator TTL</span><strong>@DisplayNumber(settings, "SharedIteratorTTLSeconds", "sec")</strong>
-                <span>Cleanup interval</span><strong>@DisplayNumber(settings, "SharedIteratorCleanupIntervalSeconds", "sec")</strong>
+            <span class="proxy-configuration-description">How backend targets are selected and attempted.</span>
+            <span class="proxy-configuration-summary-lines">
+                <span>@DisplayIterationMode(iterationMode) · @DisplaySelectionMode(FindSetting(settings, "Mode")?.DraftValue)</span>
+                <span>Poll every @DisplayMillisecondsAsSeconds(settings, "PollInterval") · @DisplayMillisecondsAsSeconds(settings, "PollTimeout") timeout</span>
+                <span>Shared iterator TTL @DisplayNumber(settings, "SharedIteratorTTLSeconds", "sec")</span>
             </span>
-            <span class="proxy-configuration-summary-footer">Includes additional routing options (0).</span>
         </span>
     </SummaryContent>
 </AppConfigurationSectionWidget>
@@ -47,10 +42,12 @@
 
     private static string DisplaySelectionMode(string? value) => value?.ToLowerInvariant() switch
     {
-        "timetofirstbyte" => "Time to first byte",
-        "roundrobin" => "Round robin",
-        "prioritygroup" => "Priority group",
-        _ => string.IsNullOrWhiteSpace(value) ? "—" : value,
+        "latency" => "Latency-based selection",
+        "timetofirstbyte" => "Time-to-first-byte selection",
+        "roundrobin" => "Round-robin selection",
+        "prioritygroup" => "Priority-group selection",
+        "random" => "Random selection",
+        _ => string.IsNullOrWhiteSpace(value) ? "—" : $"{value} selection",
     };
 
     private static string DisplayNumber(
@@ -71,5 +68,24 @@
         return value == int.MinValue
             ? setting.DraftValue
             : $"{value.ToString("N0", CultureInfo.InvariantCulture)}{(unit is null ? string.Empty : $" {unit}")}";
+    }
+
+    private static string DisplayMillisecondsAsSeconds(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name)
+    {
+        var setting = FindSetting(settings, name);
+        if (setting is null)
+        {
+            return "—";
+        }
+
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue
+            ? $"{setting.DraftValue} ms"
+            : $"{(value / 1000m).ToString("0.###", CultureInfo.InvariantCulture)} sec";
     }
 }

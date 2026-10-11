@@ -349,7 +349,7 @@
     align-content: start;
     align-items: center;
     gap: 0.75rem;
-    min-height: 26rem;
+    min-height: 13rem;
     padding: 1rem 1rem 1.25rem;
 }
 
@@ -393,62 +393,22 @@
 }
 
 :where(.app-configuration-page) .proxy-configuration-description {
-    min-height: 2.5rem;
-    margin-bottom: 0.75rem;
+    min-height: 2.25rem;
+    margin-bottom: 0.65rem;
     color: #38558b;
     font-size: 0.82rem;
+    font-style: italic;
     line-height: 1.45;
 }
 
-:where(.app-configuration-page) .proxy-configuration-summary-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.6rem 0.75rem;
-    padding: 0.85rem 0;
-    border-top: 1px solid #e4eaf3;
-    font-size: 0.82rem;
-}
-
-:where(.app-configuration-page) .proxy-configuration-summary-grid > span {
-    min-width: 0;
-    color: #38558b;
-    overflow-wrap: anywhere;
-}
-
-:where(.app-configuration-page) .proxy-configuration-summary-grid > strong {
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-start;
-    justify-self: end;
-    gap: 0.35rem;
-    max-width: 100%;
-    padding: 0.25rem 0.55rem;
-    border-radius: 5px;
-    background: #eef2f8;
+:where(.app-configuration-page) .proxy-configuration-summary-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    color: #1d2f5f;
+    font-size: 0.88rem;
     font-weight: 500;
-    overflow-wrap: anywhere;
-    text-align: right;
-}
-
-:where(.app-configuration-page) .proxy-configuration-status-dot {
-    width: 0.5rem;
-    height: 0.5rem;
-    flex: 0 0 auto;
-    border-radius: 50%;
-    background: #8395b3;
-}
-
-:where(.app-configuration-page) .proxy-configuration-status-dot.is-enabled {
-    background: #0d6efd;
-}
-
-:where(.app-configuration-page) .proxy-configuration-summary-footer {
-    margin-top: auto;
-    padding-top: 0.85rem;
-    border-top: 1px solid #e4eaf3;
-    color: #6b7da5;
-    font-size: 0.75rem;
+    line-height: 1.45;
 }
 
 :where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-badge {
