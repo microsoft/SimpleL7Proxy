@@ -359,11 +359,7 @@
                             }
                             else if (IsHeaderPolicySection)
                             {
-                                @if (_selectedHeaderPolicySet is null)
-                                {
-                                    <span class="small text-muted">Control headers accepted from clients, forwarded to backends, and returned to clients.</span>
-                                }
-                                else
+                                @if (_selectedHeaderPolicySet is not null)
                                 {
                                     <span class="small">
                                         <strong class="d-block">@HeaderPolicyEditor.HeaderSetTitle(_selectedHeaderPolicySet)</strong>

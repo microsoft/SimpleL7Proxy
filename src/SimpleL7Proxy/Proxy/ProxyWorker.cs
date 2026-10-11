@@ -45,8 +45,6 @@ public class ProxyWorker : IConfigChangeSubscriber
     private static List<string> s_backendKeys = [];
     private static FrozenSet<string> s_stripRequestHeaders = FrozenSet.Create<string>();
     private static FrozenSet<string> s_stripResponseHeaders = FrozenSet.Create<string>();
-
-    private bool detectModel = false;
     
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     // private readonly string _timeoutHeaderName;
@@ -82,8 +80,6 @@ public class ProxyWorker : IConfigChangeSubscriber
             // options => options.Workers,    COLD
             options => options.AsyncTimeout,
             options => options.AsyncTriggerTimeout,
-            options => options.DependancyHeaders,
-            options => options.DetectModel,
             options => options.IterationMode,
             options => options.LoadBalanceMode,
             options => options.MaxAttempts,
@@ -102,7 +98,6 @@ public class ProxyWorker : IConfigChangeSubscriber
         s_backendKeys = _options.DependancyHeaders;
         s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        detectModel = _options.DetectModel;
     }
 
     /// <summary>
@@ -152,7 +147,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 if (pr.Headers["Request-Queue-Duration"] is { } queueDuration) context.Response.Headers["Request-Queue-Duration"] = queueDuration;
                 if (pr.Headers["Request-Process-Duration"] is { } processDuration) context.Response.Headers["Request-Process-Duration"] = processDuration;
                 if (pr.Headers["Total-Latency"] is { } totalLatency) context.Response.Headers["Total-Latency"] = totalLatency;
-                if (detectModel && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
+                if (_options.TokenomicsEnable && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
                 if (pr.Headers["x-backend-label"] is { } backendLabel) request.EventData["x-backend-label"] = backendLabel;
             }
 

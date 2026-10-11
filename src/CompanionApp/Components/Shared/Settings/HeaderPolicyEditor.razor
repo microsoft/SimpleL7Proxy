@@ -32,42 +32,14 @@
     {
         <div class="header-policy-info" role="note">
             <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
-            <div>
-                <p>Headers control what metadata is accepted, added, removed, or forwarded between clients and backends. Use the sections below to configure your header policy.</p>
-                <a href="https://github.com/microsoft/SimpleL7Proxy/blob/main/docs/reference/configuration.md"
-                   target="_blank" rel="noopener noreferrer">
-                    Learn more <span class="bi bi-box-arrow-up-right" aria-hidden="true"></span>
-                </a>
-            </div>
+            <p>Configure how headers are validated, removed, forwarded, and captured by the proxy.</p>
         </div>
 
         <section class="header-policy-section" aria-labelledby="header-policy-flow-heading">
             <h3 id="header-policy-flow-heading">Header flow</h3>
-            <div class="header-policy-flow" role="img" aria-label="Client headers enter the proxy, are forwarded to the backend, and response headers return through the proxy to the client.">
-                <div class="header-policy-flow-row">
-                    <div class="header-policy-flow-node">
-                        <strong>Client</strong>
-                        <span>Incoming headers</span>
-                    </div>
-                    <span class="bi bi-arrow-right header-policy-flow-arrow" aria-hidden="true"></span>
-                    <div class="header-policy-flow-node header-policy-flow-node-active">
-                        <strong>Proxy</strong>
-                        <span>Validate, add, remove</span>
-                    </div>
-                    <span class="bi bi-arrow-right header-policy-flow-arrow" aria-hidden="true"></span>
-                    <div class="header-policy-flow-node">
-                        <strong>Backend</strong>
-                        <span>Forwarded headers</span>
-                    </div>
-                </div>
-                <div class="header-policy-return-flow">
-                    <span class="bi bi-arrow-return-left" aria-hidden="true"></span>
-                    <div class="header-policy-flow-node">
-                        <strong>Response</strong>
-                        <span>Headers to client</span>
-                    </div>
-                    <span class="bi bi-arrow-return-left" aria-hidden="true"></span>
-                </div>
+            <div class="header-policy-flow-image">
+                <img src="images/azure/flow.png"
+                     alt="Header policy flow showing incoming header checks, request processing through the proxy and backend, response-header filtering, and the HTTP 417 rejection path." />
             </div>
         </section>
 
@@ -128,10 +100,6 @@
             <ConfigurationFields Settings="proxyHeaderSettings" OnChanged="OnChanged" />
         </section>
 
-        <div class="header-policy-info header-policy-info-compact" role="note">
-            <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
-            <p>Choose a summary card to configure the headers in that policy set.</p>
-        </div>
     }
     else if (isValidationHeaderSet)
     {
@@ -391,25 +359,15 @@
     .header-policy-info, .header-set-info { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1rem; padding: 0.85rem 1rem; border: 1px solid #86b7fe; border-radius: 6px; background: #e8f2ff; color: #38558b; }
     .header-policy-info > .bi, .header-set-info > .bi { flex: 0 0 auto; margin-top: 0.1rem; color: #0d6efd; font-size: 1.35rem; }
     .header-policy-info p, .header-set-info p { margin: 0; }
-    .header-policy-info > div p { margin-bottom: 0.35rem; }
-    .header-policy-info a { font-weight: 600; }
-    .header-policy-info-compact { margin: 0.25rem 0 0; }
     .header-policy-section { padding: 0.25rem 0 1rem; }
     .header-policy-section + .header-policy-section { padding-top: 1rem; border-top: 1px solid #dce5f2; }
     .header-policy-section > h3, .header-policy-section-heading h3 { margin: 0 0 0.75rem; color: #071c61; font-size: 1.05rem; font-weight: 700; }
     .header-policy-section-heading { margin-bottom: 0.75rem; }
     .header-policy-section-heading h3 { margin-bottom: 0; }
     .header-policy-section-heading p { margin: 0.2rem 0 0; color: #596c96; font-size: 0.82rem; }
-    .header-policy-flow { padding: 0.85rem; border: 1px solid #dce5f2; border-radius: 6px; background: #fbfcff; }
-    .header-policy-flow-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.75rem; }
-    .header-policy-flow-node { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 0.65rem; border: 1px solid #d8e0ed; border-radius: 6px; background: #fff; text-align: center; }
-    .header-policy-flow-node strong { font-size: 0.88rem; }
-    .header-policy-flow-node span { margin-top: 0.15rem; color: #596c96; font-size: 0.76rem; }
-    .header-policy-flow-node-active { border-color: #5aa2ff; background: #eef6ff; }
-    .header-policy-flow-arrow { color: #1683ff; font-size: 1.25rem; }
-    .header-policy-return-flow { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 0.85rem; color: #1683ff; }
-    .header-policy-return-flow .header-policy-flow-node { min-width: 10rem; color: #071c61; }
-    .header-policy-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.65rem; }
+    .header-policy-flow-image { overflow-x: auto; border: 1px solid #dce5f2; border-radius: 8px; background: #fbfcff; }
+    .header-policy-flow-image img { display: block; width: 100%; min-width: 42.5rem; height: auto; }
+    .header-policy-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0.65rem; }
     .header-policy-summary-card { display: flex; flex-direction: column; min-width: 0; padding: 0.75rem; border: 1px solid #dce5f2; border-radius: 6px; background: #f8faff; color: inherit; text-align: left; cursor: pointer; }
     .header-policy-summary-card:hover { border-color: #86b7fe; background: #eef6ff; }
     .header-policy-summary-card:focus-visible { outline: 3px solid rgba(13, 110, 253, 0.3); outline-offset: 2px; }
@@ -463,9 +421,6 @@
     .validation-rule-link:hover { text-decoration: underline; }
     .validation-rule-link:focus-visible { outline: 3px solid rgba(13, 110, 253, 0.3); outline-offset: 2px; }
     @@media (max-width: 767.98px) {
-        .header-policy-flow-row { grid-template-columns: minmax(0, 1fr); }
-        .header-policy-flow-arrow { transform: rotate(90deg); justify-self: center; }
-        .header-policy-return-flow > .bi { display: none; }
         .header-policy-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .header-set-form-grid { grid-template-columns: minmax(0, 1fr); }
         .header-validation-layout { grid-template-columns: minmax(0, 1fr); }

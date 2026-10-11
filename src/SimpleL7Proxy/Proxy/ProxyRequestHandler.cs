@@ -395,7 +395,7 @@ public partial class ProxyRequestHandler
                         statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
-                        _options.DetectModel ? incomingRequest.Model ?? "N/A" : "-",
+                        _options.TokenomicsEnable ? incomingRequest.Model ?? "N/A" : "-",
                         pr.StreamingProcessor,
                         conlen,
                         incomingRequest.DequeueTime.ToLocalTime(),
