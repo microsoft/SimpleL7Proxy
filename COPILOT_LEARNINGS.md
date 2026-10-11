@@ -186,3 +186,4 @@
 - Dependency headers are diagnostic field selectors for failed backend attempts; they are not added to or forwarded with backend requests. Header Policy diagrams and descriptions must keep that distinction explicit.
 - When the user provides an existing diagram asset, use that asset directly instead of recreating it in HTML/CSS unless the user explicitly requests a native implementation.
 - App Configuration section rules can remap `Security:*` settings into the Server UI group. Virtual-group predicates for stable settings such as `IgnoreSSLCert` must recognize the setting name/key rather than assuming `setting.Section` remains `Security`.
+- Keep WSL validation commands passed through PowerShell short. Run Git checks and Windows-path cleanup verification separately instead of combining Bash status variables and nested quoted messages in one `bash -lc` argument.

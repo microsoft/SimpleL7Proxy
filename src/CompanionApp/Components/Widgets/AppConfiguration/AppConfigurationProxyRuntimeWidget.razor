@@ -5,7 +5,6 @@
 
 @{
     var settings = Settings.ToList();
-    var healthProbe = FindSetting(settings, "Sidecar");
 }
 
 <AppConfigurationSectionWidget Section="@Section" Icon="bi-gear-fill" ChangedCount="@settings.Count(setting => setting.IsChanged)"
@@ -15,8 +14,7 @@
             <span class="proxy-configuration-description">Process capacity and health reporting.</span>
             <span class="proxy-configuration-summary-lines">
                 <span>Port @DisplayNumber(settings, "Port") · @DisplayWorkers(settings)</span>
-                <span>Queue @DisplayCompactNumber(settings, "MaxQueueLength") · Health probe @(healthProbe is not null && ProxyRuntimeEditor.HealthProbeEnabled(healthProbe) ? "enabled" : "disabled")</span>
-                <span>@DisplayNumber(settings, "TerminationGracePeriodSeconds", "sec") graceful shutdown</span>
+                <span>Queue @DisplayCompactNumber(settings, "MaxQueueLength")</span>
             </span>
         </span>
     </SummaryContent>

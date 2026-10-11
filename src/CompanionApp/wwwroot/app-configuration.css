@@ -338,7 +338,7 @@
 }
 
 :where(.app-configuration-page) .config-proxy-section-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-bottom: 0;
 }
 
@@ -460,7 +460,8 @@
     margin-bottom: 0.75rem;
 }
 
-:where(.app-configuration-page) .proxy-settings-section-heading h3 {
+:where(.app-configuration-page) .proxy-settings-section-heading h3,
+:where(.app-configuration-page) .proxy-settings-section-heading h4 {
     margin: 0;
     color: #071c61;
     font-size: 1.05rem;
@@ -526,6 +527,88 @@
     min-height: 2.4rem;
     padding-top: 0.35rem;
     padding-left: 3rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-section {
+    padding-bottom: 0;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-panel {
+    overflow: hidden;
+    border: 1px solid #dce5f2;
+    border-radius: 8px;
+    background: #f5f7fb;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-panel.is-expanded {
+    border-color: #b8d4ff;
+    background: #edf3fc;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.08);
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #071c61;
+    text-align: left;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible:hover {
+    background: rgba(255, 255, 255, 0.45);
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible:focus-visible {
+    outline: 3px solid rgba(13, 110, 253, 0.25);
+    outline-offset: -3px;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-panel.is-expanded .proxy-settings-collapsible {
+    border-bottom: 1px solid #d5e2f3;
+    border-radius: 7px 7px 0 0;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible strong,
+:where(.app-configuration-page) .proxy-settings-collapsible small {
+    display: block;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible strong {
+    font-size: 1.05rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible small {
+    margin-top: 0.2rem;
+    color: #596c96;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible > .bi {
+    flex: 0 0 auto;
+    color: #0d6efd;
+    transition: transform 160ms ease;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible > .bi.is-expanded {
+    transform: rotate(180deg);
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-group + .proxy-settings-advanced-group {
+    padding-top: 1rem;
+    border-top: 1px solid #dce5f2;
 }
 
 @media (max-width: 991.98px) {

@@ -4,7 +4,6 @@
     var groups = Groups.ToList();
     var proxyRuntimeSettings = GroupSettings(groups, "Proxy Runtime");
     var backendRoutingSettings = GroupSettings(groups, "Backend Routing");
-    var securityExtensionsSettings = GroupSettings(groups, "Security & Extensions");
 }
 
 <div class="config-section-grid config-proxy-section-grid" hidden="@IsHidden" aria-label="Proxy configuration">
@@ -12,8 +11,6 @@
         OnSelected="@(() => OnSelected.InvokeAsync("Proxy Runtime"))" @key='"Proxy Runtime"' />
     <AppConfigurationBackendRoutingWidget Settings="backendRoutingSettings" IsLoading="IsLoading"
         OnSelected="@(() => OnSelected.InvokeAsync("Backend Routing"))" @key='"Backend Routing"' />
-    <AppConfigurationSecurityExtensionsWidget Settings="securityExtensionsSettings" IsLoading="IsLoading"
-        OnSelected="@(() => OnSelected.InvokeAsync("Security & Extensions"))" @key='"Security & Extensions"' />
 </div>
 
 <div class="config-section-grid" hidden="@IsHidden">
@@ -101,5 +98,5 @@
     }
 
     private static bool IsProxyConfigurationGroup(string name) =>
-        name.ToLowerInvariant() is "proxy runtime" or "backend routing" or "security & extensions";
+        name.ToLowerInvariant() is "proxy runtime" or "backend routing";
 }

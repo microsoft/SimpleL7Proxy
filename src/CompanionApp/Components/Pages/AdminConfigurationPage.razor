@@ -251,7 +251,6 @@
         <div class="config-section-grid config-proxy-section-grid" aria-label="Proxy configuration sections loading">
             <AppConfigurationProxyRuntimeWidget IsLoading="true" />
             <AppConfigurationBackendRoutingWidget IsLoading="true" />
-            <AppConfigurationSecurityExtensionsWidget IsLoading="true" />
         </div>
         <div class="config-section-grid" aria-label="Configuration sections loading">
             @foreach (var section in new[] {
@@ -341,10 +340,6 @@
                                 {
                                     <span class="bi bi-diagram-3-fill fs-4 text-primary" aria-hidden="true"></span>
                                 }
-                                else if (IsSecurityExtensionsSection)
-                                {
-                                    <span class="bi bi-shield-fill-check fs-4 text-primary" aria-hidden="true"></span>
-                                }
                                 <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
                                 @if (SelectedSection != "Local change review")
                                 {
@@ -352,7 +347,7 @@
                                         ? "Request"
                                         : IsBackendResilienceSection
                                             ? "CircuitBreaker"
-                                        : IsProxyRuntimeSection || IsSecurityExtensionsSection
+                                        : IsProxyRuntimeSection
                                             ? "Server"
                                         : IsBackendRoutingSection
                                             ? "LoadBalancing"
@@ -360,7 +355,7 @@
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
                                     || (SelectedSection.ToLowerInvariant() is "backend resilience" or "backend routing" or "identity & access" or "proxy runtime"
-                                        or "request" or "response" or "security & extensions" or "server"
+                                        or "request" or "response" or "server"
                                         && SelectedSettings.Any(setting => RequiresRestart(setting.Mode))))
                                 {
                                     <span class='badge @(SelectedSettings.Any(setting => setting.IsChanged && RequiresRestart(setting.Mode)) ? "text-bg-warning" : "text-bg-light")'
@@ -409,10 +404,6 @@
                             {
                                 <span class="small text-muted">Select, attempt, and communicate with backend targets.</span>
                             }
-                            else if (IsSecurityExtensionsSection)
-                            {
-                                <span class="small text-muted">Configure backend connection security and extensibility.</span>
-                            }
                             else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
                             {
                                 <span class="small text-muted">@SelectedSettings.Count settings</span>
@@ -451,8 +442,7 @@
                             && !IsRequestProcessingSection
                             && !IsHeaderPolicySection
                             && !IsProxyRuntimeSection
-                            && !IsBackendRoutingSection
-                            && !IsSecurityExtensionsSection)
+                            && !IsBackendRoutingSection)
                         {
                             <ConfigurationExplanation Section="@SelectedSection" />
                         }
@@ -495,10 +485,6 @@
                         else if (IsBackendRoutingSection)
                         {
                             <BackendRoutingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
-                        }
-                        else if (IsSecurityExtensionsSection)
-                        {
-                            <SecurityExtensionsEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (IsHealthProbeSection)
                         {
@@ -699,8 +685,6 @@
             ? "Proxy Runtime"
             : BackendRoutingEditor.IsBackendRoutingSetting(setting)
                 ? "Backend Routing"
-            : SecurityExtensionsEditor.IsSecurityExtensionsSetting(setting)
-                ? "Security & Extensions"
             : string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)
             ? "Identity & Access"
             : HeaderPolicyEditor.IsHeaderPolicySetting(setting)
@@ -970,8 +954,6 @@
                 ? Settings.Where(ProxyRuntimeEditor.IsProxyRuntimeSetting).ToList()
             : IsBackendRoutingSection
                 ? Settings.Where(BackendRoutingEditor.IsBackendRoutingSetting).ToList()
-            : IsSecurityExtensionsSection
-                ? Settings.Where(SecurityExtensionsEditor.IsSecurityExtensionsSetting).ToList()
             : string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
                 ? Settings.Where(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)).ToList()
                 : IsHeaderPolicySection
@@ -985,7 +967,6 @@
                             && !BackendResilienceEditor.IsBackendResilienceSetting(setting)
                             && !ProxyRuntimeEditor.IsProxyRuntimeSetting(setting)
                             && !BackendRoutingEditor.IsBackendRoutingSetting(setting)
-                            && !SecurityExtensionsEditor.IsSecurityExtensionsSetting(setting)
                             && (!string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase)
                                 || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
     }
@@ -1006,9 +987,6 @@
 
     private bool IsBackendRoutingSection =>
         string.Equals(SelectedSection, "Backend Routing", StringComparison.OrdinalIgnoreCase);
-
-    private bool IsSecurityExtensionsSection =>
-        string.Equals(SelectedSection, "Security & Extensions", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsHealthProbeSectionName(string section) =>
         string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);
