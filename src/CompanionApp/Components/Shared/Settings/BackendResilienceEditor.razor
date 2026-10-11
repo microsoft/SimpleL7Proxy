@@ -1,0 +1,278 @@
+@namespace CompanionApp.Components.Shared
+@using System.Globalization
+
+@{
+    var acceptableStatusCodesSetting = FindSetting(Settings, "AcceptableStatusCodes");
+    var errorThresholdSetting = FindSetting(Settings, "ErrorThreshold");
+    var successRateSetting = FindSetting(Settings, "SuccessRate");
+    var timesliceSetting = FindSetting(Settings, "Timeslice");
+    var statusCodes = ParseStatusCodes(acceptableStatusCodesSetting?.DraftValue);
+    var hasInvalidStatusCodes = acceptableStatusCodesSetting is not null
+        && !HasValidStatusCodes(acceptableStatusCodesSetting.DraftValue);
+}
+
+<div class="backend-resilience-editor">
+    <div class="backend-resilience-info" role="note">
+        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+        <p>These settings determine which backend responses are accepted and when unhealthy backends stop receiving traffic.</p>
+    </div>
+
+    <section class="backend-resilience-section" aria-labelledby="backend-response-status-codes">
+        <div class="backend-resilience-section-heading">
+            <div class="config-setting-heading">
+                <h3 id="backend-response-status-codes">Accepted backend status codes</h3>
+                @if (acceptableStatusCodesSetting is not null)
+                {
+                    <ConfigurationHelp Section="Response" Topic="@acceptableStatusCodesSetting.Name" />
+                }
+            </div>
+            <p>Responses with these status codes are considered successful when communicating with backends.</p>
+        </div>
+
+        @if (acceptableStatusCodesSetting is not null)
+        {
+            <div class="backend-status-code-field @(acceptableStatusCodesSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                <div class="backend-status-code-list" role="list" aria-label="Accepted backend status codes">
+                    @foreach (var statusCode in statusCodes)
+                    {
+                        <span class="backend-status-code" role="listitem" @key="statusCode">
+                            <span>@statusCode</span>
+                            <button type="button" disabled="@(statusCodes.Count <= 1)"
+                                    title="@(statusCodes.Count <= 1 ? "At least one accepted status code is required." : $"Remove {statusCode}")"
+                                    aria-label="@($"Remove status code {statusCode}")"
+                                    @onclick="() => RemoveStatusCodeAsync(acceptableStatusCodesSetting, statusCode)">
+                                <span class="bi bi-x" aria-hidden="true"></span>
+                            </button>
+                        </span>
+                    }
+                </div>
+                <select class="form-select backend-status-code-select" value=""
+                        aria-label="Add an accepted backend status code"
+                        @onchange="@(args => AddStatusCodeAsync(acceptableStatusCodesSetting, args.Value?.ToString()))">
+                    <option value="">Add a status code...</option>
+                    @foreach (var statusCode in StatusCodeOptions)
+                    {
+                        if (!statusCodes.Contains(statusCode))
+                        {
+                            <option value="@statusCode">@statusCode</option>
+                        }
+                    }
+                </select>
+            </div>
+            @if (hasInvalidStatusCodes)
+            {
+                <div class="text-danger small mt-2" role="alert">
+                    Accepted status codes must be comma-separated integers from 100 through 599.
+                </div>
+            }
+        }
+    </section>
+
+    <section class="backend-resilience-section" aria-labelledby="backend-circuit-breaker">
+        <div class="backend-resilience-section-heading">
+            <h3 id="backend-circuit-breaker">Circuit breaker</h3>
+            <p>Stop sending requests to backends that exceed the configured failure threshold.</p>
+        </div>
+
+        <div class="backend-resilience-field-grid">
+            @if (errorThresholdSetting is not null)
+            {
+                <div class="backend-resilience-field @(errorThresholdSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@errorThresholdSetting.Key">Failure threshold</label>
+                        <ConfigurationHelp Section="CircuitBreaker" Topic="@errorThresholdSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@errorThresholdSetting.Key" class="form-control" type="number" min="1" step="1"
+                               value="@errorThresholdSetting.DraftValue"
+                               @oninput="@(args => SetSettingValueAsync(errorThresholdSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">failures</span>
+                    </div>
+                    <p>Open the circuit when this many failures occur during the evaluation window.</p>
+                </div>
+            }
+
+            @if (successRateSetting is not null)
+            {
+                <div class="backend-resilience-field @(successRateSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@successRateSetting.Key">Success threshold</label>
+                        <ConfigurationHelp Section="CircuitBreaker" Topic="@successRateSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@successRateSetting.Key" class="form-control" type="number" min="0" max="100" step="1"
+                               value="@successRateSetting.DraftValue"
+                               @oninput="@(args => SetSettingValueAsync(successRateSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">%</span>
+                    </div>
+                    <p>Keep monitored backends active when their health-probe success rate reaches this percentage.</p>
+                </div>
+            }
+
+            @if (timesliceSetting is not null)
+            {
+                <div class="backend-resilience-field backend-resilience-field-wide @(timesliceSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@timesliceSetting.Key">Evaluation window</label>
+                        <ConfigurationHelp Section="CircuitBreaker" Topic="@timesliceSetting.Name" />
+                    </div>
+                    <div class="input-group">
+                        <input id="@timesliceSetting.Key" class="form-control" type="number" min="1" step="1"
+                               value="@timesliceSetting.DraftValue"
+                               @oninput="@(args => SetSettingValueAsync(timesliceSetting, args.Value?.ToString()))" />
+                        <span class="input-group-text">seconds</span>
+                    </div>
+                    <p>Time period over which backend failures are counted.</p>
+                </div>
+            }
+        </div>
+    </section>
+
+    <div class="backend-resilience-info backend-resilience-info-compact" role="note">
+        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+        <p>Open circuits close automatically when failures age out of the evaluation window. The success threshold separately controls health-based backend eligibility.</p>
+    </div>
+</div>
+
+<style>
+    .backend-resilience-editor { color: #071c61; }
+    .backend-resilience-info { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1rem; padding: 0.85rem 1rem; border: 1px solid #86b7fe; border-radius: 6px; background: #e8f2ff; color: #38558b; }
+    .backend-resilience-info > .bi { flex: 0 0 auto; margin-top: 0.1rem; color: #0d6efd; font-size: 1.35rem; }
+    .backend-resilience-info p { margin: 0; }
+    .backend-resilience-info-compact { margin: 0; font-size: 0.82rem; }
+    .backend-resilience-section { padding: 0.25rem 0 1rem; }
+    .backend-resilience-section + .backend-resilience-section { padding-top: 1rem; border-top: 1px solid #dce5f2; }
+    .backend-resilience-section-heading { margin-bottom: 0.75rem; }
+    .backend-resilience-section-heading .config-setting-heading { justify-content: flex-start; gap: 0.45rem; }
+    .backend-resilience-section-heading h3 { margin: 0; color: #071c61; font-size: 1.05rem; font-weight: 700; }
+    .backend-resilience-section-heading p { margin: 0.2rem 0 0; color: #596c96; font-size: 0.82rem; }
+    .backend-status-code-field { overflow: hidden; border: 1px solid #cbdcf1; border-radius: 6px; background: #fff; }
+    .backend-status-code-list { display: flex; flex-wrap: wrap; gap: 0.4rem; min-height: 3rem; padding: 0.65rem; }
+    .backend-status-code { display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.25rem 0.3rem 0.25rem 0.5rem; border-radius: 5px; background: #e9eef6; color: #38558b; font-size: 0.8rem; font-weight: 600; }
+    .backend-status-code button { display: inline-grid; width: 1.15rem; height: 1.15rem; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #7182a6; place-items: center; }
+    .backend-status-code button:hover:not(:disabled) { background: rgba(56, 85, 139, 0.12); color: #071c61; }
+    .backend-status-code button:disabled { opacity: 0.45; }
+    .backend-status-code-select { border: 0; border-top: 1px solid #dce5f2; border-radius: 0; color: #596c96; box-shadow: none; }
+    .backend-status-code-select:focus { border-color: #86b7fe; box-shadow: inset 0 0 0 1px #86b7fe; }
+    .backend-resilience-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+    .backend-resilience-field { min-width: 0; padding: 0.75rem; border-radius: 6px; background: #f5f7fb; box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.05); }
+    .backend-resilience-field-wide { grid-column: 1 / -1; }
+    .backend-resilience-field .config-setting-heading { justify-content: flex-start; gap: 0.4rem; margin-bottom: 0.4rem; }
+    .backend-resilience-field .config-setting-heading label { margin: 0; color: #38558b; font-size: 0.78rem; font-weight: 600; }
+    .backend-resilience-field .input-group-text { min-width: 4.75rem; justify-content: center; color: #38558b; font-size: 0.78rem; }
+    .backend-resilience-field > p { margin: 0.35rem 0 0; color: #596c96; font-size: 0.75rem; }
+    .backend-status-code-field.config-field-changed, .backend-resilience-field.config-field-changed { background: rgba(255, 204, 0, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.18); }
+
+    @@media (max-width: 767.98px) {
+        .backend-resilience-field-grid { grid-template-columns: minmax(0, 1fr); }
+        .backend-resilience-field-wide { grid-column: auto; }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private static readonly int[] StatusCodeOptions = Enumerable.Range(100, 500).ToArray();
+
+    public static bool IsBackendResilienceSetting(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(setting.Section, "Response", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(setting.Name, "AcceptableStatusCodes", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(setting.Section, "CircuitBreaker", StringComparison.OrdinalIgnoreCase)
+            && setting.Name.ToLowerInvariant() is "errorthreshold" or "successrate" or "timeslice";
+
+    public static string Summary(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var settingsList = settings.ToList();
+        var statusCodeCount = ParseStatusCodes(FindSetting(settingsList, "AcceptableStatusCodes")?.DraftValue).Count;
+        var failureThreshold = FindSetting(settingsList, "ErrorThreshold")?.DraftValue;
+        var successRate = FindSetting(settingsList, "SuccessRate")?.DraftValue;
+        var timeslice = FindSetting(settingsList, "Timeslice")?.DraftValue;
+
+        if (statusCodeCount == 0
+            && string.IsNullOrWhiteSpace(failureThreshold)
+            && string.IsNullOrWhiteSpace(successRate)
+            && string.IsNullOrWhiteSpace(timeslice))
+        {
+            return "Not configured";
+        }
+
+        return $"{statusCodeCount} accepted · {failureThreshold ?? "?"} failures/{timeslice ?? "?"}s · {successRate ?? "?"}% health";
+    }
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static List<int> ParseStatusCodes(string? value) =>
+        SplitStatusCodeTokens(value)
+            .Select(token => int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode)
+                ? statusCode
+                : -1)
+            .Where(statusCode => statusCode is >= 100 and <= 599)
+            .Distinct()
+            .Order()
+            .ToList();
+
+    private static bool HasValidStatusCodes(string? value)
+    {
+        var tokens = SplitStatusCodeTokens(value);
+        return tokens.Count > 0
+            && tokens.All(token =>
+                int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode)
+                && statusCode is >= 100 and <= 599);
+    }
+
+    private static List<string> SplitStatusCodeTokens(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        if (normalized.StartsWith('[') && normalized.EndsWith(']'))
+        {
+            normalized = normalized[1..^1];
+        }
+
+        return normalized
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(token => token.Trim('"'))
+            .ToList();
+    }
+
+    private async Task AddStatusCodeAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode)
+            || statusCode is < 100 or > 599)
+        {
+            return;
+        }
+
+        var statusCodes = ParseStatusCodes(setting.DraftValue);
+        if (!statusCodes.Contains(statusCode))
+        {
+            statusCodes.Add(statusCode);
+            SetStatusCodes(setting, statusCodes);
+            await OnChanged.InvokeAsync();
+        }
+    }
+
+    private async Task RemoveStatusCodeAsync(AppConfigurationScaffoldSetting setting, int statusCode)
+    {
+        var statusCodes = ParseStatusCodes(setting.DraftValue);
+        if (statusCodes.Count <= 1 || !statusCodes.Remove(statusCode))
+        {
+            return;
+        }
+
+        SetStatusCodes(setting, statusCodes);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static void SetStatusCodes(AppConfigurationScaffoldSetting setting, IEnumerable<int> statusCodes) =>
+        setting.DraftValue = string.Join(',', statusCodes.Distinct().Order());
+
+    private async Task SetSettingValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+}

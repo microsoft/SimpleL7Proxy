@@ -6,6 +6,7 @@
     var timeoutSetting = FindSetting(Settings, "DefaultTimeout");
     var ttlSetting = FindSetting(Settings, "DefaultTTLSecs");
     var defaultPrioritySetting = FindSetting(Settings, "Priority:DefaultPriority");
+    var greedyUserThresholdSetting = FindSetting(Settings, "Priority:GreedyUserThreshold");
     var priorityKeysSetting = FindSetting(Settings, "Priority:PriorityKeys");
     var priorityValuesSetting = FindSetting(Settings, "Priority:PriorityValues");
     var priorityWorkerSetting = FindSetting(Settings, "Priority:PriorityWorker");
@@ -21,6 +22,12 @@
             new Dictionary<string, string> { ["value"] = ttlSetting.DraftValue },
             "value",
             -1L);
+    var greedyUserThresholdValue = greedyUserThresholdSetting is null
+        ? -1f
+        : ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = greedyUserThresholdSetting.DraftValue },
+            "value",
+            -1f);
     var priorityRows = BuildPriorityRows(Settings);
     var mappedPriorities = priorityRows
         .Where(row => int.TryParse(row.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
@@ -82,7 +89,7 @@
 
     <section class="request-processing-section request-processing-priority-section" aria-labelledby="request-processing-priorities">
         <div class="request-processing-section-heading">
-            <h3 id="request-processing-priorities">Request Prioritization</h3>
+            <h3 id="request-processing-priorities">Priority management</h3>
             <p>Control how request priorities are determined and mapped to internal values.</p>
         </div>
         <div class="request-processing-field-grid">
@@ -105,6 +112,22 @@
                             <option value="@row.Value">@PriorityOptionLabel(row)</option>
                         }
                     </select>
+                </div>
+            }
+            @if (greedyUserThresholdSetting is not null)
+            {
+                <div class="request-processing-field @(greedyUserThresholdSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                    <div class="config-setting-heading">
+                        <label for="@greedyUserThresholdSetting.Key">Greedy user threshold</label>
+                        <ConfigurationHelp Section="Request" Topic="@greedyUserThresholdSetting.Name" />
+                    </div>
+                    <div class="request-processing-value-with-unit">
+                        <input id="@greedyUserThresholdSetting.Key" class="form-control" type="number" min="0" max="1" step="0.01"
+                               value="@(greedyUserThresholdValue >= 0 ? greedyUserThresholdValue.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty)"
+                               @oninput="@(args => SetSettingValueAsync(greedyUserThresholdSetting, args.Value?.ToString()))" />
+                        <span>@PercentageLabel(greedyUserThresholdValue)</span>
+                    </div>
+                    <div class="small text-muted mt-2">Maximum active-request share before a user loses the queue fairness boost. Set to 0 to disable.</div>
                 </div>
             }
         </div>
@@ -256,6 +279,7 @@
             "defaulttimeout"
             or "defaultttlsecs"
             or "priority:defaultpriority"
+            or "priority:greedyuserthreshold"
             or "priority:prioritykeys"
             or "priority:priorityvalues"
             or "priority:priorityworker";
@@ -265,14 +289,22 @@
         var settingsList = settings.ToList();
         var timeout = FindSetting(settingsList, "DefaultTimeout")?.DraftValue;
         var ttl = FindSetting(settingsList, "DefaultTTLSecs")?.DraftValue;
+        var greedyUserThreshold = ReadGreedyUserThreshold(
+            FindSetting(settingsList, "Priority:GreedyUserThreshold")?.DraftValue);
         var priorityCount = SplitCsv(FindSetting(settingsList, "Priority:PriorityKeys")?.DraftValue).Count;
 
-        if (string.IsNullOrWhiteSpace(timeout) && string.IsNullOrWhiteSpace(ttl) && priorityCount == 0)
+        if (string.IsNullOrWhiteSpace(timeout)
+            && string.IsNullOrWhiteSpace(ttl)
+            && greedyUserThreshold < 0
+            && priorityCount == 0)
         {
             return "Not configured";
         }
 
-        return $"timeout {ShortDurationLabel(timeout, milliseconds: true)} · TTL {ShortDurationLabel(ttl, milliseconds: false)} · {priorityCount} {(priorityCount == 1 ? "priority" : "priorities")}";
+        var greedyUserSummary = greedyUserThreshold >= 0
+            ? $" · {(greedyUserThreshold * 100).ToString("0.##", CultureInfo.InvariantCulture)}% user threshold"
+            : string.Empty;
+        return $"timeout {ShortDurationLabel(timeout, milliseconds: true)} · TTL {ShortDurationLabel(ttl, milliseconds: false)} · {priorityCount} {(priorityCount == 1 ? "priority" : "priorities")}{greedyUserSummary}";
     }
 
     private static AppConfigurationScaffoldSetting? FindSetting(
@@ -380,6 +412,17 @@
 
     private static string ParenthesizedDuration(double amount, string unit) =>
         $"({amount.ToString("0.###", CultureInfo.InvariantCulture)} {unit}{(amount == 1 ? string.Empty : "s")})";
+
+    private static float ReadGreedyUserThreshold(string? value) =>
+        ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = value ?? string.Empty },
+            "value",
+            -1f);
+
+    private static string PercentageLabel(float value) =>
+        value < 0
+            ? string.Empty
+            : $"({(value * 100).ToString("0.##", CultureInfo.InvariantCulture)}%)";
 
     private static string ShortDurationLabel(string? value, bool milliseconds)
     {

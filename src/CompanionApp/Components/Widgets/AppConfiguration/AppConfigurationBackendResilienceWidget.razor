@@ -3,7 +3,7 @@
 
 <AppConfigurationSectionWidget Section="@Section" Icon="bi-shield-fill-check" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
     IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit backend resilience settings.")' OnSelected="OnSelected">
-    <SummaryContent><span class="config-box-meta">Dummy value</span></SummaryContent>
+    <SummaryContent><span class="config-box-meta">@BackendResilienceEditor.Summary(Settings)</span></SummaryContent>
 </AppConfigurationSectionWidget>
 
 @code {

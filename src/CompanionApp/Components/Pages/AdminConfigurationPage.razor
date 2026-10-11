@@ -250,14 +250,13 @@
     {
         <div class="config-section-grid" aria-label="Configuration sections loading">
             @foreach (var section in new[] {
-                (Name: "Async", Icon: "bi-gear-fill"), (Name: "CircuitBreaker", Icon: "bi-shield-fill"),
+                (Name: "Async", Icon: "bi-gear-fill"),
                 (Name: "Backend Resilience", Icon: "bi-shield-fill-check"),
                 (Name: "HealthProbe", Icon: "bi-activity"), (Name: "Hosts", Icon: "bi-database-fill"),
                 (Name: "Header Policy", Icon: "bi-file-earmark-text-fill"),
                 (Name: "Identity & Access", Icon: "bi-shield-check"), (Name: "LoadBalancing", Icon: "bi-diagram-3-fill"),
                 (Name: "Logging", Icon: "bi-file-earmark-text-fill"), (Name: "Request", Icon: "bi-arrow-left-right"),
-                (Name: "Request Processing", Icon: "bi-cpu-fill"),
-                (Name: "Response", Icon: "bi-arrow-return-left"), (Name: "Server", Icon: "bi-hdd-stack-fill")
+                (Name: "Request Processing", Icon: "bi-cpu-fill"), (Name: "Server", Icon: "bi-hdd-stack-fill")
             })
             {
                 <AppConfigurationSectionWidget Section="@(section.Name)" Icon="@(section.Icon)" IsLoading="true">
@@ -325,13 +324,17 @@
                                 {
                                     <span class="bi bi-arrow-left-right fs-4 text-primary" aria-hidden="true"></span>
                                 }
+                                else if (IsBackendResilienceSection)
+                                {
+                                    <span class="bi bi-shield-fill-check fs-4 text-primary" aria-hidden="true"></span>
+                                }
                                 <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
                                 @if (SelectedSection != "Local change review")
                                 {
-                                    <ConfigurationHelp Section="@(IsRequestProcessingSection || IsHeaderPolicySection ? "Request" : SelectedSection)" />
+                                    <ConfigurationHelp Section="@(IsRequestProcessingSection || IsHeaderPolicySection ? "Request" : IsBackendResilienceSection ? "CircuitBreaker" : SelectedSection)" />
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
-                                    || (SelectedSection.ToLowerInvariant() is "identity & access" or "request" or "response" or "server"
+                                    || (SelectedSection.ToLowerInvariant() is "backend resilience" or "identity & access" or "request" or "response" or "server"
                                         && SelectedSettings.Any(setting => RequiresRestart(setting.Mode))))
                                 {
                                     <span class='badge @(SelectedSettings.Any(setting => setting.IsChanged && RequiresRestart(setting.Mode)) ? "text-bg-warning" : "text-bg-light")'
@@ -372,9 +375,9 @@
                             {
                                 <span class="small text-muted">Configure timeouts and request prioritization.</span>
                             }
-                            else if (IsPlaceholderSection)
+                            else if (IsBackendResilienceSection)
                             {
-                                <span class="small text-muted">Dummy value</span>
+                                <span class="small text-muted">Define backend success criteria and protect the proxy from unhealthy dependencies.</span>
                             }
                             else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
                             {
@@ -455,6 +458,10 @@
                                 <HealthProbeEditor Setting="probe" OnChanged="StateHasChanged" />
                             }
                         }
+                        else if (IsBackendResilienceSection)
+                        {
+                            <BackendResilienceEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
                         else if (IsCircuitBreakerSection)
                         {
                             <CircuitBreakerEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
@@ -490,10 +497,6 @@
                         else if (string.Equals(SelectedSection, "Server", StringComparison.OrdinalIgnoreCase))
                         {
                             <ServerEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
-                        }
-                        else if (IsPlaceholderSection)
-                        {
-                            <p class="mb-0">Dummy value</p>
                         }
                         else
                         {
@@ -647,6 +650,8 @@
             ? "Identity & Access"
             : HeaderPolicyEditor.IsHeaderPolicySetting(setting)
                 ? "Header Policy"
+            : BackendResilienceEditor.IsBackendResilienceSetting(setting)
+                ? "Backend Resilience"
             : RequestProcessingEditor.IsRequestProcessingSetting(setting)
                 ? "Request Processing"
             : setting.Section, StringComparer.OrdinalIgnoreCase)
@@ -910,10 +915,13 @@
                 ? Settings.Where(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)).ToList()
                 : IsHeaderPolicySection
                     ? Settings.Where(HeaderPolicyEditor.IsHeaderPolicySetting).ToList()
+                    : IsBackendResilienceSection
+                        ? Settings.Where(BackendResilienceEditor.IsBackendResilienceSetting).ToList()
                     : IsRequestProcessingSection
                         ? Settings.Where(RequestProcessingEditor.IsRequestProcessingSetting).ToList()
                         : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)
                             && !HeaderPolicyEditor.IsHeaderPolicySetting(setting)
+                            && !BackendResilienceEditor.IsBackendResilienceSetting(setting)
                             && (!string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase)
                                 || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
     }
@@ -926,8 +934,8 @@
     private bool IsHeaderPolicySection =>
         string.Equals(SelectedSection, "Header Policy", StringComparison.OrdinalIgnoreCase);
 
-    private bool IsPlaceholderSection => SelectedSection?.ToLowerInvariant() is
-        "backend resilience";
+    private bool IsBackendResilienceSection =>
+        string.Equals(SelectedSection, "Backend Resilience", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsHealthProbeSectionName(string section) =>
         string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);

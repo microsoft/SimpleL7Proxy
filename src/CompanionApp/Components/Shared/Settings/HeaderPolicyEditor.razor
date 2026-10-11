@@ -12,6 +12,7 @@
     var uniqueUserHeaders = FindSetting(Settings, "Headers:UniqueUserHeaders");
     var strippedRequestHeaders = FindSetting(Settings, "StripRequestHeaders");
     var strippedResponseHeaders = FindSetting(Settings, "StripResponseHeaders");
+    var dependencyHeaders = FindSetting(Settings, "DependancyHeaders");
     var selectedHeaderSetting = string.IsNullOrWhiteSpace(SelectedHeaderSet)
         ? null
         : FindSetting(Settings, SelectedHeaderSet);
@@ -102,6 +103,12 @@
                     <span>Removed before client</span>
                     <strong>@CountValues(strippedResponseHeaders)</strong>
                     <small>Stripped from responses</small>
+                </button>
+                <button type="button" class="header-policy-summary-card" disabled="@(dependencyHeaders is null)"
+                        @onclick="() => OpenHeaderSetAsync(dependencyHeaders)">
+                    <span>Dependency headers</span>
+                    <strong>@CountValues(dependencyHeaders)</strong>
+                    <small>Captured for dependency events</small>
                 </button>
             </div>
         </section>
@@ -539,6 +546,7 @@
                 or "headers:ttlheader"
                 or "headers:uniqueuserheaders"
                 or "headers:validateheaders"
+                or "dependancyheaders"
                 or "requiredheaders"
                 or "striprequestheaders";
     }
@@ -553,7 +561,8 @@
             out _).Count;
         var requestStripped = CountValues(FindSetting(settingsList, "StripRequestHeaders"));
         var responseStripped = CountValues(FindSetting(settingsList, "StripResponseHeaders"));
-        return $"{required} required · {validated} validated · {blocked} blocked · {requestStripped} backend strip · {responseStripped} client strip";
+        var dependency = CountValues(FindSetting(settingsList, "DependancyHeaders"));
+        return $"{required} required · {validated} validated · {blocked} blocked · {requestStripped} backend strip · {responseStripped} client strip · {dependency} dependency";
     }
 
     public static string HeaderSetTitle(string? name) => name?.ToLowerInvariant() switch
@@ -563,6 +572,7 @@
         "disallowedheaders" => "Blocked headers",
         "striprequestheaders" => "Headers removed before backend",
         "stripresponseheaders" => "Headers removed before client",
+        "dependancyheaders" => "Dependency headers",
         _ => "Header set",
     };
 
@@ -573,6 +583,7 @@
         "disallowedheaders" => "Define client headers that the proxy removes from incoming requests.",
         "striprequestheaders" => "Define headers removed before a request is forwarded to a backend.",
         "stripresponseheaders" => "Define headers removed before a response is returned to the client.",
+        "dependancyheaders" => "Define backend fields preserved in dependency event records.",
         _ => "Configure the headers in this policy set.",
     };
 
@@ -582,6 +593,7 @@
         "disallowedheaders" => "Every header in this set is removed from the incoming request. Header names are case-insensitive.",
         "striprequestheaders" => "Every header in this set is removed before the request is forwarded to a backend. Header names are case-insensitive.",
         "stripresponseheaders" => "Every header in this set is removed before the response is returned to the client. Header names are case-insensitive.",
+        "dependancyheaders" => "Every field in this set is copied from failed backend attempts into dependency event records.",
         _ => "Header names are case-insensitive.",
     };
 
@@ -591,6 +603,7 @@
         "disallowedheaders" => "Remove from incoming request",
         "striprequestheaders" => "Remove before backend",
         "stripresponseheaders" => "Remove before client",
+        "dependancyheaders" => "Capture in dependency event",
         _ => "Apply header policy",
     };
 
