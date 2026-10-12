@@ -51,6 +51,8 @@ public class TokenomicsSettings
     /// <summary>Gets or sets model lists keyed by hierarchy prefix.</summary>
     public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public Dictionary<string, HashSet<string>> AllowedHosts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Gets or sets the action when abuse is detected.</summary>
     public TokenActionEnum AbuseDetectedAction { get; set; } = TokenActionEnum.Reject;
 
@@ -144,7 +146,7 @@ public class TokenomicsSettings
 
 
     /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
-    /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
+    /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Allowed hosts use repeated AllowedHosts=&lt;model&gt;=host1,host2 entries and accept commas or semicolons between hosts. Model names, hierarchy prefixes, and host names are URI-escaped.</remarks>
     public  bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
@@ -154,13 +156,15 @@ public class TokenomicsSettings
         var partStart = 0;
         var hierarchyBracketDepth = 0;
         var isModelHierarchyPart = false;
+        var isAllowedHostsPart = false;
 
         for (var index = 0; index < data.Length; index++) {
             var currentCharacter = data[index];
 
-            if (!isModelHierarchyPart && currentCharacter == '=') {
-                isModelHierarchyPart = data[partStart..index].Trim()
-                    .Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase);
+            if (!isModelHierarchyPart && !isAllowedHostsPart && currentCharacter == '=') {
+                var partKey = data[partStart..index].Trim();
+                isModelHierarchyPart = partKey.Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase);
+                isAllowedHostsPart = partKey.Equals(nameof(AllowedHosts), StringComparison.OrdinalIgnoreCase);
             }
 
             if (isModelHierarchyPart) {
@@ -176,7 +180,15 @@ public class TokenomicsSettings
             }
 
             var isSeparator = currentCharacter == ';';
-            if (currentCharacter == ',') {
+            if (isAllowedHostsPart && currentCharacter is ',' or ';') {
+                var nextPart = data.AsSpan(index + 1);
+                var nextSeparator = nextPart.IndexOfAny(',', ';');
+                if (nextSeparator >= 0) {
+                    nextPart = nextPart[..nextSeparator];
+                }
+
+                isSeparator = nextPart.IndexOf('=') > 0;
+            } else if (currentCharacter == ',') {
                 isSeparator = !isModelHierarchyPart || hierarchyBracketDepth == 0;
 
                 if (isSeparator && isModelHierarchyPart) {
@@ -203,6 +215,7 @@ public class TokenomicsSettings
             partStart = index + 1;
             hierarchyBracketDepth = 0;
             isModelHierarchyPart = false;
+            isAllowedHostsPart = false;
         }
 
         if (isModelHierarchyPart && hierarchyBracketDepth != 0) {
@@ -227,6 +240,27 @@ public class TokenomicsSettings
             }
 
             var (key, value) = new[] { part }.KVStringPairs().Single();
+
+            if (key.Equals(nameof(AllowedHosts), StringComparison.OrdinalIgnoreCase)) {
+                var modelAndHosts = new[] { value }.KVStringPairs();
+                if (modelAndHosts.Count != 1) {
+                    return false;
+                }
+
+                var (encodedModel, encodedHosts) = modelAndHosts.Single();
+                var model = Uri.UnescapeDataString(encodedModel);
+                if (string.IsNullOrWhiteSpace(model)) {
+                    return false;
+                }
+
+                var hosts = encodedHosts.Replace(';', ',')
+                    .ToListOfString()
+                    .Select(Uri.UnescapeDataString)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                AllowedHosts[model] = hosts;
+                continue;
+            }
 
             if (key.StartsWith(modelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
                 var model = Uri.UnescapeDataString(key[modelCostPrefix.Length..]);
@@ -444,7 +478,7 @@ public class TokenomicsSettings
         return true;
     }
 
-    /// <summary>Returns semicolon-separated key=value settings with period token limits and budgets, named actions, a clock-formatted delay, URI-escaped model names, model hierarchies, and invariant-culture numbers.</summary>
+    /// <summary>Returns semicolon-separated key=value settings with period token limits and budgets, named actions, a clock-formatted delay, URI-escaped model and host names, model hierarchies, allowed hosts, and invariant-culture numbers.</summary>
     public override string ToString() {
         var parts = new List<string>();
         foreach (var property in JsonSerializer.SerializeToElement(this, _serializerOptions).EnumerateObject()) {
@@ -483,6 +517,19 @@ public class TokenomicsSettings
                 var hierarchy = string.Join(", ", ModelHierarchy.Select(entry =>
                     $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
                 parts.Add($"{property.Name}={hierarchy}");
+            } else if (property.Name == nameof(AllowedHosts)) {
+                foreach (var allowedHosts in AllowedHosts) {
+                    if (string.IsNullOrWhiteSpace(allowedHosts.Key) ||
+                        allowedHosts.Value is null ||
+                        allowedHosts.Value.Any(string.IsNullOrWhiteSpace)) {
+                        throw new InvalidOperationException(
+                            $"{nameof(AllowedHosts)} model and host names cannot be null or whitespace.");
+                    }
+
+                    parts.Add(
+                        $"{property.Name}={Uri.EscapeDataString(allowedHosts.Key)}=" +
+                        string.Join(",", allowedHosts.Value.Select(Uri.EscapeDataString)));
+                }
             } else {
                 parts.Add($"{property.Name}={property.Value}");
             }

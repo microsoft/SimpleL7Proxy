@@ -287,6 +287,13 @@
     @if (_editingLabel && Settings.Count > 0)
     {
         var tokenomicsSettings = Settings.Where(setting => IsTokenomicsSectionName(setting.Section)).ToList();
+        var configuredHostNames = Settings
+            .Where(setting => string.Equals(setting.Section, "Hosts", StringComparison.OrdinalIgnoreCase))
+            .Select(setting => setting.DraftName.Trim())
+            .Where(name => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         <AppConfigurationSectionsWidget Groups="VisibleGroups" IsLoading="IsLoading" OnSelected="SelectSection" />
 
@@ -298,7 +305,8 @@
                         {
                             <ConfigurationExplanation Section="Tokenomics" />
                         }
-                        <TokenomicsEditor Settings="tokenomicsSettings" OnChanged="StateHasChanged" @key="Settings" />
+                        <TokenomicsEditor Settings="tokenomicsSettings" HostNames="configuredHostNames"
+                            OnChanged="StateHasChanged" @key="Settings" />
                     </fieldset>
                 </CascadingValue>
             </section>

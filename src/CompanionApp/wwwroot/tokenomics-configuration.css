@@ -91,6 +91,17 @@
 .tokenomics-configuration .tokenomics-routing-pane{ min-width: 0; }
 .tokenomics-configuration .tokenomics-routing-pane .config-newhost-grid{ grid-template-columns: minmax(0, 1fr); }
 .tokenomics-configuration .tokenomics-routing-pane .tokenomics-inline-action{ grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
+.tokenomics-configuration .tokenomics-host-routing{ margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #dce5f2; }
+.tokenomics-configuration .tokenomics-host-routing-heading{ display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+.tokenomics-configuration .tokenomics-host-routing-heading h4{ margin: 0; color: #071c61; font-size: 0.95rem; font-weight: 700; }
+.tokenomics-configuration .tokenomics-host-routing-heading p{ margin: 0.2rem 0 0; color: #596c96; font-size: 0.8rem; }
+.tokenomics-configuration .tokenomics-host-routing-grid{ display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.75rem; }
+.tokenomics-configuration .tokenomics-host-routing-field{ min-width: 0; padding: 0.75rem; border: 1px solid #e3eaf4; border-radius: 6px; background: #f5f7fb; }
+.tokenomics-configuration .tokenomics-host-routing-field.config-field-changed{ border-color: #f4cf67; background: #fff8dc; }
+.tokenomics-configuration .tokenomics-host-routing-field label{ display: block; margin-bottom: 0.4rem; color: #38558b; font-size: 0.8rem; font-weight: 650; overflow-wrap: anywhere; }
+.tokenomics-configuration .tokenomics-host-routing-field .form-select{ min-height: 4.75rem; }
+.tokenomics-configuration .tokenomics-host-routing-field small{ display: block; margin-top: 0.35rem; color: #596c96; font-size: 0.75rem; }
+.tokenomics-configuration .tokenomics-host-routing-empty{ margin: 0; padding: 0.85rem; border: 1px dashed #cbdcf1; border-radius: 6px; color: #596c96; background: #f8faff; font-size: 0.82rem; }
 .tokenomics-configuration .tokenomics-model-table{ min-width: 28rem; }
 .tokenomics-configuration .tokenomics-card-capacity .config-newhost-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 1600px) {

@@ -57,7 +57,11 @@ public sealed class TokenomicsReplayTests {
             MonthlyQuotaGovernanceAction = TokenActionEnum.Cap,
             HourlyQuotaExceededAction = TokenActionEnum.Throttle,
             HourlyBudgetExceededAction = TokenActionEnum.Reject,
-            HourlyBudgetEntitledTenantAction = TokenActionEnum.UpgradeModel
+            HourlyBudgetEntitledTenantAction = TokenActionEnum.UpgradeModel,
+            AllowedHosts = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase) {
+                ["gpt-4o"] = new HashSet<string>(["apim1", "apim2", "apim3"], StringComparer.OrdinalIgnoreCase),
+                ["gemini-3"] = new HashSet<string>(["apim4"], StringComparer.OrdinalIgnoreCase)
+            }
         };
 
         var serialized = source.ToString();
@@ -69,6 +73,8 @@ public sealed class TokenomicsReplayTests {
         StringAssert.Contains(serialized, "HourlyQuotaExceededAction=throttle");
         StringAssert.Contains(serialized, "HourlyBudgetExceededAction=reject");
         StringAssert.Contains(serialized, "HourlyBudgetEntitledTenantAction=upgradeModel");
+        StringAssert.Contains(serialized, "AllowedHosts=gpt-4o=");
+        StringAssert.Contains(serialized, "AllowedHosts=gemini-3=apim4");
 
         var parsed = new TokenomicsSettings();
         Assert.IsTrue(parsed.TryParse(serialized));
@@ -79,6 +85,20 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(source.HourlyQuotaExceededAction, parsed.HourlyQuotaExceededAction);
         Assert.AreEqual(source.HourlyBudgetExceededAction, parsed.HourlyBudgetExceededAction);
         Assert.AreEqual(source.HourlyBudgetEntitledTenantAction, parsed.HourlyBudgetEntitledTenantAction);
+        CollectionAssert.AreEquivalent(
+            source.AllowedHosts["gpt-4o"].ToArray(),
+            parsed.AllowedHosts["gpt-4o"].ToArray());
+        CollectionAssert.AreEquivalent(
+            source.AllowedHosts["gemini-3"].ToArray(),
+            parsed.AllowedHosts["gemini-3"].ToArray());
+
+        var semicolonSeparated = new TokenomicsSettings();
+        Assert.IsTrue(semicolonSeparated.TryParse(
+            "AllowedHosts=my-aunt-jane=apim-a;apim-b;DailyTokenLimit=25"));
+        CollectionAssert.AreEquivalent(
+            new[] { "apim-a", "apim-b" },
+            semicolonSeparated.AllowedHosts["my-aunt-jane"].ToArray());
+        Assert.AreEqual(25, semicolonSeparated.DailyTokenLimit);
     }
 
     [TestMethod]

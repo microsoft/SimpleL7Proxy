@@ -66,6 +66,7 @@
                 <Summary>
                     <span><strong>Default model:</strong> <span class="tokenomics-summary-model" title="@_options.DefaultModel">@(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)</span></span>
                     <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
+                    <span><strong>Host routing:</strong> @(_options.AllowedHosts.Count == 0 ? "No model hosts configured" : $"{_options.AllowedHosts.Count} {_options.AllowedHosts.Count switch { 1 => "model", _ => "models" }} · {_options.AllowedHosts.Values.Sum(hosts => hosts.Count)} host assignments")</span>
                     <span><strong>Fallback:</strong> @SummaryAction(_options.PreferredModelReplacementAction) when permitted · otherwise @FieldLabel(_options.PreferredModelUnavailableAction.ToString())</span>
                 </Summary>
             </TokenomicsModelRoutingSettingsWidget>
@@ -119,7 +120,11 @@
             else if (_expandedWidget == "routing")
             {
             <TokenomicsModelRoutingSettingsWidget NumericNames="@(NumericForTab("routing").Select(property => property.Name))"
-                ActionNames="@(ActionsForTab("routing").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
+                ActionNames="@(ActionsForTab("routing").Select(property => property.Name))" FieldContent="@(name => RenderField(name))"
+                Models="RoutingModels" HostNames="HostNames" AllowedHosts="_options.AllowedHosts"
+                LoadedAllowedHosts="_loadedOptions.AllowedHosts"
+                Error="@(_fieldErrors.TryGetValue(nameof(TokenomicsSettings.AllowedHosts), out var allowedHostsError) ? allowedHostsError : null)"
+                OnHostsChanged="SetAllowedHostsAsync" />
             }
             else if (_expandedWidget == "costs")
             {
@@ -156,6 +161,8 @@
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+
+    [Parameter] public IReadOnlyList<string> HostNames { get; set; } = Array.Empty<string>();
 
     [Parameter] public EventCallback OnChanged { get; set; }
 
@@ -213,6 +220,17 @@
 
     private bool RawOptionsChanged => OptionsSetting is { } setting
         && !string.Equals(_rawOptions, setting.DraftValue, StringComparison.Ordinal);
+
+    private IReadOnlyList<string> RoutingModels => _options.ModelHierarchy.Values
+        .SelectMany(models => models)
+        .Concat([_options.DefaultModel])
+        .Concat(_options.ModelCostPerToken.Keys)
+        .Concat(_options.AllowedHosts.Keys)
+        .Select(model => model.Trim())
+        .Where(model => model.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     private IEnumerable<ModelCostRow> FilteredModelCosts => _modelCosts
         .Where(ModelMatchesSearch)
@@ -485,6 +503,57 @@
 
             _modelSearch = string.Empty;
             _modelPage = 1;
+        }
+
+        CommitOptions();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetAllowedHostsAsync((string Model, ChangeEventArgs Args) change) {
+        var selectedHosts = change.Args.Value switch {
+            string[] values => values,
+            null => [],
+            _ => null
+        };
+        if (selectedHosts is null) {
+            _fieldErrors[nameof(TokenomicsSettings.AllowedHosts)] = "Select hosts from the configured host list.";
+            await OnChanged.InvokeAsync();
+            return;
+        }
+
+        var existingHosts = _options.AllowedHosts.TryGetValue(change.Model, out var currentHosts)
+            ? currentHosts
+            : [];
+        var selectableHosts = HostNames
+            .Concat(existingHosts)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var normalizedHosts = selectedHosts
+            .Select(host => host.Trim())
+            .Where(host => host.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (normalizedHosts.Any(host => !selectableHosts.Contains(host))) {
+            _fieldErrors[nameof(TokenomicsSettings.AllowedHosts)] = "Select hosts from the configured host list.";
+            await OnChanged.InvokeAsync();
+            return;
+        }
+
+        _fieldErrors.Remove(nameof(TokenomicsSettings.AllowedHosts));
+        if (normalizedHosts.Count == 0) {
+            _options.AllowedHosts.Remove(change.Model);
+        } else {
+            _options.AllowedHosts[change.Model] = normalizedHosts.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var matchesLoaded = _options.AllowedHosts.Count == _loadedOptions.AllowedHosts.Count
+            && _options.AllowedHosts.All(entry =>
+                _loadedOptions.AllowedHosts.TryGetValue(entry.Key, out var loadedHosts)
+                && entry.Value.SetEquals(loadedHosts));
+        if (matchesLoaded) {
+            _options.AllowedHosts = _loadedOptions.AllowedHosts.ToDictionary(
+                entry => entry.Key,
+                entry => new HashSet<string>(entry.Value, StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
         }
 
         CommitOptions();

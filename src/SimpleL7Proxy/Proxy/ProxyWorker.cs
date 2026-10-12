@@ -344,6 +344,64 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
         }
 
+        ReadOnlyMemory<byte> bodyBytes = ReadOnlyMemory<byte>.Empty;
+        if (matchingHostCount > 0)
+        {
+            // Avoid reading and evaluating a request that has already expired.
+            // The per-attempt check below remains necessary while failover is in progress.
+            _lifecycleManager.ValidateRequestNotExpired(request);
+
+            try
+            {
+                bool wasCached = false;
+                try
+                {
+                    bodyBytes = await request.CacheBodyAsync(out wasCached).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for path {Path}", request.Guid, modifiedPath);
+                    throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
+                }
+
+                if (_options.TokenomicsEnable && bodyBytes.Length > 0)
+                {
+                    // Parse and evaluate the request once, then reuse the transformed body for failover attempts.
+                    var parseResult = ModelSwapper.ParseModel(bodyBytes);
+                    request.WordCount = parseResult.WordCount;
+                    request.OriginalModel = parseResult.SourceModel ?? "unknown";
+                    request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
+                    request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
+
+                    request.S7PInputTokens = (int)((double)request.WordCount * .75);
+
+                    // Check what Tokenomics wants to do before selecting a backend.
+                    ModelOverrideEnum actionOverride = await _wrkCntxt.TokenomicsHandler.ProcessRequestAsync(request);
+
+                    if (request.Debug)
+                    {
+                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
+                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
+                    }
+
+                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
+
+                    if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
+                    }
+                }
+            }
+            catch (OutOfMemoryException oomEx)
+            {
+                _logger.LogCritical(oomEx, "Out of memory caching request body for {Guid}", request.Guid);
+                throw new ProxyErrorException(
+                    ProxyErrorException.ErrorType.ContentTooLarge,
+                    HttpStatusCode.InternalServerError,
+                    $"Request body too large to buffer: {oomEx.Message}");
+            }
+        }
+
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
@@ -396,51 +454,6 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 request.Headers.Set("Host", host.Hostname);
                 request.FullURL = host.Config.BuildDestinationUrl(modifiedPath);
-
-                requestState = "Cache Body";
-
-                // Read the body stream once and reuse it
-                ReadOnlyMemory<byte> bodyBytes;
-                bool wasCached = false;
-                try 
-                {
-                    bodyBytes = await request.CacheBodyAsync(out wasCached).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for {FullURL}", request.Guid, request.FullURL);
-                    throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
-                }
-
-                if (_options.TokenomicsEnable && bodyBytes.Length > 0)
-                {
-        
-                    // Parse the request...  [ ignores wasCached fix eventually]
-                    var parseResult = ModelSwapper.ParseModel(bodyBytes);
-                    request.WordCount = parseResult.WordCount;
-                    request.OriginalModel = parseResult.SourceModel ?? "unknown";
-                    request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
-                    request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
-
-                    request.S7PInputTokens = (int)((double)request.WordCount * .75);
-
-                    // Check what Tokenomics wants to do before working on the request.
-                    ModelOverrideEnum actionOverride = await _wrkCntxt.TokenomicsHandler.ProcessRequestAsync(request);
-                    
-                    if (request.Debug)
-                    {
-                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
-                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
-                    }
-
-                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
-
-                    if (request.Headers["S7PDEBUGBODY"] is {} debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
-                    }
-                }
-                
 
                 if (request.runAsync &&
                     !request.AsyncTriggered &&

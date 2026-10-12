@@ -21,6 +21,70 @@ else
                     @FieldContent(name)
                 }
             </div>
+            <section class="tokenomics-host-routing" aria-labelledby="tokenomics-host-routing-heading">
+                <div class="tokenomics-host-routing-heading">
+                    <div>
+                        <h4 id="tokenomics-host-routing-heading">Allowed hosts by model</h4>
+                        <p>Select the configured proxy hosts that can serve each known model.</p>
+                    </div>
+                </div>
+                @if (Models.Count == 0)
+                {
+                    <p class="tokenomics-host-routing-empty">Configure a default model, model hierarchy, or model price before assigning hosts.</p>
+                }
+                else
+                {
+                    <div class="tokenomics-host-routing-grid">
+                        @{
+                            var modelIndex = 0;
+                        }
+                        @foreach (var model in Models)
+                        {
+                            var selectId = $"tokenomics-allowed-hosts-{modelIndex++}";
+                            var selectedHosts = AllowedHosts.TryGetValue(model, out var configuredForModel)
+                                ? configuredForModel
+                                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            var loadedHosts = LoadedAllowedHosts.TryGetValue(model, out var loadedForModel)
+                                ? loadedForModel
+                                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            var availableHosts = HostNames
+                                .Concat(selectedHosts)
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .OrderBy(host => host, StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+                            var configuredHostSet = HostNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            var isChanged = !selectedHosts.SetEquals(loadedHosts);
+
+                            <div class="tokenomics-host-routing-field @(isChanged ? "config-field-changed" : null)">
+                                <label for="@selectId">@model</label>
+                                <select id="@selectId" class="form-select form-select-sm" multiple
+                                        size="@Math.Clamp(availableHosts.Count, 2, 5)"
+                                        disabled="@(availableHosts.Count == 0)"
+                                        @onchange="@(args => OnHostsChanged.InvokeAsync((model, args)))">
+                                    @if (availableHosts.Count == 0)
+                                    {
+                                        <option disabled>No hosts configured</option>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var host in availableHosts)
+                                        {
+                                            <option value="@host" selected="@selectedHosts.Contains(host)">
+                                                @host@(configuredHostSet.Contains(host) ? null : " (not currently configured)")
+                                            </option>
+                                        }
+                                    }
+                                </select>
+                                <small>@(selectedHosts.Count == 0 ? "No hosts selected" : $"{selectedHosts.Count} {(selectedHosts.Count == 1 ? "host" : "hosts")} selected")</small>
+                            </div>
+                        }
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <div class="text-danger small mt-2" role="alert">@Error</div>
+                }
+            </section>
             <div class="tokenomics-inline-actions tokenomics-cost-actions" aria-label="Model routing actions">
                 @foreach (var name in ActionNames)
                 {
@@ -36,6 +100,14 @@ else
     [Parameter] public IEnumerable<string> NumericNames { get; set; } = Array.Empty<string>();
     [Parameter] public IEnumerable<string> ActionNames { get; set; } = Array.Empty<string>();
     [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
+    [Parameter] public IReadOnlyList<string> Models { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyList<string> HostNames { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyDictionary<string, HashSet<string>> AllowedHosts { get; set; } =
+        new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public IReadOnlyDictionary<string, HashSet<string>> LoadedAllowedHosts { get; set; } =
+        new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback<(string Model, ChangeEventArgs Args)> OnHostsChanged { get; set; }
     [Parameter] public bool IsSummary { get; set; }
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public RenderFragment? Summary { get; set; }
