@@ -415,7 +415,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
             // If tokenomics is enabled, is this host on the list of supporting hosts for the requested model?
             // If the user has not defined any hosts, all hosts are considered supporting
-            if (_options.TokenomicsEnable && SupportingHosts.Count > 0 && !SupportingHosts.Contains(host.Host))
+            if (_options.TokenomicsEnable && SupportingHosts.Count > 0 && !SupportingHosts.Contains(host.HostKey))
             {
                 continue;
             }

@@ -286,6 +286,20 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             })
 
     def do_POST(self):
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            self.send_error(400, "Invalid Content-Length")
+            return
+
+        if content_length < 0:
+            self.send_error(400, "Invalid Content-Length")
+            return
+
+        request_body = self.rfile.read(content_length)
+        if MyHandler._debug_requests:
+            self._debug_request_body = request_body.decode('utf-8', errors='replace')
+
         self.do_GET()
         
     def do_GET(self):
@@ -467,11 +481,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
         
         if parsed_path.path == '/429error':
-            # Read the body
-            content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
-            request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
-            if MyHandler._debug_requests:
-                self._debug_request_body = request_body
             try:
                 retry_after_ms = max(1, int(query_params.get('retryAfterMs', ['10000'])[0]))
             except ValueError:
@@ -529,12 +538,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
                 
         if parsed_path.path == '/echo/requeueME':
-
-            # Read the body
-            content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
-            request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
-            if MyHandler._debug_requests:
-                self._debug_request_body = request_body
             body = b"Hello, world!"
             self.send_response(429)
             self.send_header("Content-Type", "text/plain")
