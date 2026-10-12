@@ -6,14 +6,12 @@
     var backendRoutingSettings = GroupSettings(groups, "Backend Routing");
 }
 
-<div class="config-section-grid config-proxy-section-grid" hidden="@IsHidden" aria-label="Proxy configuration">
+<div class="config-section-grid" hidden="@IsHidden" aria-label="Configuration sections">
     <AppConfigurationProxyRuntimeWidget Settings="proxyRuntimeSettings" IsLoading="IsLoading"
         OnSelected="@(() => OnSelected.InvokeAsync("Proxy Runtime"))" @key='"Proxy Runtime"' />
     <AppConfigurationBackendRoutingWidget Settings="backendRoutingSettings" IsLoading="IsLoading"
         OnSelected="@(() => OnSelected.InvokeAsync("Backend Routing"))" @key='"Backend Routing"' />
-</div>
 
-<div class="config-section-grid" hidden="@IsHidden">
     @foreach (var group in groups.Where(group =>
         !string.Equals(group.Key, "Tokenomics", StringComparison.OrdinalIgnoreCase)
         && !IsProxyConfigurationGroup(group.Key)))

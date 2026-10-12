@@ -260,7 +260,7 @@
 :where(.app-configuration-page) .config-section-box:focus-visible { outline: 3px solid #1976f3; outline-offset: 2px; }
 :where(.app-configuration-page) .config-section-box:disabled { opacity: 0.65; cursor: wait; }
 @media (min-width: 1200px) {
-    :where(.app-configuration-page) .config-section-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    :where(.app-configuration-page) .config-section-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 :where(.app-configuration-page) .config-section-box.is-changed {
@@ -335,11 +335,6 @@
 :where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-badge {
     grid-column: 1 / -1;
     grid-row: 3;
-}
-
-:where(.app-configuration-page) .config-proxy-section-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding-bottom: 0;
 }
 
 :where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) {
@@ -611,14 +606,7 @@
     border-top: 1px solid #dce5f2;
 }
 
-@media (max-width: 991.98px) {
-    :where(.app-configuration-page) .config-proxy-section-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
 @media (max-width: 767.98px) {
-    :where(.app-configuration-page) .config-proxy-section-grid,
     :where(.app-configuration-page) .proxy-settings-field-grid {
         grid-template-columns: minmax(0, 1fr);
     }

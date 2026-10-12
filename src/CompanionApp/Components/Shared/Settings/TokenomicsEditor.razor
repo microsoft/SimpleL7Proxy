@@ -10,6 +10,9 @@
         OnEnabledChanged="SetEnabledAsync" OnMetricsServerChanged="SetMetricsServer" OnChanged="NotifyChangedAsync"
         OnRevertEnabled="RevertEnabledAsync" OnRevertMetricsServer="RevertMetricsServerAsync" OnRevertOptions="RevertOptionsAsync" />
 
+@if (Enabled)
+{
+<div id="tokenomics-settings-content" class="tokenomics-settings-content">
 @if (OptionsSetting is { } optionsSetting)
 {
     @if (_parseError is not null)
@@ -145,6 +148,8 @@
         </div>
         <ConfigurationFields Settings="_unhandledSettings" OnChanged="OnChanged" />
     </section>
+}
+</div>
 }
 
 </div>
@@ -374,7 +379,11 @@
             return;
         }
 
-        setting.DraftValue = args.Value is bool enabled && enabled ? "true" : "false";
+        var enabled = args.Value is bool isChecked && isChecked;
+        setting.DraftValue = enabled ? "true" : "false";
+        if (!enabled) {
+            _expandedWidget = null;
+        }
         await OnChanged.InvokeAsync();
     }
 
@@ -384,6 +393,9 @@
         }
 
         setting.RevertDraft();
+        if (!Enabled) {
+            _expandedWidget = null;
+        }
         await OnChanged.InvokeAsync();
     }
 
