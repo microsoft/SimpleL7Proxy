@@ -3,7 +3,14 @@
 
 <AppConfigurationSectionWidget Section="@Section" Icon="bi-gear-fill" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
     IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? $"Edit {Section} settings.")' OnSelected="OnSelected">
-    <SummaryContent><span class="config-box-meta">@Settings.Count() settings</span></SummaryContent>
+    <SummaryContent>
+        <span class="config-box-meta">
+            Experimental · @(Settings.Any(setting =>
+                string.Equals(setting.Name, "Enabled", StringComparison.OrdinalIgnoreCase)
+                && bool.TryParse(setting.DraftValue, out var enabled)
+                && enabled) ? "Enabled" : "Disabled")
+        </span>
+    </SummaryContent>
 </AppConfigurationSectionWidget>
 
 @code {

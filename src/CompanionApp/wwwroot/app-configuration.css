@@ -239,7 +239,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.25rem;
-    justify-content: center;
+    justify-content: flex-start;
     min-height: 6rem;
     padding: 1rem;
     border: 1px solid #dce5f2;
@@ -255,8 +255,8 @@
     border-color: #86b7fe;
     box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
 }
-:where(.app-configuration-page) .config-box-icon { position: absolute; left: 1.1rem; top: 50%; transform: translateY(-50%); color: #1976f3; font-size: 1.8rem; }
-:where(.app-configuration-page) .config-box-chevron { position: absolute; right: 1.15rem; top: 50%; transform: translateY(-50%); color: #1976f3; font-size: 1rem; }
+:where(.app-configuration-page) .config-box-icon { position: absolute; left: 1.1rem; top: 1rem; color: #1976f3; font-size: 1.8rem; }
+:where(.app-configuration-page) .config-box-chevron { position: absolute; right: 1.15rem; top: 1.25rem; color: #1976f3; font-size: 1rem; }
 :where(.app-configuration-page) .config-section-box:focus-visible { outline: 3px solid #1976f3; outline-offset: 2px; }
 :where(.app-configuration-page) .config-section-box:disabled { opacity: 0.65; cursor: wait; }
 @media (min-width: 1200px) {
