@@ -141,9 +141,7 @@ public sealed class PerRequestHostIterator : BaseIterator
         {
             HostOrder.Latency => hosts.OrderBy(host => host.AverageLatency()).ToList(),          // as measured by the probe
             HostOrder.TimeToFirstByte => hosts.OrderBy(host => host.TimeToFirstByteMs).ToList(), // as measured by the requests
-            HostOrder.PriorityGroup => hosts                                                     // based on the configured priority group
-                .OrderBy(host => host.Config.PriorityGroup)
-                .ToList(),
+            HostOrder.PriorityGroup => OrderByPriorityGroupRandomInGroup(hosts),
             _ => new List<BaseHostHealth>(hosts)
         };
 
@@ -153,11 +151,40 @@ public sealed class PerRequestHostIterator : BaseIterator
         return orderedHosts;
     }
 
-    private static void Shuffle<T>(List<T> items)
+    /// <summary>
+    /// Lowest priority group first; Fisher–Yates shuffle inside each group.
+    /// Group order is the failover strategy; randomness is only among peers.
+    /// </summary>
+    private static List<BaseHostHealth> OrderByPriorityGroupRandomInGroup(List<BaseHostHealth> hosts)
     {
-        for (var index = items.Count - 1; index > 0; index--)
+        var orderedHosts = new List<BaseHostHealth>(hosts);
+        if (orderedHosts.Count <= 1)
+            return orderedHosts;
+
+        orderedHosts.Sort((left, right) => left.Config.PriorityGroup.CompareTo(right.Config.PriorityGroup));
+
+        var start = 0;
+        while (start < orderedHosts.Count)
         {
-            var swapIndex = Random.Shared.Next(index + 1);
+            var group = orderedHosts[start].Config.PriorityGroup;
+            var end = start + 1;
+            while (end < orderedHosts.Count && orderedHosts[end].Config.PriorityGroup == group)
+                end++;
+
+            ShuffleRange(orderedHosts, start, end);
+            start = end;
+        }
+
+        return orderedHosts;
+    }
+
+    private static void Shuffle<T>(List<T> items) => ShuffleRange(items, 0, items.Count);
+
+    private static void ShuffleRange<T>(List<T> items, int start, int endExclusive)
+    {
+        for (var index = endExclusive - 1; index > start; index--)
+        {
+            var swapIndex = Random.Shared.Next(start, index + 1);
             (items[index], items[swapIndex]) = (items[swapIndex], items[index]);
         }
     }

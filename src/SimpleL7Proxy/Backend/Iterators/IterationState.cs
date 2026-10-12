@@ -29,4 +29,11 @@ public sealed class IterationState
     internal int TotalAttempts { get; set; }
     internal BaseHostHealth? AvailableCircuitBreakerHost { get; set; }
     internal IReadOnlyList<BaseHostHealth>? CircuitBreakerHosts { get; set; }
+
+    /// <summary>
+    /// Optional per-request host filter applied in <see cref="BaseIterator.TryGet"/> after
+    /// path/group ordering and before the circuit-breaker check. Null means accept every
+    /// candidate. Set after model parse; do not bake this into the iterator snapshot.
+    /// </summary>
+    internal Func<BaseHostHealth, bool>? AcceptHost { get; set; }
 }

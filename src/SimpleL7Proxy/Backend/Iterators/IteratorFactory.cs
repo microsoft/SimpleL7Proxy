@@ -64,7 +64,11 @@ public static class IteratorFactory
             modifiedPath);
     }
 
-    private static List<BaseHostHealth> ResolveHosts(
+    /// <summary>
+    /// Path-matches hosts for one request, then filters by request priority.
+    /// Specific-path hosts win over catch-all. Does not apply priority-group ordering.
+    /// </summary>
+    internal static List<BaseHostHealth> ResolveHosts(
         IEndpointMonitorService backendService,
         string requestPath,
         int requestPriority,
@@ -85,14 +89,18 @@ public static class IteratorFactory
             requestPath);
         modifiedPath = path;
 
-        if (requestPriority != Constants.AnyPriority)
+        if (requestPriority == Constants.AnyPriority)
+            return filteredHosts;
+
+        var acceptedHosts = new List<BaseHostHealth>(filteredHosts.Count);
+        for (var index = 0; index < filteredHosts.Count; index++)
         {
-            filteredHosts = filteredHosts
-                .Where(host => host.Config.AcceptsPriority(requestPriority))
-                .ToList();
+            var host = filteredHosts[index];
+            if (host.Config.AcceptsPriority(requestPriority))
+                acceptedHosts.Add(host);
         }
 
-        return filteredHosts;
+        return acceptedHosts;
     }
 
     private static (List<BaseHostHealth> Hosts, string ModifiedPath) FilterHostsByPath(
@@ -100,21 +108,35 @@ public static class IteratorFactory
         List<BaseHostHealth> catchAllHosts,
         string requestPath)
     {
-        var matchedHosts = specificHosts
-            .Where(host => !host.Config.IsSpinningDown)
-            .Select(host => (Host: host, Match: host.Config.SupportsPath(requestPath)))
-            .Where(candidate => candidate.Match.IsMatch)
-            .ToList();
+        List<BaseHostHealth>? matchedHosts = null;
+        string? strippedPath = null;
 
-        if (matchedHosts.Count > 0)
+        for (var index = 0; index < specificHosts.Count; index++)
         {
-            return (
-                matchedHosts.Select(candidate => candidate.Host).ToList(),
-                matchedHosts[0].Match.StrippedPath);
+            var host = specificHosts[index];
+            if (host.Config.IsSpinningDown)
+                continue;
+
+            var match = host.Config.SupportsPath(requestPath);
+            if (!match.IsMatch)
+                continue;
+
+            matchedHosts ??= new List<BaseHostHealth>();
+            strippedPath ??= match.StrippedPath;
+            matchedHosts.Add(host);
         }
 
-        return (
-            catchAllHosts.Where(host => !host.Config.IsSpinningDown).ToList(),
-            requestPath);
+        if (matchedHosts != null)
+            return (matchedHosts, strippedPath!);
+
+        var catchAllMatchedHosts = new List<BaseHostHealth>(catchAllHosts.Count);
+        for (var index = 0; index < catchAllHosts.Count; index++)
+        {
+            var host = catchAllHosts[index];
+            if (!host.Config.IsSpinningDown)
+                catchAllMatchedHosts.Add(host);
+        }
+
+        return (catchAllMatchedHosts, requestPath);
     }
 }
