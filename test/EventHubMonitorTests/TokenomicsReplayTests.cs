@@ -102,6 +102,67 @@ public sealed class TokenomicsReplayTests {
     }
 
     [TestMethod]
+    public void Settings_InvalidPart_DoesNotMutateExistingValues() {
+        var settings = new TokenomicsSettings {
+            DailyTokenLimit = 25
+        };
+        settings.AllowedHosts["gpt-4o"] = new HashSet<string>(["apim1"], StringComparer.OrdinalIgnoreCase);
+
+        Assert.IsFalse(settings.TryParse("DailyTokenLimit=50;NotARealProperty=1"));
+        Assert.AreEqual(25, settings.DailyTokenLimit);
+        CollectionAssert.AreEquivalent(
+            new[] { "apim1" },
+            settings.AllowedHosts["gpt-4o"].ToArray());
+    }
+
+    [TestMethod]
+    public void Settings_NestedFormats_RoundTrip() {
+        var source = new TokenomicsSettings {
+            DelayDuration = 1250,
+            ModelCostPerToken = {
+                ["gpt-4o"] = new ModelTokenPricing { Input = 1.1m, CachedInput = 0.2m, Output = 3.3m }
+            },
+            ModelHierarchy = {
+                ["gpt"] = ["gpt-4o", "gpt-4o-mini"]
+            }
+        };
+
+        var parsed = new TokenomicsSettings();
+        Assert.IsTrue(parsed.TryParse(source.ToString()));
+        Assert.AreEqual(1250, parsed.DelayDuration);
+        Assert.AreEqual(1.1m, parsed.ModelCostPerToken["gpt-4o"].Input);
+        Assert.AreEqual(0.2m, parsed.ModelCostPerToken["gpt-4o"].CachedInput);
+        Assert.AreEqual(3.3m, parsed.ModelCostPerToken["gpt-4o"].Output);
+        CollectionAssert.AreEqual(
+            new[] { "gpt-4o", "gpt-4o-mini" },
+            parsed.ModelHierarchy["gpt"]);
+    }
+
+    [TestMethod]
+    public void Settings_DelayDuration_ParsesSuffixesAndClock() {
+        var milliseconds = new TokenomicsSettings();
+        Assert.IsTrue(milliseconds.TryParse("DelayDuration=1500ms"));
+        Assert.AreEqual(1500, milliseconds.DelayDuration);
+
+        var seconds = new TokenomicsSettings();
+        Assert.IsTrue(seconds.TryParse("DelayDuration=2s"));
+        Assert.AreEqual(2000, seconds.DelayDuration);
+
+        var clock = new TokenomicsSettings();
+        Assert.IsTrue(clock.TryParse("DelayDuration=01:02:003"));
+        Assert.AreEqual(62003, clock.DelayDuration);
+    }
+
+    [TestMethod]
+    public void Settings_LegacyModelCost_TreatsScalarAsOutputPrice() {
+        var parsed = new TokenomicsSettings();
+        Assert.IsTrue(parsed.TryParse("ModelCostPerToken.gpt-4o=5"));
+        Assert.AreEqual(0m, parsed.ModelCostPerToken["gpt-4o"].Input);
+        Assert.AreEqual(0m, parsed.ModelCostPerToken["gpt-4o"].CachedInput);
+        Assert.AreEqual(5m, parsed.ModelCostPerToken["gpt-4o"].Output);
+    }
+
+    [TestMethod]
     public async Task LivePipeline_SkipsMalformedSummaries_AndAggregatesValidRecordsAcrossBatches() {
         using var store = new TokenomicsDashboardStore();
         var clock = new ReplayClock();

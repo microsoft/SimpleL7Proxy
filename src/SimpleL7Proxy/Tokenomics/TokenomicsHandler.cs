@@ -70,6 +70,20 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         return 0m;
     }
 
+    static readonly HashSet<string> EmptySupportingHosts = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> SupportingHosts(string model)
+    {
+        if (Settings.AllowedHosts.Count == 0)   return EmptySupportingHosts;
+
+        if (Settings.AllowedHosts.TryGetValue(model, out var supportingHosts) &&
+            supportingHosts is not null)
+        {
+            return supportingHosts;
+        }
+
+        return EmptySupportingHosts;
+    }
+
     public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
     {
         TokenomicsCondition c = await new TokenomicsCondition().CreateAsync(data, Settings, LiveMetrics, Queue);

@@ -316,10 +316,10 @@ public class ProxyWorker : IConfigChangeSubscriber
         int intCode = 0;
         bool ttlExpired = false;
 
-        // Read the body stream once and reuse it
-        //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
+        // Get a list of hosts that COULD potentially fullfill the request.  
+        // If tokenomics are enabled, we'll filter by model later
         var (iterator, iterationState, modifiedPath) = CreateHostIterator(request);
 
         // Use the host count from the already-created iterator 
@@ -343,6 +343,8 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
         }
 
+        // Read the body stream once and reuse it
+        //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         ReadOnlyMemory<byte> bodyBytes = ReadOnlyMemory<byte>.Empty;
         if (matchingHostCount > 0)
         {
@@ -401,12 +403,23 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
         }
 
+
+        var SupportingHosts = _wrkCntxt.TokenomicsHandler.SupportingHosts(request.Model);
+
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
         BaseHostHealth? host;
         while (iterator.TryGet(iterationState, out host) && host != null)
         {
+
+            // If tokenomics is enabled, is this host on the list of supporting hosts for the requested model?
+            // If the user has not defined any hosts, all hosts are considered supporting
+            if (_options.TokenomicsEnable && SupportingHosts.Count > 0 && !SupportingHosts.Contains(host.Host))
+            {
+                continue;
+            }
+
             DateTime proxyStartDate = DateTime.UtcNow;
 
             // track the number of attempts
@@ -1101,30 +1114,61 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// Creates a host iterator for routing requests to backend hosts, paired with the
     /// per-request <see cref="IterationState"/> that <see cref="IHostIterator"/> uses for
     /// pass/repeat control (SinglePass vs MultiPass, MaxAttempts) and circuit-breaker skip/
-    /// all-open handling.
-    /// Path match runs first. If the matched candidates use priority groups, groups are
-    /// exhausted in order with a random peer order inside each group. Shared circular
-    /// iterators are used only when this request's candidates are homogeneous group-1
-    /// hosts with no acceptable-priority filter. A later model filter can be attached to
-    /// <see cref="IterationState.AcceptHost"/> after body parse — do not rebuild the iterator.
+    /// all-open handling. Uses shared iterators (fair distribution across concurrent requests)
+    /// or per-request iterators based on configuration.
     /// </summary>
     /// <returns>The ready-to-use iterator, its per-request state, and the modified path for this request.</returns>
     private (IHostIterator iterator, IterationState state, string modifiedPath) CreateHostIterator(RequestData request)
     {
+        string modifiedPath = "";
         IHostIterator iterator;
         int maxAttempts = _options.MaxAttempts;
         var iterationMode = request.IterationMode;
 
         var routeMatch = _backends.MatchRoute(request.Path);
-        List<BaseHostHealth> candidates;
-        string modifiedPath;
+        var usesPriorityRouting = routeMatch != null ||
+            _backends.GetHosts().Any(host =>
+                host.Config.PriorityGroup != 1 || host.Config.AcceptablePriorities.Count > 0);
 
-        if (routeMatch != null)
+        // Latency/TTFB re-rank hosts per request using live health metrics — a shared iterator
+        // freezes the order at first creation and cycles it circularly forever, silently
+        // degrading them to round-robin. Only fairness-only, order-agnostic modes may share.
+        var loadBalanceModeSupportsSharing =
+            _options.LoadBalanceMode is Constants.RoundRobin or Constants.Random;
+
+        if (_options.UseSharedIterators && _wrkCntxt.SharedIteratorRegistry != null &&
+            !usesPriorityRouting && loadBalanceModeSupportsSharing)
         {
-            candidates = routeMatch.Value.Route.GetCandidateHosts(request.Priority);
+            // Use shared iterator - multiple requests to same path share the same iterator
+            // The modifiedPath is stored on the iterator itself, so we don't need a second filtering call
+            var sharedIterator = _wrkCntxt.SharedIteratorRegistry.GetOrCreate(
+                request.Path,
+                () => IteratorFactory.CreateSharedHostSnapshot(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    request.Priority));
+
+            // Read modifiedPath from the shared iterator (computed once, cached)
+            modifiedPath = sharedIterator.ModifiedPath;
+            iterator = sharedIterator;
+
+            _logger.LogDebug(
+                "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
+                request.Guid, request.Path, sharedIterator.HostCount);
+        }
+        else if (routeMatch != null)
+        {
+            // Named Path_* route matched — honor its configured host list and order directly,
+            // regardless of LoadBalanceMode (the route's "hosts=" order is the explicit intent).
+            var candidateHosts = routeMatch.Value.Route.GetCandidateHosts(request.Priority);
             modifiedPath = routeMatch.Value.ModifiedPath;
+
+            // A route-level maxattempts= overrides the global MaxAttempts option when set.
             maxAttempts = routeMatch.Value.Route.MaxAttempts ?? _options.MaxAttempts;
 
+            // A valid per-request header remains the most specific override. Otherwise,
+            // use the route mode when configured, then fall back to the global mode.
             var iterationModeHeader = request.Headers["S7P-Iterator"].AsSpan().Trim();
             var hasRequestModeOverride =
                 Enum.TryParse(iterationModeHeader, true, out IterationModeEnum requestModeOverride) &&
@@ -1135,98 +1179,29 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.IterationMode = iterationMode;
             }
 
+            iterator = IteratorFactory.CreateFixedOrderIterator(candidateHosts);
+
             _logger.LogDebug(
                 "[ProxyToBackEnd:{Guid}] Using named route '{RouteName}' for path '{Path}' with {HostCount} hosts (IterationMode={IterationMode}, MaxAttempts={MaxAttempts})",
-                request.Guid, routeMatch.Value.Route.Name, request.Path, candidates.Count, iterationMode, maxAttempts);
+                request.Guid, routeMatch.Value.Route.Name, request.Path, iterator.HostCount, iterationMode, maxAttempts);
         }
         else
         {
-            candidates = IteratorFactory.ResolveHosts(
+            // Use per-request iterator (original behavior). The ordering iterator no longer
+            // cares about SinglePass vs MultiPass — NextHost owns that.
+            iterator = IteratorFactory.CreateSinglePassIterator(
                 _backends,
+                _options.LoadBalanceMode,
                 request.Path,
                 request.Priority,
                 out modifiedPath);
         }
 
-        var loadBalanceModeSupportsSharing =
-            _options.LoadBalanceMode is Constants.RoundRobin or Constants.Random;
-
-        if (candidates.Count == 0)
-        {
-            iterator = IteratorFactory.CreateFixedOrderIterator(candidates);
-        }
-        else if (CandidatesUsePriorityGroups(candidates) ||
-                 (routeMatch == null && _options.LoadBalanceMode == Constants.PriorityGroup))
-        {
-            iterator = new PerRequestHostIterator(candidates, Constants.PriorityGroup);
-            _logger.LogDebug(
-                "[ProxyToBackEnd:{Guid}] Using priority-group iterator for path '{Path}' with {HostCount} hosts",
-                request.Guid, request.Path, iterator.HostCount);
-        }
-        else if (routeMatch != null)
-        {
-            iterator = IteratorFactory.CreateFixedOrderIterator(candidates);
-        }
-        else if (_options.UseSharedIterators &&
-                 _wrkCntxt.SharedIteratorRegistry != null &&
-                 loadBalanceModeSupportsSharing &&
-                 CandidatesAllowSharedIterator(candidates))
-        {
-            var sharedIterator = _wrkCntxt.SharedIteratorRegistry.GetOrCreate(
-                request.Path,
-                () => (
-                    PerRequestHostIterator.CreateOrderedSnapshot(candidates, _options.LoadBalanceMode),
-                    modifiedPath));
-
-            modifiedPath = sharedIterator.ModifiedPath;
-            iterator = sharedIterator;
-
-            _logger.LogDebug(
-                "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
-                request.Guid, request.Path, sharedIterator.HostCount);
-        }
-        else
-        {
-            iterator = new PerRequestHostIterator(candidates, _options.LoadBalanceMode);
-            _logger.LogDebug(
-                "[ProxyToBackEnd:{Guid}] Using per-request iterator for path '{Path}' with {HostCount} hosts",
-                request.Guid, request.Path, iterator.HostCount);
-        }
-
+        // Seeded with LifetimeBackendAttempts so MaxAttempts is a true ceiling across
+        // requeue cycles, not just the current one.
         var state = new IterationState(iterationMode, maxAttempts, logger: _logger, priorAttempts: request.LifetimeBackendAttempts);
 
         return (iterator, state, modifiedPath);
-    }
-
-    /// <summary>
-    /// True when this request's matched hosts span more than the default priority group.
-    /// Inspects only the path-matched candidates, not the global host list.
-    /// </summary>
-    private static bool CandidatesUsePriorityGroups(List<BaseHostHealth> candidates)
-    {
-        for (var index = 0; index < candidates.Count; index++)
-        {
-            if (candidates[index].Config.PriorityGroup != 1)
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// True when this request's candidates may use a path-keyed shared circular iterator:
-    /// all default group 1, and no per-host acceptable-priority filter.
-    /// </summary>
-    private static bool CandidatesAllowSharedIterator(List<BaseHostHealth> candidates)
-    {
-        for (var index = 0; index < candidates.Count; index++)
-        {
-            var config = candidates[index].Config;
-            if (config.PriorityGroup != 1 || config.AcceptablePriorities.Count > 0)
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>

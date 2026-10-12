@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.Reflection;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using SimpleL7Proxy.Extensions;
 
 namespace SimpleL7Proxy.Tokenomics;
@@ -136,23 +134,41 @@ public class TokenomicsSettings
 
 
     
-    private static readonly JsonSerializerOptions _serializerOptions = new() {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) }
-    };
+    private static readonly PropertyInfo[] SettableProperties =
+        typeof(TokenomicsSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+    private static readonly string ModelCostPrefix = nameof(ModelCostPerToken) + ".";
 
 
     /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
     /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Allowed hosts use repeated AllowedHosts=&lt;model&gt;=host1,host2 entries and accept commas or semicolons between hosts. Model names, hierarchy prefixes, and host names are URI-escaped.</remarks>
-    public  bool TryParse(string data) {
+    public bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
         }
 
-        var parts = new List<string>();
+        if (!TrySplitParts(data, out var parts) || parts.Count == 0) {
+            return false;
+        }
+
+        var pending = CloneForParse();
+        foreach (var part in parts) {
+            if (!pending.TryApplyPart(part)) {
+                return false;
+            }
+        }
+
+        CopyFrom(pending);
+        return true;
+    }
+
+    /// <summary>
+    /// Splits on <c>;</c> and <c>,</c> except commas inside ModelHierarchy <c>[...]</c>
+    /// and host-list separators inside AllowedHosts (a comma/semicolon is a new setting
+    /// only when the next segment contains <c>=</c>).
+    /// </summary>
+    private static bool TrySplitParts(string data, out List<string> parts) {
+        parts = [];
         var partStart = 0;
         var hierarchyBracketDepth = 0;
         var isModelHierarchyPart = false;
@@ -227,46 +243,75 @@ public class TokenomicsSettings
             parts.Add(finalPart);
         }
 
-        if (parts.Count == 0) {
+        return true;
+    }
+
+    private static bool TrySplitKeyValue(string part, out string key, out string value) {
+        var splitIndex = part.IndexOf('=');
+        if (splitIndex <= 0) {
+            key = string.Empty;
+            value = string.Empty;
             return false;
         }
 
-        var modelCostPrefix = nameof(ModelCostPerToken) + ".";
+        key = part[..splitIndex].Trim();
+        value = part[(splitIndex + 1)..].Trim();
+        return key.Length > 0;
+    }
 
-        foreach (var part in parts) {
-            var splitIndex = part.IndexOf('=');
-            if (splitIndex <= 0) {
+    private bool TryApplyPart(string part) {
+        if (!TrySplitKeyValue(part, out var key, out var value)) {
+            return false;
+        }
+
+        if (key.Equals(nameof(AllowedHosts), StringComparison.OrdinalIgnoreCase)) {
+            return TryParseAllowedHosts(value);
+        }
+
+        if (key.StartsWith(ModelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
+            return TryParseModelCost(key[ModelCostPrefix.Length..], value);
+        }
+
+        if (key.Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase)) {
+            return TryParseHierarchy(value);
+        }
+
+        if (key.Equals(nameof(DelayDuration), StringComparison.OrdinalIgnoreCase)) {
+            if (!TryParseDelayDuration(value, out var milliseconds)) {
                 return false;
             }
 
-            var (key, value) = new[] { part }.KVStringPairs().Single();
+            DelayDuration = milliseconds;
+            return true;
+        }
 
-            if (key.Equals(nameof(AllowedHosts), StringComparison.OrdinalIgnoreCase)) {
-                var modelAndHosts = new[] { value }.KVStringPairs();
-                if (modelAndHosts.Count != 1) {
-                    return false;
-                }
+        return TryParseScalar(key, value);
+    }
 
-                var (encodedModel, encodedHosts) = modelAndHosts.Single();
-                var model = Uri.UnescapeDataString(encodedModel);
-                if (string.IsNullOrWhiteSpace(model)) {
-                    return false;
-                }
+    private bool TryParseAllowedHosts(string value) {
+        if (!TrySplitKeyValue(value, out var encodedModel, out var encodedHosts)) {
+            return false;
+        }
 
-                var hosts = encodedHosts.Replace(';', ',')
-                    .ToListOfString()
-                    .Select(Uri.UnescapeDataString)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var model = Uri.UnescapeDataString(encodedModel);
+        if (string.IsNullOrWhiteSpace(model)) {
+            return false;
+        }
 
-                AllowedHosts[model] = hosts;
-                continue;
-            }
+        var hosts = encodedHosts.Replace(';', ',')
+            .ToListOfString()
+            .Select(Uri.UnescapeDataString)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            if (key.StartsWith(modelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
-                var model = Uri.UnescapeDataString(key[modelCostPrefix.Length..]);
-                if (string.IsNullOrWhiteSpace(model)) {
-                    return false;
-                }
+        AllowedHosts[model] = hosts;
+        return true;
+    }
+
+    private bool TryParseModelCost(string encodedModel, string value) {
+        var model = Uri.UnescapeDataString(encodedModel);
+        if (string.IsNullOrWhiteSpace(model)) {
+            return false;
+        }
 
                 ModelTokenPricing modelPricing;
                 if (decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var legacyOutputCost)) {
@@ -314,20 +359,13 @@ public class TokenomicsSettings
                     };
                 }
 
-                ModelCostPerToken[model] = modelPricing;
-                continue;
-            }
+        ModelCostPerToken[model] = modelPricing;
+        return true;
+    }
 
-            var property = typeof(TokenomicsSettings).GetProperty(key,
-                BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-            if (property?.SetMethod is null) {
-                return false;
-            }
-
-            object parsedValue;
-            if (property.Name == nameof(ModelHierarchy)) {
-                var hierarchy = new Dictionary<string, List<string>>();
-                var hierarchyIndex = 0;
+    private bool TryParseHierarchy(string value) {
+        var hierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var hierarchyIndex = 0;
 
                 while (hierarchyIndex < value.Length) {
                     while (hierarchyIndex < value.Length && char.IsWhiteSpace(value[hierarchyIndex])) {
@@ -392,10 +430,14 @@ public class TokenomicsSettings
                     }
                 }
 
-                parsedValue = hierarchy;
-            } else if (property.Name == nameof(DelayDuration)) {
-                long totalMilliseconds;
-                if (value.EndsWith("ms", StringComparison.OrdinalIgnoreCase)) {
+        ModelHierarchy = hierarchy;
+        return true;
+    }
+
+    private static bool TryParseDelayDuration(string value, out int milliseconds) {
+        milliseconds = 0;
+        long totalMilliseconds;
+        if (value.EndsWith("ms", StringComparison.OrdinalIgnoreCase)) {
                     if (!long.TryParse(value[..^2], NumberStyles.None, CultureInfo.InvariantCulture,
                             out totalMilliseconds) ||
                         totalMilliseconds < 0 ||
@@ -442,9 +484,20 @@ public class TokenomicsSettings
                     }
                 }
 
-                parsedValue = (int)totalMilliseconds;
-            } else if (property.PropertyType == typeof(string)) {
-                parsedValue = Uri.UnescapeDataString(value);
+        milliseconds = (int)totalMilliseconds;
+        return true;
+    }
+
+    private bool TryParseScalar(string key, string value) {
+        var property = typeof(TokenomicsSettings).GetProperty(key,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        if (property?.SetMethod is null) {
+            return false;
+        }
+
+        object parsedValue;
+        if (property.PropertyType == typeof(string)) {
+            parsedValue = Uri.UnescapeDataString(value);
             } else if (property.PropertyType == typeof(int) &&
                 int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue)) {
                 parsedValue = intValue;
@@ -472,69 +525,135 @@ public class TokenomicsSettings
                 return false;
             }
 
-            property.SetValue(this, parsedValue);
-        }
-
+        property.SetValue(this, parsedValue);
         return true;
     }
 
     /// <summary>Returns semicolon-separated key=value settings with period token limits and budgets, named actions, a clock-formatted delay, URI-escaped model and host names, model hierarchies, allowed hosts, and invariant-culture numbers.</summary>
     public override string ToString() {
         var parts = new List<string>();
-        foreach (var property in JsonSerializer.SerializeToElement(this, _serializerOptions).EnumerateObject()) {
+        foreach (var property in SettableProperties) {
+            if (property.GetIndexParameters().Length > 0 || property.GetMethod is null) {
+                continue;
+            }
+
             if (property.Name is nameof(DefaultTenant) or nameof(DefaultModel)) {
-                parts.Add($"{property.Name}={Uri.EscapeDataString(property.Value.GetString() ?? string.Empty)}");
+                parts.Add($"{property.Name}={Uri.EscapeDataString((string?)property.GetValue(this) ?? string.Empty)}");
             } else if (property.Name == nameof(DelayDuration)) {
-                if (DelayDuration < 0) {
-                    throw new InvalidOperationException($"{nameof(DelayDuration)} cannot be negative.");
-                }
-
-                var totalMinutes = DelayDuration / 60000;
-                var seconds = DelayDuration / 1000 % 60;
-                var milliseconds = DelayDuration % 1000;
-                var formattedDuration = totalMinutes > 0
-                    ? string.Create(CultureInfo.InvariantCulture,
-                        $"{totalMinutes:D2}:{seconds:D2}:{milliseconds:D3}")
-                    : string.Create(CultureInfo.InvariantCulture, $"{seconds:D2}:{milliseconds:D3}");
-                parts.Add($"{property.Name}={formattedDuration}");
+                parts.Add($"{property.Name}={FormatDelayDuration()}");
             } else if (property.Name == nameof(ModelCostPerToken)) {
-                foreach (var modelCost in property.Value.EnumerateObject()) {
-                    if (!ModelCostPerToken.TryGetValue(modelCost.Name, out var pricing) ||
-                        pricing.Input < 0 ||
-                        pricing.CachedInput < 0 ||
-                        pricing.Output < 0) {
-                        throw new InvalidOperationException(
-                            $"{nameof(ModelCostPerToken)} values cannot be null or negative.");
-                    }
-
-                    parts.Add(
-                        $"{property.Name}.{Uri.EscapeDataString(modelCost.Name)}=" +
-                        $"{nameof(ModelTokenPricing.Input)}:{pricing.Input.ToString(CultureInfo.InvariantCulture)}|" +
-                        $"{nameof(ModelTokenPricing.CachedInput)}:{pricing.CachedInput.ToString(CultureInfo.InvariantCulture)}|" +
-                        $"{nameof(ModelTokenPricing.Output)}:{pricing.Output.ToString(CultureInfo.InvariantCulture)}");
-                }
+                FormatModelCosts(parts);
             } else if (property.Name == nameof(ModelHierarchy)) {
-                var hierarchy = string.Join(", ", ModelHierarchy.Select(entry =>
-                    $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
-                parts.Add($"{property.Name}={hierarchy}");
+                parts.Add($"{property.Name}={FormatHierarchy()}");
             } else if (property.Name == nameof(AllowedHosts)) {
-                foreach (var allowedHosts in AllowedHosts) {
-                    if (string.IsNullOrWhiteSpace(allowedHosts.Key) ||
-                        allowedHosts.Value is null ||
-                        allowedHosts.Value.Any(string.IsNullOrWhiteSpace)) {
-                        throw new InvalidOperationException(
-                            $"{nameof(AllowedHosts)} model and host names cannot be null or whitespace.");
-                    }
-
-                    parts.Add(
-                        $"{property.Name}={Uri.EscapeDataString(allowedHosts.Key)}=" +
-                        string.Join(",", allowedHosts.Value.Select(Uri.EscapeDataString)));
-                }
+                FormatAllowedHosts(parts);
             } else {
-                parts.Add($"{property.Name}={property.Value}");
+                var value = property.GetValue(this);
+                if (value is null) {
+                    continue;
+                }
+
+                parts.Add($"{property.Name}={FormatScalar(value)}");
             }
         }
 
         return string.Join("; ", parts);
+    }
+
+    private string FormatDelayDuration() {
+        if (DelayDuration < 0) {
+            throw new InvalidOperationException($"{nameof(DelayDuration)} cannot be negative.");
+        }
+
+        var totalMinutes = DelayDuration / 60000;
+        var seconds = DelayDuration / 1000 % 60;
+        var milliseconds = DelayDuration % 1000;
+        return totalMinutes > 0
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"{totalMinutes:D2}:{seconds:D2}:{milliseconds:D3}")
+            : string.Create(CultureInfo.InvariantCulture, $"{seconds:D2}:{milliseconds:D3}");
+    }
+
+    private void FormatModelCosts(List<string> parts) {
+        foreach (var (model, pricing) in ModelCostPerToken) {
+            if (pricing is null ||
+                pricing.Input < 0 ||
+                pricing.CachedInput < 0 ||
+                pricing.Output < 0) {
+                throw new InvalidOperationException(
+                    $"{nameof(ModelCostPerToken)} values cannot be null or negative.");
+            }
+
+            parts.Add(
+                $"{nameof(ModelCostPerToken)}.{Uri.EscapeDataString(model)}=" +
+                $"{nameof(ModelTokenPricing.Input)}:{pricing.Input.ToString(CultureInfo.InvariantCulture)}|" +
+                $"{nameof(ModelTokenPricing.CachedInput)}:{pricing.CachedInput.ToString(CultureInfo.InvariantCulture)}|" +
+                $"{nameof(ModelTokenPricing.Output)}:{pricing.Output.ToString(CultureInfo.InvariantCulture)}");
+        }
+    }
+
+    private string FormatHierarchy() {
+        return string.Join(", ", ModelHierarchy.Select(entry =>
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
+    }
+
+    private void FormatAllowedHosts(List<string> parts) {
+        foreach (var allowedHosts in AllowedHosts) {
+            if (string.IsNullOrWhiteSpace(allowedHosts.Key) ||
+                allowedHosts.Value is null ||
+                allowedHosts.Value.Any(string.IsNullOrWhiteSpace)) {
+                throw new InvalidOperationException(
+                    $"{nameof(AllowedHosts)} model and host names cannot be null or whitespace.");
+            }
+
+            parts.Add(
+                $"{nameof(AllowedHosts)}={Uri.EscapeDataString(allowedHosts.Key)}=" +
+                string.Join(",", allowedHosts.Value.Select(Uri.EscapeDataString)));
+        }
+    }
+
+    private static string FormatScalar(object value) {
+        if (value is Enum enumValue) {
+            var name = enumValue.ToString();
+            return name.Length == 0
+                ? name
+                : char.ToLowerInvariant(name[0]) + name[1..];
+        }
+
+        return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private TokenomicsSettings CloneForParse() {
+        var clone = (TokenomicsSettings)MemberwiseClone();
+        clone.ModelCostPerToken = new Dictionary<string, ModelTokenPricing>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in ModelCostPerToken) {
+            clone.ModelCostPerToken[pair.Key] = new ModelTokenPricing {
+                Input = pair.Value.Input,
+                CachedInput = pair.Value.CachedInput,
+                Output = pair.Value.Output
+            };
+        }
+
+        clone.ModelHierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in ModelHierarchy) {
+            clone.ModelHierarchy[pair.Key] = [.. pair.Value];
+        }
+
+        clone.AllowedHosts = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in AllowedHosts) {
+            clone.AllowedHosts[pair.Key] = new HashSet<string>(pair.Value, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return clone;
+    }
+
+    private void CopyFrom(TokenomicsSettings source) {
+        foreach (var property in SettableProperties) {
+            if (property.SetMethod is null) {
+                continue;
+            }
+
+            property.SetValue(this, property.GetValue(source));
+        }
     }
 }
