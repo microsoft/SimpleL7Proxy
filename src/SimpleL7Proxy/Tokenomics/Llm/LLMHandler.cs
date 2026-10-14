@@ -25,16 +25,41 @@ public static class LLMHandler
             return new LLMStats();
         }
 
+        return CreateStats(usage, fieldSnapshot);
+    }
+
+    public static LLMStats PopulateUsage(string model, IEnumerable<KeyValuePair<string, string>> fields)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+
+        var fieldSnapshot = fields as IReadOnlyList<KeyValuePair<string, string>> ?? fields.ToArray();
+        if (!TryGetUsage(model, fieldSnapshot, out var usage))
+        {
+            return new LLMStats();
+        }
+
+        return CreateStats(usage, fieldSnapshot);
+    }
+
+    private static LLMStats CreateStats(
+        UsageResult usage,
+        IReadOnlyList<KeyValuePair<string, string>> fields)
+    {
         return new LLMStats
         {
+            Provider = usage.Provider,
+            UsageAvailable = true,
             InputTokens = ToInt32(usage.PromptTokens),
             OutputTokens = ToInt32(usage.CompletionTokens),
             CachedTokens = ToInt32(usage.CachedTokens),
+            TotalTokens = ToInt32(usage.TotalTokens),
+            ReasoningTokens = ToInt32(usage.ReasoningTokens),
+            CacheCreationTokens = ToInt32(usage.CacheCreationTokens),
             IsJailbreakDetected = ReadBoolean(
-                fieldSnapshot,
+                fields,
                 "Usage.Is_Jailbreak_Detected"),
             IsContentFiltered = ReadBoolean(
-                fieldSnapshot,
+                fields,
                 "Usage.Is_Content_Filtered")
         };
     }

@@ -222,6 +222,304 @@
 				"reveal": "always",
 				"panel": "shared"
 			}
+		},
+		{
+			"label": "temporary build usage processor tests",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"test/RegressionTests/SimpleL7Proxy.Test.csproj",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "temporary run usage processor tests",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"test/RegressionTests/bin/Debug/net10.0/SimpleL7Proxy.Test.dll",
+				"--filter",
+				"FullyQualifiedName~UsageStreamProcessorTests"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary check usage parser diff",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-c",
+				"core.whitespace=cr-at-eol",
+				"diff",
+				"--check",
+				"--",
+				"src/Shared-parser/StreamProcessor",
+				"src/SimpleL7Proxy/Tokenomics/Llm",
+				"src/SimpleL7Proxy/Proxy/ProxyWorker.cs",
+				"test/RegressionTests/TestTasks/UsageStreamProcessorTests.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary inspect usage parser status",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"status",
+				"--short",
+				"--",
+				"src/Shared-parser/StreamProcessor",
+				"src/SimpleL7Proxy/Tokenomics/Llm",
+				"src/SimpleL7Proxy/Proxy/ProxyWorker.cs",
+				"test/RegressionTests/TestTasks/UsageStreamProcessorTests.cs",
+				"COPILOT_LEARNINGS.md"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary benchmark usage processors",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--configuration",
+				"Release",
+				"--no-cache",
+				"--file",
+				"/tmp/usage-processor-benchmark.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary inspect legacy parser diff",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"--no-pager",
+				"diff",
+				"--",
+				"src/Shared-parser/StreamProcessor/OpenAIProcessor.cs",
+				"src/Shared-parser/StreamProcessor/AllUsageProcessor.cs",
+				"src/Shared-parser/StreamProcessor/MultiAllUsageProcessor.cs",
+				"src/Shared-parser/StreamProcessor/CompleteAllUsageProcessor.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary build tokenomics settings",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"src/Shared-parser/Shared-parser.csproj",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "temporary inspect host options status",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"status",
+				"--short",
+				"--",
+				"src/Shared-parser/Tokenomics"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary validate host options parser",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--project",
+				"/tmp/tokenomics-settings-check/TokenomicsSettingsCheck.csproj"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "temporary check host options diff",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-c",
+				"core.whitespace=cr-at-eol",
+				"diff",
+				"--check",
+				"--",
+				"src/Shared-parser/Tokenomics/TokenomicsSettings.cs",
+				"test/EventHubMonitorTests/TokenomicsReplayTests.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary inspect host options diff",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"--no-pager",
+				"diff",
+				"--",
+				"src/Shared-parser/Tokenomics/TokenomicsSettings.cs",
+				"test/EventHubMonitorTests/TokenomicsReplayTests.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary validate host options roundtrip",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--configuration",
+				"Release",
+				"--no-cache",
+				"--file",
+				"/tmp/tokenomics-host-options-check.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary build companion host tokenomics",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"src/CompanionApp/CompanionApp.csproj",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "temporary check read-only host tokenomics",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-c",
+				"core.whitespace=cr-at-eol",
+				"diff",
+				"--check",
+				"--",
+				"src/CompanionApp/Components/Shared/Settings/HostSectionEditor.razor",
+				"src/CompanionApp/wwwroot/app-configuration.css"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary inspect read-only host tokenomics",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"--no-pager",
+				"diff",
+				"--",
+				"src/CompanionApp/Components/Shared/Settings/HostSectionEditor.razor",
+				"src/CompanionApp/wwwroot/app-configuration.css"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary check model routing UI",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-c",
+				"core.whitespace=cr-at-eol",
+				"diff",
+				"--check",
+				"--",
+				"src/CompanionApp/Components/Pages/AdminConfigurationPage.razor",
+				"src/CompanionApp/Components/Shared/Settings/TokenomicsEditor.razor",
+				"src/CompanionApp/Components/Widgets/TokenomicsConfiguration/TokenomicsModelRoutingSettingsWidget.razor",
+				"src/CompanionApp/wwwroot/tokenomics-configuration.css"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary inspect companion listeners",
+			"type": "shell",
+			"command": "ss",
+			"args": [
+				"-ltnp"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary remove routing validation page",
+			"type": "shell",
+			"command": "rm",
+			"args": [
+				"-f",
+				"src/CompanionApp/Components/Pages/TokenomicsRoutingValidationPage.razor"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "temporary validate model host options",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--configuration",
+				"Release",
+				"--no-cache",
+				"--file",
+				"/tmp/model-host-options-check.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }

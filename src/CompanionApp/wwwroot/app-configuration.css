@@ -854,6 +854,74 @@ body:has(.app-configuration-page .config-modal-backdrop) {
     width: auto;
 }
 
+:where(.app-configuration-page) .config-tokenomics-api-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    max-width: 20rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-api-badge {
+    border: 1px solid #b8d7ff;
+    background: #eaf3ff;
+    color: #084a9d;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-summary {
+    margin-top: 1rem;
+    padding: 0.85rem;
+    border: 1px solid #a9ccff;
+    border-radius: 6px;
+    background: #fbfdff;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-summary-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.65rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-summary-heading h3 {
+    color: #071c61;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-bottom: 0.75rem;
+    color: #38558b;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-empty {
+    padding: 0.8rem;
+    border: 1px dashed #c7d8ee;
+    color: #596c96;
+    background: #f7faff;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-api-table th {
+    color: #596c96;
+    background: #f3f7fc;
+    font-size: 0.72rem;
+    font-weight: 650;
+    text-transform: uppercase;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-api-table th,
+:where(.app-configuration-page) .config-tokenomics-host-api-table td {
+    padding: 0.45rem 0.55rem;
+}
+
 :where(.app-configuration-page) .config-host-row {
     cursor: pointer;
 }
@@ -881,6 +949,70 @@ body:has(.app-configuration-page .config-modal-backdrop) {
 
 :where(.app-configuration-page) .config-newhost-body {
     padding: 1.25rem 1.5rem;
+}
+
+:where(.app-configuration-page) .config-host-editor-section {
+    margin-bottom: 0.65rem;
+    border: 1px solid #d6e0ee;
+    border-radius: 6px;
+    background: #f8faff;
+    overflow: hidden;
+}
+
+:where(.app-configuration-page) .config-host-editor-basic {
+    padding: 0.8rem;
+}
+
+:where(.app-configuration-page) .config-host-editor-static-heading {
+    margin: 0 0 0.75rem;
+    color: #071c61;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+:where(.app-configuration-page) .config-host-editor-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 2.55rem;
+    padding: 0.65rem 0.8rem;
+    color: #071c61;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+}
+
+:where(.app-configuration-page) .config-host-editor-summary::-webkit-details-marker {
+    display: none;
+}
+
+:where(.app-configuration-page) .config-host-editor-summary .bi {
+    color: #5274a8;
+    transition: transform 0.15s ease;
+}
+
+:where(.app-configuration-page) .config-host-editor-collapsible[open] .config-host-editor-summary .bi {
+    transform: rotate(180deg);
+}
+
+:where(.app-configuration-page) .config-host-editor-section-body {
+    padding: 0.8rem;
+    border-top: 1px solid #d6e0ee;
+    background: #fff;
+}
+
+:where(.app-configuration-page) .config-host-editor-section-body > .config-auth-section {
+    margin-top: 0;
+}
+
+:where(.app-configuration-page) .config-priorities-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+:where(.app-configuration-page) .config-priority-field-wide {
+    grid-column: 1 / -1;
 }
 
 :where(.app-configuration-page) .config-newhost-grid {
@@ -1191,6 +1323,21 @@ body:has(.app-configuration-page .config-modal-backdrop) {
 
     :where(.app-configuration-page) .config-modal-body {
         padding: 0.85rem 0.9rem 1rem;
+    }
+
+    :where(.app-configuration-page) .config-auth-columns,
+    :where(.app-configuration-page) .config-auth-fields,
+    :where(.app-configuration-page) .config-priorities-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    :where(.app-configuration-page) .config-auth-col {
+        padding: 0;
+    }
+
+    :where(.app-configuration-page) .config-auth-col:last-child {
+        margin-top: 1rem;
+        border-left: 0;
     }
 
     :where(.app-configuration-page) .config-label-dialog {

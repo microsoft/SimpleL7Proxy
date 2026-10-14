@@ -1505,17 +1505,21 @@ public class ProxyWorker : IConfigChangeSubscriber
                     if (_options.TokenomicsEnable &&
                         !string.IsNullOrWhiteSpace(request.UserID) && !string.IsNullOrWhiteSpace(request.Model))
                     {
-                        // get model specific usage provider and populate usage stats
-                        var usageProvider = ModelMap.GetUsageProvider(request.Model);
-                        pr.UsageStats = LLMHandler.PopulateUsage(usageProvider,request.EventData);
+                        pr.UsageStats = LLMHandler.PopulateUsage(request.Model, request.EventData);
 
-                        pr.UsageStats.Cost = _wrkCntxt.TokenomicsHandler.RequestCost(
-                            request.Model,
-                            pr.UsageStats.InputTokens,
-                            pr.UsageStats.CachedTokens,
-                            pr.UsageStats.OutputTokens);
+                        if (pr.UsageStats.UsageAvailable)
+                        {
+                            request.EventData["Usage.Prompt_Tokens"] = pr.UsageStats.InputTokens.ToString();
+                            request.EventData["Usage.Completion_Tokens"] = pr.UsageStats.OutputTokens.ToString();
+                            request.EventData["Usage.Total_Tokens"] = pr.UsageStats.TotalTokens.ToString();
+                            request.EventData["Usage.Cached_Tokens"] = pr.UsageStats.CachedTokens.ToString();
 
-                        if ( pr.UsageStats is not null) 
+                            pr.UsageStats.Cost = _wrkCntxt.TokenomicsHandler.RequestCost(
+                                request.Model,
+                                pr.UsageStats.InputTokens,
+                                pr.UsageStats.CachedTokens,
+                                pr.UsageStats.OutputTokens);
+
                             _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
                                 request.UserID,
                                 request.Model,
@@ -1526,6 +1530,15 @@ public class ProxyWorker : IConfigChangeSubscriber
                                 pr.UsageStats.IsContentFiltered,
                                 statusCode: (int)proxyResponse.StatusCode,
                                 latencyMs: (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
+                        }
+                        else
+                        {
+                            _wrkCntxt.TokenomicsHandler.TokenMetricsCache.RecordRequestOutcome(
+                                request.UserID,
+                                request.Model,
+                                (int)proxyResponse.StatusCode,
+                                (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
+                        }
                     }
                 }
                 

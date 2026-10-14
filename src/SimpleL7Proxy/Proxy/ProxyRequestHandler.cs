@@ -146,10 +146,14 @@ public partial class ProxyRequestHandler
         catch (Exception writeEx)
         {
             _logger.LogError(writeEx, "Failed to write error response for request {Guid}", requestGuid);
-            eventData["InnerErrorDetail"] = "Network Error sending error response";
-            eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
-            eventData.Type = EventType.Exception;
-            eventData.Exception = writeEx;
+            var st = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
+            if ( !st.Contains("Broken pipe"))
+            {
+                eventData["InnerErrorDetail"] = "Network Error sending error response";
+                eventData["InnerErrorStack"] = st;
+                eventData.Type = EventType.Exception;
+                eventData.Exception = writeEx;
+            }
             return false;
         }
     }

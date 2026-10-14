@@ -3,6 +3,8 @@
 @using System.Reflection
 @using SimpleL7Proxy.Tokenomics
 @using CompanionApp.Components.Widgets.TokenomicsConfiguration
+@inject ModelDefaults ChatCatalog
+@inject VisionModelCatalog VisionCatalog
 
 <div class="tokenomics-configuration">
     <TokenomicsSettingsToolbarWidget EnableSetting="EnableSetting" MetricsServerSetting="MetricsServerSetting"
@@ -121,10 +123,13 @@
             {
             <TokenomicsModelRoutingSettingsWidget NumericNames="@(NumericForTab("routing").Select(property => property.Name))"
                 ActionNames="@(ActionsForTab("routing").Select(property => property.Name))" FieldContent="@(name => RenderField(name))"
-                Models="RoutingModels" HostNames="HostNames" AllowedHosts="_options.AllowedHosts"
+                Models="RoutingModels" HostSettings="Hosts" HostOptions="_options.HostOptions"
+                ModelHostOptions="_options.ModelHostOptions" ApiDefinitions="RoutingApis"
+                AllowedHosts="_options.AllowedHosts"
                 LoadedAllowedHosts="_loadedOptions.AllowedHosts"
                 Error="@(_fieldErrors.TryGetValue(nameof(TokenomicsSettings.AllowedHosts), out var allowedHostsError) ? allowedHostsError : null)"
-                OnHostsChanged="SetAllowedHostsAsync" />
+                OnHostsChanged="SetAllowedHostsAsync" OnHostApiChanged="SetHostApiAsync"
+                OnModelHostApiChanged="SetModelHostApiAsync" />
             }
             else if (_expandedWidget == "costs")
             {
@@ -162,7 +167,8 @@
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
 
-    [Parameter] public IReadOnlyList<string> HostNames { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> Hosts { get; set; } =
+        Array.Empty<AppConfigurationScaffoldSetting>();
 
     [Parameter] public EventCallback OnChanged { get; set; }
 
@@ -218,6 +224,13 @@
 
     private bool Enabled => bool.TryParse(EnableSetting?.DraftValue, out var enabled) && enabled;
 
+    private IReadOnlyList<string> HostNames => Hosts
+        .Select(host => host.DraftName.Trim())
+        .Where(name => name.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
     private bool RawOptionsChanged => OptionsSetting is { } setting
         && !string.Equals(_rawOptions, setting.DraftValue, StringComparison.Ordinal);
 
@@ -226,11 +239,22 @@
         .Concat([_options.DefaultModel])
         .Concat(_options.ModelCostPerToken.Keys)
         .Concat(_options.AllowedHosts.Keys)
+        .Concat(ChatCatalog.ListModels().Select(model => model.Id))
+        .Concat(VisionCatalog.ListModels().Select(model => model.Id))
         .Select(model => model.Trim())
         .Where(model => model.Length > 0)
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
         .ToList();
+
+    private IReadOnlyList<TokenomicsModelRoutingSettingsWidget.ApiDefinition> RoutingApis =>
+        ChatCatalog.ListApis()
+            .Select(api => new TokenomicsModelRoutingSettingsWidget.ApiDefinition(api.DisplayName, api.Endpoint))
+            .Concat(VisionCatalog.ListApis()
+                .Select(api => new TokenomicsModelRoutingSettingsWidget.ApiDefinition(api.DisplayName, api.Endpoint)))
+            .GroupBy(api => api.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
 
     private IEnumerable<ModelCostRow> FilteredModelCosts => _modelCosts
         .Where(ModelMatchesSearch)
@@ -538,6 +562,47 @@
             return;
         }
 
+        foreach (var host in normalizedHosts.Where(host => !existingHosts.Contains(host))) {
+            if (!_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
+                modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+                _options.ModelHostOptions[change.Model] = modelHosts;
+            }
+
+            if (!_options.HostOptions.TryGetValue(host, out var hostOptions)) {
+                hostOptions = new TokenomicsHostOptions();
+                _options.HostOptions[host] = hostOptions;
+            }
+
+            var modelApis = ApisForRoutingModel(change.Model);
+            var configuredApis = hostOptions.APIs.Keys
+                .Where(api => modelApis.Contains(api, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            var apiNames = configuredApis.Count > 0 ? configuredApis : modelApis;
+            var modelHostOptions = new TokenomicsHostOptions();
+            foreach (var apiName in apiNames) {
+                if (!hostOptions.APIs.ContainsKey(apiName)) {
+                    hostOptions.APIs[apiName] = new TokenomicsApiOptions {
+                        OverridePath = true,
+                        Path = null
+                    };
+                }
+                modelHostOptions.APIs[apiName] = new TokenomicsApiOptions {
+                    OverridePath = true,
+                    Path = null
+                };
+            }
+            modelHosts[host] = modelHostOptions;
+        }
+
+        foreach (var host in existingHosts.Where(host => !normalizedHosts.Contains(host, StringComparer.OrdinalIgnoreCase))) {
+            if (_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
+                modelHosts.Remove(host);
+                if (modelHosts.Count == 0) {
+                    _options.ModelHostOptions.Remove(change.Model);
+                }
+            }
+        }
+
         _fieldErrors.Remove(nameof(TokenomicsSettings.AllowedHosts));
         if (normalizedHosts.Count == 0) {
             _options.AllowedHosts.Remove(change.Model);
@@ -556,6 +621,74 @@
                 StringComparer.OrdinalIgnoreCase);
         }
 
+        CommitOptions();
+        await OnChanged.InvokeAsync();
+    }
+
+    private List<string> ApisForRoutingModel(string model) =>
+        ChatCatalog.ApisForModel(model)
+            .Select(api => api.DisplayName)
+            .Concat(VisionCatalog.ApisForModel(model).Select(api => api.DisplayName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private async Task SetHostApiAsync(
+        (string? Model, string Host, string Api, TokenomicsApiOptions? Options) change) {
+        if (!_options.HostOptions.TryGetValue(change.Host, out var hostOptions)) {
+            hostOptions = new TokenomicsHostOptions();
+            _options.HostOptions[change.Host] = hostOptions;
+        }
+
+        if (change.Options is null) {
+            hostOptions.APIs.Remove(change.Api);
+            foreach (var modelHosts in _options.ModelHostOptions.Values) {
+                if (modelHosts.TryGetValue(change.Host, out var modelHostOptions)) {
+                    modelHostOptions.APIs.Remove(change.Api);
+                }
+            }
+        } else {
+            hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+                OverridePath = change.Options.OverridePath,
+                Path = change.Options.Path
+            };
+
+            if (change.Model is not null
+                && _options.AllowedHosts.TryGetValue(change.Model, out var allowedHosts)
+                && allowedHosts.Contains(change.Host)) {
+                if (!_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
+                    modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+                    _options.ModelHostOptions[change.Model] = modelHosts;
+                }
+                if (!modelHosts.TryGetValue(change.Host, out var modelHostOptions)) {
+                    modelHostOptions = new TokenomicsHostOptions();
+                    modelHosts[change.Host] = modelHostOptions;
+                }
+                modelHostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+                    OverridePath = true,
+                    Path = null
+                };
+            }
+        }
+
+        CommitOptions();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetModelHostApiAsync(
+        (string Model, string Host, string Api, TokenomicsApiOptions Options) change) {
+        if (!_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
+            modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+            _options.ModelHostOptions[change.Model] = modelHosts;
+        }
+        if (!modelHosts.TryGetValue(change.Host, out var hostOptions)) {
+            hostOptions = new TokenomicsHostOptions();
+            modelHosts[change.Host] = hostOptions;
+        }
+
+        hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+            OverridePath = change.Options.OverridePath,
+            Path = change.Options.Path
+        };
         CommitOptions();
         await OnChanged.InvokeAsync();
     }
