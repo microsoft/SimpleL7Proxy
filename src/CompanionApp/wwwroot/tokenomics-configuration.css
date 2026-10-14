@@ -134,10 +134,14 @@
 .tokenomics-configuration .tokenomics-routing-api-badges{ display: flex; flex-wrap: wrap; gap: 0.25rem; min-width: 0; }
 .tokenomics-configuration .tokenomics-routing-api-badge{ border: 1px solid #b8d7ff; background: #eaf3ff; color: #084a9d; font-weight: 600; letter-spacing: 0; }
 .tokenomics-configuration .tokenomics-routing-expand-host{ width: 2rem; height: 2rem; padding: 0; color: #1765bd; }
-.tokenomics-configuration .tokenomics-routing-host-api-details{ border-top: 1px solid #dce5f2; background: #f9fbfe; }
+.tokenomics-configuration .tokenomics-routing-host-api-details{ min-height: 0; overflow-y: auto; margin: 0 0.55rem 0.55rem; border: 1px solid #dce5f2; border-radius: 6px; background: #f9fbfe; }
 .tokenomics-configuration .tokenomics-routing-host-api-empty{ padding: 0.7rem; color: #596c96; font-size: 0.76rem; }
 .tokenomics-configuration .tokenomics-routing-host-api-header,
-.tokenomics-configuration .tokenomics-routing-host-api-row{ display: grid; grid-template-columns: minmax(10rem, 1.2fr) minmax(9rem, 1fr) minmax(12rem, 1.5fr); gap: 0.75rem; align-items: center; min-width: 34rem; padding: 0.45rem 0.7rem; }
+.tokenomics-configuration .tokenomics-routing-host-api-row{ display: grid; grid-template-columns: 3rem minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0.6rem; align-items: center; padding: 0.45rem 0.7rem; }
+.tokenomics-configuration .tokenomics-routing-api-name{ display: grid; gap: 0.2rem; min-width: 0; overflow-wrap: anywhere; }
+.tokenomics-configuration .tokenomics-routing-api-name > span{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; }
+.tokenomics-configuration .tokenomics-routing-hosts-heading > div{ min-width: 0; max-width: 100%; }
+.tokenomics-configuration .tokenomics-routing-hosts-heading p{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tokenomics-configuration .tokenomics-routing-host-api-header{ color: #596c96; background: #f0f5fb; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
 .tokenomics-configuration .tokenomics-routing-host-api-row{ border-top: 1px solid #e5ecf5; color: #38558b; font-size: 0.76rem; }
 .tokenomics-configuration .tokenomics-routing-host-api-row .form-select,
@@ -179,6 +183,11 @@
     .tokenomics-configuration .tokenomics-routing-models{ max-height: 18rem; border-right: 0; border-bottom: 1px solid #d6e0ee; }
     .tokenomics-configuration .tokenomics-routing-hosts{ min-height: 24rem; }
     .tokenomics-configuration .tokenomics-routing-hosts-heading{ flex-direction: column; }
+    .tokenomics-configuration .tokenomics-routing-host-api-details{ max-height: 28rem; }
+    .tokenomics-configuration .tokenomics-routing-host-api-header{ display: none; }
+    .tokenomics-configuration .tokenomics-routing-host-api-row{ grid-template-columns: 2rem minmax(0, 1fr); }
+    .tokenomics-configuration .tokenomics-routing-host-api-row .form-select,
+    .tokenomics-configuration .tokenomics-routing-host-api-row .form-control{ grid-column: 2; }
 }
 @media (max-width: 600px) {
     .tokenomics-configuration .tokenomics-global-settings{ align-items: stretch; flex-direction: column; }

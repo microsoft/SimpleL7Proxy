@@ -39,6 +39,8 @@ public class TokenomicsSettings
 
     public Dictionary<string, HashSet<string>> AllowedHosts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, TokenomicsHostOptions> HostOptions { get; set; } = new();
+    
+    // The list of Hosts that hosts that can fullfill requests for a given model and how to rewrite the path 
     public Dictionary<string, Dictionary<string, TokenomicsHostOptions>> ModelHostOptions { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -133,7 +135,7 @@ public class TokenomicsSettings
 
 
     /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
-    /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Allowed hosts use repeated AllowedHosts=&lt;model&gt;=host1,host2 entries and accept commas or semicolons between hosts. Host options use repeated HostOptions=&lt;host&gt;=Enabled:&lt;bool&gt;|Api:&lt;api&gt;:&lt;overridePath&gt;[:&lt;path&gt;] entries. Model-host options prepend the model: ModelHostOptions=&lt;model&gt;=&lt;host&gt;=Enabled:&lt;bool&gt;|Api:... . Model names, hierarchy prefixes, host names, API names, and API paths are URI-escaped.</remarks>
+    /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Allowed hosts use repeated AllowedHosts=&lt;model&gt;=host1,host2 entries and accept commas or semicolons between hosts. Host options use repeated HostOptions=&lt;host&gt;=Enabled:&lt;bool&gt;|Api:&lt;api&gt;:&lt;passThrough&gt;:&lt;overridePath&gt;[:&lt;path&gt;] entries. The legacy Api:&lt;api&gt;:&lt;overridePath&gt;[:&lt;path&gt;] form remains accepted. Model-host options prepend the model: ModelHostOptions=&lt;model&gt;=&lt;host&gt;=Enabled:&lt;bool&gt;|Api:... . Model names, hierarchy prefixes, host names, API names, and API paths are URI-escaped.</remarks>
     public bool TryParse(string data) {
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
@@ -333,7 +335,7 @@ public class TokenomicsSettings
         bool? enabled = null;
         var apis = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase);
         foreach (var optionPart in encodedOptions.Split('|', StringSplitOptions.TrimEntries)) {
-            var optionFields = optionPart.Split(':', 4, StringSplitOptions.None);
+            var optionFields = optionPart.Split(':', 5, StringSplitOptions.None);
             if (optionFields.Length == 2 &&
                 optionFields[0].Equals(nameof(TokenomicsHostOptions.Enabled), StringComparison.OrdinalIgnoreCase)) {
                 if (enabled.HasValue || !bool.TryParse(optionFields[1], out var parsedEnabled)) {
@@ -344,20 +346,42 @@ public class TokenomicsSettings
                 continue;
             }
 
-            if (optionFields.Length is 3 or 4 &&
+            if (optionFields.Length is >= 3 and <= 5 &&
                 optionFields[0].Equals("Api", StringComparison.OrdinalIgnoreCase)) {
                 var apiName = Uri.UnescapeDataString(optionFields[1]);
                 if (string.IsNullOrWhiteSpace(apiName) ||
-                    !bool.TryParse(optionFields[2], out var overridePath) ||
+                    !bool.TryParse(optionFields[2], out var firstFlag) ||
                     apis.ContainsKey(apiName)) {
                     return false;
                 }
 
-                apis.Add(apiName, new TokenomicsApiOptions {
-                    OverridePath = overridePath,
-                    Path = optionFields.Length == 4
+                bool passThrough;
+                bool overridePath;
+                string? path;
+                if (optionFields.Length >= 4 && bool.TryParse(optionFields[3], out var secondFlag)) {
+                    passThrough = firstFlag;
+                    overridePath = secondFlag;
+                    path = optionFields.Length == 5
+                        ? Uri.UnescapeDataString(optionFields[4])
+                        : null;
+                    if ((passThrough && (overridePath || path is not null))
+                        || (overridePath && path is null)
+                        || (!overridePath && path is not null)) {
+                        return false;
+                    }
+                } else {
+                    var legacyPath = optionFields.Length == 4
                         ? Uri.UnescapeDataString(optionFields[3])
-                        : null
+                        : null;
+                    passThrough = !firstFlag;
+                    overridePath = firstFlag && legacyPath is not null;
+                    path = overridePath ? legacyPath : null;
+                }
+
+                apis.Add(apiName, new TokenomicsApiOptions {
+                    PassThrough = passThrough,
+                    OverridePath = overridePath,
+                    Path = path
                 });
                 continue;
             }
@@ -736,10 +760,12 @@ public class TokenomicsSettings
                     $"{settingName} API names and option values cannot be null or whitespace.");
             }
 
+            var passThrough = apiOptions.PassThrough;
+            var overridePath = !passThrough && apiOptions.OverridePath && apiOptions.Path is not null;
             var apiPart =
-                $"Api:{Uri.EscapeDataString(apiName)}:{apiOptions.OverridePath.ToString().ToLowerInvariant()}";
-            if (apiOptions.Path is not null) {
-                apiPart += $":{Uri.EscapeDataString(apiOptions.Path)}";
+                $"Api:{Uri.EscapeDataString(apiName)}:{passThrough.ToString().ToLowerInvariant()}:{overridePath.ToString().ToLowerInvariant()}";
+            if (overridePath) {
+                apiPart += $":{Uri.EscapeDataString(apiOptions.Path!)}";
             }
 
             optionParts.Add(apiPart);
@@ -817,6 +843,7 @@ public class TokenomicsSettings
         var clonedApis = new Dictionary<string, TokenomicsApiOptions>(hostOptions.APIs.Comparer);
         foreach (var (apiName, apiOptions) in hostOptions.APIs) {
             clonedApis[apiName] = new TokenomicsApiOptions {
+                PassThrough = apiOptions.PassThrough,
                 OverridePath = apiOptions.OverridePath,
                 Path = apiOptions.Path
             };

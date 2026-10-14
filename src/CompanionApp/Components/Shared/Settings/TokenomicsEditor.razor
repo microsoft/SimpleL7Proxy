@@ -126,8 +126,11 @@
                 Models="RoutingModels" HostSettings="Hosts" HostOptions="_options.HostOptions"
                 ModelHostOptions="_options.ModelHostOptions" ApiDefinitions="RoutingApis"
                 AllowedHosts="_options.AllowedHosts"
-                LoadedAllowedHosts="_loadedOptions.AllowedHosts"
-                Error="@(_fieldErrors.TryGetValue(nameof(TokenomicsSettings.AllowedHosts), out var allowedHostsError) ? allowedHostsError : null)"
+                LoadedAllowedHosts="@_loadedOptions.ModelHostOptions.ToDictionary(
+                    entry => entry.Key,
+                    entry => entry.Value.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase)"
+                Error="@(_fieldErrors.TryGetValue(nameof(TokenomicsSettings.ModelHostOptions), out var allowedHostsError) ? allowedHostsError : null)"
                 OnHostsChanged="SetAllowedHostsAsync" OnHostApiChanged="SetHostApiAsync"
                 OnModelHostApiChanged="SetModelHostApiAsync" />
             }
@@ -545,9 +548,9 @@
             return;
         }
 
-        var existingHosts = _options.AllowedHosts.TryGetValue(change.Model, out var currentHosts)
-            ? currentHosts
-            : [];
+        var existingHosts = _options.ModelHostOptions.TryGetValue(change.Model, out var currentModelHosts)
+            ? currentModelHosts.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var selectableHosts = HostNames
             .Concat(existingHosts)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -568,26 +571,12 @@
                 _options.ModelHostOptions[change.Model] = modelHosts;
             }
 
-            if (!_options.HostOptions.TryGetValue(host, out var hostOptions)) {
-                hostOptions = new TokenomicsHostOptions();
-                _options.HostOptions[host] = hostOptions;
-            }
-
             var modelApis = ApisForRoutingModel(change.Model);
-            var configuredApis = hostOptions.APIs.Keys
-                .Where(api => modelApis.Contains(api, StringComparer.OrdinalIgnoreCase))
-                .ToList();
-            var apiNames = configuredApis.Count > 0 ? configuredApis : modelApis;
             var modelHostOptions = new TokenomicsHostOptions();
-            foreach (var apiName in apiNames) {
-                if (!hostOptions.APIs.ContainsKey(apiName)) {
-                    hostOptions.APIs[apiName] = new TokenomicsApiOptions {
-                        OverridePath = true,
-                        Path = null
-                    };
-                }
+            foreach (var apiName in modelApis) {
                 modelHostOptions.APIs[apiName] = new TokenomicsApiOptions {
-                    OverridePath = true,
+                    PassThrough = false,
+                    OverridePath = false,
                     Path = null
                 };
             }
@@ -603,23 +592,8 @@
             }
         }
 
-        _fieldErrors.Remove(nameof(TokenomicsSettings.AllowedHosts));
-        if (normalizedHosts.Count == 0) {
-            _options.AllowedHosts.Remove(change.Model);
-        } else {
-            _options.AllowedHosts[change.Model] = normalizedHosts.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
-
-        var matchesLoaded = _options.AllowedHosts.Count == _loadedOptions.AllowedHosts.Count
-            && _options.AllowedHosts.All(entry =>
-                _loadedOptions.AllowedHosts.TryGetValue(entry.Key, out var loadedHosts)
-                && entry.Value.SetEquals(loadedHosts));
-        if (matchesLoaded) {
-            _options.AllowedHosts = _loadedOptions.AllowedHosts.ToDictionary(
-                entry => entry.Key,
-                entry => new HashSet<string>(entry.Value, StringComparer.OrdinalIgnoreCase),
-                StringComparer.OrdinalIgnoreCase);
-        }
+        _fieldErrors.Remove(nameof(TokenomicsSettings.ModelHostOptions));
+        _options.AllowedHosts.Remove(change.Model);
 
         CommitOptions();
         await OnChanged.InvokeAsync();
@@ -634,40 +608,20 @@
 
     private async Task SetHostApiAsync(
         (string? Model, string Host, string Api, TokenomicsApiOptions? Options) change) {
-        if (!_options.HostOptions.TryGetValue(change.Host, out var hostOptions)) {
-            hostOptions = new TokenomicsHostOptions();
-            _options.HostOptions[change.Host] = hostOptions;
+        if (change.Model is null
+            || !_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)
+            || !modelHosts.TryGetValue(change.Host, out var hostOptions)) {
+            return;
         }
 
         if (change.Options is null) {
             hostOptions.APIs.Remove(change.Api);
-            foreach (var modelHosts in _options.ModelHostOptions.Values) {
-                if (modelHosts.TryGetValue(change.Host, out var modelHostOptions)) {
-                    modelHostOptions.APIs.Remove(change.Api);
-                }
-            }
         } else {
             hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+                PassThrough = change.Options.PassThrough,
                 OverridePath = change.Options.OverridePath,
                 Path = change.Options.Path
             };
-
-            if (change.Model is not null
-                && _options.AllowedHosts.TryGetValue(change.Model, out var allowedHosts)
-                && allowedHosts.Contains(change.Host)) {
-                if (!_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
-                    modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
-                    _options.ModelHostOptions[change.Model] = modelHosts;
-                }
-                if (!modelHosts.TryGetValue(change.Host, out var modelHostOptions)) {
-                    modelHostOptions = new TokenomicsHostOptions();
-                    modelHosts[change.Host] = modelHostOptions;
-                }
-                modelHostOptions.APIs[change.Api] = new TokenomicsApiOptions {
-                    OverridePath = true,
-                    Path = null
-                };
-            }
         }
 
         CommitOptions();
@@ -686,6 +640,7 @@
         }
 
         hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+            PassThrough = change.Options.PassThrough,
             OverridePath = change.Options.OverridePath,
             Path = change.Options.Path
         };

@@ -6,6 +6,7 @@ namespace SimpleL7Proxy.Tokenomics;
 
 public class TokenomicsApiOptions
 {
+    public bool PassThrough { get; set; } = false;
     public bool OverridePath { get; set; } = false;
     public string? Path { get; set; } = null;
 }

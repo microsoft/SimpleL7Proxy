@@ -61,6 +61,22 @@ public sealed class TokenomicsReplayTests {
             AllowedHosts = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase) {
                 ["gpt-4o"] = new HashSet<string>(["apim1", "apim2", "apim3"], StringComparer.OrdinalIgnoreCase),
                 ["gemini-3"] = new HashSet<string>(["apim4"], StringComparer.OrdinalIgnoreCase)
+            },
+            ModelHostOptions = new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(StringComparer.OrdinalIgnoreCase) {
+                ["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
+                    ["Host_apim"] = new TokenomicsHostOptions {
+                        APIs = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase) {
+                            ["OpenAI Chat Completions"] = new TokenomicsApiOptions {
+                                OverridePath = true,
+                                Path = "/custom/chat"
+                            },
+                            ["OpenAI Responses"] = new TokenomicsApiOptions {
+                                PassThrough = true
+                            },
+                            ["Anthropic Messages"] = new TokenomicsApiOptions()
+                        }
+                    }
+                }
             }
         };
 
@@ -75,6 +91,9 @@ public sealed class TokenomicsReplayTests {
         StringAssert.Contains(serialized, "HourlyBudgetEntitledTenantAction=upgradeModel");
         StringAssert.Contains(serialized, "AllowedHosts=gpt-4o=");
         StringAssert.Contains(serialized, "AllowedHosts=gemini-3=apim4");
+        StringAssert.Contains(serialized, "Api:OpenAI%20Chat%20Completions:false:true:%2Fcustom%2Fchat");
+        StringAssert.Contains(serialized, "Api:OpenAI%20Responses:true:false");
+        StringAssert.Contains(serialized, "Api:Anthropic%20Messages:false:false");
 
         var parsed = new TokenomicsSettings();
         Assert.IsTrue(parsed.TryParse(serialized));
@@ -91,6 +110,15 @@ public sealed class TokenomicsReplayTests {
         CollectionAssert.AreEquivalent(
             source.AllowedHosts["gemini-3"].ToArray(),
             parsed.AllowedHosts["gemini-3"].ToArray());
+        var parsedApis = parsed.ModelHostOptions["gpt-4o"]["Host_apim"].APIs;
+        Assert.IsFalse(parsedApis["OpenAI Chat Completions"].PassThrough);
+        Assert.IsTrue(parsedApis["OpenAI Chat Completions"].OverridePath);
+        Assert.AreEqual("/custom/chat", parsedApis["OpenAI Chat Completions"].Path);
+        Assert.IsTrue(parsedApis["OpenAI Responses"].PassThrough);
+        Assert.IsFalse(parsedApis["OpenAI Responses"].OverridePath);
+        Assert.IsFalse(parsedApis["Anthropic Messages"].PassThrough);
+        Assert.IsFalse(parsedApis["Anthropic Messages"].OverridePath);
+        Assert.IsNull(parsedApis["Anthropic Messages"].Path);
 
         var semicolonSeparated = new TokenomicsSettings();
         Assert.IsTrue(semicolonSeparated.TryParse(
