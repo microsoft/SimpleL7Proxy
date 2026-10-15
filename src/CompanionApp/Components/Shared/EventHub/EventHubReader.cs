@@ -464,6 +464,14 @@ public sealed class EventHubReader : BackgroundService
     // publishes the batch (already parsed) to the metrics catalog. No stage re-parses the JSON.
     private (int Processed, int Skipped) RunPipeline(string[] incomingRecords, string source)
     {
+        lock (_store.IngestionGate)
+        {
+            return RunPipelineCore(incomingRecords, source);
+        }
+    }
+
+    private (int Processed, int Skipped) RunPipelineCore(string[] incomingRecords, string source)
+    {
         if (incomingRecords.Length == 0)
         {
             return (0, 0);

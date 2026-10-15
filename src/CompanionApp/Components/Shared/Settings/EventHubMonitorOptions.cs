@@ -37,6 +37,6 @@ public sealed class EventHubMonitorOptions
     /// <summary>Start position for a new consumer: "latest" or "earliest".</summary>
     public string StartPosition { get; set; } = "latest";
 
-    /// <summary>How often the UI pulls a fresh snapshot, in seconds.</summary>
+    /// <summary>Server-wide observability publication interval in seconds; circuits subscribe to publications.</summary>
     public int RefreshSeconds { get; set; } = 5;
 }

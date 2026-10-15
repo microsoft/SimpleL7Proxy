@@ -5,8 +5,8 @@
 | Field | Value |
 | --- | --- |
 | Title | EventHub Monitor Page — Requirements & Behavior Specification |
-| Version | 1.0 |
-| Last Updated | 2026-07-13 |
+| Version | 1.1 |
+| Last Updated | 2026-10-15 |
 | Owner | SimpleL7Proxy / CompanionApp |
 | Route | `/eventhub` |
 | Purpose | Authoritative baseline of observable behavior, used to refactor the implementation and re-validate that no behavior changed. |
@@ -23,19 +23,20 @@
 **TL;DR**
 - Input is a stream of newline-delimited JSON `S7P-*` events from Azure Event Hub (or a local file).
 - Events are aggregated into an in-memory store; requests are retained for **1 hour**.
-- The UI pulls an immutable snapshot every **`RefreshSeconds`** (default 5s) and renders five regions: **Runtime stats**, **Backends + Metrics**, **Endpoints**, **Paths/Users**, and **Request status**.
+- One server-side publisher produces immutable snapshots every **`RefreshSeconds`** (default 5s); `/eventhub` and `/insights` subscribe to its `Changed` notification. Browser circuits MUST NOT run separate polling loops.
 
 ---
 
 ## C. Scope & Applicability
 
 **In scope**
-- The `/eventhub` page and its server-side data pipeline (reader → store/catalog → snapshot → UI).
+- The `/eventhub` page and its server-side data pipeline (reader → store/catalog → shared publisher → snapshot → UI).
+- Shared snapshot publication and usage normalization consumed by `/insights`.
 - Field-level mapping from `S7P-*` events to every rendered value.
 
 **Out of scope**
 - The proxy that emits the events; Event Hub provisioning; authentication configuration.
-- Other pages in CompanionApp.
+- Other pages in CompanionApp, except the shared publication contract used by `/insights`.
 
 **Dependencies**
 - `Azure.Messaging.EventHubs` consumer client.
@@ -80,7 +81,12 @@ Records are routed by their `Type` field. All other `Type` values MUST be ignore
 - Local-file import sets **DisableRequestAging = true** → no purge (full file remains visible).
 - `RequestsPerSecond` is computed over a trailing **5-second** window.
 - A monotonic `RequestNumber` is assigned by the store per added item.
-- The UI never renders directly off mutations; it pulls an immutable `MonitorSnapshot`. `LastDataUtc` marks the last ingest; the feed is "live" when `now - LastDataUtc < 5s`.
+- The reader MUST serialize lifecycle changes and catalog ingestion with publication capture. `ObservabilityDashboardStore` MUST publish one versioned `ObservabilitySnapshot` containing monitor state, scope choices and catalog groups from the same capture.
+- Published requests, nested phase fields, backend attempts and usage maps MUST be immutable. Existing inspector components receive detached `MultiRequestStatusItem` copies; mutation of one circuit's row MUST NOT affect ingestion, an older publication or another circuit.
+- `LastDataUtc` marks the last ingest, not the publication time. Idle publications MUST continue so request expiry, trailing rates, elapsed durations and trend windows advance without new events.
+- Circuits MUST marshal notification handling through `InvokeAsync`, read the latest publication and call `StateHasChanged`. Disposal MUST unsubscribe. Filters, selected metrics, tabs and popup state remain circuit-local.
+- Usage normalization MUST preserve dynamically discovered metric keys and distinguish missing usage from measured zero. Unchanged request header/body usage sources MUST reuse their normalized usage map.
+- Filtered projections MUST use one publication and selection context. Runtime/fleet panels retain their existing global scope; request-derived sections retain their current scope/environment/user/model filters.
 - REQUIRED: `S7P-BackendRequest` items are **excluded** from the request panel and from every runtime-stats aggregate. They contribute **only** to the Endpoints region.
 
 ---
@@ -250,6 +256,10 @@ Use with a known NDJSON fixture (set `LocalFilePath`, `eventhub_enabled=false`).
 - [ ] **Scope selector**: `all` + per-app + per-replica entries appear; selecting one filters the request column and re-scopes "Metrics by group".
 - [ ] With aging enabled and a >1h old timestamp, that request is purged; with local-file import, it is retained.
 - [ ] Feeding a malformed record does not stop ingestion (skipped count increments in logs).
+- [ ] Multiple circuits receive the same publication version without creating additional Event Hub readers or polling timers.
+- [ ] Enqueue-to-final updates preserve request numbers; old snapshots and open inspector copies remain unchanged.
+- [ ] Idle publications reduce the trailing request rate and expire retained requests/catalog scopes without new events.
+- [ ] Insights retains dynamic usage metrics, measured zero, missing-usage state, trend-slot drill-down and circuit-local metric selections.
 
 ---
 
@@ -260,4 +270,4 @@ These are current implementation smells the cleanup may address **without** chan
 - `server/backend/endpoint/requests` dictionaries built by the pipeline are rebuilt again in `ProxyMetricsCatalog.BuildScopeValues` (duplicated aggregation).
 - `GetValue` / `FirstNonEmpty` / `GetCorrelationKey` are duplicated in three files with divergent `GetCorrelationKey` precedence (reader: GUID→MID; base processor: MID→GUID).
 - Request data is flattened to `"Key: value"` text then re-parsed by regex in the razor, despite a structured `RequestPhaseView` already existing.
-- Endpoint/Path/User aggregation lives in `EventHubMonitorPage.razor` and overlaps store aggregation.
+- Endpoint/Path/User projections MUST remain shared between the two subscribed pages; optional cleanup of older store aggregates MUST NOT change their classification rules.

@@ -134,6 +134,9 @@ internal static class Program
         builder.Services.AddSingleton<EventHubMonitorStore>();
 
         TokenomicsStartup.ConfigureServices(builder, replayOptions, uiOnly);
+        builder.Services.AddSingleton<CompanionApp.Observability.ObservabilityDashboardStore>();
+        builder.Services.AddHostedService(services =>
+            services.GetRequiredService<CompanionApp.Observability.ObservabilityDashboardStore>());
         ConfigureOptions(builder);
     }
 

@@ -120,8 +120,9 @@ public sealed record ServerErrorSnapshot
 }
 
 /// <summary>
-/// Immutable point-in-time view the UI renders from. Produced by
-/// <see cref="EventHubMonitorStore.GetSnapshot"/>.
+/// Legacy monitor view produced by <see cref="EventHubMonitorStore.GetSnapshot"/>.
+/// Ingestion views reference mutable request rows; the observability publisher freezes
+/// those rows before exposing a publication to circuits.
 /// </summary>
 public sealed record MonitorSnapshot
 {
