@@ -1,5 +1,8 @@
 # Copilot Learnings
 
+- Razor string component parameters require an explicit `@` when binding a field; `SelectedModel="_limitsModel"` passes a literal, while `SelectedModel="@_limitsModel"` passes the selection. A successful build does not detect this difference.
+- In file-free F# HtmlRenderer checks, use `Dispatcher.InvokeAsync<string>(Func<Task<string>>(...))` to disambiguate the asynchronous overload. Put object-expression interface implementations on separate, properly indented lines.
+- Start an unpublished CompanionApp preview with `ASPNETCORE_ENVIRONMENT=Development` so static web assets are enabled. `--uionly` disables startup configuration access and the Event Hub reader, but opening Proxy Configuration still loads its configured endpoint; do not assume that page is offline.
 - Model-host routing distinguishes an absent model (unrestricted) from a configured model with no enabled hosts (reject all hosts). Derive supporting host keys from enabled ModelHostOptions entries; do not use the resulting set's Count to decide whether restrictions apply. Retired AllowedHosts settings are rejected rather than merged into the canonical map.
 - For file-free F# validation, pipe input to `dotnet fsi --readline- --quiet` and terminate the submitted block with `;;`. `dotnet fsi --exec /dev/stdin` fails because its input stream cannot seek.
 - For a Blazor app rename, update AssemblyName, RootNamespace, explicit C#/Razor namespaces, and the scoped CSS asset name together. Language-server namespace rename can miss Razor files; use editor-native edits for open buffers so later saves do not restore old identifiers.

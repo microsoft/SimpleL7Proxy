@@ -232,12 +232,14 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         if (!doTokenomics)
             return ("TokenomicsDisabled", TokenActionEnum.None);
 
+        var actions = data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
+            ? modelActions : Settings.DefaultLimitActions;
 
         if (c.AbuseDetected)
             return ("AbuseDetected", Settings.AbuseDetectedAction);
 
         if (c.MonthlyQuotaExceeded && !c.AdministratorOverride && !c.ApprovedException)
-            return ("MonthlyQuotaExceeded", Settings.MonthlyQuotaExceededAction);
+            return ("MonthlyQuotaExceeded", actions.MonthlyQuotaExceededAction);
 
         if (c.AdministratorOverride || c.ApprovedException)
             return ("AdministratorOverride", Settings.AdministratorOverrideAction);
@@ -247,25 +249,25 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             Console.WriteLine("Daily quota exceeded for user: " + data.UserID);
 
             if (c.IncidentResponse || c.AuditInvestigation || c.ComplianceRequired)
-                return ("DailyQuotaGovernance", Settings.DailyQuotaGovernanceAction);
+                return ("DailyQuotaGovernance", actions.DailyQuotaGovernanceAction);
 
-            return ("DailyQuotaExceeded", Settings.DailyQuotaExceededAction);
+            return ("DailyQuotaExceeded", actions.DailyQuotaExceededAction);
         }
 
         if (c.MonthlyBudgetExceeded)
         {
             if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("MonthlyBudgetEntitledTenant", Settings.MonthlyBudgetEntitledTenantAction);
+                return ("MonthlyBudgetEntitledTenant", actions.MonthlyBudgetEntitledTenantAction);
 
-            return ("MonthlyBudgetExceeded", Settings.MonthlyBudgetExceededAction);
+            return ("MonthlyBudgetExceeded", actions.MonthlyBudgetExceededAction);
         }
 
         if (c.DailyBudgetExceeded)
         {
             if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("DailyBudgetEntitledTenant", Settings.DailyBudgetEntitledTenantAction);
+                return ("DailyBudgetEntitledTenant", actions.DailyBudgetEntitledTenantAction);
 
-            return ("DailyBudgetExceeded", Settings.DailyBudgetExceededAction);
+            return ("DailyBudgetExceeded", actions.DailyBudgetExceededAction);
         }
 
         if (c.CapacityConstrained)

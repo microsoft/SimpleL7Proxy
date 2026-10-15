@@ -40,11 +40,11 @@
     {
         <div class="tokenomics-summary-grid" role="group" aria-label="Select Tokenomics settings to edit">
             <TokenomicsLimitsBudgetsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
-                OnSelected="@(() => _expandedWidget = "limits")">
+                OnSelected="@(() => { _limitsSnapshot = _options.ToString(); _limitsModel = null; _expandedWidget = "limits"; })">
                 <Summary>
-                    <span><strong>Tokens:</strong> @CompactNumber(_options.HourlyTokenLimit) hourly · @CompactNumber(_options.DailyTokenLimit) daily · @CompactNumber(_options.MonthlyTokenLimit) monthly</span>
-                    <span><strong>Budgets:</strong> $@CompactNumber(_options.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DailyBudgetUsd) daily · $@CompactNumber(_options.MonthlyBudgetUsd) monthly</span>
-                    <span><strong>On exceed:</strong> @PeriodActions(_options.HourlyQuotaExceededAction, _options.DailyQuotaExceededAction, _options.MonthlyQuotaExceededAction)</span>
+                    <span><strong>Tokens:</strong> @CompactNumber(_options.DefaultLimits.HourlyTokenLimit) hourly · @CompactNumber(_options.DefaultLimits.DailyTokenLimit) daily · @CompactNumber(_options.DefaultLimits.MonthlyTokenLimit) monthly</span>
+                    <span><strong>Budgets:</strong> $@CompactNumber(_options.DefaultLimits.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DefaultLimits.DailyBudgetUsd) daily · $@CompactNumber(_options.DefaultLimits.MonthlyBudgetUsd) monthly</span>
+                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultLimitActions.HourlyQuotaExceededAction, _options.DefaultLimitActions.DailyQuotaExceededAction, _options.DefaultLimitActions.MonthlyQuotaExceededAction)</span>
                 </Summary>
             </TokenomicsLimitsBudgetsSettingsWidget>
             <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
@@ -107,7 +107,53 @@
             <div class="tokenomics-widget-popup-body">
             @if (_expandedWidget == "limits")
             {
-            <TokenomicsLimitsBudgetsSettingsWidget FieldContent="@(name => RenderField(name, true))" />
+            <TokenomicsLimitsBudgetsSettingsWidget FieldContent="@(name => RenderField(name, true, _limitsModel))"
+                Models="@_options.ModelHostOptions.Keys.OrderBy(model => model, StringComparer.OrdinalIgnoreCase).ToArray()"
+                SelectedModel="@_limitsModel"
+                OverriddenModels="@_options.ModelLimits.Keys.Concat(_options.ModelLimitActions.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase)"
+                UseDefaults="@(_limitsModel is null || !_options.ModelLimits.ContainsKey(_limitsModel) && !_options.ModelLimitActions.ContainsKey(_limitsModel))"
+                HasErrors="@_fieldErrors.Keys.Any(key => key.StartsWith("limits:", StringComparison.Ordinal))"
+                OnModelSelected="@((string? model) => _limitsModel = model)"
+                OnUseDefaultsChanged="@(async (bool useDefaults) => {
+                    if (_limitsModel is not { } model) { return; }
+                    if (useDefaults) {
+                        _options.ModelLimits.Remove(model);
+                        _options.ModelLimitActions.Remove(model);
+                    } else {
+                        var copy = ParseOptions(_options.ToString())!;
+                        _options.ModelLimits.TryAdd(model, copy.DefaultLimits);
+                        _options.ModelLimitActions.TryAdd(model, copy.DefaultLimitActions);
+                    }
+                    foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith($"limits:{model}:", StringComparison.Ordinal)).ToArray()) {
+                        _fieldErrors.Remove(key);
+                    }
+                    CommitOptions();
+                    await OnChanged.InvokeAsync();
+                })"
+                OnReset="@(async () => {
+                    if (_limitsModel is { } model) {
+                        _options.ModelLimits.Remove(model);
+                        _options.ModelLimitActions.Remove(model);
+                    } else {
+                        _options.DefaultLimits = new();
+                        _options.DefaultLimitActions = new();
+                    }
+                    foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith($"limits:{_limitsModel ?? "default"}:", StringComparison.Ordinal)).ToArray()) {
+                        _fieldErrors.Remove(key);
+                    }
+                    CommitOptions();
+                    await OnChanged.InvokeAsync();
+                })"
+                OnSave="@(() => _expandedWidget = null)"
+                OnCancel="@(async () => {
+                    if (_limitsSnapshot is not null) { _options = ParseOptions(_limitsSnapshot)!; }
+                    foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith("limits:", StringComparison.Ordinal)).ToArray()) {
+                        _fieldErrors.Remove(key);
+                    }
+                    CommitOptions();
+                    _expandedWidget = null;
+                    await OnChanged.InvokeAsync();
+                })" />
             }
             else if (_expandedWidget == "capacity")
             {
@@ -176,6 +222,8 @@
 
     private static readonly PropertyInfo[] OptionProperties = typeof(TokenomicsSettings)
         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Concat(typeof(TokenomicsLimits).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        .Concat(typeof(TokenomicsLimitActions).GetProperties(BindingFlags.Public | BindingFlags.Instance))
         .Where(property => property.CanRead && property.CanWrite && property.Name != nameof(TokenomicsSettings.ModelCostPerToken))
         .ToArray();
 
@@ -188,6 +236,8 @@
     private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
     private readonly List<ModelCostRow> _modelCosts = new();
     private string? _expandedWidget;
+    private string? _limitsModel;
+    private string? _limitsSnapshot;
     private static string CompactNumber(decimal value) =>
         value != 0 && value % 1000 == 0
             ? $"{(value / 1000).ToString("0.##", CultureInfo.InvariantCulture)}K"
@@ -291,12 +341,12 @@
 
     private IEnumerable<PropertyInfo> NumericForTab(string tab) => NumericProperties.Where(property => tab switch
     {
-        "limits" => property.Name is nameof(TokenomicsSettings.HourlyTokenLimit)
-            or nameof(TokenomicsSettings.DailyTokenLimit)
-            or nameof(TokenomicsSettings.MonthlyTokenLimit),
-        "budgets" => property.Name is nameof(TokenomicsSettings.HourlyBudgetUsd)
-            or nameof(TokenomicsSettings.DailyBudgetUsd)
-            or nameof(TokenomicsSettings.MonthlyBudgetUsd),
+        "limits" => property.Name is nameof(TokenomicsLimits.HourlyTokenLimit)
+            or nameof(TokenomicsLimits.DailyTokenLimit)
+            or nameof(TokenomicsLimits.MonthlyTokenLimit),
+        "budgets" => property.Name is nameof(TokenomicsLimits.HourlyBudgetUsd)
+            or nameof(TokenomicsLimits.DailyBudgetUsd)
+            or nameof(TokenomicsLimits.MonthlyBudgetUsd),
         "capacity" => property.Name is nameof(TokenomicsSettings.CurrentCapacityUtilizationPercent)
             or nameof(TokenomicsSettings.CapacityConstraintThresholdPercent)
             or nameof(TokenomicsSettings.HighQueueDepthThreshold)
@@ -311,18 +361,18 @@
         ActionProperties.Where(property => string.Equals(ActionTab(property.Name), tab, StringComparison.Ordinal));
 
     private static string ActionTab(string name) => name switch {
-        nameof(TokenomicsSettings.HourlyQuotaGovernanceAction)
-            or nameof(TokenomicsSettings.DailyQuotaGovernanceAction)
-            or nameof(TokenomicsSettings.MonthlyQuotaGovernanceAction)
-            or nameof(TokenomicsSettings.HourlyQuotaExceededAction)
-            or nameof(TokenomicsSettings.DailyQuotaExceededAction)
-            or nameof(TokenomicsSettings.MonthlyQuotaExceededAction) => "limits",
-        nameof(TokenomicsSettings.HourlyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.DailyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.MonthlyBudgetEntitledTenantAction)
-            or nameof(TokenomicsSettings.HourlyBudgetExceededAction)
-            or nameof(TokenomicsSettings.DailyBudgetExceededAction)
-            or nameof(TokenomicsSettings.MonthlyBudgetExceededAction) => "budgets",
+        nameof(TokenomicsLimitActions.HourlyQuotaGovernanceAction)
+            or nameof(TokenomicsLimitActions.DailyQuotaGovernanceAction)
+            or nameof(TokenomicsLimitActions.MonthlyQuotaGovernanceAction)
+            or nameof(TokenomicsLimitActions.HourlyQuotaExceededAction)
+            or nameof(TokenomicsLimitActions.DailyQuotaExceededAction)
+            or nameof(TokenomicsLimitActions.MonthlyQuotaExceededAction) => "limits",
+        nameof(TokenomicsLimitActions.HourlyBudgetEntitledTenantAction)
+            or nameof(TokenomicsLimitActions.DailyBudgetEntitledTenantAction)
+            or nameof(TokenomicsLimitActions.MonthlyBudgetEntitledTenantAction)
+            or nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
+            or nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
+            or nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "budgets",
         nameof(TokenomicsSettings.CapacityCriticalWorkloadAction)
             or nameof(TokenomicsSettings.CapacityHighPriorityAction)
             or nameof(TokenomicsSettings.CapacityConstrainedAction)
@@ -485,11 +535,14 @@
         LoadOptions(setting);
     }
 
-    private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args) {
+    private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args, string? limitModel = null) {
         var value = args.Value?.ToString() ?? string.Empty;
+        var isLimit = property.DeclaringType == typeof(TokenomicsLimits) || property.DeclaringType == typeof(TokenomicsLimitActions);
+        var errorKey = isLimit ? $"limits:{limitModel ?? "default"}:{property.Name}" : property.Name;
         if (!TryParseValue(property.PropertyType, property.Name, value, out var parsedValue)
-            || property.Name == nameof(TokenomicsSettings.DelayDuration) && parsedValue is int duration && duration < 0) {
-            _fieldErrors[property.Name] = $"Enter a valid {FieldLabel(property.Name)} value.";
+            || property.Name == nameof(TokenomicsSettings.DelayDuration) && parsedValue is int duration && duration < 0
+            || property.DeclaringType == typeof(TokenomicsLimits) && Convert.ToDecimal(parsedValue, CultureInfo.InvariantCulture) < 0) {
+            _fieldErrors[errorKey] = $"Enter a valid non-negative {FieldLabel(property.Name)} value.";
             await OnChanged.InvokeAsync();
             return;
         }
@@ -501,8 +554,18 @@
                 .ToHashSet(StringComparer.Ordinal)
             : null;
 
-        _fieldErrors.Remove(property.Name);
-        property.SetValue(_options, parsedValue);
+        _fieldErrors.Remove(errorKey);
+        if (isLimit && limitModel is not null && (!_options.ModelLimits.ContainsKey(limitModel) || !_options.ModelLimitActions.ContainsKey(limitModel))) {
+            var copy = ParseOptions(_options.ToString())!;
+            _options.ModelLimits.TryAdd(limitModel, copy.DefaultLimits);
+            _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultLimitActions);
+        }
+        object target = property.DeclaringType == typeof(TokenomicsLimits)
+            ? limitModel is null ? _options.DefaultLimits : _options.ModelLimits[limitModel]
+            : property.DeclaringType == typeof(TokenomicsLimitActions)
+                ? limitModel is null ? _options.DefaultLimitActions : _options.ModelLimitActions[limitModel]
+                : _options;
+        property.SetValue(target, parsedValue);
 
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             var hierarchyModels = _options.ModelHierarchy.Values
@@ -845,7 +908,19 @@
         await OnChanged.InvokeAsync();
     }
 
-    private bool IsOptionChanged(PropertyInfo property) {
+    private bool IsOptionChanged(PropertyInfo property, string? model = null) {
+        if (property.DeclaringType == typeof(TokenomicsLimits)) {
+            var current = model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits;
+            var loaded = model is not null && _loadedOptions.ModelLimits.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimits;
+            return !Equals(property.GetValue(current), property.GetValue(loaded))
+                || model is not null && _options.ModelLimits.ContainsKey(model) != _loadedOptions.ModelLimits.ContainsKey(model);
+        }
+        if (property.DeclaringType == typeof(TokenomicsLimitActions)) {
+            var current = model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions;
+            var loaded = model is not null && _loadedOptions.ModelLimitActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultLimitActions;
+            return !Equals(property.GetValue(current), property.GetValue(loaded))
+                || model is not null && _options.ModelLimitActions.ContainsKey(model) != _loadedOptions.ModelLimitActions.ContainsKey(model);
+        }
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             return _options.ModelHierarchy.Count != _loadedOptions.ModelHierarchy.Count
                 || _options.ModelHierarchy.Any(entry =>
@@ -912,8 +987,15 @@
     }
 
 
-    private RenderFragment RenderField(string name, bool compact = false) {
+    private RenderFragment RenderField(string name, bool compact = false, string? model = null) {
         var property = OptionProperties.Single(property => property.Name == name);
+        object target = property.DeclaringType == typeof(TokenomicsLimits)
+            ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits
+            : property.DeclaringType == typeof(TokenomicsLimitActions)
+                ? model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions
+                : _options;
+        var errorKey = property.DeclaringType == typeof(TokenomicsLimits) || property.DeclaringType == typeof(TokenomicsLimitActions)
+            ? $"limits:{model ?? "default"}:{property.Name}" : property.Name;
         if (name == nameof(TokenomicsSettings.DefaultModelAPI)) {
             var apiNames = RoutingApis.Select(api => api.Name)
                 .Concat(_options.ModelHostOptions.Values.SelectMany(hosts => hosts.Values)
@@ -945,12 +1027,12 @@
             </div>;
         }
         return @<TokenomicsOptionFieldWidget Name="@property.Name" Label="@FieldLabel(property.Name)"
-            Value="@FormatValue(property.GetValue(_options), property.Name)" Step="@InputStep(property.PropertyType)"
+            Value="@FormatValue(property.GetValue(target), property.Name)" Step="@InputStep(property.PropertyType)"
             InputType="@(property.PropertyType == typeof(string) || property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
-            Error="@(_fieldErrors.TryGetValue(property.Name, out var error) ? error : null)"
-            IsChanged="@IsOptionChanged(property)" IsAction="@(property.PropertyType == typeof(TokenActionEnum))"
+            Error="@(_fieldErrors.TryGetValue(errorKey, out var error) ? error : null)"
+            IsChanged="@IsOptionChanged(property, model)" IsAction="@(property.PropertyType == typeof(TokenActionEnum))"
             Compact="compact" ActionLabel="@(action => FieldLabel(action.ToString()))"
-            OnChanged="@(args => SetOptionAsync(property, args))" />;
+            OnChanged="@(args => SetOptionAsync(property, args, model))" />;
     }
 
 

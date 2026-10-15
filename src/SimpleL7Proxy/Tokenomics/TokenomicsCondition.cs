@@ -40,8 +40,10 @@ public sealed class TokenomicsCondition
         AbuseDetected = data.IsAbusive;
         Metric = await lm.GetMetric(data.UserID, data.Model);
 
-        DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= settings.DailyTokenLimit;
-        MonthlyQuotaExceeded = lm.GetMonthlyTokenBalanceAsync(Metric) >= settings.MonthlyTokenLimit;
+        var limits = data.Model is not null && settings.ModelLimits.TryGetValue(data.Model, out var modelLimits)
+            ? modelLimits : settings.DefaultLimits;
+        DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= limits.DailyTokenLimit;
+        MonthlyQuotaExceeded = lm.GetMonthlyTokenBalanceAsync(Metric) >= limits.MonthlyTokenLimit;
 
         //MonthlyBudgetExceeded = await lm.GetMonthlyBudgetUsageAsync(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
         //DailyBudgetExceeded = await lm.GetDailyBudgetUsageAsync(data.UserID, data.Model) >= settings.DailyBudgetUsd;
