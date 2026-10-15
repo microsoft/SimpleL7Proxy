@@ -359,16 +359,22 @@ else
                                     <table class="table table-sm align-middle config-tokenomics-host-api-table mb-0">
                                         <thead>
                                             <tr>
+                                                <th scope="col">Model</th>
                                                 <th scope="col">API</th>
                                                 <th scope="col">Path handling</th>
                                                 <th scope="col">Effective path</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var api in dialogTokenomicsHostOptions.APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                            @foreach (var model in _tokenomicsOptions.ModelHostOptions
+                                                .Where(model => model.Value.ContainsKey(_editingHost.DraftName))
+                                                .OrderBy(model => model.Key, StringComparer.OrdinalIgnoreCase))
                                             {
+                                                @foreach (var api in model.Value[_editingHost.DraftName].APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                                {
                                                 var definition = TokenomicsApiDefinitionFor(api.Key);
                                                 <tr>
+                                                    <td>@model.Key</td>
                                                     <td>
                                                         <span class="badge config-tokenomics-api-badge me-2">@definition.Badge</span>
                                                         <span>@api.Key</span>
@@ -376,6 +382,7 @@ else
                                                     <td>@TokenomicsPathModeLabel(definition, api.Value)</td>
                                                     <td class="font-monospace text-break">@TokenomicsEffectivePath(definition, api.Value)</td>
                                                 </tr>
+                                                }
                                             }
                                         </tbody>
                                     </table>
@@ -870,15 +877,12 @@ else
 
     private static string ApiPathMode(TokenomicsApiDefinition definition, TokenomicsApiOptions options)
     {
-        if (!options.OverridePath)
+        if (options.PassThrough)
         {
             return "preserve";
         }
 
-        return options.Path is null
-            || string.Equals(options.Path, definition.DefaultPath, StringComparison.Ordinal)
-            ? "default"
-            : "override";
+        return options.OverridePath ? "override" : "default";
     }
 
     private TokenomicsHostOptions? HostTokenomicsOptions(AppConfigurationScaffoldSetting? setting)
@@ -888,15 +892,22 @@ else
             return null;
         }
 
-        return _tokenomicsOptions.HostOptions.TryGetValue(setting.DraftName, out var options)
-            ? options
-            : null;
+        var modelHosts = _tokenomicsOptions.ModelHostOptions.Values
+            .Where(hosts => hosts.ContainsKey(setting.DraftName))
+            .Select(hosts => hosts[setting.DraftName])
+            .ToList();
+        return modelHosts.Count == 0 ? null : new TokenomicsHostOptions {
+            Enabled = modelHosts.Any(options => options.Enabled),
+            APIs = modelHosts.SelectMany(options => options.APIs)
+                .GroupBy(api => api.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase)
+        };
     }
 
     private int HostModelCount(AppConfigurationScaffoldSetting setting)
     {
-        return _tokenomicsOptions.AllowedHosts.Count(entry =>
-            entry.Value.Contains(setting.DraftName));
+        return _tokenomicsOptions.ModelHostOptions.Count(entry =>
+            entry.Value.ContainsKey(setting.DraftName));
     }
 
     private static TokenomicsApiDefinition TokenomicsApiDefinitionFor(string apiName) =>
@@ -923,21 +934,21 @@ else
         TokenomicsApiDefinition definition,
         TokenomicsApiOptions options) => ApiPathMode(definition, options) switch
     {
-        "preserve" => "Preserve request path",
-        "default" => "API default",
-        _ => "Override"
+        "preserve" => "PassThru",
+        "default" => "Default API Spec Path",
+        _ => "Overridden Path"
     };
 
     private static string TokenomicsEffectivePath(
         TokenomicsApiDefinition definition,
         TokenomicsApiOptions options)
     {
-        if (!options.OverridePath)
+        if (options.PassThrough)
         {
             return "Incoming request path";
         }
 
-        return options.Path ?? definition.DefaultPath;
+        return options.OverridePath ? options.Path ?? string.Empty : definition.DefaultPath;
     }
 
     protected override void OnParametersSet()

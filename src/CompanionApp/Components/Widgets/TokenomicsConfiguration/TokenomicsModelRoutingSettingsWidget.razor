@@ -23,7 +23,17 @@ else
                     <div class="tokenomics-routing-field-grid">
                         @foreach (var name in NumericNames)
                         {
-                            @FieldContent(name)
+                            @if (name == nameof(TokenomicsSettings.DefaultModel))
+                            {
+                                <div class="d-grid gap-2 align-content-start">
+                                    @FieldContent(name)
+                                    @FieldContent(nameof(TokenomicsSettings.DefaultModelAPI))
+                                </div>
+                            }
+                            else
+                            {
+                                @FieldContent(name)
+                            }
                         }
                     </div>
                 </section>
@@ -218,6 +228,14 @@ else
                                     <span>Assign @selectedHostKey to @_selectedModel on the Models tab to edit its API mappings.</span>
                                 </div>
                             }
+                            <div class="tokenomics-routing-info" role="note">
+                                <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                                <div>
+                                    <p class="mb-1"><strong>PassThru:</strong> Keeps the incoming path unchanged.</p>
+                                    <p class="mb-1"><strong>Default API Spec Path:</strong> Uses the API's standard path. Any <code>{model}</code> placeholder is replaced with the selected model's URL-encoded name; paths without it remain unchanged. For example, <code class="text-break">/v1beta/models/{model}:generateContent</code> becomes <code class="text-break">/v1beta/models/gemini-2.5-pro:generateContent</code> for <code>gemini-2.5-pro</code>.</p>
+                                    <p class="mb-0"><strong>Overridden Path:</strong> Uses the entered path exactly. The <code>{model}</code> placeholder is not substituted.</p>
+                                </div>
+                            </div>
                             <div class="tokenomics-routing-host-api-details">
                                 <div class="tokenomics-routing-host-api-header">
                                     <span>Enabled</span>
@@ -286,8 +304,6 @@ else
     [Parameter] public IReadOnlyDictionary<string, Dictionary<string, TokenomicsHostOptions>> ModelHostOptions { get; set; } =
         new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(StringComparer.OrdinalIgnoreCase);
     [Parameter] public IReadOnlyList<ApiDefinition> ApiDefinitions { get; set; } = Array.Empty<ApiDefinition>();
-    [Parameter] public IReadOnlyDictionary<string, HashSet<string>> AllowedHosts { get; set; } =
-        new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
     [Parameter] public IReadOnlyDictionary<string, HashSet<string>> LoadedAllowedHosts { get; set; } =
         new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
     [Parameter] public string? Error { get; set; }

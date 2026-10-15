@@ -51,6 +51,7 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_NewPeriodFields_RoundTripThroughStringFormat() {
         var source = new TokenomicsSettings {
+            DefaultModelAPI = "OpenAI Chat Completions",
             HourlyTokenLimit = 321,
             HourlyBudgetUsd = 12.345m,
             HourlyQuotaGovernanceAction = TokenActionEnum.IncreaseLimit,
@@ -58,10 +59,6 @@ public sealed class TokenomicsReplayTests {
             HourlyQuotaExceededAction = TokenActionEnum.Throttle,
             HourlyBudgetExceededAction = TokenActionEnum.Reject,
             HourlyBudgetEntitledTenantAction = TokenActionEnum.UpgradeModel,
-            AllowedHosts = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase) {
-                ["gpt-4o"] = new HashSet<string>(["apim1", "apim2", "apim3"], StringComparer.OrdinalIgnoreCase),
-                ["gemini-3"] = new HashSet<string>(["apim4"], StringComparer.OrdinalIgnoreCase)
-            },
             ModelHostOptions = new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(StringComparer.OrdinalIgnoreCase) {
                 ["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
                     ["Host_apim"] = new TokenomicsHostOptions {
@@ -75,13 +72,15 @@ public sealed class TokenomicsReplayTests {
                             },
                             ["Anthropic Messages"] = new TokenomicsApiOptions()
                         }
-                    }
+                    },
+                    ["Host_disabled"] = new TokenomicsHostOptions { Enabled = false }
                 }
             }
         };
 
         var serialized = source.ToString();
 
+        StringAssert.Contains(serialized, "DefaultModelAPI=OpenAI%20Chat%20Completions");
         StringAssert.Contains(serialized, "HourlyTokenLimit=321");
         StringAssert.Contains(serialized, "HourlyBudgetUsd=12.345");
         StringAssert.Contains(serialized, "HourlyQuotaGovernanceAction=increaseLimit");
@@ -89,14 +88,15 @@ public sealed class TokenomicsReplayTests {
         StringAssert.Contains(serialized, "HourlyQuotaExceededAction=throttle");
         StringAssert.Contains(serialized, "HourlyBudgetExceededAction=reject");
         StringAssert.Contains(serialized, "HourlyBudgetEntitledTenantAction=upgradeModel");
-        StringAssert.Contains(serialized, "AllowedHosts=gpt-4o=");
-        StringAssert.Contains(serialized, "AllowedHosts=gemini-3=apim4");
+        StringAssert.Contains(serialized, "ModelHostOptions=gpt-4o=Host_apim=Enabled:true");
+        StringAssert.Contains(serialized, "ModelHostOptions=gpt-4o=Host_disabled=Enabled:false");
         StringAssert.Contains(serialized, "Api:OpenAI%20Chat%20Completions:false:true:%2Fcustom%2Fchat");
         StringAssert.Contains(serialized, "Api:OpenAI%20Responses:true:false");
         StringAssert.Contains(serialized, "Api:Anthropic%20Messages:false:false");
 
         var parsed = new TokenomicsSettings();
         Assert.IsTrue(parsed.TryParse(serialized));
+        Assert.AreEqual(source.DefaultModelAPI, parsed.DefaultModelAPI);
         Assert.AreEqual(source.HourlyTokenLimit, parsed.HourlyTokenLimit);
         Assert.AreEqual(source.HourlyBudgetUsd, parsed.HourlyBudgetUsd);
         Assert.AreEqual(source.HourlyQuotaGovernanceAction, parsed.HourlyQuotaGovernanceAction);
@@ -105,11 +105,9 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(source.HourlyBudgetExceededAction, parsed.HourlyBudgetExceededAction);
         Assert.AreEqual(source.HourlyBudgetEntitledTenantAction, parsed.HourlyBudgetEntitledTenantAction);
         CollectionAssert.AreEquivalent(
-            source.AllowedHosts["gpt-4o"].ToArray(),
-            parsed.AllowedHosts["gpt-4o"].ToArray());
-        CollectionAssert.AreEquivalent(
-            source.AllowedHosts["gemini-3"].ToArray(),
-            parsed.AllowedHosts["gemini-3"].ToArray());
+            source.ModelHostOptions["gpt-4o"].Keys.ToArray(),
+            parsed.ModelHostOptions["gpt-4o"].Keys.ToArray());
+        Assert.IsFalse(parsed.ModelHostOptions["gpt-4o"]["Host_disabled"].Enabled);
         var parsedApis = parsed.ModelHostOptions["gpt-4o"]["Host_apim"].APIs;
         Assert.IsFalse(parsedApis["OpenAI Chat Completions"].PassThrough);
         Assert.IsTrue(parsedApis["OpenAI Chat Completions"].OverridePath);
@@ -122,11 +120,12 @@ public sealed class TokenomicsReplayTests {
 
         var semicolonSeparated = new TokenomicsSettings();
         Assert.IsTrue(semicolonSeparated.TryParse(
-            "AllowedHosts=my-aunt-jane=apim-a;apim-b;DailyTokenLimit=25"));
+            "ModelHostOptions=my-aunt-jane=Host_apim-a=Enabled:true;ModelHostOptions=my-aunt-jane=Host_apim-b=Enabled:false;DailyTokenLimit=25"));
         CollectionAssert.AreEquivalent(
-            new[] { "apim-a", "apim-b" },
-            semicolonSeparated.AllowedHosts["my-aunt-jane"].ToArray());
+            new[] { "Host_apim-a", "Host_apim-b" },
+            semicolonSeparated.ModelHostOptions["my-aunt-jane"].Keys.ToArray());
         Assert.AreEqual(25, semicolonSeparated.DailyTokenLimit);
+        Assert.IsFalse(semicolonSeparated.TryParse("AllowedHosts=my-aunt-jane=apim-a,apim-b"));
     }
 
     [TestMethod]
@@ -134,13 +133,16 @@ public sealed class TokenomicsReplayTests {
         var settings = new TokenomicsSettings {
             DailyTokenLimit = 25
         };
-        settings.AllowedHosts["gpt-4o"] = new HashSet<string>(["apim1"], StringComparer.OrdinalIgnoreCase);
+        settings.ModelHostOptions["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
+            ["Host_apim"] = new TokenomicsHostOptions { Enabled = false }
+        };
 
-        Assert.IsFalse(settings.TryParse("DailyTokenLimit=50;NotARealProperty=1"));
+        Assert.IsFalse(settings.TryParse("DailyTokenLimit=50;ModelHostOptions=gpt-4o=Host_apim=Enabled:true;NotARealProperty=1"));
         Assert.AreEqual(25, settings.DailyTokenLimit);
         CollectionAssert.AreEquivalent(
-            new[] { "apim1" },
-            settings.AllowedHosts["gpt-4o"].ToArray());
+            new[] { "Host_apim" },
+            settings.ModelHostOptions["gpt-4o"].Keys.ToArray());
+        Assert.IsFalse(settings.ModelHostOptions["gpt-4o"]["Host_apim"].Enabled);
     }
 
     [TestMethod]

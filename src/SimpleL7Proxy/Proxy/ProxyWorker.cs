@@ -361,7 +361,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for path {Path}", request.Guid, modifiedPath);
+                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for user {UserID}", request.Guid, request.UserID);
                     throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
                 }
 
@@ -369,6 +369,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 {
                     // Parse and evaluate the request once, then reuse the transformed body for failover attempts.
                     var parseResult = ModelSwapper.ParseModel(bodyBytes);
+                    request.OriginalAPIName = _wrkCntxt.TokenomicsHandler.ModelApiName(request.Path) ?? request.Path;
                     request.WordCount = parseResult.WordCount;
                     request.OriginalModel = parseResult.SourceModel ?? "unknown";
                     request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
@@ -386,6 +387,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     }
 
                     bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
+                    request.ModelReplaced = request.Model != request.OriginalModel;
 
                     if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
                     {
@@ -403,21 +405,26 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
         }
 
-
-        var SupportingHosts = _wrkCntxt.TokenomicsHandler.SupportingHosts(request.Model);
-
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
         BaseHostHealth? host;
         while (iterator.TryGet(iterationState, out host) && host != null)
         {
+            var requestPath = request.Path;
 
-            // If tokenomics is enabled, is this host on the list of supporting hosts for the requested model?
-            // If the user has not defined any hosts, all hosts are considered supporting
-            if (_options.TokenomicsEnable && SupportingHosts.Count > 0 && !SupportingHosts.Contains(host.HostKey))
-            {
-                continue;
+            if (_options.TokenomicsEnable) {
+
+                // move to the next host if it does not support the requested model
+                requestPath = _wrkCntxt.TokenomicsHandler
+                        .SupportedHostPath(request.Model, host.HostKey, request.OriginalAPIName, request.Path);
+                if (requestPath is null)
+                {
+                    continue;
+                }
+                
+                // Update the modified path to reflect the supported host path
+                modifiedPath = requestPath;
             }
 
             DateTime proxyStartDate = DateTime.UtcNow;

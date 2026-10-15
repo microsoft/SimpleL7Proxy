@@ -76,6 +76,7 @@
     { "id": "gpt-5-nano", "provider": "OpenAI", "displayName": "GPT-5 nano", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6-astra", "provider": "OpenAI", "displayName": "GPT-6 Astra", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6-luna", "provider": "OpenAI", "displayName": "GPT-6 Luna", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-6-sol", "provider": "OpenAI", "displayName": "GPT-6 Sol", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6.1-sol", "provider": "OpenAI", "displayName": "GPT-6.1 Sol", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "o3", "provider": "OpenAI", "displayName": "o3 (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "o4-mini", "provider": "OpenAI", "displayName": "o4-mini (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
@@ -169,6 +170,20 @@
         { "max_output_tokens": "1024" },
         { "stream": "true" },
         { "background": "false" }
+      ]
+    },
+    {
+      "appliesTo": [ "gpt-6-sol" ],
+      "appliesToAPI": [ "openai-chat", "openai-responses" ],
+      "fields": [
+        { "temperature": "" }
+      ]
+    },
+    {
+      "appliesTo": [ "gpt-6-sol" ],
+      "appliesToAPI": [ "openai-responses" ],
+      "fields": [
+        { "top_p": "" }
       ]
     },
     {

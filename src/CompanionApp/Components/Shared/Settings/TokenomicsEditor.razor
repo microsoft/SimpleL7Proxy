@@ -68,7 +68,7 @@
                 <Summary>
                     <span><strong>Default model:</strong> <span class="tokenomics-summary-model" title="@_options.DefaultModel">@(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)</span></span>
                     <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
-                    <span><strong>Host routing:</strong> @(_options.AllowedHosts.Count == 0 ? "No model hosts configured" : $"{_options.AllowedHosts.Count} {_options.AllowedHosts.Count switch { 1 => "model", _ => "models" }} · {_options.AllowedHosts.Values.Sum(hosts => hosts.Count)} host assignments")</span>
+                    <span><strong>Host routing:</strong> @(_options.ModelHostOptions.Count == 0 ? "No model hosts configured" : $"{_options.ModelHostOptions.Count} {_options.ModelHostOptions.Count switch { 1 => "model", _ => "models" }} · {_options.ModelHostOptions.Values.Sum(hosts => hosts.Count)} host assignments")</span>
                     <span><strong>Fallback:</strong> @SummaryAction(_options.PreferredModelReplacementAction) when permitted · otherwise @FieldLabel(_options.PreferredModelUnavailableAction.ToString())</span>
                 </Summary>
             </TokenomicsModelRoutingSettingsWidget>
@@ -125,7 +125,6 @@
                 ActionNames="@(ActionsForTab("routing").Select(property => property.Name))" FieldContent="@(name => RenderField(name))"
                 Models="RoutingModels" HostSettings="Hosts" HostOptions="_options.HostOptions"
                 ModelHostOptions="_options.ModelHostOptions" ApiDefinitions="RoutingApis"
-                AllowedHosts="_options.AllowedHosts"
                 LoadedAllowedHosts="@_loadedOptions.ModelHostOptions.ToDictionary(
                     entry => entry.Key,
                     entry => entry.Value.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase),
@@ -241,7 +240,7 @@
         .SelectMany(models => models)
         .Concat([_options.DefaultModel])
         .Concat(_options.ModelCostPerToken.Keys)
-        .Concat(_options.AllowedHosts.Keys)
+        .Concat(_options.ModelHostOptions.Keys)
         .Concat(ChatCatalog.ListModels().Select(model => model.Id))
         .Concat(VisionCatalog.ListModels().Select(model => model.Id))
         .Select(model => model.Trim())
@@ -543,7 +542,7 @@
             _ => null
         };
         if (selectedHosts is null) {
-            _fieldErrors[nameof(TokenomicsSettings.AllowedHosts)] = "Select hosts from the configured host list.";
+            _fieldErrors[nameof(TokenomicsSettings.ModelHostOptions)] = "Select hosts from the configured host list.";
             await OnChanged.InvokeAsync();
             return;
         }
@@ -560,7 +559,7 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (normalizedHosts.Any(host => !selectableHosts.Contains(host))) {
-            _fieldErrors[nameof(TokenomicsSettings.AllowedHosts)] = "Select hosts from the configured host list.";
+            _fieldErrors[nameof(TokenomicsSettings.ModelHostOptions)] = "Select hosts from the configured host list.";
             await OnChanged.InvokeAsync();
             return;
         }
@@ -593,7 +592,6 @@
         }
 
         _fieldErrors.Remove(nameof(TokenomicsSettings.ModelHostOptions));
-        _options.AllowedHosts.Remove(change.Model);
 
         CommitOptions();
         await OnChanged.InvokeAsync();
@@ -916,6 +914,36 @@
 
     private RenderFragment RenderField(string name, bool compact = false) {
         var property = OptionProperties.Single(property => property.Name == name);
+        if (name == nameof(TokenomicsSettings.DefaultModelAPI)) {
+            var apiNames = RoutingApis.Select(api => api.Name)
+                .Concat(_options.ModelHostOptions.Values.SelectMany(hosts => hosts.Values)
+                    .SelectMany(host => host.APIs.Keys))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return @<div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <label class="form-label" for="tokenomics-DefaultModelAPI">Default Model API</label>
+                    <ConfigurationHelp Section="Tokenomics" Topic="DefaultModelAPI" />
+                </div>
+                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@_options.DefaultModelAPI"
+                        aria-label="Default Model API" @onchange="@(args => SetOptionAsync(property, args))">
+                    <option value="">Not configured</option>
+                    @if (!string.IsNullOrEmpty(_options.DefaultModelAPI)
+                        && !apiNames.Contains(_options.DefaultModelAPI, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@_options.DefaultModelAPI" disabled>@_options.DefaultModelAPI</option>
+                    }
+                    @foreach (var apiName in apiNames)
+                    {
+                        <option value="@apiName">@apiName</option>
+                    }
+                </select>
+                @if (_fieldErrors.TryGetValue(property.Name, out var apiError))
+                {
+                    <span class="small text-danger" role="alert">@apiError</span>
+                }
+            </div>;
+        }
         return @<TokenomicsOptionFieldWidget Name="@property.Name" Label="@FieldLabel(property.Name)"
             Value="@FormatValue(property.GetValue(_options), property.Name)" Step="@InputStep(property.PropertyType)"
             InputType="@(property.PropertyType == typeof(string) || property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"

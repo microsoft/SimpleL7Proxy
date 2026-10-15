@@ -70,18 +70,66 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         return 0m;
     }
 
-    static readonly HashSet<string> EmptySupportingHosts = new(StringComparer.OrdinalIgnoreCase);
-    public HashSet<string> SupportingHosts(string model)
+    /// <summary>
+    /// Determines if the specified host supports the given model and API.
+    /// </summary>
+    /// <param name="model">The model to check.</param>
+    /// <param name="hostKey">The host key to check.</param>
+    /// <param name="apiName">The API name to check.</param>
+    /// <returns>True if the host supports the model and API; otherwise, false.</returns>
+    public string? SupportedHostPath(string model, string hostKey, string apiName, string originalPath)
     {
-        if (Settings.AllowedHosts.Count == 0)   return EmptySupportingHosts;
-
-        if (Settings.AllowedHosts.TryGetValue(model, out var supportingHosts) &&
-            supportingHosts is not null)
+        // nothing defined for this model, return the original path
+        if (!Settings.ModelHostOptions.TryGetValue(model, out var supportingHosts)) 
         {
-            return supportingHosts;
+            return originalPath;
         }
 
-        return EmptySupportingHosts;
+        // Check if the host supports the API for this model
+        if (supportingHosts is null
+            || !supportingHosts.TryGetValue(hostKey, out var hostOptions)
+            || !hostOptions.Enabled
+            || !hostOptions.APIs.TryGetValue(apiName, out var apiOptions))
+        {
+            return null;
+        }
+
+        // At this point, update the path
+        if (apiOptions.PassThrough)
+        {
+            return originalPath;
+        }
+
+        if (apiOptions.OverridePath)
+        {
+            return apiOptions.Path;
+        }
+
+        if (!TokenomicsApiPaths.PartialUrls.TryGetValue(apiName, out var defaultPath))
+        {
+            return null;
+        }
+
+        // if the path contains a model placeholder, replace it with the actual model
+        return defaultPath.Contains("{model}", StringComparison.Ordinal)
+            ? defaultPath.Replace(
+                "{model}", Uri.EscapeDataString(model), StringComparison.Ordinal)
+            : defaultPath;
+    }
+
+
+    public string? ModelApiName(string path) => TokenomicsApiPaths.GetApiName(path);
+
+    public string? UpdateModelPath(string model, string originalPath)
+    {
+        if (Settings.ModelHostOptions.TryGetValue(model, out var hostSettings) && originalPath is not null)
+        {
+            if ( hostSettings is not null)
+            return ModelApiName(originalPath);
+
+        }
+
+        return string.Empty;
     }
 
     public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
