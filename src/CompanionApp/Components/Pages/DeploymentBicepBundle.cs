@@ -168,6 +168,9 @@ public static class DeploymentBicepBundle {
     }
 
     private static void Validate(IReadOnlyDictionary<string, string> values) {
+        if (Enabled(values, "DEPLOY_STORAGE_NETWORK") && Enabled(values, "USE_EXISTING_ENVIRONMENT")) {
+            throw new InvalidOperationException("Storage networking requires a new Container Apps environment connected to the deployed virtual network. Disable reuse of an existing environment.");
+        }
         if (!Enabled(values, "ENABLE_MANAGED_IDENTITY")) {
             throw new InvalidOperationException("Enable managed identity before exporting Bicep: registry, App Configuration, and storage access use managed identity.");
         }
@@ -231,7 +234,8 @@ public static class DeploymentBicepBundle {
     private static string Value(IReadOnlyDictionary<string, string> values, string key) => values.TryGetValue(key, out var value)
         ? value : throw new InvalidOperationException($"The deployment value {key} is missing.");
     private static string OptionalValue(IReadOnlyDictionary<string, string> values, string key, string fallback) => values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;
-    private static bool Enabled(IReadOnlyDictionary<string, string> values, string key) => Value(values, key) is "true" or "yes";
+    private static bool Enabled(IReadOnlyDictionary<string, string> values, string key) =>
+        (key == "DEPLOY_STORAGE_NETWORK" ? values.GetValueOrDefault(key, "false") : Value(values, key)) is "true" or "yes";
     private static int Integer(IReadOnlyDictionary<string, string> values, string key) => int.Parse(Value(values, key), NumberStyles.Integer, CultureInfo.InvariantCulture);
     private static string ShellString(string value) => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 }

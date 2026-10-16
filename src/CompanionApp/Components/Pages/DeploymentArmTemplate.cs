@@ -41,6 +41,9 @@ public sealed class DeploymentArmTemplate {
     }
 
     private JsonObject Build(string proxyVersion, string healthVersion, IReadOnlyDictionary<string, string> defaults) {
+        if (Enabled("DEPLOY_STORAGE_NETWORK") && Enabled("USE_EXISTING_ENVIRONMENT")) {
+            throw new InvalidOperationException("Storage networking requires a new Container Apps environment connected to the deployed virtual network. Disable reuse of an existing environment.");
+        }
         if (!Enabled("ENABLE_MANAGED_IDENTITY")) {
             throw new InvalidOperationException("Enable managed identity before exporting ARM: registry, App Configuration, and storage access use managed identity.");
         }
@@ -594,7 +597,8 @@ public sealed class DeploymentArmTemplate {
     private static string Quote(string value) => "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
     private static string Id(string group, string type, params string[] names) => $"resourceId({Quote(group)}, {Quote(type)}, {string.Join(", ", names.Select(Quote))})";
     private string Value(string key) => _values[key];
-    private bool Enabled(string key) => Value(key) is "true" or "yes";
+    private bool Enabled(string key) =>
+        (key == "DEPLOY_STORAGE_NETWORK" ? _values.GetValueOrDefault(key, "false") : Value(key)) is "true" or "yes";
     private int Integer(string key) => int.Parse(Value(key), CultureInfo.InvariantCulture);
     private decimal Number(string key) => decimal.Parse(Value(key), CultureInfo.InvariantCulture);
 }

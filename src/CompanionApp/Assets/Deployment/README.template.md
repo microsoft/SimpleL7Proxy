@@ -9,6 +9,8 @@ CompanionApp **Simple deployment** includes a virtual network with separate Cont
 > [!NOTE]
 > Storage public network access, anonymous Blob access, and shared-key access are disabled for this mode. Access Blob data from the linked network using a managed identity with a Storage Blob Data role; the proxy receives the configured Blob role. Internet-only clients cannot access Blob data. Advanced mode keeps storage networking disabled by default.
 
+Storage networking requires a new Container Apps environment so applications join the deployed VNet. Exports reject combining storage networking with an existing environment.
+
 ## Before you begin
 
 You need:

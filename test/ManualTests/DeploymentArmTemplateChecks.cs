@@ -96,7 +96,6 @@ var cases = 0;
 string? staticBicepEntryPoint = null;
 foreach (var shared in new[] { false, true })
 foreach (var network in new[] { false, true })
-foreach (var storageNetwork in new[] { false, true })
 foreach (var asyncMode in new[] { false, true })
 foreach (var sidecar in new[] { false, true })
 foreach (var proxy in new[] { false, true })
@@ -104,7 +103,6 @@ foreach (var companion in new[] { false, true })
 foreach (var metricsServer in new[] { false, true }) {
     var values = new Dictionary<string, string>(baseline);
     values["PRIVATE_NETWORK_DEPLOYMENT"] = network ? "yes" : "no";
-    values["DEPLOY_STORAGE_NETWORK"] = storageNetwork ? "true" : "false";
     values["ASYNC_DEPLOYMENT"] = asyncMode ? "yes" : "no";
     values["DEPLOY_PROXY"] = proxy ? "true" : "false";
     values["DEPLOY_COMPANION_APP"] = companion ? "true" : "false";
@@ -158,35 +156,11 @@ foreach (var metricsServer in new[] { false, true }) {
     if (sidecar) Check(app["properties"]!["template"]!["containers"]![1]!["image"]!.GetValue<string>().Contains("'v2.0.1'", StringComparison.Ordinal), "sidecar tag matches publisher");
     Check(!json.Contains("templateLink", StringComparison.Ordinal), "no external templates");
     Check(json == DeploymentArmTemplate.Generate(values, "2.2.17", "2.0.1", new Dictionary<string, string> { ["Warm:Sentinel"] = "", ["Cold:Server:Port"] = "8000" }), "deterministic export");
-    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-network", StringComparison.Ordinal)) == (network || storageNetwork), "network toggle");
+    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-network", StringComparison.Ordinal)) == network, "network toggle");
     Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-request-api", StringComparison.Ordinal)) == asyncMode, "async toggle");
-    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-blob-storage", StringComparison.Ordinal)) == (asyncMode || storageNetwork), "storage does not require async services");
-    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-storage-private-endpoint", StringComparison.Ordinal)) == storageNetwork, "private storage toggle");
-    if (network || storageNetwork) {
-        var environment = Deployment("foundation")["properties"]!["template"]!["resources"]!.AsArray()
-            .Single(resource => resource!["type"]!.GetValue<string>() == "Microsoft.App/managedEnvironments")!;
-        Check(environment["properties"]!["vnetConfiguration"]!["internal"]!.GetValue<bool>() == network, "private storage preserves public environment ingress");
-        var subnets = Deployment("network")["properties"]!["template"]!["resources"]![0]!["properties"]!["subnets"]!.AsArray();
-        Check(subnets.Count == (network ? 5 : asyncMode ? 3 : 2), "Simple storage uses separate app and private endpoint subnets");
-    }
-    if (storageNetwork) {
-        var storage = Deployment("blob-storage")["properties"]!["template"]!["resources"]![0]!;
-        Check(storage["properties"]!["publicNetworkAccess"]!.GetValue<string>() == "Disabled", "private storage disables public network access");
-        Check(!storage["properties"]!["allowSharedKeyAccess"]!.GetValue<bool>() && !storage["properties"]!["allowBlobPublicAccess"]!.GetValue<bool>(), "private storage retains managed identity and private containers");
-        var endpointDeployment = Deployment("storage-private-endpoint");
-        var endpointResources = endpointDeployment["properties"]!["template"]!["resources"]!.AsArray();
-        var endpoint = endpointResources.Single(resource => resource!["type"]!.GetValue<string>() == "Microsoft.Network/privateEndpoints")!;
-        Check(endpoint["properties"]!["subnet"]!["id"]!.GetValue<string>().Contains(values["SUBNET_PRIVATEENDPOINTS_NAME"], StringComparison.Ordinal), "Blob endpoint uses the dedicated storage subnet");
-        Check(endpoint["properties"]!["privateLinkServiceConnections"]![0]!["properties"]!["groupIds"]![0]!.GetValue<string>() == "blob", "private endpoint targets Blob storage");
-        Check(endpointResources.Any(resource => resource!["type"]!.GetValue<string>() == "Microsoft.Network/privateDnsZones/virtualNetworkLinks"), "storage DNS zone is linked to the VNet");
-        Check(endpointResources.Any(resource => resource!["type"]!.GetValue<string>() == "Microsoft.Network/privateEndpoints/privateDnsZoneGroups"), "storage DNS registration uses a zone group");
-        Check(endpointDeployment["dependsOn"]!.ToJsonString().Contains("-blob-storage", StringComparison.Ordinal), "private endpoint waits for storage");
-        Check(!asyncMode || Deployment("request-api").ToJsonString().Contains("virtualNetworkSubnetId", StringComparison.Ordinal), "async storage clients join the VNet");
-    }
     var groups = template["resources"]!.AsArray().Where(node => node!["type"]!.GetValue<string>() == "Microsoft.Resources/resourceGroups").ToArray();
     var selectedGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
-    if (network || storageNetwork) selectedGroupKeys.Add("NETWORK_RESOURCE_GROUP");
-    if (storageNetwork) selectedGroupKeys.Add("STORAGE_RESOURCE_GROUP");
+    if (network) selectedGroupKeys.Add("NETWORK_RESOURCE_GROUP");
     if (asyncMode) selectedGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
     var expectedGroupCount = selectedGroupKeys.Select(key => values[key]).Distinct(StringComparer.OrdinalIgnoreCase).Count();
     Check(groups.Length == expectedGroupCount, "group deduplication");
@@ -397,7 +371,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterDocument["parameters"]!["host1"] is null, "parameters omit Host1");
     Check(parameterSettings["PRIVATE_NETWORK_DEPLOYMENT"]!.GetValue<bool>() == network, "parameters preserve the private-network toggle as Boolean");
     Check(parameterSettings["ASYNC_DEPLOYMENT"]!.GetValue<bool>() == asyncMode, "parameters preserve the async toggle as Boolean");
-    Check(parameterSettings["DEPLOY_STORAGE_NETWORK"]!.GetValue<bool>() == storageNetwork, "parameters preserve the storage-network toggle as Boolean");
+    Check(!parameterSettings["DEPLOY_STORAGE_NETWORK"]!.GetValue<bool>(), "Advanced defaults keep storage networking disabled");
     Check(parameterSettings["DEPLOY_PROXY"]!.GetValue<bool>() == proxy, "parameters preserve the proxy toggle as Boolean");
     Check(parameterSettings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == companion, "parameters preserve the Companion App toggle as Boolean");
     Check(parameterSettings["DEPLOY_METRICS_SERVER"]!.GetValue<bool>() == metricsServer, "parameters preserve the Metrics Server toggle as Boolean");
