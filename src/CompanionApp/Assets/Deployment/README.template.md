@@ -11,6 +11,11 @@ CompanionApp **Simple deployment** includes a virtual network with separate Cont
 
 Storage networking requires a new Container Apps environment so applications join the deployed VNet. Exports reject combining storage networking with an existing environment.
 
+When storage and Companion App are selected in the Bicep bundle, the final Companion App revision sets `CompanionApp__Profiles__StorageAccountName` to the deployed account name and `CompanionApp__Profiles__BlobContainerName` to `profiles`. Bootstrap leaves the account empty until identity permissions are assigned.
+
+> [!NOTE]
+> Temporary startup verification uses the app's `DefaultAzureCredential` to check the configured container and write `hello.json` containing `{"message":"hello"}` with JSON content type. Each startup overwrites this diagnostic blob; `config.json` is unchanged. A successful check prints the blob URL. Failures print the full exception and stack trace to the console and startup continues after a 30-second timeout. No check runs when the account is empty or `--uionly` is set. Use a Companion App image containing this code; a previously published image or downloaded ZIP does not gain the probe automatically.
+
 ### Initialize profiles
 
 **The deployment creates `profiles/config.json` only when absent; an existing blob is never overwritten.** The supplied sample lives in `assets/config.json`; its values and routing rules are uploaded unchanged. This does not change the active profile source, lookup field, or App Configuration settings.

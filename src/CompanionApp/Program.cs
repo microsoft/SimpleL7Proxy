@@ -3,6 +3,8 @@ using CompanionApp.Components.Shared;
 using CompanionApp.Components.Shared.EventHub;
 using CompanionApp.Tokenomics;
 using Azure.Identity;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
@@ -32,6 +34,34 @@ internal static class Program
         ConfigureServices(builder, replayOptions, uiOnly);
 
         var app = builder.Build();
+
+        var profileStorageAccountName = app.Configuration["CompanionApp:Profiles:StorageAccountName"];
+        var profileBlobContainerName = app.Configuration["CompanionApp:Profiles:BlobContainerName"] ?? "profiles";
+        if (!uiOnly && !string.IsNullOrWhiteSpace(profileStorageAccountName))
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var container = new BlobServiceClient(
+                    new Uri($"https://{profileStorageAccountName}.blob.core.windows.net"),
+                    app.Services.GetRequiredService<DefaultAzureCredential>())
+                    .GetBlobContainerClient(profileBlobContainerName);
+                await container.GetPropertiesAsync(cancellationToken: timeout.Token);
+                // Temporary startup probe: remove after deployed profile storage access is verified.
+                await container.GetBlobClient("hello.json").UploadAsync(
+                    BinaryData.FromString("{\"message\":\"hello\"}"),
+                    new BlobUploadOptions
+                    {
+                        HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
+                    },
+                    timeout.Token);
+                Console.WriteLine($"{DateTimeOffset.UtcNow:O} Profile storage startup check wrote {container.Uri}/hello.json");
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"{DateTimeOffset.UtcNow:O} Profile storage startup check failed for {profileStorageAccountName}/{profileBlobContainerName}: {exception}");
+            }
+        }
 
         await app.Services
             .GetRequiredService<AppConfigurationStartupInitializer>()

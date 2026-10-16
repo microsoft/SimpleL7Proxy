@@ -46,6 +46,14 @@ var companionEnvironment = concat([
     value: settings.APPCONFIG_LABEL
   }
   {
+    name: 'CompanionApp__Profiles__StorageAccountName'
+    value: usePrivateRegistry && (settings.ASYNC_DEPLOYMENT || (settings.?DEPLOY_STORAGE_NETWORK ?? false)) ? settings.STORAGE_ACCOUNT_NAME : ''
+  }
+  {
+    name: 'CompanionApp__Profiles__BlobContainerName'
+    value: 'profiles'
+  }
+  {
     name: 'CompanionApp__proxyacr'
     value: settings.ACR_NAME
   }

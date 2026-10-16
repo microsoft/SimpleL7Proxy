@@ -5,6 +5,7 @@ import { DeploymentSettings } from '../types.bicep'
 param settings DeploymentSettings
 param containerAppId string
 param containerAppPrincipalId string
+param companionAppPrincipalId string = ''
 
 var blobRoleIds = {
   'Storage Blob Data Contributor': 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
@@ -17,12 +18,26 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing 
   name: settings.STORAGE_ACCOUNT_NAME
 }
 
-resource proxyBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource proxyBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_PROXY) {
   name: guid(storageAccount.id, containerAppId, blobRoleId)
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobRoleId)
     principalId: containerAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource profiles 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = {
+  name: '${storageAccount.name}/default/profiles'
+}
+
+resource companionProfileAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (settings.DEPLOY_COMPANION_APP && !(settings.?DEPLOY_STORAGE_NETWORK ?? false)) {
+  name: guid(profiles.id, companionAppPrincipalId, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  scope: profiles
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalId: companionAppPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

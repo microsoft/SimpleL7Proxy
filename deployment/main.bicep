@@ -190,6 +190,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     configurationAccess
     eventHubAccess
     profiles
+    blobAccess
   ]
 }
 
@@ -207,13 +208,17 @@ module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRIC
   ]
 }
 
-module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT && settings.DEPLOY_PROXY) {
+module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT && (settings.DEPLOY_PROXY || settings.DEPLOY_COMPANION_APP)) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
     settings: settings
     containerAppId: containerAppBootstrap.?outputs.containerAppId ?? ''
     containerAppPrincipalId: containerAppBootstrap.?outputs.identityPrincipalId ?? ''
+    companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
+  dependsOn: [
+    blobStorage
+  ]
 }
 
 module serviceBusAccess 'modules/service-bus-access.bicep' = if (settings.ASYNC_DEPLOYMENT) {
