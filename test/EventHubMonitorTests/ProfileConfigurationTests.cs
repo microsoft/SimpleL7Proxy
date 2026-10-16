@@ -46,6 +46,8 @@ public sealed class ProfileConfigurationTests {
         Assert.AreEqual("premium", document.Profiles[0].RuleNames.Single());
         Assert.AreEqual("premium", document.Profiles[1].RuleNames.Single());
         Assert.IsFalse(document.Export().Contains("\"rules\":", StringComparison.Ordinal));
+        document.Import($$"""[{"userId":"one","rules":[{{Rule}}]},{"S7PRules":[{{Rule}}]}]""");
+        Assert.AreEqual(1, document.Rules.Count);
     }
 
     [TestMethod]
@@ -61,7 +63,10 @@ public sealed class ProfileConfigurationTests {
             """[{"S7PRules":[]},{"userId":"one"}]""",
             """[{"userId":"one","Header":true}]""",
             """[{"userId":"one","Header":"value\r\nInjected: true"}]""",
-            """[{"userId":"one","S7PRules":null}]"""
+            """[{"userId":"one","S7PRules":null}]""",
+            """[{"userId":"one","async-config":"enabled=true"}]""",
+            """[{"userId":"one","async-config":"enabled=true, containername=INVALID, topic=status"}]""",
+            """[{"userId":"one","async-config":"enabled=true, containername=valid, topic=-status"}]"""
         }) {
             Assert.ThrowsException<ArgumentException>(() => document.Import(invalid), invalid);
             Assert.AreEqual(before, document.Export());
@@ -103,6 +108,8 @@ public sealed class ProfileConfigurationTests {
             """{"name":"bad","if":{"name":"x","field":"h","match":"invalid"},"then":{"name":"x","set":{}}}""",
             """{"name":"bad","if":{"name":"x","field":"h","match":"regex","value":"["},"then":{"name":"x","set":{}}}""",
             """{"name":"bad","set":{"Header":42}}""",
+            """{"name":"bad","set":{},"elseif":null}""",
+            """{"name":"bad","set":{},"ELSEIF":null}""",
             """{"name":"bad","set":{"Header":"one\nInjected: true"}}""",
             """{"name":"bad","set":{"Header":"one"},"SET":{"Header":"two"}}""",
             """{"name":"bad","if":{"name":"x","field":"h","value":null},"then":{"name":"x","set":{}}}"""
@@ -132,7 +139,8 @@ public sealed class ProfileConfigurationTests {
         state.Document.Import($$"""[{"userId":"one","S7PRules":["premium"]},{"S7PRules":[{{Rule}}]}]""");
         state.SelectedRule = state.Document.Rules.Single();
         state.RuleJson = state.SelectedRule.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-        var editor = new ProfileConfigurationEditor { State = state };
+        var editor = new ProfileConfigurationEditor();
+        typeof(ProfileConfigurationEditor).GetProperty(nameof(ProfileConfigurationEditor.State))!.SetValue(editor, state);
         state.RuleJson = state.RuleJson.Replace("\"premium\"", "\"renamed\"", StringComparison.Ordinal);
         Assert.AreEqual(true, Invoke(editor, "ApplyRule"));
         Assert.AreEqual("renamed", state.Document.Profiles[0].RuleNames.Single());
@@ -154,13 +162,36 @@ public sealed class ProfileConfigurationTests {
         var profile = new ProfileConfigurationEntry { Id = "one" };
         profile.Fields.Add(new() { Name = "async-config", Value = "enabled=true, timeout=600, generatesas=true, containername=old" });
         profile.RuleNames.AddRange(["first", "second", "third"]);
-        var editor = new ProfileConfigurationEditor { State = state };
+        var editor = new ProfileConfigurationEditor();
+        typeof(ProfileConfigurationEditor).GetProperty(nameof(ProfileConfigurationEditor.State))!.SetValue(editor, state);
         Invoke(editor, "SetAsyncValue", profile, "containername", "newcontainer");
         StringAssert.Contains(profile.Fields[0].Value, "timeout=600");
         StringAssert.Contains(profile.Fields[0].Value, "generatesas=true");
         StringAssert.Contains(profile.Fields[0].Value, "containername=newcontainer");
         Invoke(editor, "MoveRule", profile, 1, -1);
         CollectionAssert.AreEqual(new[] { "second", "first", "third" }, profile.RuleNames);
+    }
+
+    [TestMethod]
+    public void Editor_IdentityChangesAreExplicitAndCancelRestoresIdentityAndRuleBuffer() {
+        var editor = new ProfileConfigurationEditor();
+        typeof(ProfileConfigurationEditor).GetProperty(nameof(ProfileConfigurationEditor.IdentityField))!.SetValue(editor, "employeeId");
+        Invoke(editor, "OnParametersSet");
+        var state = editor.State;
+        Assert.AreEqual("employeeId", state.Document.UserIdField);
+        state.Document.Import($$"""[{"employeeId":"one","S7PRules":["premium"]},{"S7PRules":[{{Rule}}]}]""");
+        state.SavedJson = state.Document.Export();
+        state.SavedUserIdField = state.Document.UserIdField;
+        state.Document.UserIdField = "newId";
+        state.RuleJson = "{ invalid";
+        state.IsDirty = true;
+        Invoke(editor, "OnParametersSet");
+        Assert.AreEqual("newId", state.Document.UserIdField, "Settings must not silently rewrite a nonempty file draft.");
+        state.RestoreSaved();
+        Assert.AreEqual("employeeId", state.Document.UserIdField);
+        Assert.IsFalse(state.IsDirty);
+        Assert.IsNotNull(state.SelectedRule);
+        ProfileConfigurationDocument.ParseRule(state.RuleJson);
     }
 
     private static object? Invoke(ProfileConfigurationEditor editor, string method, params object[] arguments) =>

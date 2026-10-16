@@ -18,6 +18,16 @@
     </div>
     <p class="small text-muted">Save downloads <code>config.json</code>. This does not upload to storage or change App Configuration.
         Open an existing file or add profiles and rules below.</p>
+    <p class="small text-muted">This export uses shared <code>S7PRules</code> references. The current proxy reader uses inline
+        <code>rules</code>; named-rule reader support is required before deploying this format.</p>
+    @if (State.Document.UserIdField != IdentityField)
+    {
+        <div class="alert alert-warning" role="alert">
+            This file uses <code>@State.Document.UserIdField</code>, but Profile Reader uses <code>@IdentityField</code>.
+            <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy"
+                    @onclick="() => Change(() => State.Document.UserIdField = IdentityField)">Use Profile Reader ID field</button>
+        </div>
+    }
     @if (State.Error is not null)
     {
         <div class="alert alert-danger" role="alert">@State.Error</div>
@@ -105,14 +115,14 @@
                             <div>
                                 <label for="profile-async-container" class="form-label">Container name</label>
                                 <input id="profile-async-container" class="form-control" disabled="@(!AsyncEnabled(profile))"
-                                       value='@AsyncValue(profile, "containername")'
-                                       @oninput='args => SetAsyncValue(profile, "containername", args.Value?.ToString() ?? "")' />
+                                       @bind:get='@AsyncValue(profile, "containername")'
+                                       @bind:set='@((string? value) => SetAsyncValue(profile, "containername", value ?? ""))' @bind:event="oninput" />
                             </div>
                             <div>
                                 <label for="profile-async-topic" class="form-label">Topic (status)</label>
                                 <input id="profile-async-topic" class="form-control" disabled="@(!AsyncEnabled(profile))"
-                                       value='@AsyncValue(profile, "topic")'
-                                       @oninput='args => SetAsyncValue(profile, "topic", args.Value?.ToString() ?? "")' />
+                                       @bind:get='@AsyncValue(profile, "topic")'
+                                       @bind:set='@((string? value) => SetAsyncValue(profile, "topic", value ?? ""))' @bind:event="oninput" />
                             </div>
                         </div>
                         <p class="small text-muted mb-0 mt-2">Optional timeout and generatesas values remain in the async-config field below.</p>
@@ -190,6 +200,7 @@
 @code {
     [Parameter] public string View { get; set; } = "profile-editor";
     [Parameter] public EditorState State { get; set; } = new();
+    [Parameter] public string IdentityField { get; set; } = "userId";
     [Parameter] public EventCallback OnChanged { get; set; }
 
     private bool _busy;
@@ -201,15 +212,37 @@
     /// Keeps local file edits alive when the Identity and Access dialog is closed.
     /// </summary>
     public sealed class EditorState {
-        public ProfileConfigurationDocument Document { get; } = new();
+        public ProfileConfigurationDocument Document { get; set; } = new();
         public ProfileConfigurationEntry? SelectedProfile { get; set; }
         public JsonObject? SelectedRule { get; set; }
         public string RuleJson { get; set; } = "";
         public string Search { get; set; } = "";
         public string SavedJson { get; set; } = "[{\"S7PRules\":[]}]";
+        public string SavedUserIdField { get; set; } = "userId";
         public bool IsDirty { get; set; }
         public string? Error { get; set; }
         public string? Status { get; set; }
+
+        /// <summary>Restores the last opened or downloaded file without discarding App Configuration edits.</summary>
+        public void RestoreSaved() {
+            var restored = new ProfileConfigurationDocument { UserIdField = SavedUserIdField };
+            restored.Import(SavedJson);
+            Document = restored;
+            SelectedProfile = Document.Profiles.FirstOrDefault();
+            SelectedRule = Document.Rules.FirstOrDefault();
+            RuleJson = SelectedRule?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+            Search = "";
+            IsDirty = false;
+            Error = null;
+            Status = null;
+        }
+    }
+
+    protected override void OnParametersSet() {
+        if (State.Document.Profiles.Count == 0 && !State.IsDirty) {
+            State.Document.UserIdField = IdentityField;
+            State.SavedUserIdField = IdentityField;
+        }
     }
 
     private void Change(Action action) {
@@ -372,8 +405,12 @@
         try {
             using var reader = new StreamReader(args.File.OpenReadStream(1024 * 1024));
             var json = await reader.ReadToEndAsync();
-            State.Document.Import(json);
-            State.SavedJson = State.Document.Export();
+            var imported = new ProfileConfigurationDocument { UserIdField = IdentityField };
+            imported.Import(json);
+            var savedJson = imported.Export();
+            State.Document = imported;
+            State.SavedJson = savedJson;
+            State.SavedUserIdField = IdentityField;
             State.SelectedProfile = State.Document.Profiles.FirstOrDefault();
             State.SelectedRule = State.Document.Rules.FirstOrDefault();
             State.Search = "";
@@ -395,10 +432,14 @@
         }
         _busy = true;
         try {
+            if (State.Document.UserIdField != IdentityField) {
+                throw new ArgumentException("Use the Profile Reader ID field before saving this file.");
+            }
             var json = State.Document.Export();
             await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Shared/Settings/ProfileConfigurationEditor.razor.js");
             await module.InvokeVoidAsync("download", json);
             State.SavedJson = json;
+            State.SavedUserIdField = State.Document.UserIdField;
             State.IsDirty = false;
             State.Status = "config.json download started. No file was uploaded to storage.";
         } catch (Exception exception) when (exception is ArgumentException or JsonException or InvalidOperationException) {
@@ -412,12 +453,7 @@
 
     private async Task CancelAsync() {
         if (await JS.InvokeAsync<bool>("confirm", "Discard file edits since the last Open or Save?")) {
-            State.Document.Import(State.SavedJson);
-            State.SelectedProfile = State.Document.Profiles.FirstOrDefault();
-            State.SelectedRule = State.Document.Rules.FirstOrDefault();
-            State.IsDirty = false;
-            State.Status = null;
-            ResetRuleBuffer();
+            State.RestoreSaved();
         }
     }
 

@@ -28,9 +28,20 @@ public sealed class ProfileConfigurationDocument {
                 if (index != array.Count - 1 || item.Count != 1 || item["S7PRules"] is not JsonArray definitions) {
                     throw new ArgumentException($"Each profile requires '{UserIdField}'; only the final entry may contain rule definitions.");
                 }
+                var libraryNames = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var definition in definitions) {
-                    candidate.Rules.Add(definition?.DeepClone() as JsonObject
-                        ?? throw new ArgumentException("Each rule definition must be an object."));
+                    var rule = definition?.DeepClone() as JsonObject
+                        ?? throw new ArgumentException("Each rule definition must be an object.");
+                    var name = RuleName(rule);
+                    if (!libraryNames.Add(name)) {
+                        throw new ArgumentException($"Duplicate rule name '{name}'.");
+                    }
+                    var existing = candidate.Rules.FirstOrDefault(value => RuleName(value) == name);
+                    if (existing is null) {
+                        candidate.Rules.Add(rule);
+                    } else if (!JsonNode.DeepEquals(existing, rule)) {
+                        throw new ArgumentException($"Rule '{name}' has conflicting inline and shared definitions.");
+                    }
                 }
                 continue;
             }
@@ -123,6 +134,9 @@ public sealed class ProfileConfigurationDocument {
                     || field.Value.Contains('\r') || field.Value.Contains('\n')) {
                     throw new ArgumentException($"Profile field '{field.Name}' must contain a header name and a single-line value.");
                 }
+                if (field.Name.Equals("async-config", StringComparison.OrdinalIgnoreCase)) {
+                    ValidateAsyncConfig(field.Value);
+                }
             }
             if (profile.RuleNames.Distinct(StringComparer.Ordinal).Count() != profile.RuleNames.Count
                 || profile.RuleNames.Any(name => !ruleNames.Contains(name))) {
@@ -163,7 +177,17 @@ public sealed class ProfileConfigurationDocument {
         if (string.IsNullOrWhiteSpace(ReadString(node["name"], "Node name"))) {
             throw new ArgumentException("Every rule node requires a name.");
         }
+        var canonicalKeys = new[] { "name", "set", "if", "then", "elseif", "else" };
+        foreach (var property in node) {
+            if (canonicalKeys.Contains(property.Key, StringComparer.OrdinalIgnoreCase)
+                && !canonicalKeys.Contains(property.Key, StringComparer.Ordinal)) {
+                throw new ArgumentException($"Use lowercase rule property '{property.Key.ToLowerInvariant()}'.");
+            }
+        }
         if (node.ContainsKey("set")) {
+            if (new[] { "if", "then", "elseif", "else" }.Any(node.ContainsKey)) {
+                throw new ArgumentException("A set action cannot also contain conditional branches.");
+            }
             if (node["set"] is not JsonObject headers) {
                 throw new ArgumentException("A set action must be an object of string values.");
             }
@@ -211,6 +235,32 @@ public sealed class ProfileConfigurationDocument {
     private static string ReadString(JsonNode? value, string field) =>
         value is JsonValue scalar && scalar.TryGetValue<string>(out var text)
             ? text : throw new ArgumentException($"'{field}' must be a string.");
+
+    private static void ValidateAsyncConfig(string value) {
+        var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)) {
+            var pair = part.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (pair.Length != 2 || string.IsNullOrEmpty(pair[0]) || !settings.TryAdd(pair[0], pair[1])) {
+                throw new ArgumentException("Async settings require unique key=value pairs separated by commas.");
+            }
+        }
+        if (!settings.TryGetValue("enabled", out var enabledValue) || !bool.TryParse(enabledValue, out var enabled)) {
+            throw new ArgumentException("Async settings require enabled=true or enabled=false.");
+        }
+        if (!enabled) {
+            return;
+        }
+        if (!settings.TryGetValue("containername", out var container) || container.Length is < 3 or > 63
+            || container[0] == '-' || container[^1] == '-' || container.Contains("--")
+            || container.Any(character => !(character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-'))) {
+            throw new ArgumentException("Enabled async processing requires a container name: 3–63 lowercase letters, digits, or single internal hyphens.");
+        }
+        if (!settings.TryGetValue("topic", out var topic) || topic.Length is < 1 or > 260
+            || ".-/".Contains(topic[0]) || ".-/".Contains(topic[^1])
+            || topic.Any(character => !(character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '.' or '_' or '/' or '-'))) {
+            throw new ArgumentException("Enabled async processing requires a topic: 1–260 letters, digits, periods, underscores, slashes, or hyphens; no leading/trailing period, slash, or hyphen.");
+        }
+    }
 
     private static void RejectDuplicateProperties(JsonElement element) {
         if (element.ValueKind == JsonValueKind.Object) {

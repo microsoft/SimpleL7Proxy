@@ -1165,6 +1165,10 @@
     {
         var leave = _pendingLeave;
         await CancelLeaveAsync();
+        if (_profileFileState.IsDirty && leave is not null)
+        {
+            _profileFileState.RestoreSaved();
+        }
         if (leave is not null) await leave();
     }
 

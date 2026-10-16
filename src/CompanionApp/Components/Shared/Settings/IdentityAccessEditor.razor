@@ -326,7 +326,8 @@
         </section>
     }
     <div class="identity-access-panel" hidden="@(_selectedView is not ("profile-editor" or "rules"))">
-        <ProfileConfigurationEditor View="@_selectedView" State="ProfileFileState" OnChanged="OnChanged" />
+        <ProfileConfigurationEditor View="@_selectedView" State="ProfileFileState" OnChanged="OnChanged"
+                                    IdentityField='@(FindSetting("User:UserIDFieldName")?.DraftValue ?? FindSetting("UserIDFieldName")?.DraftValue ?? "userId")' />
     </div>
 </div>
 
