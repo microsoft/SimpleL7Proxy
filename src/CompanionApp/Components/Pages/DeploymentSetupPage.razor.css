@@ -85,6 +85,7 @@ h3 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; }
 .review-app-scale strong { font-weight: 700; }
 .review-diagram-services { display: grid; gap: 1rem; min-width: 0; }
 .review-diagram-service { display: grid; grid-template-columns: 3rem minmax(0, 1fr); align-items: center; gap: .875rem; min-width: 0; }
+.review-diagram-service > div { grid-column: 2; min-width: 0; }
 .review-diagram-service small { color: #515154; font-size: .6875rem; overflow-wrap: anywhere; }
 .review-entra-id { position: absolute; right: 1.5rem; bottom: 1.25rem; display: flex; align-items: center; gap: .75rem; color: #102a3a; font-size: .8125rem; }
 .review-entra-id > img { width: 2.5rem; height: 2.5rem; object-fit: contain; }

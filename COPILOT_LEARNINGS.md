@@ -1,5 +1,7 @@
 # Copilot Learnings
 
+- Deployment Review service cards use a fixed icon column followed by the text column. Include an image for each new service and explicitly keep its text wrapper in column 2; an icon-less single child otherwise wraps all service text inside the narrow icon track. Validate the rendered layout, not only the build.
+
 - Bicep optional object properties use nullable types (`FLAG: bool?`), not TypeScript-style `FLAG?: bool`. Filter subnet arrays with `filter(..., subnet => ...)`; conditional `for` filters are not valid in ordinary property arrays. Compile the Bicep entry point immediately after network edits.
 
 - Razor string component parameters require an explicit `@` when binding a field; `SelectedModel="_limitsModel"` passes a literal, while `SelectedModel="@_limitsModel"` passes the selection. A successful build does not detect this difference.

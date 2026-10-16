@@ -352,9 +352,11 @@
                                         @if (Value("DEPLOY_STORAGE_NETWORK") == "true")
                                         {
                                             <article class="review-diagram-service">
+                                                <img src="images/azure/virtual-network-icon.png" width="48" height="48" alt="" />
                                                 <div><h5>Virtual network</h5><p>@Value("VNET_NAME")</p><small>Container Apps subnet: @Value("SUBNET_ACA_NAME"); storage subnet: @Value("SUBNET_PRIVATEENDPOINTS_NAME")</small></div>
                                             </article>
                                             <article class="review-diagram-service">
+                                                <img src="images/azure/storage-account-icon.png" width="48" height="48" alt="" />
                                                 <div><h5>Blob storage</h5><p>@Value("STORAGE_ACCOUNT_NAME")</p><small>Private endpoint · Private DNS · Public storage access disabled</small></div>
                                             </article>
                                         }
