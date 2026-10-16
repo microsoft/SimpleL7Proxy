@@ -215,7 +215,7 @@ if [[ "$operation" == 'create' ]]; then
 		# az rest and the CLI job-start command do not follow this API's 202 Location response.
 		profile_start_response="$(printf '%s: %s %s\n' 'Authorization' 'Bearer' "$profile_token" | curl \
 			--silent --show-error --fail --include --max-time 120 \
-			--request POST --header @- --url "$profile_job_url/start?api-version=2024-03-01")"
+			--request POST --header 'Content-Length: 0' --header @- --url "$profile_job_url/start?api-version=2024-03-01")"
 		unset profile_token
 		profile_start_response+=$'\n'
 		profile_start_body="${profile_start_response##*$'\r\n\r\n'}"

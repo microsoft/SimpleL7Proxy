@@ -297,6 +297,10 @@ printf '<curl>' >> "$MOCK_LOG"
 printf '<%s>' "$@" >> "$MOCK_LOG"
 printf '\n' >> "$MOCK_LOG"
 [[ "$(cat)" == "$(printf '%s: %s %s' 'Authorization' 'Bearer' 'mock-access-token')" ]]
+if [[ " $* " != *' --header Content-Length: 0 '* ]]; then
+    printf '%s\n' 'curl: (22) The requested URL returned error: 411 (missing Content-Length: 0)' >&2
+    exit 22
+fi
 case "$MOCK_SCENARIO" in
     accepted|start-failure|start-timeout|start-api-error)
         printf 'HTTP/1.1 202 Accepted\r\nLocation: https://management.azure.com/operations/start-profile\r\n\r\n' ;;
@@ -340,6 +344,9 @@ esac
         var calls = File.ReadAllText(log);
         Check(calls.Contains("<--subscription><mock-subscription>", StringComparison.Ordinal), "Azure calls keep subscription argument boundaries");
         Check(calls.Contains("<curl>", StringComparison.Ordinal) == (scenario is not ("disabled" or "validate")), "start only occurs for create with storage networking");
+        if (scenario is not ("disabled" or "validate")) {
+            Check(calls.Contains("<--header><Content-Length: 0>", StringComparison.Ordinal), "bodyless job-start POST explicitly sends Content-Length: 0");
+        }
         Check(!calls.Contains("mock-access-token", StringComparison.Ordinal), "authentication token is not passed as a command argument");
         if (scenario is "success" or "accepted" or "relative-location") {
             Check(output.Contains("Profile seed execution: profiles-mock-execution", StringComparison.Ordinal)

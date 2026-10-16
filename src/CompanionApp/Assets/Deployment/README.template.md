@@ -31,6 +31,9 @@ Verify in Azure portal:
 > [!WARNING]
 > If the seed fails, inspect its execution logs, container-scoped identity assignment, private endpoint approval, and the VNet link to the Blob private DNS zone. Keep storage public access disabled. Resolve the cause and start the same job again, or rerun the original bundle's `create` after the deployment is terminal; existing profile content remains unchanged.
 
+> [!NOTE]
+> If deployment reports `Succeeded` followed by `curl: (22) The requested URL returned error: 411`, infrastructure provisioning completed but the explicit profile-seed start was rejected. In the downloaded `deploy.sh`, add `--header 'Content-Length: 0'` beside `--request POST` in the profile job-start curl command, then rerun `./deploy.sh "$sub" create` from the same bundle with the original subscription and parameters after confirming the deployment is terminal. Existing profile content remains unchanged. Newly generated bundles contain the correction after CompanionApp is rebuilt and restarted; existing ZIPs are not updated.
+
 ## Before you begin
 
 You need:
