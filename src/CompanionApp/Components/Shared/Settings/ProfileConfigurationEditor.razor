@@ -44,7 +44,10 @@
                     {
                         <button type="button" class="profile-file-list-item @(ReferenceEquals(rule, State.SelectedRule) ? "is-selected" : "")"
                                 aria-pressed="@(ReferenceEquals(rule, State.SelectedRule) ? "true" : "false")"
-                                @onclick="() => SelectRuleAsync(rule)">@ProfileConfigurationDocument.RuleName(rule)</button>
+                                @onclick="() => SelectRuleAsync(rule)">
+                            <span>@ProfileConfigurationDocument.RuleName(rule)</span>
+                            <span class="badge rounded-pill text-bg-light">@State.Document.Profiles.Count(profile => profile.RuleNames.Contains(ProfileConfigurationDocument.RuleName(rule)))</span>
+                        </button>
                     }
                     <button type="button" class="btn btn-outline-primary w-100 mt-2" @onclick="AddRuleAsync">+ Add rule</button>
                 }
@@ -68,21 +71,32 @@
                     @if (State.SelectedRule is { } rule)
                     {
                         <div class="profile-file-toolbar">
-                            <h4>Rule: @ProfileConfigurationDocument.RuleName(rule)</h4>
+                            <div>
+                                <h4>Rule: @ProfileConfigurationDocument.RuleName(rule)</h4>
+                                <span class="badge text-bg-light">Used by @State.Document.Profiles.Count(profile => profile.RuleNames.Contains(ProfileConfigurationDocument.RuleName(rule))) profiles</span>
+                            </div>
                             <button type="button" class="btn btn-outline-danger" @onclick="DeleteRuleAsync">Delete rule</button>
                         </div>
-                        <p class="small">Edit the named <code>if</code>, <code>then</code>, <code>elseif</code>, and <code>else</code> branches.
-                            Actions use <code>set</code> with string header values. Renaming updates every profile assignment.</p>
-                        <label for="profile-rule-json" class="form-label">Rule definition (JSON)</label>
-                        <textarea id="profile-rule-json" class="form-control font-monospace profile-rule-json" spellcheck="false"
-                                  @bind:get="State.RuleJson" @bind:set="SetRuleJson" @bind:event="oninput"></textarea>
+                        <div class="d-flex justify-content-end mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" aria-pressed="@(State.EditRuleJson ? "true" : "false")"
+                                    @onclick="ToggleRuleEditor">@(State.EditRuleJson ? "Use visual editor" : "Edit JSON")</button>
+                        </div>
+                        @if (State.EditRuleJson)
+                        {
+                            <label for="profile-rule-json" class="form-label">Rule definition (JSON)</label>
+                            <textarea id="profile-rule-json" class="form-control font-monospace profile-rule-json" spellcheck="false"
+                                      @bind:get="State.RuleJson" @bind:set="SetRuleJson" @bind:event="oninput"></textarea>
+                        }
+                        else if (State.RuleDraft is { } draft)
+                        {
+                            <ProfileRuleNodeEditor @key="draft" Node="draft" OnChanged="UpdateVisualRule" />
+                        }
                         <div class="d-flex gap-2 mt-2">
                             <button type="button" class="btn btn-outline-primary" @onclick="() => { ApplyRule(); }">Apply rule</button>
                             <button type="button" class="btn btn-outline-secondary" @onclick="ResetRuleBuffer">Reset rule edits</button>
                         </div>
-                        <p class="small text-muted mt-2">Save also applies the current rule. Conditions support equals, notEquals, contains,
-                            notContains, startsWith, endsWith, regex, greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual, and between.
-                            For between, use value/value2 and a range mode such as inClosedOpenRange.</p>
+                        <p class="small text-muted mt-2">Save also applies the current rule. Renaming updates every profile assignment.
+                            File edits remain local until you save config.json.</p>
                     }
                     else
                     {
@@ -314,6 +328,8 @@
         public ProfileConfigurationEntry? SelectedProfile { get; set; }
         public JsonObject? SelectedRule { get; set; }
         public string RuleJson { get; set; } = "";
+        public JsonObject? RuleDraft { get; set; }
+        public bool EditRuleJson { get; set; }
         public string Search { get; set; } = "";
         public string SavedJson { get; set; } = "[{\"S7PRules\":[]}]";
         public string SavedUserIdField { get; set; } = "userId";
@@ -329,6 +345,8 @@
             SelectedProfile = Document.Profiles.FirstOrDefault();
             SelectedRule = Document.Rules.FirstOrDefault();
             RuleJson = SelectedRule?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+            RuleDraft = SelectedRule?.DeepClone() as JsonObject;
+            EditRuleJson = false;
             Search = "";
             IsDirty = false;
             Error = null;
@@ -341,6 +359,9 @@
             State.Document.UserIdField = IdentityField;
             State.SavedUserIdField = IdentityField;
         }
+        if (State.SelectedRule is not null && State.RuleDraft is null && !State.EditRuleJson) {
+            ToggleRuleEditor();
+        }
     }
 
     private void Change(Action action) {
@@ -351,6 +372,27 @@
     }
 
     private void SetRuleJson(string? value) => Change(() => State.RuleJson = value ?? "");
+
+    private void UpdateVisualRule() {
+        if (State.RuleDraft is not null) {
+            SetRuleJson(State.RuleDraft.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+    }
+
+    private void ToggleRuleEditor() {
+        if (!State.EditRuleJson && State.RuleDraft is not null) {
+            State.EditRuleJson = true;
+            return;
+        }
+        try {
+            State.RuleDraft = ProfileConfigurationDocument.ParseRule(State.RuleJson);
+            State.EditRuleJson = false;
+            State.Error = null;
+        } catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException) {
+            State.EditRuleJson = true;
+            State.Error = exception.Message;
+        }
+    }
 
     private void AddProfile() {
         var suffix = 1;
@@ -425,6 +467,7 @@
 
     private void ResetRuleBuffer() {
         State.RuleJson = State.SelectedRule?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+        State.RuleDraft = State.SelectedRule?.DeepClone() as JsonObject;
         State.Error = null;
     }
 
