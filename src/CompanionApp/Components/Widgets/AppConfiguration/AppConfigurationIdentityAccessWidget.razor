@@ -8,7 +8,7 @@
             <span class="identity-access-summary-grid">
                 <span>Authentication</span><strong>@IdentityAccessEditor.AuthenticationSummary(Settings)</strong>
                 <span>Application IDs</span><strong>@(IdentityAccessEditor.ApplicationAccessEnabled(Settings) ? "Validation enabled" : "Validation disabled")</strong>
-                <span>User profiles</span><strong>@(IdentityAccessEditor.UserProfilesEnabled(Settings) ? "Enabled" : "Disabled")</strong>
+                <span>Profile reader</span><strong>@(IdentityAccessEditor.UserProfilesEnabled(Settings) ? "Enabled" : "Disabled")</strong>
                 <span>Suspended users</span><strong>@IdentityAccessEditor.SuspendedUsersSummary(Settings)</strong>
             </span>
         </span>
