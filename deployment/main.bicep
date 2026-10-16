@@ -5,12 +5,14 @@ import { DeploymentSettings } from './types.bicep'
 @description('Deployment Setup values consumed by the static Bicep templates.')
 param settings DeploymentSettings
 
+var storageNetwork = settings.?DEPLOY_STORAGE_NETWORK ?? false
+
 resource existingEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = if (settings.USE_EXISTING_ENVIRONMENT) {
   name: settings.ENVIRONMENT_NAME
   scope: resourceGroup(settings.ENVIRONMENT_RESOURCE_GROUP)
 }
 
-module network 'modules/network.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT) {
+module network 'modules/network.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT || storageNetwork) {
   scope: resourceGroup(settings.NETWORK_RESOURCE_GROUP)
   params: {
     settings: settings
@@ -77,10 +79,20 @@ module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPL
   }
 }
 
-module blobStorage 'modules/blob-storage.bicep' = if (settings.ASYNC_DEPLOYMENT) {
+module blobStorage 'modules/blob-storage.bicep' = if (settings.ASYNC_DEPLOYMENT || storageNetwork) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
     settings: settings
+  }
+}
+
+module storagePrivateEndpoint 'modules/storage-private-endpoint.bicep' = if (storageNetwork) {
+  scope: resourceGroup(settings.NETWORK_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    storageAccountId: blobStorage.?outputs.storageAccountId ?? ''
+    privateEndpointSubnetId: network.?outputs.privateEndpointSubnetId ?? ''
+    virtualNetworkId: network.?outputs.virtualNetworkId ?? ''
   }
 }
 
@@ -178,7 +190,7 @@ module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRIC
   ]
 }
 
-module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT && settings.DEPLOY_PROXY) {
+module blobAccess 'modules/blob-access.bicep' = if ((settings.ASYNC_DEPLOYMENT || storageNetwork) && settings.DEPLOY_PROXY) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
     settings: settings

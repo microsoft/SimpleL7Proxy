@@ -45,7 +45,8 @@ public sealed class DeploymentArmTemplate {
             throw new InvalidOperationException("Enable managed identity before exporting ARM: registry, App Configuration, and storage access use managed identity.");
         }
         var groups = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
-        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT")) groups.Add("NETWORK_RESOURCE_GROUP");
+        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) groups.Add("NETWORK_RESOURCE_GROUP");
+        if (Enabled("DEPLOY_STORAGE_NETWORK")) groups.Add("STORAGE_RESOURCE_GROUP");
         if (Enabled("ASYNC_DEPLOYMENT")) groups.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
         var resourceGroups = new JsonArray();
         foreach (var group in groups.Select(Value).Distinct(StringComparer.OrdinalIgnoreCase).Where(_ => _stage != "application")) {
@@ -63,14 +64,16 @@ public sealed class DeploymentArmTemplate {
             AddDeployment("registry", Value("CONTAINER_APP_RESOURCE_GROUP"), new JsonArray(registry));
         }
         if (_stage != "bootstrap") {
-            if (Enabled("PRIVATE_NETWORK_DEPLOYMENT")) AddNetwork();
+            if (Enabled("PRIVATE_NETWORK_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) AddNetwork();
             AddFoundation();
+            if (Enabled("ASYNC_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) AddBlobStorage();
             if (Enabled("ASYNC_DEPLOYMENT")) AddAsync();
             if (_proxyImage.Length == 0) {
                 AddContainerApp(proxyVersion, healthVersion, false, "container-app-bootstrap", "foundation", "configuration");
                 AddProxyAccess("container-app-bootstrap");
                 var accessDependencies = new List<string> { "registry-access", "configuration-access" };
-                if (Enabled("ASYNC_DEPLOYMENT")) accessDependencies.AddRange(["blob-access", "service-bus-access"]);
+                if (Enabled("ASYNC_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) accessDependencies.Add("blob-access");
+                if (Enabled("ASYNC_DEPLOYMENT")) accessDependencies.Add("service-bus-access");
                 AddContainerApp(proxyVersion, healthVersion, true, "container-app", [.. accessDependencies]);
             } else {
                 AddContainerApp(proxyVersion, healthVersion, false, "container-app", "foundation", "configuration");
@@ -124,14 +127,14 @@ public sealed class DeploymentArmTemplate {
             insights["dependsOn"] = Strings($"[{workspaceId}]");
             resources.Add(insights);
         }
-        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT")) {
+        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) {
             environment["properties"]!["vnetConfiguration"] = new JsonObject {
                 ["infrastructureSubnetId"] = $"[{Id(Value("NETWORK_RESOURCE_GROUP"), "Microsoft.Network/virtualNetworks/subnets", Value("VNET_NAME"), Value("SUBNET_ACA_NAME"))}]",
-                ["internal"] = true
+                ["internal"] = Enabled("PRIVATE_NETWORK_DEPLOYMENT")
             };
         }
         resources.Add(environment);
-        AddDeployment("foundation", appGroup, resources, [..(_stage == "all" && _proxyImage.Length == 0 ? new[] { "registry" } : []), ..(Enabled("PRIVATE_NETWORK_DEPLOYMENT") ? new[] { "network" } : [])]);
+        AddDeployment("foundation", appGroup, resources, [..(_stage == "all" && _proxyImage.Length == 0 ? new[] { "registry" } : []), ..(Enabled("PRIVATE_NETWORK_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK") ? new[] { "network" } : [])]);
         var config = Resource("Microsoft.AppConfiguration/configurationStores", "2024-05-01", Value("APPCONFIG_NAME"), new JsonObject {
             ["disableLocalAuth"] = true, ["publicNetworkAccess"] = "Enabled",
             ["dataPlaneProxy"] = new JsonObject { ["authenticationMode"] = "Pass-through" }
@@ -209,7 +212,7 @@ public sealed class DeploymentArmTemplate {
         var configId = Id(Value("APPCONFIG_RESOURCE_GROUP"), "Microsoft.AppConfiguration/configurationStores", Value("APPCONFIG_NAME"));
         AddDeployment("configuration-access", Value("APPCONFIG_RESOURCE_GROUP"),
             new JsonArray(SystemRole(configId, appId, "516239f1-63e1-4d78-a4de-a74fb236a071")), appDeploymentName);
-        if (!Enabled("ASYNC_DEPLOYMENT")) return;
+        if (!Enabled("ASYNC_DEPLOYMENT") && !Enabled("DEPLOY_STORAGE_NETWORK")) return;
 
         var blobId = Id(Value("STORAGE_RESOURCE_GROUP"), "Microsoft.Storage/storageAccounts", Value("STORAGE_ACCOUNT_NAME"));
         var blobRole = Value("CA_BLOB_ROLE") switch {
@@ -222,6 +225,7 @@ public sealed class DeploymentArmTemplate {
         AddDeployment("blob-access", Value("STORAGE_RESOURCE_GROUP"),
             new JsonArray(SystemRole(blobId, appId, blobRole)), "blob-storage", appDeploymentName);
 
+        if (!Enabled("ASYNC_DEPLOYMENT")) return;
         var requestIdentityId = Id(Value("REQUESTAPI_RESOURCE_GROUP"), "Microsoft.ManagedIdentity/userAssignedIdentities", Value("REQUESTAPI_FUNCTION_APP") + "-identity");
         var serviceBusId = $"resourceId(parameters('serviceBusResourceGroup'), 'Microsoft.ServiceBus/namespaces', {Quote(Value("REQUESTAPI_SERVICEBUS_NAMESPACE"))})";
         var busRoles = new JsonArray();
@@ -262,13 +266,14 @@ public sealed class DeploymentArmTemplate {
     private void AddNetwork() {
         var subnets = new JsonArray();
         foreach (var prefix in new[] { "ACA", "CLIENTVM", "AZUREFUNCTIONS", "APIM", "PRIVATEENDPOINTS" }) {
+            if (!Enabled("PRIVATE_NETWORK_DEPLOYMENT") && prefix is not ("ACA" or "PRIVATEENDPOINTS") && !(prefix == "AZUREFUNCTIONS" && Enabled("ASYNC_DEPLOYMENT"))) continue;
             var properties = new JsonObject { ["addressPrefix"] = Value($"SUBNET_{prefix}_PREFIX") };
             var delegation = prefix == "ACA" ? "Microsoft.App/environments"
                 : prefix == "AZUREFUNCTIONS" && Enabled("ASYNC_DEPLOYMENT") ? "Microsoft.App/environments" : null;
             if (delegation is not null) properties["delegations"] = new JsonArray(new JsonObject {
                 ["name"] = "service-delegation", ["properties"] = new JsonObject { ["serviceName"] = delegation }
             });
-            if (prefix == "PRIVATEENDPOINTS") properties["privateEndpointNetworkPolicies"] = Enabled("DISABLE_PRIVATE_ENDPOINT_NETWORK_POLICIES") ? "Disabled" : "Enabled";
+            if (prefix == "PRIVATEENDPOINTS") properties["privateEndpointNetworkPolicies"] = Enabled("DISABLE_PRIVATE_ENDPOINT_NETWORK_POLICIES") || Enabled("DEPLOY_STORAGE_NETWORK") ? "Disabled" : "Enabled";
             subnets.Add(new JsonObject { ["name"] = Literal(Value($"SUBNET_{prefix}_NAME")), ["properties"] = properties });
         }
         AddDeployment("network", Value("NETWORK_RESOURCE_GROUP"), new JsonArray(Resource("Microsoft.Network/virtualNetworks", "2024-01-01", Value("VNET_NAME"), new JsonObject {
@@ -276,17 +281,12 @@ public sealed class DeploymentArmTemplate {
         }, _location)));
     }
 
-    private void AddAsync() {
-        if (Integer("REQUESTAPI_MAX_INSTANCE_COUNT") is < 40 or > 1000) {
-            throw new InvalidOperationException("RequestAPI maximum instance count must be between 40 and 1000 for Flex Consumption.");
-        }
-        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT") && Value("REQUESTAPI_LOCATION") != _location) {
-            throw new InvalidOperationException("RequestAPI must use the common location when integrated with the selected virtual network.");
-        }
+    private void AddBlobStorage() {
         var blobGroup = Value("STORAGE_RESOURCE_GROUP");
         var blobName = Value("STORAGE_ACCOUNT_NAME");
         var blobId = Id(blobGroup, "Microsoft.Storage/storageAccounts", blobName);
         JsonArray blobs = [Storage(blobName, Value("STORAGE_SKU"), _location)];
+        if (Enabled("DEPLOY_STORAGE_NETWORK")) blobs[0]!["properties"]!["publicNetworkAccess"] = "Disabled";
         if (Enabled("CREATE_CONTAINERS")) {
             foreach (var container in Value("BLOB_CONTAINERS").Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal)) {
                 blobs.Add(BlobContainer(blobGroup, blobName, container));
@@ -294,6 +294,45 @@ public sealed class DeploymentArmTemplate {
         }
         AddDeployment("blob-storage", blobGroup, blobs, "foundation");
 
+        if (Enabled("DEPLOY_STORAGE_NETWORK")) {
+            var group = Value("NETWORK_RESOURCE_GROUP");
+            var networkId = Id(group, "Microsoft.Network/virtualNetworks", Value("VNET_NAME"));
+            var subnetId = Id(group, "Microsoft.Network/virtualNetworks/subnets", Value("VNET_NAME"), Value("SUBNET_PRIVATEENDPOINTS_NAME"));
+            var zoneId = "resourceId('Microsoft.Network/privateDnsZones', concat('privatelink.blob.', environment().suffixes.storage))";
+            var endpointName = blobName + "-blob";
+            var endpointId = Id(group, "Microsoft.Network/privateEndpoints", endpointName);
+            var zone = Resource("Microsoft.Network/privateDnsZones", "2020-06-01", "", new JsonObject(), "global");
+            zone["name"] = "[concat('privatelink.blob.', environment().suffixes.storage)]";
+            var link = Resource("Microsoft.Network/privateDnsZones/virtualNetworkLinks", "2020-06-01", "", new JsonObject {
+                ["registrationEnabled"] = false, ["virtualNetwork"] = new JsonObject { ["id"] = $"[{networkId}]" }
+            }, "global");
+            link["name"] = $"[concat('privatelink.blob.', environment().suffixes.storage, '/', {Quote(Value("VNET_NAME"))})]";
+            link["dependsOn"] = Strings($"[{zoneId}]");
+            var endpoint = Resource("Microsoft.Network/privateEndpoints", "2024-01-01", endpointName, new JsonObject {
+                ["subnet"] = new JsonObject { ["id"] = $"[{subnetId}]" },
+                ["privateLinkServiceConnections"] = new JsonArray(new JsonObject {
+                    ["name"] = "blob", ["properties"] = new JsonObject {
+                        ["privateLinkServiceId"] = $"[{blobId}]", ["groupIds"] = Strings("blob")
+                    }
+                })
+            }, _location);
+            var zoneGroup = Resource("Microsoft.Network/privateEndpoints/privateDnsZoneGroups", "2024-01-01", endpointName + "/default", new JsonObject {
+                ["privateDnsZoneConfigs"] = new JsonArray(new JsonObject {
+                    ["name"] = "blob", ["properties"] = new JsonObject { ["privateDnsZoneId"] = $"[{zoneId}]" }
+                })
+            });
+            zoneGroup["dependsOn"] = Strings($"[{endpointId}]", $"[{zoneId}]");
+            AddDeployment("storage-private-endpoint", group, new JsonArray(zone, link, endpoint, zoneGroup), "network", "blob-storage");
+        }
+    }
+
+    private void AddAsync() {
+        if (Integer("REQUESTAPI_MAX_INSTANCE_COUNT") is < 40 or > 1000) {
+            throw new InvalidOperationException("RequestAPI maximum instance count must be between 40 and 1000 for Flex Consumption.");
+        }
+        if ((Enabled("PRIVATE_NETWORK_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) && Value("REQUESTAPI_LOCATION") != _location) {
+            throw new InvalidOperationException("RequestAPI must use the common location when integrated with the selected virtual network.");
+        }
         var group = Value("REQUESTAPI_RESOURCE_GROUP");
         var location = Value("REQUESTAPI_LOCATION");
         var name = Value("REQUESTAPI_FUNCTION_APP");
@@ -352,7 +391,7 @@ public sealed class DeploymentArmTemplate {
         var dependencies = Strings($"[{planId}]", $"[{insightsId}]", $"[{identityId}]", $"[{Id(group, "Microsoft.Storage/storageAccounts/blobServices/containers", storageName, "default", "deployment-package")}]" );
         foreach (var role in storageRoles) dependencies.Add(JsonValue.Create($"[extensionResourceId({storageId}, 'Microsoft.Authorization/roleAssignments', guid({storageId}, {identityId}, {Quote(role)}))]"));
         function["dependsOn"] = dependencies;
-        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT")) function["properties"]!["virtualNetworkSubnetId"] = $"[{Id(Value("NETWORK_RESOURCE_GROUP"), "Microsoft.Network/virtualNetworks/subnets", Value("VNET_NAME"), Value("SUBNET_AZUREFUNCTIONS_NAME"))}]";
+        if (Enabled("PRIVATE_NETWORK_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) function["properties"]!["virtualNetworkSubnetId"] = $"[{Id(Value("NETWORK_RESOURCE_GROUP"), "Microsoft.Network/virtualNetworks/subnets", Value("VNET_NAME"), Value("SUBNET_AZUREFUNCTIONS_NAME"))}]";
         functionResources.Add(function);
         AddDeployment("request-api", group, functionResources, "foundation");
 

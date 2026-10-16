@@ -31,6 +31,7 @@ export ASYNC_DEPLOYMENT="yes|no"
 export DEPLOY_PROXY="true"
 export DEPLOY_COMPANION_APP="false"
 export DEPLOY_METRICS_SERVER="false"
+export DEPLOY_STORAGE_NETWORK="false"   # Bicep/Portal: private Blob storage with public Container Apps ingress; independent of async mode
 
 # -----------------------------------------------------------------------------
 # Common

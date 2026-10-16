@@ -16,7 +16,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     supportsHttpsTrafficOnly: true
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: (settings.?DEPLOY_STORAGE_NETWORK ?? false) ? 'Disabled' : 'Enabled'
   }
 }
 

@@ -1,5 +1,7 @@
 # Copilot Learnings
 
+- Bicep optional object properties use nullable types (`FLAG: bool?`), not TypeScript-style `FLAG?: bool`. Filter subnet arrays with `filter(..., subnet => ...)`; conditional `for` filters are not valid in ordinary property arrays. Compile the Bicep entry point immediately after network edits.
+
 - Razor string component parameters require an explicit `@` when binding a field; `SelectedModel="_limitsModel"` passes a literal, while `SelectedModel="@_limitsModel"` passes the selection. A successful build does not detect this difference.
 - In file-free F# HtmlRenderer checks, use `Dispatcher.InvokeAsync<string>(Func<Task<string>>(...))` to disambiguate the asynchronous overload. Put object-expression interface implementations on separate, properly indented lines.
 - Start an unpublished CompanionApp preview with `ASPNETCORE_ENVIRONMENT=Development` so static web assets are enabled. `--uionly` disables startup configuration access and the Event Hub reader, but opening Proxy Configuration still loads its configured endpoint; do not assume that page is offline.

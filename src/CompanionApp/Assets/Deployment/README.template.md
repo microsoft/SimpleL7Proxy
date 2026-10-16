@@ -4,6 +4,11 @@ The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP i
 
 ![SimpleL7Proxy deployment architecture](arch.png)
 
+CompanionApp **Simple deployment** includes a virtual network with separate Container Apps and storage-private-endpoint subnets, a storage account, a Blob private endpoint, and a linked private DNS zone. The proxy and Companion App endpoints remain public. This does not enable async mode or deploy RequestAPI, Service Bus, or Cosmos DB.
+
+> [!NOTE]
+> Storage public network access, anonymous Blob access, and shared-key access are disabled for this mode. Access Blob data from the linked network using a managed identity with a Storage Blob Data role; the proxy receives the configured Blob role. Internet-only clients cannot access Blob data. Advanced mode keeps storage networking disabled by default.
+
 ## Before you begin
 
 You need:

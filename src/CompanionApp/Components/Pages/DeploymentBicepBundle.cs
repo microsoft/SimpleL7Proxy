@@ -56,7 +56,8 @@ public static class DeploymentBicepBundle {
     private static string GenerateParameters(IReadOnlyDictionary<string, string> values) {
         var resourceGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
         if (Enabled(values, "DEPLOY_COMPANION_APP")) resourceGroupKeys.Add("COMPANION_APP_RESOURCE_GROUP");
-        if (Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT")) resourceGroupKeys.Add("NETWORK_RESOURCE_GROUP");
+        if (Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT") || Enabled(values, "DEPLOY_STORAGE_NETWORK")) resourceGroupKeys.Add("NETWORK_RESOURCE_GROUP");
+        if (Enabled(values, "DEPLOY_STORAGE_NETWORK")) resourceGroupKeys.Add("STORAGE_RESOURCE_GROUP");
         if (Enabled(values, "ASYNC_DEPLOYMENT")) resourceGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
         var resourceGroups = new JsonArray();
         foreach (var group in resourceGroupKeys.Select(key => Value(values, key)).Distinct(StringComparer.OrdinalIgnoreCase)) resourceGroups.Add(group);
@@ -69,6 +70,7 @@ public static class DeploymentBicepBundle {
             ["DEPLOY_PROXY"] = Enabled(values, "DEPLOY_PROXY"),
             ["DEPLOY_COMPANION_APP"] = Enabled(values, "DEPLOY_COMPANION_APP"),
             ["DEPLOY_METRICS_SERVER"] = Enabled(values, "DEPLOY_METRICS_SERVER"),
+            ["DEPLOY_STORAGE_NETWORK"] = Enabled(values, "DEPLOY_STORAGE_NETWORK"),
             ["MAKE_UNIQ_SUFFIX"] = "",
             ["LOCATION"] = Value(values, "LOCATION"),
             ["RESOURCE_GROUPS"] = resourceGroups,
@@ -169,15 +171,17 @@ public static class DeploymentBicepBundle {
         if (!Enabled(values, "ENABLE_MANAGED_IDENTITY")) {
             throw new InvalidOperationException("Enable managed identity before exporting Bicep: registry, App Configuration, and storage access use managed identity.");
         }
-        if (Enabled(values, "ASYNC_DEPLOYMENT")) {
-            var maximumInstances = Integer(values, "REQUESTAPI_MAX_INSTANCE_COUNT");
-            if (maximumInstances is < 40 or > 1000) throw new InvalidOperationException("RequestAPI maximum instance count must be between 40 and 1000 for Flex Consumption.");
-            if (Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT") && OptionalValue(values, "REQUESTAPI_LOCATION", Value(values, "LOCATION")) != Value(values, "LOCATION")) {
-                throw new InvalidOperationException("RequestAPI must use the common location when integrated with the selected virtual network.");
-            }
+        if (Enabled(values, "ASYNC_DEPLOYMENT") || Enabled(values, "DEPLOY_STORAGE_NETWORK")) {
             var blobRole = Value(values, "CA_BLOB_ROLE");
             if (blobRole is not ("Storage Blob Data Contributor" or "Storage Blob Data Owner" or "Storage Blob Data Reader") && !Guid.TryParse(blobRole, out _)) {
                 throw new InvalidOperationException("For Bicep export, enter a built-in Storage Blob Data role name or a role definition GUID in CA_BLOB_ROLE.");
+            }
+        }
+        if (Enabled(values, "ASYNC_DEPLOYMENT")) {
+            var maximumInstances = Integer(values, "REQUESTAPI_MAX_INSTANCE_COUNT");
+            if (maximumInstances is < 40 or > 1000) throw new InvalidOperationException("RequestAPI maximum instance count must be between 40 and 1000 for Flex Consumption.");
+            if ((Enabled(values, "PRIVATE_NETWORK_DEPLOYMENT") || Enabled(values, "DEPLOY_STORAGE_NETWORK")) && OptionalValue(values, "REQUESTAPI_LOCATION", Value(values, "LOCATION")) != Value(values, "LOCATION")) {
+                throw new InvalidOperationException("RequestAPI must use the common location when integrated with the selected virtual network.");
             }
         }
     }

@@ -37,22 +37,28 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
     foreach (var key in hyphenatedResourceKeys) Check(defaults[key] == baseline[key] + "-" + suffix, key + " shares suffix with a separator");
     foreach (var key in baseline.Keys.Where(key => !resourceNameKeys.Contains(key))) {
         var expected = key is "PRIVATE_NETWORK_DEPLOYMENT" or "ASYNC_DEPLOYMENT" ? "no"
-            : key is "DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER" ? "true" : key == "REQUESTAPI_LOCATION" ? "" : baseline[key];
+            : key is "DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER" or "DEPLOY_STORAGE_NETWORK" ? "true" : key is "REQUESTAPI_LOCATION" or "LOCATION" ? "" : baseline[key];
         Check(defaults[key] == expected, key + " remains unchanged by resource naming");
     }
     Check((string)readSetupValue.Invoke(setup, ["HEALTHPROBE_TYPE"])! == "internal", "Deployment Setup disables the HealthProbe sidecar by default");
     Check(defaults["DEPLOY_METRICS_SERVER"] == "true", "Deployment Setup enables Metrics Server by default");
     Check((bool)typeof(DeploymentSetupPage).GetField("_simpleMode", setupFlags)!.GetValue(setup)!, "Deployment Setup starts in Simple mode");
     Check(defaults["ACR_SKU"] == "Basic", "Simple deployment selects the Basic registry SKU");
+    Check(defaults["DEPLOY_STORAGE_NETWORK"] == "true" && defaults["PRIVATE_NETWORK_DEPLOYMENT"] == "no" && defaults["ASYNC_DEPLOYMENT"] == "no",
+        "Simple deployment enables private storage independently of private ingress and async services");
     var setupErrors = (Dictionary<string, string>)typeof(DeploymentSetupPage).GetField("_errors", setupFlags)!.GetValue(setup)!;
     var resourceGroupField = ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", setupFlags)!.GetValue(setup)!)
         .Cast<object>().Single(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)! == "CONTAINER_APP_RESOURCE_GROUP");
+    var locationField = ((System.Collections.IEnumerable)typeof(DeploymentSetupPage).GetField("_fields", setupFlags)!.GetValue(setup)!)
+        .Cast<object>().Single(field => (string)field.GetType().GetProperty("Key")!.GetValue(field)! == "LOCATION");
+    setSetupValue.Invoke(setup, [locationField, baseline["LOCATION"]]);
+    defaults["LOCATION"] = baseline["LOCATION"];
     setSetupValue.Invoke(setup, [resourceGroupField, "invalid/name"]);
     validateSetup.Invoke(setup, [null]);
     Check(setupErrors.ContainsKey("CONTAINER_APP_RESOURCE_GROUP"), "Simple deployment validates its resource group name");
     setSetupValue.Invoke(setup, [resourceGroupField, defaults["CONTAINER_APP_RESOURCE_GROUP"]]);
     validateSetup.Invoke(setup, [null]);
-    Check(setupErrors.Count == 0, "Simple deployment validates only its resource group and registry SKU");
+    Check(setupErrors.Count == 0, "Simple deployment validates its region, resource group and registry SKU");
     Check(Regex.IsMatch(defaults["ACR_NAME"], "^[a-z0-9]{5,50}$"), "default registry name satisfies Azure limits");
     foreach (var key in new[] { "STORAGE_ACCOUNT_NAME", "REQUESTAPI_STORAGE_ACCOUNT" })
         Check(Regex.IsMatch(defaults[key], "^[a-z0-9]{3,24}$"), key + " satisfies Azure storage limits");
@@ -72,6 +78,11 @@ for (var setupIndex = 0; setupIndex < 4; setupIndex++) {
         Check(json.Contains(defaults["CONTAINER_APP_RESOURCE_GROUP"], StringComparison.Ordinal), stage + " uses the initialized resource group");
     }
     Check(DeploymentArmTemplate.GeneratePublishScript(defaults, "2.2.17", "2.0.1").Contains(defaults["ACR_NAME"], StringComparison.Ordinal), "publisher uses the initialized registry name");
+    var resetMode = typeof(DeploymentSetupPage).GetMethod("ResetMode", setupFlags)!;
+    resetMode.Invoke(setup, [false]);
+    Check((string)readSetupValue.Invoke(setup, ["DEPLOY_STORAGE_NETWORK"])! == "false", "Advanced mode retains the no-storage-network default");
+    resetMode.Invoke(setup, [true]);
+    Check((string)readSetupValue.Invoke(setup, ["DEPLOY_STORAGE_NETWORK"])! == "true", "returning to Simple mode restores private storage");
 }
 Check(setupSuffixes.Count > 1, "new setup instances generate fresh suffixes");
 var acaDeploymentScript = File.ReadAllText(Path.Combine(root, "deployment/interactive/ACA/deploy.sh"));
@@ -85,6 +96,7 @@ var cases = 0;
 string? staticBicepEntryPoint = null;
 foreach (var shared in new[] { false, true })
 foreach (var network in new[] { false, true })
+foreach (var storageNetwork in new[] { false, true })
 foreach (var asyncMode in new[] { false, true })
 foreach (var sidecar in new[] { false, true })
 foreach (var proxy in new[] { false, true })
@@ -92,6 +104,7 @@ foreach (var companion in new[] { false, true })
 foreach (var metricsServer in new[] { false, true }) {
     var values = new Dictionary<string, string>(baseline);
     values["PRIVATE_NETWORK_DEPLOYMENT"] = network ? "yes" : "no";
+    values["DEPLOY_STORAGE_NETWORK"] = storageNetwork ? "true" : "false";
     values["ASYNC_DEPLOYMENT"] = asyncMode ? "yes" : "no";
     values["DEPLOY_PROXY"] = proxy ? "true" : "false";
     values["DEPLOY_COMPANION_APP"] = companion ? "true" : "false";
@@ -145,11 +158,35 @@ foreach (var metricsServer in new[] { false, true }) {
     if (sidecar) Check(app["properties"]!["template"]!["containers"]![1]!["image"]!.GetValue<string>().Contains("'v2.0.1'", StringComparison.Ordinal), "sidecar tag matches publisher");
     Check(!json.Contains("templateLink", StringComparison.Ordinal), "no external templates");
     Check(json == DeploymentArmTemplate.Generate(values, "2.2.17", "2.0.1", new Dictionary<string, string> { ["Warm:Sentinel"] = "", ["Cold:Server:Port"] = "8000" }), "deterministic export");
-    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-network", StringComparison.Ordinal)) == network, "network toggle");
+    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-network", StringComparison.Ordinal)) == (network || storageNetwork), "network toggle");
     Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-request-api", StringComparison.Ordinal)) == asyncMode, "async toggle");
+    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-blob-storage", StringComparison.Ordinal)) == (asyncMode || storageNetwork), "storage does not require async services");
+    Check(deployments.Any(node => node!["name"]!.GetValue<string>().EndsWith("-storage-private-endpoint", StringComparison.Ordinal)) == storageNetwork, "private storage toggle");
+    if (network || storageNetwork) {
+        var environment = Deployment("foundation")["properties"]!["template"]!["resources"]!.AsArray()
+            .Single(resource => resource!["type"]!.GetValue<string>() == "Microsoft.App/managedEnvironments")!;
+        Check(environment["properties"]!["vnetConfiguration"]!["internal"]!.GetValue<bool>() == network, "private storage preserves public environment ingress");
+        var subnets = Deployment("network")["properties"]!["template"]!["resources"]![0]!["properties"]!["subnets"]!.AsArray();
+        Check(subnets.Count == (network ? 5 : asyncMode ? 3 : 2), "Simple storage uses separate app and private endpoint subnets");
+    }
+    if (storageNetwork) {
+        var storage = Deployment("blob-storage")["properties"]!["template"]!["resources"]![0]!;
+        Check(storage["properties"]!["publicNetworkAccess"]!.GetValue<string>() == "Disabled", "private storage disables public network access");
+        Check(!storage["properties"]!["allowSharedKeyAccess"]!.GetValue<bool>() && !storage["properties"]!["allowBlobPublicAccess"]!.GetValue<bool>(), "private storage retains managed identity and private containers");
+        var endpointDeployment = Deployment("storage-private-endpoint");
+        var endpointResources = endpointDeployment["properties"]!["template"]!["resources"]!.AsArray();
+        var endpoint = endpointResources.Single(resource => resource!["type"]!.GetValue<string>() == "Microsoft.Network/privateEndpoints")!;
+        Check(endpoint["properties"]!["subnet"]!["id"]!.GetValue<string>().Contains(values["SUBNET_PRIVATEENDPOINTS_NAME"], StringComparison.Ordinal), "Blob endpoint uses the dedicated storage subnet");
+        Check(endpoint["properties"]!["privateLinkServiceConnections"]![0]!["properties"]!["groupIds"]![0]!.GetValue<string>() == "blob", "private endpoint targets Blob storage");
+        Check(endpointResources.Any(resource => resource!["type"]!.GetValue<string>() == "Microsoft.Network/privateDnsZones/virtualNetworkLinks"), "storage DNS zone is linked to the VNet");
+        Check(endpointResources.Any(resource => resource!["type"]!.GetValue<string>() == "Microsoft.Network/privateEndpoints/privateDnsZoneGroups"), "storage DNS registration uses a zone group");
+        Check(endpointDeployment["dependsOn"]!.ToJsonString().Contains("-blob-storage", StringComparison.Ordinal), "private endpoint waits for storage");
+        Check(!asyncMode || Deployment("request-api").ToJsonString().Contains("virtualNetworkSubnetId", StringComparison.Ordinal), "async storage clients join the VNet");
+    }
     var groups = template["resources"]!.AsArray().Where(node => node!["type"]!.GetValue<string>() == "Microsoft.Resources/resourceGroups").ToArray();
     var selectedGroupKeys = new[] { "CONTAINER_APP_RESOURCE_GROUP", "APPCONFIG_RESOURCE_GROUP" }.ToList();
-    if (network) selectedGroupKeys.Add("NETWORK_RESOURCE_GROUP");
+    if (network || storageNetwork) selectedGroupKeys.Add("NETWORK_RESOURCE_GROUP");
+    if (storageNetwork) selectedGroupKeys.Add("STORAGE_RESOURCE_GROUP");
     if (asyncMode) selectedGroupKeys.AddRange(["STORAGE_RESOURCE_GROUP", "REQUESTAPI_RESOURCE_GROUP"]);
     var expectedGroupCount = selectedGroupKeys.Select(key => values[key]).Distinct(StringComparer.OrdinalIgnoreCase).Count();
     Check(groups.Length == expectedGroupCount, "group deduplication");
@@ -229,7 +266,7 @@ foreach (var metricsServer in new[] { false, true }) {
         "modules/foundation.bicep", "modules/configuration.bicep", "modules/configuration-access.bicep",
         "modules/blob-storage.bicep", "modules/blob-access.bicep", "modules/request-api.bicep",
         "modules/service-bus-access.bicep", "modules/cosmos-access.bicep", "modules/companion-app.bicep", "modules/event-hub.bicep", "modules/event-hub-access.bicep", "modules/metrics-server.bicep", "modules/container-app.bicep",
-        "modules/registry-access.bicep", "modules/private-dns.bicep"
+        "modules/registry-access.bicep", "modules/private-dns.bicep", "modules/storage-private-endpoint.bicep"
     ];
     Check(templateAssets.All(bicepFiles.ContainsKey), "Bicep bundle includes every static template asset");
     Check(bicepFiles.Keys.Count(file => file.EndsWith(".bicep", StringComparison.Ordinal)) == templateAssets.Length, "Bicep bundle contains only the expected template assets");
@@ -256,7 +293,7 @@ foreach (var metricsServer in new[] { false, true }) {
     staticBicepEntryPoint ??= bicep;
     Check(bicep == staticBicepEntryPoint, "Bicep entry point is a static asset across deployment settings");
     Check(bicep.Contains("param settings DeploymentSettings", StringComparison.Ordinal), "Bicep entry point consumes the typed settings parameter");
-    Check(bicep.Contains("if (settings.PRIVATE_NETWORK_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls private networking from parameters");
+    Check(bicep.Contains("if (settings.PRIVATE_NETWORK_DEPLOYMENT || storageNetwork)", StringComparison.Ordinal), "Bicep entry point creates networking for private ingress or private storage");
     Check(bicep.Contains("if (settings.ASYNC_DEPLOYMENT)", StringComparison.Ordinal), "Bicep entry point controls async resources from parameters");
     Check(bicep.Contains("if (settings.DEPLOY_PROXY)", StringComparison.Ordinal), "Bicep entry point controls the proxy from parameters");
     Check(bicep.Contains("if (settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal), "Bicep entry point controls Companion App resources from parameters");
@@ -270,7 +307,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(bicepFiles["deploy.sh"].Contains(DeploymentBicepBundle.MetricsServerImage, StringComparison.Ordinal) == metricsServer, "Bicep deployment imports the public Metrics Server image only when selected");
     Check(!bicepFiles.ContainsKey("modules/configuration-values.bicep"), "Bicep export omits App Configuration values module");
     Check(!string.Join("\n", bicepFiles.Values).Contains("Microsoft.AppConfiguration/configurationStores/keyValues", StringComparison.Ordinal), "Bicep export omits App Configuration data-plane writes");
-    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 17, "Bicep bundle includes seventeen reusable resource modules");
+    Check(bicepFiles.Count(file => file.Key.StartsWith("modules/", StringComparison.Ordinal)) == 18, "Bicep bundle includes eighteen reusable resource modules");
     Check(string.Join("\n", bicepFiles.Values).Contains("Microsoft.ContainerRegistry/registries", StringComparison.Ordinal), "Bicep bundle provisions and references ACR");
     Check(bicepFiles["modules/container-app.bicep"].Contains(":v2.3.0", StringComparison.Ordinal), "Bicep Container App uses the imported proxy tag");
     Check(!string.Join("\n", bicepFiles.Values).Contains("simplel7proxy@sha256", StringComparison.Ordinal), "Bicep deployment does not pin the proxy image by digest");
@@ -360,6 +397,7 @@ foreach (var metricsServer in new[] { false, true }) {
     Check(parameterDocument["parameters"]!["host1"] is null, "parameters omit Host1");
     Check(parameterSettings["PRIVATE_NETWORK_DEPLOYMENT"]!.GetValue<bool>() == network, "parameters preserve the private-network toggle as Boolean");
     Check(parameterSettings["ASYNC_DEPLOYMENT"]!.GetValue<bool>() == asyncMode, "parameters preserve the async toggle as Boolean");
+    Check(parameterSettings["DEPLOY_STORAGE_NETWORK"]!.GetValue<bool>() == storageNetwork, "parameters preserve the storage-network toggle as Boolean");
     Check(parameterSettings["DEPLOY_PROXY"]!.GetValue<bool>() == proxy, "parameters preserve the proxy toggle as Boolean");
     Check(parameterSettings["DEPLOY_COMPANION_APP"]!.GetValue<bool>() == companion, "parameters preserve the Companion App toggle as Boolean");
     Check(parameterSettings["DEPLOY_METRICS_SERVER"]!.GetValue<bool>() == metricsServer, "parameters preserve the Metrics Server toggle as Boolean");
