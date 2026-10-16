@@ -2,6 +2,9 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CompanionApp.Components.Shared;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace EventHubMonitorTests;
@@ -193,6 +196,154 @@ public sealed class ProfileConfigurationTests {
         Assert.IsNotNull(state.SelectedRule);
         ProfileConfigurationDocument.ParseRule(state.RuleJson);
     }
+
+    [TestMethod]
+    public void Editor_DefaultsToVisualAndKeepsJsonOptIn() {
+        var editor = CreateRuleEditor();
+        var state = editor.State;
+        Assert.IsFalse(state.EditRuleJson);
+        Assert.IsNotNull(state.RuleDraft);
+        Assert.AreNotSame(state.SelectedRule, state.RuleDraft);
+        Assert.IsFalse(state.IsDirty);
+
+        // Inspect the generated controls without mounting an Interactive Server page.
+#pragma warning disable BL0006
+        using var builder = new RenderTreeBuilder();
+        typeof(ProfileConfigurationEditor).GetMethod("BuildRenderTree", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(editor, [builder]);
+        var frames = builder.GetFrames();
+        Assert.IsTrue(frames.Array.Take(frames.Count).Any(frame =>
+            frame.FrameType == RenderTreeFrameType.Component && frame.ComponentType == typeof(ProfileRuleNodeEditor)));
+        Assert.IsFalse(frames.Array.Take(frames.Count).Any(frame =>
+            frame.FrameType == RenderTreeFrameType.Element && frame.ElementName == "textarea"));
+#pragma warning restore BL0006
+
+        Invoke(editor, "ToggleRuleEditor");
+        Assert.IsTrue(state.EditRuleJson);
+        state.RuleJson = state.RuleJson.Replace("x-user-tier", "x-region", StringComparison.Ordinal);
+        Invoke(editor, "ToggleRuleEditor");
+        Assert.IsFalse(state.EditRuleJson);
+        Assert.AreEqual("x-region", state.RuleDraft!["if"]!["field"]!.GetValue<string>());
+        Assert.AreEqual("x-user-tier", state.SelectedRule!["if"]!["field"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public void Editor_InvalidJsonCannotSwitchToVisualOrLoseBuffer() {
+        var editor = CreateRuleEditor();
+        Invoke(editor, "ToggleRuleEditor");
+        Invoke(editor, "SetRuleJson", "{ invalid");
+        Invoke(editor, "ToggleRuleEditor");
+        Assert.IsTrue(editor.State.EditRuleJson);
+        Assert.AreEqual("{ invalid", editor.State.RuleJson);
+        Assert.IsNotNull(editor.State.Error);
+        Assert.AreEqual("premium", ProfileConfigurationDocument.RuleName(editor.State.SelectedRule!));
+        Invoke(editor, "ResetRuleBuffer");
+        Invoke(editor, "ToggleRuleEditor");
+        Assert.IsFalse(editor.State.EditRuleJson);
+        Assert.IsNull(editor.State.Error);
+    }
+
+    [TestMethod]
+    public async Task Editor_VisualChangesRenameAssignmentsAndCancelRestoresSavedFile() {
+        var editor = CreateRuleEditor();
+        var state = editor.State;
+        var original = state.SelectedRule!.ToJsonString();
+        var nodeEditor = CreateNodeEditor(state.RuleDraft!, editor);
+        await InvokeNode(nodeEditor, "SetTextAsync", state.RuleDraft!, "name", "renamed");
+        await InvokeNode(nodeEditor, "SetTextAsync", state.RuleDraft!["if"]!.AsObject(), "value", "enterprise");
+        await InvokeNode(nodeEditor, "SetIgnoreCaseAsync", state.RuleDraft!["if"]!.AsObject(), false);
+        Assert.IsTrue(state.IsDirty);
+        Assert.AreEqual(original, state.SelectedRule.ToJsonString(), "Visual edits must remain buffered until Apply or Save.");
+        Assert.AreEqual(true, Invoke(editor, "ApplyRule"));
+        Assert.AreEqual("renamed", state.Document.Profiles.Single().RuleNames.Single());
+        Assert.IsFalse(state.SelectedRule!["if"]!["ignoreCase"]!.GetValue<bool>());
+        state.RestoreSaved();
+        Assert.IsFalse(state.IsDirty);
+        Assert.IsFalse(state.EditRuleJson);
+        Assert.AreEqual("premium", state.Document.Profiles.Single().RuleNames.Single());
+        Assert.AreEqual(original, state.RuleDraft!.ToJsonString());
+    }
+
+    [TestMethod]
+    public async Task Editor_VisualFieldsPreserveValuesAndRejectDuplicateNames() {
+        var editor = CreateRuleEditor();
+        var node = editor.State.RuleDraft!["then"]!.AsObject();
+        var fields = node["set"]!.AsObject();
+        var nodeEditor = CreateNodeEditor(node, editor);
+        await InvokeNode(nodeEditor, "AddFieldAsync", fields);
+        await InvokeNode(nodeEditor, "SetTextAsync", fields, "Header1", "gpt-4o");
+        await InvokeNode(nodeEditor, "RenameFieldAsync", fields, "Header1", "S7P-ModelOverride");
+        await InvokeNode(nodeEditor, "RenameFieldAsync", fields, "S7P-ModelOverride", "s7pprioritykey");
+        Assert.AreEqual("gpt-4o", fields["S7P-ModelOverride"]!.GetValue<string>());
+        Assert.AreEqual("1", fields["S7PPriorityKey"]!.GetValue<string>());
+        await InvokeNode(nodeEditor, "RenameFieldAsync", fields, "S7P-ModelOverride", "bad header");
+        Assert.IsTrue(fields.ContainsKey("S7P-ModelOverride"));
+        await InvokeNode(nodeEditor, "RemoveAsync", fields, "S7P-ModelOverride");
+        Assert.IsFalse(fields.ContainsKey("S7P-ModelOverride"));
+        Assert.AreEqual(true, Invoke(editor, "ApplyRule"));
+        Assert.IsFalse(editor.State.SelectedRule!["then"]!["set"]!.AsObject().ContainsKey("S7P-ModelOverride"));
+    }
+
+    [TestMethod]
+    public async Task Editor_VisualNestedBranchesAndRangeConditionsRoundTrip() {
+        var editor = CreateRuleEditor();
+        var root = editor.State.RuleDraft!;
+        var nodeEditor = CreateNodeEditor(root, editor);
+        await InvokeNode(nodeEditor, "AddNestedRuleAsync");
+        await InvokeNode(nodeEditor, "AddElseIfAsync");
+        var nested = root["else"]!.AsObject();
+        var nestedEditor = CreateNodeEditor(nested, editor);
+        await InvokeNode(nestedEditor, "SetTextAsync", nested["if"]!.AsObject(), "match", "between");
+        await InvokeNode(nestedEditor, "SetTextAsync", nested["if"]!.AsObject(), "value", "10");
+        await InvokeNode(nestedEditor, "SetTextAsync", nested["if"]!.AsObject(), "value2", "20");
+        await InvokeNode(nestedEditor, "SetTextAsync", nested["if"]!.AsObject(), "mode", "inClosedOpenRange");
+        await InvokeNode(nestedEditor, "AddElseAsync");
+        Assert.AreEqual(true, Invoke(editor, "ApplyRule"));
+        var reopened = new ProfileConfigurationDocument();
+        reopened.Import(editor.State.Document.Export());
+        Assert.IsTrue(JsonNode.DeepEquals(root, reopened.Rules.Single()));
+        Assert.AreEqual(1, root["elseif"]!.AsArray().Count);
+        Assert.IsNotNull(nested["else"]);
+    }
+
+    [TestMethod]
+    public async Task Editor_VisualDepthLimitPreventsAddingUnsaveableBranches() {
+        var node = ProfileConfigurationDocument.ParseRule(Rule);
+        var nodeEditor = new ProfileRuleNodeEditor();
+        typeof(ProfileRuleNodeEditor).GetProperty(nameof(ProfileRuleNodeEditor.Node))!.SetValue(nodeEditor, node);
+        typeof(ProfileRuleNodeEditor).GetProperty(nameof(ProfileRuleNodeEditor.Depth))!.SetValue(nodeEditor, 15);
+        await InvokeNode(nodeEditor, "AddNestedRuleAsync");
+        await InvokeNode(nodeEditor, "AddElseIfAsync");
+        Assert.IsNull(node["else"]);
+        Assert.IsNull(node["elseif"]);
+        await InvokeNode(nodeEditor, "AddElseAsync");
+        Assert.IsNotNull(node["else"]);
+        node.Remove("else");
+        typeof(ProfileRuleNodeEditor).GetProperty(nameof(ProfileRuleNodeEditor.Depth))!.SetValue(nodeEditor, 16);
+        await InvokeNode(nodeEditor, "AddElseAsync");
+        Assert.IsNull(node["else"]);
+    }
+
+    private static ProfileConfigurationEditor CreateRuleEditor() {
+        var editor = new ProfileConfigurationEditor();
+        editor.State.Document.Import($$"""[{"userId":"one","S7PRules":["premium"]},{"S7PRules":[{{Rule}}]}]""");
+        editor.State.SavedJson = editor.State.Document.Export();
+        editor.State.SelectedRule = editor.State.Document.Rules.Single();
+        typeof(ProfileConfigurationEditor).GetProperty(nameof(ProfileConfigurationEditor.View))!.SetValue(editor, "rules");
+        Invoke(editor, "ResetRuleBuffer");
+        return editor;
+    }
+
+    private ProfileRuleNodeEditor CreateNodeEditor(JsonObject node, ProfileConfigurationEditor editor) {
+        var nodeEditor = new ProfileRuleNodeEditor();
+        typeof(ProfileRuleNodeEditor).GetProperty(nameof(ProfileRuleNodeEditor.Node))!.SetValue(nodeEditor, node);
+        typeof(ProfileRuleNodeEditor).GetProperty(nameof(ProfileRuleNodeEditor.OnChanged))!
+            .SetValue(nodeEditor, EventCallback.Factory.Create(this, () => Invoke(editor, "UpdateVisualRule")));
+        return nodeEditor;
+    }
+
+    private static Task InvokeNode(ProfileRuleNodeEditor editor, string method, params object[] arguments) =>
+        (Task)typeof(ProfileRuleNodeEditor).GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(editor, arguments)!;
 
     private static object? Invoke(ProfileConfigurationEditor editor, string method, params object[] arguments) =>
         typeof(ProfileConfigurationEditor).GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(editor, arguments);

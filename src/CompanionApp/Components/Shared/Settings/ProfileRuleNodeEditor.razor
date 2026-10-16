@@ -1,0 +1,278 @@
+@namespace CompanionApp.Components.Shared
+@using System.Text.Json.Nodes
+@using SimpleL7Proxy.Rules
+@inject IJSRuntime JS
+
+<div class="rule-node">
+    <div class="rule-node-heading">
+        <label class="rule-name">
+            @(Depth == 0 ? "Rule name" : "Branch name")
+            <input class="form-control" required @bind:get="@(Read(Node, "name"))"
+                   @bind:set="@(value => SetTextAsync(Node, "name", value))" @bind:event="oninput" />
+        </label>
+        @if (!ElseIfClause)
+        {
+            <div class="rule-action" role="group" aria-label="Action type">
+                <span>Action</span>
+                <button type="button" class="btn btn-sm @(Node.ContainsKey("set") ? "btn-primary" : "btn-outline-primary")"
+                        aria-pressed="@(Node.ContainsKey("set") ? "true" : "false")"
+                        @onclick="() => SetModeAsync(false)">Set fields</button>
+                <button type="button" class="btn btn-sm @(!Node.ContainsKey("set") ? "btn-primary" : "btn-outline-primary")"
+                        aria-pressed="@(!Node.ContainsKey("set") ? "true" : "false")" disabled="@(Depth >= 16)"
+                        @onclick="() => SetModeAsync(true)">IF / THEN</button>
+            </div>
+        }
+    </div>
+    @if (Node["set"] is JsonObject fields)
+    {
+        <div class="rule-fields">
+            <table class="table table-sm mb-2">
+                <thead><tr><th scope="col">Field</th><th scope="col">Value</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                    @foreach (var field in fields.ToArray())
+                    {
+                        <tr @key="field.Key">
+                            <td><input class="form-control" aria-label="Field name" @bind:get="field.Key"
+                                       @bind:set="value => RenameFieldAsync(fields, field.Key, value)" /></td>
+                            <td><input class="form-control" aria-label="@($"Value for {field.Key}")"
+                                       @bind:get="Read(fields, field.Key)" @bind:set="value => SetTextAsync(fields, field.Key, value)" @bind:event="oninput" /></td>
+                            <td><button type="button" class="btn btn-sm btn-outline-danger" aria-label="@($"Remove field {field.Key}")"
+                                        @onclick="() => RemoveAsync(fields, field.Key)">Remove</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_fieldError is not null)
+        {
+            <p class="text-danger small" role="alert">@_fieldError</p>
+        }
+        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddFieldAsync(fields)">+ Add field</button>
+    }
+    else if (Node["if"] is JsonObject condition)
+    {
+        <details class="rule-section" open>
+            <summary>IF</summary>
+            <div class="rule-condition">
+                <label>Field
+                    <input class="form-control" @bind:get="@(Read(condition, "field"))"
+                           @bind:set="@(value => SetTextAsync(condition, "field", value))" @bind:event="oninput" />
+                </label>
+                <label>Operator
+                    <select class="form-select" @bind:get="@(Read(condition, "match", "equals").ToLowerInvariant())"
+                            @bind:set="@(value => SetTextAsync(condition, "match", value))">
+                        @foreach (var match in Enum.GetValues<MatchOperator>())
+                        {
+                            <option value="@match.ToString().ToLowerInvariant()">@OperatorLabel(match)</option>
+                        }
+                    </select>
+                </label>
+                <label>Value
+                    <input class="form-control" @bind:get="@(Read(condition, "value"))"
+                           @bind:set="@(value => SetTextAsync(condition, "value", value))" @bind:event="oninput" />
+                </label>
+                <label class="rule-ignore-case">
+                    <input type="checkbox" class="form-check-input"
+                           checked="@(condition[Key(condition, "ignoreCase")]?.GetValue<bool>() ?? true)"
+                           @onchange="args => SetIgnoreCaseAsync(condition, args.Value is true)" />
+                    Ignore case
+                </label>
+                @if (Read(condition, "match").Equals("between", StringComparison.OrdinalIgnoreCase))
+                {
+                    <label>Upper value
+                        <input class="form-control" @bind:get="@(Read(condition, "value2"))"
+                               @bind:set="@(value => SetTextAsync(condition, "value2", value))" @bind:event="oninput" />
+                    </label>
+                    <label>Range boundaries
+                        <select class="form-select" @bind:get="@(Read(condition, "mode", "inClosedRange").ToLowerInvariant())"
+                                @bind:set="@(value => SetTextAsync(condition, "mode", value))">
+                            @foreach (var mode in Enum.GetValues<RangeMode>())
+                            {
+                                <option value="@mode.ToString().ToLowerInvariant()">@RangeLabel(mode)</option>
+                            }
+                        </select>
+                    </label>
+                }
+            </div>
+            <label class="rule-condition-name">Condition name
+                <input class="form-control form-control-sm" @bind:get="@(Read(condition, "name"))"
+                       @bind:set="@(value => SetTextAsync(condition, "name", value))" @bind:event="oninput" />
+            </label>
+        </details>
+        <details class="rule-section" open>
+            <summary>THEN</summary>
+            @if (Node["then"] is JsonObject then)
+            {
+                <ProfileRuleNodeEditor @key="then" Node="then" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+            }
+        </details>
+        @if (!ElseIfClause)
+        {
+            @if (Node["elseif"] is JsonArray alternatives)
+            {
+                @foreach (var alternative in alternatives.OfType<JsonObject>().ToArray())
+                {
+                    <details class="rule-section" open @key="alternative">
+                        <summary>ELSE IF: @Read(alternative, "name")</summary>
+                        <ProfileRuleNodeEditor Node="alternative" Depth="@(Depth + 1)" ElseIfClause="true" OnChanged="OnChanged" />
+                        <button type="button" class="btn btn-sm btn-outline-danger mt-2"
+                                @onclick="() => RemoveElseIfAsync(alternatives, alternative)">Remove ELSE IF</button>
+                    </details>
+                }
+            }
+            <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(Depth >= 15)"
+                    @onclick="AddElseIfAsync">+ Add ELSE IF</button>
+            <details class="rule-section" open>
+                <summary>ELSE</summary>
+                @if (Node["else"] is JsonObject fallback)
+                {
+                    <ProfileRuleNodeEditor @key="fallback" Node="fallback" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                    <button type="button" class="btn btn-sm btn-outline-danger mt-2" @onclick="@(() => RemoveAsync(Node, "else"))">Remove ELSE</button>
+                }
+                else
+                {
+                    <p class="small text-muted">No fallback action.</p>
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(Depth >= 16)"
+                            @onclick="AddElseAsync">+ Add ELSE</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(Depth >= 15)"
+                            @onclick="AddNestedRuleAsync">+ Add nested rule</button>
+                }
+            </details>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public JsonObject Node { get; set; } = new();
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public bool ElseIfClause { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string? _fieldError;
+
+    private static string Key(JsonObject node, string key) =>
+        node.ContainsKey(key) ? key
+            : node.Select(property => property.Key).FirstOrDefault(name => name.Equals(key, StringComparison.OrdinalIgnoreCase)) ?? key;
+
+    private static string Read(JsonObject node, string key, string fallback = "") =>
+        node[Key(node, key)]?.GetValue<string>() ?? fallback;
+
+    private async Task SetTextAsync(JsonObject node, string key, string? value) {
+        node[Key(node, key)] = value ?? "";
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetIgnoreCaseAsync(JsonObject condition, bool value) {
+        condition[Key(condition, "ignoreCase")] = value;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task AddFieldAsync(JsonObject fields) {
+        var suffix = 1;
+        while (fields.Any(field => field.Key.Equals($"Header{suffix}", StringComparison.OrdinalIgnoreCase))) {
+            suffix++;
+        }
+        fields[$"Header{suffix}"] = "";
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RenameFieldAsync(JsonObject fields, string name, string replacement) {
+        _fieldError = null;
+        if (replacement == name) {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(replacement) || replacement.Any(char.IsWhiteSpace) || replacement.Contains(':')
+            || fields.Any(field => field.Key != name && field.Key.Equals(replacement, StringComparison.OrdinalIgnoreCase))) {
+            _fieldError = "Field names must be non-empty, unique header names without spaces or colons. The original name was retained.";
+            return;
+        }
+        var index = fields.IndexOf(name);
+        var value = fields[name]?.DeepClone();
+        fields.Remove(name);
+        fields.Insert(index, replacement, value);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RemoveAsync(JsonObject node, string key) {
+        node.Remove(key);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static JsonObject CreateAction(string name) => new() { ["name"] = name, ["set"] = new JsonObject() };
+
+    private static JsonObject CreateConditional(string name) => new() {
+        ["name"] = name,
+        ["if"] = new JsonObject { ["name"] = "condition", ["field"] = "x-user-tier", ["match"] = "equals", ["value"] = "premium", ["ignoreCase"] = true },
+        ["then"] = CreateAction("action")
+    };
+
+    private async Task SetModeAsync(bool conditional) {
+        if (conditional == !Node.ContainsKey("set") || (conditional && Depth >= 16)) {
+            return;
+        }
+        if (!await JS.InvokeAsync<bool>("confirm", "Changing the action type replaces this branch's fields and conditions. Continue?")) {
+            return;
+        }
+        foreach (var key in new[] { "set", "if", "then", "elseif", "else" }) {
+            Node.Remove(key);
+        }
+        var replacement = conditional ? CreateConditional(Read(Node, "name")) : CreateAction(Read(Node, "name"));
+        foreach (var property in replacement.Where(property => property.Key != "name")) {
+            Node[property.Key] = property.Value?.DeepClone();
+        }
+        _fieldError = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task AddElseAsync() {
+        if (Depth >= 16) {
+            return;
+        }
+        Node["else"] = CreateAction("fallback");
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task AddNestedRuleAsync() {
+        if (Depth >= 15) {
+            return;
+        }
+        Node["else"] = CreateConditional("secondary-rule");
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task AddElseIfAsync() {
+        if (Depth >= 15) {
+            return;
+        }
+        var alternatives = Node["elseif"] as JsonArray ?? new JsonArray();
+        if (Node["elseif"] is null) {
+            Node["elseif"] = alternatives;
+        }
+        alternatives.Add(CreateConditional($"alternative-{alternatives.Count + 1}"));
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RemoveElseIfAsync(JsonArray alternatives, JsonObject alternative) {
+        alternatives.Remove(alternative);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static string OperatorLabel(MatchOperator match) => match switch {
+        MatchOperator.NotEquals => "Not equals",
+        MatchOperator.GreaterThan => "Greater than",
+        MatchOperator.GreaterThanOrEqual => "Greater than or equal",
+        MatchOperator.LessThan => "Less than",
+        MatchOperator.LessThanOrEqual => "Less than or equal",
+        MatchOperator.NotContains => "Not contains",
+        MatchOperator.StartsWith => "Starts with",
+        MatchOperator.EndsWith => "Ends with",
+        _ => match.ToString()
+    };
+
+    private static string RangeLabel(RangeMode mode) => mode switch {
+        RangeMode.InOpenClosedRange => "Lower excluded, upper included (a, b]",
+        RangeMode.InClosedOpenRange => "Lower included, upper excluded [a, b)",
+        RangeMode.InOpenRange => "Both excluded (a, b)",
+        _ => "Both included [a, b]"
+    };
+}
