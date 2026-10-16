@@ -24,7 +24,23 @@
                 aria-controls="identity-panel-profiles"
                 @onclick='@(() => SelectView("profiles"))'>
             <span class="bi bi-person" aria-hidden="true"></span>
-            <span>User Profiles</span>
+            <span>Profile Reader</span>
+        </button>
+        <button id="identity-tab-profile-editor" type="button" role="tab"
+                class="@(_selectedView == "profile-editor" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "profile-editor" ? "true" : "false")"
+                aria-controls="identity-panel-profile-editor"
+                @onclick='@(() => SelectView("profile-editor"))'>
+            <span class="bi bi-person-lines-fill" aria-hidden="true"></span>
+            <span>Profiles</span>
+        </button>
+        <button id="identity-tab-rules" type="button" role="tab"
+                class="@(_selectedView == "rules" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "rules" ? "true" : "false")"
+                aria-controls="identity-panel-rules"
+                @onclick='@(() => SelectView("rules"))'>
+            <span class="bi bi-file-earmark-ruled" aria-hidden="true"></span>
+            <span>Rules</span>
         </button>
         <button id="identity-tab-suspended" type="button" role="tab"
                 class="@(_selectedView == "suspended" ? "is-selected" : string.Empty)"
@@ -243,7 +259,7 @@
             @if (ApplicationAccessEnabled(Settings) && !UserProfilesEnabled(Settings))
             {
                 <div class="alert alert-warning py-2" role="alert">
-                    Application ID validation also requires User Profiles to be enabled.
+                    Application ID validation also requires profiles to be enabled in Profile Reader.
                 </div>
             }
             <fieldset disabled="@(!ApplicationAccessEnabled(Settings))">
@@ -271,7 +287,7 @@
                  aria-labelledby="identity-tab-profiles">
             <div class="identity-access-panel-heading">
                 <div>
-                    <h3>User Profiles</h3>
+                    <h3>Profile Reader</h3>
                     <p>Load caller profiles and control how requests map to them.</p>
                 </div>
                 <label class="identity-access-switch form-switch">
@@ -293,7 +309,7 @@
             }
         </section>
     }
-    else
+    else if (_selectedView == "suspended")
     {
         var suspendedSettings = Settings.Where(setting =>
             setting.Name.StartsWith("SuspendedUser:", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -309,6 +325,10 @@
             <ConfigurationFields Settings="suspendedSettings" OnChanged="OnChanged" />
         </section>
     }
+    <div class="identity-access-panel" hidden="@(_selectedView is not ("profile-editor" or "rules"))">
+        <ProfileConfigurationEditor View="@_selectedView" State="ProfileFileState" OnChanged="OnChanged"
+                                    IdentityField='@(FindSetting("User:UserIDFieldName")?.DraftValue ?? FindSetting("UserIDFieldName")?.DraftValue ?? "userId")' />
+    </div>
 </div>
 
 <style>
@@ -355,6 +375,7 @@
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
     [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public ProfileConfigurationEditor.EditorState ProfileFileState { get; set; } = new();
 
     private string _selectedView = "authentication";
     private bool _showPrimaryKey;

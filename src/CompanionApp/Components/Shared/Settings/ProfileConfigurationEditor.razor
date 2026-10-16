@@ -1,0 +1,466 @@
+@namespace CompanionApp.Components.Shared
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject IJSRuntime JS
+
+<section id="@(View == "rules" ? "identity-panel-rules" : "identity-panel-profile-editor")"
+         class="profile-file-editor" role="tabpanel"
+         aria-labelledby="@(View == "rules" ? "identity-tab-rules" : "identity-tab-profile-editor")">
+    <div class="profile-file-toolbar">
+        <div>
+            <h3>@(View == "rules" ? "Rules" : "Profiles")</h3>
+            <p>Manage user profiles and their ordered rules in a local file.</p>
+        </div>
+        <label class="btn btn-outline-secondary mb-0">
+            Open JSON
+            <InputFile class="profile-file-input" accept=".json,application/json" OnChange="ImportAsync" disabled="@_busy" />
+        </label>
+    </div>
+    <p class="small text-muted">Save downloads <code>config.json</code>. This does not upload to storage or change App Configuration.
+        Open an existing file or add profiles and rules below.</p>
+    <p class="small text-muted">This export uses shared <code>S7PRules</code> references. The current proxy reader uses inline
+        <code>rules</code>; named-rule reader support is required before deploying this format.</p>
+    @if (State.Document.UserIdField != IdentityField)
+    {
+        <div class="alert alert-warning" role="alert">
+            This file uses <code>@State.Document.UserIdField</code>, but Profile Reader uses <code>@IdentityField</code>.
+            <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy"
+                    @onclick="() => Change(() => State.Document.UserIdField = IdentityField)">Use Profile Reader ID field</button>
+        </div>
+    }
+    @if (State.Error is not null)
+    {
+        <div class="alert alert-danger" role="alert">@State.Error</div>
+    }
+    @if (State.Status is not null)
+    {
+        <div class="alert alert-success" role="status">@State.Status</div>
+    }
+    <fieldset disabled="@_busy">
+        <div class="profile-file-layout">
+            <aside class="profile-file-list" aria-label="@(View == "rules" ? "Rule library" : "Profiles")">
+                <label for="profile-file-search" class="visually-hidden">Search profiles or rules</label>
+                <input id="profile-file-search" class="form-control mb-2" type="search" placeholder="Search..."
+                       @bind="State.Search" @bind:event="oninput" />
+                @if (View == "rules")
+                {
+                    @foreach (var rule in State.Document.Rules.Where(rule => ProfileConfigurationDocument.RuleName(rule).Contains(State.Search, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        <button type="button" class="profile-file-list-item @(ReferenceEquals(rule, State.SelectedRule) ? "is-selected" : "")"
+                                aria-pressed="@(ReferenceEquals(rule, State.SelectedRule) ? "true" : "false")"
+                                @onclick="() => SelectRuleAsync(rule)">@ProfileConfigurationDocument.RuleName(rule)</button>
+                    }
+                    <button type="button" class="btn btn-outline-primary w-100 mt-2" @onclick="AddRuleAsync">+ Add rule</button>
+                }
+                else
+                {
+                    @foreach (var profile in State.Document.Profiles.Where(profile => profile.Id.Contains(State.Search, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        <button type="button" class="profile-file-list-item @(ReferenceEquals(profile, State.SelectedProfile) ? "is-selected" : "")"
+                                aria-pressed="@(ReferenceEquals(profile, State.SelectedProfile) ? "true" : "false")"
+                                @onclick="() => State.SelectedProfile = profile">
+                            <span>@(string.IsNullOrEmpty(profile.Id) ? "(new profile)" : profile.Id)</span>
+                            <span class="badge rounded-pill text-bg-light">@profile.RuleNames.Count</span>
+                        </button>
+                    }
+                    <button type="button" class="btn btn-outline-primary w-100 mt-2" @onclick="AddProfile">+ Add profile</button>
+                }
+            </aside>
+            <div class="profile-file-detail">
+                @if (View == "rules")
+                {
+                    @if (State.SelectedRule is { } rule)
+                    {
+                        <div class="profile-file-toolbar">
+                            <h4>Rule: @ProfileConfigurationDocument.RuleName(rule)</h4>
+                            <button type="button" class="btn btn-outline-danger" @onclick="DeleteRuleAsync">Delete rule</button>
+                        </div>
+                        <p class="small">Edit the named <code>if</code>, <code>then</code>, <code>elseif</code>, and <code>else</code> branches.
+                            Actions use <code>set</code> with string header values. Renaming updates every profile assignment.</p>
+                        <label for="profile-rule-json" class="form-label">Rule definition (JSON)</label>
+                        <textarea id="profile-rule-json" class="form-control font-monospace profile-rule-json" spellcheck="false"
+                                  @bind:get="State.RuleJson" @bind:set="SetRuleJson" @bind:event="oninput"></textarea>
+                        <div class="d-flex gap-2 mt-2">
+                            <button type="button" class="btn btn-outline-primary" @onclick="() => { ApplyRule(); }">Apply rule</button>
+                            <button type="button" class="btn btn-outline-secondary" @onclick="ResetRuleBuffer">Reset rule edits</button>
+                        </div>
+                        <p class="small text-muted mt-2">Save also applies the current rule. Conditions support equals, notEquals, contains,
+                            notContains, startsWith, endsWith, regex, greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual, and between.
+                            For between, use value/value2 and a range mode such as inClosedOpenRange.</p>
+                    }
+                    else
+                    {
+                        <p>No rule selected. Add a rule or open a configuration file.</p>
+                    }
+                }
+                else if (State.SelectedProfile is { } profile)
+                {
+                    <div class="profile-file-toolbar">
+                        <h4>Profile: @profile.Id</h4>
+                        <button type="button" class="btn btn-outline-danger" @onclick="DeleteProfileAsync">Delete profile</button>
+                    </div>
+                    <div class="profile-file-card">
+                        <label for="profile-file-user-id" class="form-label">Profile ID (@State.Document.UserIdField)</label>
+                        <input id="profile-file-user-id" class="form-control" autocomplete="off"
+                               @bind:get="profile.Id" @bind:set="@(value => Change(() => profile.Id = value ?? ""))" @bind:event="oninput" />
+                    </div>
+                    <div class="profile-file-card">
+                        <h5>Async settings</h5>
+                        <label class="d-flex gap-2 align-items-center mb-2">
+                            <input type="checkbox" class="form-check-input" checked="@AsyncEnabled(profile)"
+                                   @onchange='args => SetAsyncValue(profile, "enabled", args.Value is true ? "true" : "false")' />
+                            Enable async processing
+                        </label>
+                        <div class="profile-file-async">
+                            <div>
+                                <label for="profile-async-container" class="form-label">Container name</label>
+                                <input id="profile-async-container" class="form-control" disabled="@(!AsyncEnabled(profile))"
+                                       @bind:get='@AsyncValue(profile, "containername")'
+                                       @bind:set='@((string? value) => SetAsyncValue(profile, "containername", value ?? ""))' @bind:event="oninput" />
+                            </div>
+                            <div>
+                                <label for="profile-async-topic" class="form-label">Topic (status)</label>
+                                <input id="profile-async-topic" class="form-control" disabled="@(!AsyncEnabled(profile))"
+                                       @bind:get='@AsyncValue(profile, "topic")'
+                                       @bind:set='@((string? value) => SetAsyncValue(profile, "topic", value ?? ""))' @bind:event="oninput" />
+                            </div>
+                        </div>
+                        <p class="small text-muted mb-0 mt-2">Optional timeout and generatesas values remain in the async-config field below.</p>
+                    </div>
+                    <div class="profile-file-card">
+                        <div class="profile-file-toolbar">
+                            <h5>Profile fields (@profile.Fields.Count)</h5>
+                            <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => AddField(profile)">+ Add field</button>
+                        </div>
+                        <p class="small text-muted">Add headers such as S7PPriorityKey, S7P-Model-Override, or AllowedPaths. Values are strings.</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead><tr><th>Field</th><th>Value</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                                <tbody>
+                                    @foreach (var field in profile.Fields)
+                                    {
+                                        <tr @key="field">
+                                            <td><input class="form-control form-control-sm" aria-label="Field name" autocomplete="off"
+                                                       @bind:get="field.Name" @bind:set="@(value => Change(() => field.Name = value ?? ""))" @bind:event="oninput" /></td>
+                                            <td><input class="form-control form-control-sm" aria-label="@($"Value for {field.Name}")" autocomplete="off"
+                                                       @bind:get="field.Value" @bind:set="@(value => Change(() => field.Value = value ?? ""))" @bind:event="oninput" /></td>
+                                            <td><button type="button" class="btn btn-sm btn-outline-danger" aria-label="@($"Delete field {field.Name}")"
+                                                        @onclick="() => Change(() => profile.Fields.Remove(field))"><span class="bi bi-trash" aria-hidden="true"></span></button></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="profile-file-card">
+                        <h5>Enabled rules (@profile.RuleNames.Count)</h5>
+                        <p class="small">Rules run in the order shown. Use the arrows to change the order.</p>
+                        @for (var index = 0; index < profile.RuleNames.Count; index++)
+                        {
+                            var position = index;
+                            var name = profile.RuleNames[position];
+                            <div class="profile-file-assignment">
+                                <span>@(position + 1). @name</span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(position == 0)"
+                                        aria-label="@($"Move {name} up")" @onclick="() => MoveRule(profile, position, -1)">↑</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(position == profile.RuleNames.Count - 1)"
+                                        aria-label="@($"Move {name} down")" @onclick="() => MoveRule(profile, position, 1)">↓</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" aria-label="@($"Disable {name}")"
+                                        @onclick="() => Change(() => profile.RuleNames.RemoveAt(position))">Disable</button>
+                            </div>
+                        }
+                        @foreach (var rule in State.Document.Rules.Where(rule => !profile.RuleNames.Contains(ProfileConfigurationDocument.RuleName(rule))))
+                        {
+                            var name = ProfileConfigurationDocument.RuleName(rule);
+                            <label class="d-flex gap-2 align-items-center mt-2">
+                                <input type="checkbox" class="form-check-input" checked="false"
+                                       @onchange="() => Change(() => profile.RuleNames.Add(name))" /> @name
+                            </label>
+                        }
+                        @if (State.Document.Rules.Count == 0)
+                        {
+                            <p class="text-muted small mb-0">Add definitions in the Rules tab before assigning them here.</p>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p>No profile selected. Add a profile or open a configuration file.</p>
+                }
+            </div>
+        </div>
+        <div class="profile-file-footer">
+            <span class="small text-muted">@(State.IsDirty ? "Local file has unsaved edits." : "No unsaved file edits.")</span>
+            <button type="button" class="btn btn-outline-secondary" disabled="@(!State.IsDirty)" @onclick="CancelAsync">Cancel file edits</button>
+            <button type="button" class="btn btn-primary" @onclick="SaveAsync">Save config.json</button>
+        </div>
+    </fieldset>
+</section>
+
+@code {
+    [Parameter] public string View { get; set; } = "profile-editor";
+    [Parameter] public EditorState State { get; set; } = new();
+    [Parameter] public string IdentityField { get; set; } = "userId";
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _busy;
+    private bool _lastDirty;
+    private bool RuleBufferChanged => State.SelectedRule is not null
+        && State.RuleJson != State.SelectedRule.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+    /// <summary>
+    /// Keeps local file edits alive when the Identity and Access dialog is closed.
+    /// </summary>
+    public sealed class EditorState {
+        public ProfileConfigurationDocument Document { get; set; } = new();
+        public ProfileConfigurationEntry? SelectedProfile { get; set; }
+        public JsonObject? SelectedRule { get; set; }
+        public string RuleJson { get; set; } = "";
+        public string Search { get; set; } = "";
+        public string SavedJson { get; set; } = "[{\"S7PRules\":[]}]";
+        public string SavedUserIdField { get; set; } = "userId";
+        public bool IsDirty { get; set; }
+        public string? Error { get; set; }
+        public string? Status { get; set; }
+
+        /// <summary>Restores the last opened or downloaded file without discarding App Configuration edits.</summary>
+        public void RestoreSaved() {
+            var restored = new ProfileConfigurationDocument { UserIdField = SavedUserIdField };
+            restored.Import(SavedJson);
+            Document = restored;
+            SelectedProfile = Document.Profiles.FirstOrDefault();
+            SelectedRule = Document.Rules.FirstOrDefault();
+            RuleJson = SelectedRule?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+            Search = "";
+            IsDirty = false;
+            Error = null;
+            Status = null;
+        }
+    }
+
+    protected override void OnParametersSet() {
+        if (State.Document.Profiles.Count == 0 && !State.IsDirty) {
+            State.Document.UserIdField = IdentityField;
+            State.SavedUserIdField = IdentityField;
+        }
+    }
+
+    private void Change(Action action) {
+        action();
+        State.IsDirty = true;
+        State.Error = null;
+        State.Status = null;
+    }
+
+    private void SetRuleJson(string? value) => Change(() => State.RuleJson = value ?? "");
+
+    private void AddProfile() {
+        var suffix = 1;
+        while (State.Document.Profiles.Any(profile => profile.Id == $"user{suffix}")) {
+            suffix++;
+        }
+        Change(() => {
+            State.SelectedProfile = new ProfileConfigurationEntry { Id = $"user{suffix}" };
+            State.Document.Profiles.Add(State.SelectedProfile);
+            State.Search = "";
+        });
+    }
+
+    private void AddField(ProfileConfigurationEntry profile) =>
+        Change(() => profile.Fields.Add(new ProfileConfigurationField()));
+
+    private async Task DeleteProfileAsync() {
+        if (State.SelectedProfile is { } profile && await JS.InvokeAsync<bool>("confirm", $"Delete profile '{profile.Id}'?")) {
+            Change(() => {
+                State.Document.Profiles.Remove(profile);
+                State.SelectedProfile = State.Document.Profiles.FirstOrDefault();
+            });
+        }
+    }
+
+    private static string AsyncValue(ProfileConfigurationEntry profile, string key) =>
+        profile.Fields.FirstOrDefault(field => field.Name.Equals("async-config", StringComparison.OrdinalIgnoreCase))?.Value
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Split('=', 2, StringSplitOptions.TrimEntries))
+            .FirstOrDefault(parts => parts.Length == 2 && parts[0].Equals(key, StringComparison.OrdinalIgnoreCase))?[1] ?? "";
+
+    private static bool AsyncEnabled(ProfileConfigurationEntry profile) =>
+        bool.TryParse(AsyncValue(profile, "enabled"), out var enabled) && enabled;
+
+    private void SetAsyncValue(ProfileConfigurationEntry profile, string key, string value) {
+        if (value.Contains(',') || value.Contains('=')) {
+            State.Error = "Async setting values cannot contain commas or equals signs.";
+            return;
+        }
+        Change(() => {
+            var field = profile.Fields.FirstOrDefault(field => field.Name.Equals("async-config", StringComparison.OrdinalIgnoreCase));
+            if (field is null) {
+                field = new ProfileConfigurationField { Name = "async-config", Value = "enabled=false" };
+                profile.Fields.Add(field);
+            }
+            var parts = field.Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+            var index = parts.FindIndex(part => part.Split('=', 2)[0].Trim().Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0) {
+                parts[index] = $"{key}={value}";
+            } else {
+                parts.Add($"{key}={value}");
+            }
+            field.Value = string.Join(", ", parts);
+        });
+    }
+
+    private void MoveRule(ProfileConfigurationEntry profile, int position, int direction) =>
+        Change(() => (profile.RuleNames[position], profile.RuleNames[position + direction]) =
+            (profile.RuleNames[position + direction], profile.RuleNames[position]));
+
+    private async Task SelectRuleAsync(JsonObject rule) {
+        var selectingCurrentRule = ReferenceEquals(rule, State.SelectedRule);
+        if (RuleBufferChanged && !ApplyRule()) {
+            return;
+        }
+        if (!selectingCurrentRule) {
+            State.SelectedRule = rule;
+        }
+        ResetRuleBuffer();
+        await Task.CompletedTask;
+    }
+
+    private void ResetRuleBuffer() {
+        State.RuleJson = State.SelectedRule?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+        State.Error = null;
+    }
+
+    private async Task AddRuleAsync() {
+        if (RuleBufferChanged && !ApplyRule()) {
+            return;
+        }
+        var suffix = 1;
+        while (State.Document.Rules.Any(rule => ProfileConfigurationDocument.RuleName(rule) == $"rule-{suffix}")) {
+            suffix++;
+        }
+        var rule = new JsonObject {
+            ["name"] = $"rule-{suffix}",
+            ["if"] = new JsonObject { ["name"] = "condition", ["field"] = "x-user-tier", ["match"] = "equals", ["value"] = "premium", ["ignoreCase"] = true },
+            ["then"] = new JsonObject { ["name"] = "action", ["set"] = new JsonObject { ["S7PPriorityKey"] = "1" } }
+        };
+        Change(() => {
+            State.Document.Rules.Add(rule);
+            State.Search = "";
+        });
+        await SelectRuleAsync(rule);
+    }
+
+    private bool ApplyRule() {
+        if (State.SelectedRule is null) {
+            return true;
+        }
+        try {
+            var replacement = ProfileConfigurationDocument.ParseRule(State.RuleJson);
+            var name = ProfileConfigurationDocument.RuleName(replacement);
+            if (State.Document.Rules.Any(rule => !ReferenceEquals(rule, State.SelectedRule)
+                && ProfileConfigurationDocument.RuleName(rule) == name)) {
+                throw new ArgumentException($"A rule named '{name}' already exists.");
+            }
+            var oldName = ProfileConfigurationDocument.RuleName(State.SelectedRule);
+            var changed = RuleBufferChanged;
+            State.Document.Rules[State.Document.Rules.IndexOf(State.SelectedRule)] = replacement;
+            foreach (var profile in State.Document.Profiles) {
+                var index = profile.RuleNames.IndexOf(oldName);
+                if (index >= 0) {
+                    profile.RuleNames[index] = name;
+                }
+            }
+            State.SelectedRule = replacement;
+            State.IsDirty |= changed;
+            ResetRuleBuffer();
+            return true;
+        } catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException) {
+            State.Error = exception.Message;
+            return false;
+        }
+    }
+
+    private async Task DeleteRuleAsync() {
+        if (State.SelectedRule is not { } rule) {
+            return;
+        }
+        var name = ProfileConfigurationDocument.RuleName(rule);
+        if (await JS.InvokeAsync<bool>("confirm", $"Delete rule '{name}' and remove it from every profile?")) {
+            Change(() => {
+                State.Document.Rules.Remove(rule);
+                foreach (var profile in State.Document.Profiles) {
+                    profile.RuleNames.Remove(name);
+                }
+                State.SelectedRule = State.Document.Rules.FirstOrDefault();
+            });
+            ResetRuleBuffer();
+        }
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs args) {
+        if (State.IsDirty && !await JS.InvokeAsync<bool>("confirm", "Replace local file edits with this file?")) {
+            return;
+        }
+        _busy = true;
+        try {
+            using var reader = new StreamReader(args.File.OpenReadStream(1024 * 1024));
+            var json = await reader.ReadToEndAsync();
+            var imported = new ProfileConfigurationDocument { UserIdField = IdentityField };
+            imported.Import(json);
+            var savedJson = imported.Export();
+            State.Document = imported;
+            State.SavedJson = savedJson;
+            State.SavedUserIdField = IdentityField;
+            State.SelectedProfile = State.Document.Profiles.FirstOrDefault();
+            State.SelectedRule = State.Document.Rules.FirstOrDefault();
+            State.Search = "";
+            State.IsDirty = false;
+            ResetRuleBuffer();
+            State.Status = "File opened locally. No active proxy settings were changed.";
+        } catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException or IOException) {
+            State.Error = $"File not opened: {exception.Message}";
+        } finally {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAsync() {
+        State.Error = null;
+        State.Status = null;
+        if (!ApplyRule()) {
+            return;
+        }
+        _busy = true;
+        try {
+            if (State.Document.UserIdField != IdentityField) {
+                throw new ArgumentException("Use the Profile Reader ID field before saving this file.");
+            }
+            var json = State.Document.Export();
+            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Shared/Settings/ProfileConfigurationEditor.razor.js");
+            await module.InvokeVoidAsync("download", json);
+            State.SavedJson = json;
+            State.SavedUserIdField = State.Document.UserIdField;
+            State.IsDirty = false;
+            State.Status = "config.json download started. No file was uploaded to storage.";
+        } catch (Exception exception) when (exception is ArgumentException or JsonException or InvalidOperationException) {
+            State.Error = exception.Message;
+        } catch (JSException) {
+            State.Error = "The browser could not start the download. Your edits are retained; retry Save.";
+        } finally {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelAsync() {
+        if (await JS.InvokeAsync<bool>("confirm", "Discard file edits since the last Open or Save?")) {
+            State.RestoreSaved();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (_lastDirty != State.IsDirty) {
+            _lastDirty = State.IsDirty;
+            await OnChanged.InvokeAsync();
+        }
+    }
+}

@@ -17,7 +17,7 @@
 <HeadContent>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
 </HeadContent>
-<NavigationLock ConfirmExternalNavigation="@HasPendingChanges" OnBeforeInternalNavigation="BeforeNavigationAsync" />
+<NavigationLock ConfirmExternalNavigation="@(HasPendingChanges || _profileFileState.IsDirty)" OnBeforeInternalNavigation="BeforeNavigationAsync" />
 
 <SectionContent SectionName="page-heading">
     <div class="d-flex align-items-center gap-2">
@@ -518,7 +518,7 @@
                         }
                         else if (string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
                         {
-                            <IdentityAccessEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                            <IdentityAccessEditor Settings="SelectedSettings" OnChanged="StateHasChanged" ProfileFileState="_profileFileState" />
                         }
                         else if (IsHeaderPolicySection)
                         {
@@ -632,6 +632,10 @@
 <dialog @ref="_leaveDialog" class="config-label-dialog" aria-labelledby="leave-dialog-title">
     <h2 id="leave-dialog-title" class="h5">Save changes to @LabelDisplay(Label)?</h2>
     <p>Your changes have not been saved.</p>
+    @if (_profileFileState.IsDirty)
+    {
+        <p class="text-warning">The local profile file has unsaved edits. Cancel and use Save config.json in Identity &amp; Access before leaving to keep them. App Configuration Save does not save this file.</p>
+    }
     @if (HasLoadError)
     {
         <p class="text-danger small" role="alert">@StatusMessage</p>
@@ -639,7 +643,7 @@
     <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
         <button type="button" class="btn btn-outline-secondary" data-dialog-cancel disabled="@IsLoading" @onclick="CancelLeaveAsync">Cancel</button>
         <button type="button" class="btn btn-outline-danger" disabled="@IsLoading" @onclick="DiscardAndLeaveAsync">Discard Changes</button>
-        <button type="button" class="btn btn-primary" disabled="@IsLoading" @onclick="SaveAndLeaveAsync">@(IsLoading ? "Saving..." : "Save Changes")</button>
+        <button type="button" class="btn btn-primary" disabled="@(IsLoading || _profileFileState.IsDirty)" @onclick="SaveAndLeaveAsync">@(IsLoading ? "Saving..." : "Save Changes")</button>
     </div>
 </dialog>
 
@@ -657,6 +661,7 @@
     private List<AppConfigurationScaffoldSetting> Settings { get; set; } = new();
     private List<AppConfigurationScaffoldSetting> _allSettings = new();
     private string? SelectedSection { get; set; }
+    private readonly ProfileConfigurationEditor.EditorState _profileFileState = new();
     private bool _showConfigurationDetails;
     private bool _configurationHelpLoaded;
     private DateTime? _dataReadyAtUtc;
@@ -1130,7 +1135,7 @@
 
     private async Task BeforeNavigationAsync(LocationChangingContext context)
     {
-        if (!HasPendingChanges && !IsLoading) return;
+        if (!HasPendingChanges && !_profileFileState.IsDirty && !IsLoading) return;
         context.PreventNavigation();
         await RequestLeaveAsync(context.TargetLocation);
     }
@@ -1160,6 +1165,10 @@
     {
         var leave = _pendingLeave;
         await CancelLeaveAsync();
+        if (_profileFileState.IsDirty && leave is not null)
+        {
+            _profileFileState.RestoreSaved();
+        }
         if (leave is not null) await leave();
     }
 
@@ -1216,7 +1225,7 @@
 
         if (_dialogModule is not null)
         {
-            await _dialogModule.InvokeVoidAsync("setNavigationGuard", _pageReference, HasPendingChanges, IsLoading);
+            await _dialogModule.InvokeVoidAsync("setNavigationGuard", _pageReference, HasPendingChanges || _profileFileState.IsDirty, IsLoading);
         }
 
         if (_disposed) return;
