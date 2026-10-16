@@ -206,6 +206,8 @@ public sealed class ProfileConfigurationTests {
         Assert.AreNotSame(state.SelectedRule, state.RuleDraft);
         Assert.IsFalse(state.IsDirty);
 
+        // Inspect the generated controls without mounting an Interactive Server page.
+#pragma warning disable BL0006
         using var builder = new RenderTreeBuilder();
         typeof(ProfileConfigurationEditor).GetMethod("BuildRenderTree", BindingFlags.NonPublic | BindingFlags.Instance)!
             .Invoke(editor, [builder]);
@@ -214,6 +216,7 @@ public sealed class ProfileConfigurationTests {
             frame.FrameType == RenderTreeFrameType.Component && frame.ComponentType == typeof(ProfileRuleNodeEditor)));
         Assert.IsFalse(frames.Array.Take(frames.Count).Any(frame =>
             frame.FrameType == RenderTreeFrameType.Element && frame.ElementName == "textarea"));
+#pragma warning restore BL0006
 
         Invoke(editor, "ToggleRuleEditor");
         Assert.IsTrue(state.EditRuleJson);
@@ -275,9 +278,10 @@ public sealed class ProfileConfigurationTests {
         Assert.AreEqual("1", fields["S7PPriorityKey"]!.GetValue<string>());
         await InvokeNode(nodeEditor, "RenameFieldAsync", fields, "S7P-ModelOverride", "bad header");
         Assert.IsTrue(fields.ContainsKey("S7P-ModelOverride"));
-        Assert.AreEqual(true, Invoke(editor, "ApplyRule"));
         await InvokeNode(nodeEditor, "RemoveAsync", fields, "S7P-ModelOverride");
         Assert.IsFalse(fields.ContainsKey("S7P-ModelOverride"));
+        Assert.AreEqual(true, Invoke(editor, "ApplyRule"));
+        Assert.IsFalse(editor.State.SelectedRule!["then"]!["set"]!.AsObject().ContainsKey("S7P-ModelOverride"));
     }
 
     [TestMethod]

@@ -9,7 +9,7 @@
     <div class="profile-file-toolbar">
         <div>
             <h3>@(View == "rules" ? "Rules" : "Profiles")</h3>
-            <p>Manage user profiles and their ordered rules in a local file.</p>
+            <p>@(View == "rules" ? "Create and manage reusable rules." : "Manage user profiles and their ordered rules in a local file.")</p>
         </div>
         <label class="btn btn-outline-secondary mb-0">
             Open JSON
@@ -36,7 +36,7 @@
         <div class="profile-file-layout">
             <aside class="profile-file-list" aria-label="@(View == "rules" ? "Rule library" : "Profiles")">
                 <label for="profile-file-search" class="visually-hidden">Search profiles or rules</label>
-                <input id="profile-file-search" class="form-control mb-2" type="search" placeholder="Search..."
+                <input id="profile-file-search" class="form-control mb-2" type="search" placeholder="@(View == "rules" ? "Search rules..." : "Search profiles...")"
                        @bind="State.Search" @bind:event="oninput" />
                 @if (View == "rules")
                 {
