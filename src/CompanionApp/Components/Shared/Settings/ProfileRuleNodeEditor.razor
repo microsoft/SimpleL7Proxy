@@ -4,28 +4,31 @@
 @inject IJSRuntime JS
 
 <div class="rule-node">
-    <div class="rule-node-heading">
-        @if (Depth == 0)
-        {
-            <label class="rule-name">
-                Rule name
-                <input class="form-control" required @bind:get="@(Read(Node, "name"))"
-                       @bind:set="@(value => SetTextAsync(Node, "name", value))" @bind:event="oninput" />
-            </label>
-        }
-        @if (!ElseIfClause)
-        {
-            <div class="rule-action" role="group" aria-label="Action type">
-                <span>Action</span>
-                <button type="button" class="btn btn-sm @(Node.ContainsKey("set") ? "btn-primary" : "btn-outline-primary")"
-                        aria-pressed="@(Node.ContainsKey("set") ? "true" : "false")"
-                        @onclick="() => SetModeAsync(false)">Set fields</button>
-                <button type="button" class="btn btn-sm @(!Node.ContainsKey("set") ? "btn-primary" : "btn-outline-primary")"
-                        aria-pressed="@(!Node.ContainsKey("set") ? "true" : "false")" disabled="@(Depth >= 16)"
-                        @onclick="() => SetModeAsync(true)">IF / THEN</button>
-            </div>
-        }
-    </div>
+    @if (Depth == 0 || !ElseIfClause)
+    {
+        <div class="rule-node-heading">
+            @if (Depth == 0)
+            {
+                <label class="rule-name">
+                    Rule name
+                    <input class="form-control" required @bind:get="@(Read(Node, "name"))"
+                           @bind:set="@(value => SetTextAsync(Node, "name", value))" @bind:event="oninput" />
+                </label>
+            }
+            @if (!ElseIfClause)
+            {
+                <div class="rule-action" role="group" aria-label="Action type">
+                    <span>Action</span>
+                    <button type="button" class="btn btn-sm @(Node.ContainsKey("set") ? "btn-primary" : "btn-outline-primary")"
+                            aria-pressed="@(Node.ContainsKey("set") ? "true" : "false")"
+                            @onclick="() => SetModeAsync(false)">Set fields</button>
+                    <button type="button" class="btn btn-sm @(!Node.ContainsKey("set") ? "btn-primary" : "btn-outline-primary")"
+                            aria-pressed="@(!Node.ContainsKey("set") ? "true" : "false")" disabled="@(Depth >= 16)"
+                            @onclick="() => SetModeAsync(true)">IF / THEN</button>
+                </div>
+            }
+        </div>
+    }
     @if (Node["set"] is JsonObject fields)
     {
         <div class="rule-fields">
@@ -75,7 +78,7 @@
                         }
                     </select>
                 </label>
-                <label>@(isBetween ? "Lower value" : "Value")
+                <label>@(isBetween ? "Lower bound" : "Value")
                     <input class="form-control" @bind:get="@(Read(condition, "value"))"
                            @bind:set="@(value => SetTextAsync(condition, "value", value))" @bind:event="oninput"
                            required="@isBetween" />
@@ -88,7 +91,7 @@
                 </label>
                 @if (isBetween)
                 {
-                    <label>Upper value
+                    <label>Upper bound
                         <input class="form-control" @bind:get="@(Read(condition, "value2"))"
                                @bind:set="@(value => SetTextAsync(condition, "value2", value))" @bind:event="oninput"
                                required="@isBetween" />
