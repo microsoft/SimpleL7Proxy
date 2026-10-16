@@ -25,7 +25,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   parent: storageAccount
 }
 
-var containerNames = union(settings.CREATE_CONTAINERS ? settings.BLOB_CONTAINERS : [], (settings.?DEPLOY_STORAGE_NETWORK ?? false) ? ['profiles'] : [])
+var containerNames = union(settings.CREATE_CONTAINERS ? settings.BLOB_CONTAINERS : [], ((settings.?DEPLOY_STORAGE_NETWORK ?? false) || (settings.ASYNC_DEPLOYMENT && settings.DEPLOY_COMPANION_APP)) ? ['profiles'] : [])
 
 resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = [for containerName in containerNames: {
   name: containerName

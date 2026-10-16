@@ -90,6 +90,24 @@ foreach (var sharedGroup in new[] { false, true }) {
     var files = DeploymentBicepBundle.Generate(values);
     var settings = JsonNode.Parse(files["parameters.json"])!["parameters"]!["settings"]!["value"]!;
     Check(settings["DEPLOY_STORAGE_NETWORK"]!.GetValue<bool>() == storageNetwork, "Bicep flag matches ARM");
+    var companionModule = files["modules/companion-app.bicep"];
+    Check(companionModule.Contains("name: 'CompanionApp__Profiles__StorageAccountName'", StringComparison.Ordinal)
+        && companionModule.Contains("value: usePrivateRegistry && (settings.ASYNC_DEPLOYMENT || (settings.?DEPLOY_STORAGE_NETWORK ?? false)) ? settings.STORAGE_ACCOUNT_NAME : ''", StringComparison.Ordinal),
+        "profile account uses the deployed name only after bootstrap and only when storage is deployed");
+    Check(companionModule.Contains("name: 'CompanionApp__Profiles__BlobContainerName'\n    value: 'profiles'", StringComparison.Ordinal),
+        "profile container override is profiles");
+    var companionFinal = files["main.bicep"].Split("module companionApp '", StringSplitOptions.None)[1]
+        .Split("module metricsServer '", StringSplitOptions.None)[0];
+    Check(companionFinal.Contains("    profiles\n", StringComparison.Ordinal)
+        && companionFinal.Contains("    blobAccess\n", StringComparison.Ordinal), "startup profile access waits for private and async RBAC");
+    Check(files["modules/blob-access.bicep"].Contains("scope: profiles", StringComparison.Ordinal)
+        && files["modules/blob-access.bicep"].Contains("principalId: companionAppPrincipalId", StringComparison.Ordinal)
+        && files["modules/blob-access.bicep"].Contains("settings.DEPLOY_COMPANION_APP && !(settings.?DEPLOY_STORAGE_NETWORK ?? false)", StringComparison.Ordinal),
+        "async Companion App receives container-scoped access without duplicating private profile roles");
+    Check(files["main.bicep"].Contains("settings.ASYNC_DEPLOYMENT && (settings.DEPLOY_PROXY || settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal),
+        "async profile permissions also support Companion-only deployments");
+    Check(files["modules/blob-storage.bicep"].Contains("(settings.ASYNC_DEPLOYMENT && settings.DEPLOY_COMPANION_APP)", StringComparison.Ordinal),
+        "async Companion deployments create profiles even with optional containers disabled");
     if (storageNetwork) {
         var groups = settings["RESOURCE_GROUPS"]!.AsArray().Select(group => group!.GetValue<string>()).ToArray();
         Check(groups.Contains(values["NETWORK_RESOURCE_GROUP"]) && groups.Contains(values["STORAGE_RESOURCE_GROUP"]), "Bicep bootstrap includes network and storage groups");
