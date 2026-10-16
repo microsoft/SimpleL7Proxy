@@ -518,7 +518,8 @@
                         }
                         else if (string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
                         {
-                            <IdentityAccessEditor Settings="SelectedSettings" OnChanged="StateHasChanged" ProfileFileState="_profileFileState" />
+                            <IdentityAccessEditor Settings="SelectedSettings" ConfigurationSettings="Settings"
+                                                  OnChanged="StateHasChanged" ProfileFileState="_profileFileState" />
                         }
                         else if (IsHeaderPolicySection)
                         {

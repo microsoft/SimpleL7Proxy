@@ -16,10 +16,6 @@
             <InputFile class="profile-file-input" accept=".json,application/json" OnChange="ImportAsync" disabled="@_busy" />
         </label>
     </div>
-    <p class="small text-muted">Save downloads <code>config.json</code>. This does not upload to storage or change App Configuration.
-        Open an existing file or add profiles and rules below.</p>
-    <p class="small text-muted">This export uses shared <code>S7PRules</code> references. The current proxy reader uses inline
-        <code>rules</code>; named-rule reader support is required before deploying this format.</p>
     @if (State.Document.UserIdField != IdentityField)
     {
         <div class="alert alert-warning" role="alert">
@@ -95,6 +91,41 @@
                 }
                 else if (State.SelectedProfile is { } profile)
                 {
+                    var priorityHeader = ConfigurationSettings.FirstOrDefault(setting =>
+                        setting.Name.EndsWith(":PriorityKeyHeader", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(setting.Name, "PriorityKeyHeader", StringComparison.OrdinalIgnoreCase))?.DraftValue;
+                    priorityHeader = string.IsNullOrWhiteSpace(priorityHeader) ? "S7PPriorityKey" : priorityHeader;
+                    var priorityField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals(priorityHeader, StringComparison.OrdinalIgnoreCase));
+                    var priorityKeysValue = ConfigurationSettings.FirstOrDefault(setting =>
+                        setting.Name.EndsWith("Priority:PriorityKeys", StringComparison.OrdinalIgnoreCase))?.DraftValue ?? string.Empty;
+                    var priorityKeys = priorityKeysValue.Trim().TrimStart('[').TrimEnd(']')
+                        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                        .Select(value => value.Trim('"', '\'')).ToList();
+                    var currentPriority = priorityField?.Value ?? string.Empty;
+                    var adminField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals("S7PAdministratorOverride", StringComparison.OrdinalIgnoreCase));
+                    var premiumField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals("S7PPremiumTenant", StringComparison.OrdinalIgnoreCase));
+                    var enterpriseField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals("S7PEnterpriseTenant", StringComparison.OrdinalIgnoreCase));
+                    var incidentField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals("S7PIncidentResponse", StringComparison.OrdinalIgnoreCase));
+                    var auditField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals("S7PAuditInvestigation", StringComparison.OrdinalIgnoreCase));
+                    var complianceField = profile.Fields.FirstOrDefault(field =>
+                        field.Name.Equals("S7PComplianceRequired", StringComparison.OrdinalIgnoreCase));
+                    var isAdmin = bool.TryParse(adminField?.Value, out var adminEnabled) && adminEnabled;
+                    var isEntitled = (bool.TryParse(premiumField?.Value, out var premiumEnabled) && premiumEnabled)
+                        || (bool.TryParse(enterpriseField?.Value, out var enterpriseEnabled) && enterpriseEnabled);
+                    var isGovernance = (bool.TryParse(incidentField?.Value, out var incidentEnabled) && incidentEnabled)
+                        || (bool.TryParse(auditField?.Value, out var auditEnabled) && auditEnabled)
+                        || (bool.TryParse(complianceField?.Value, out var complianceEnabled) && complianceEnabled);
+                    var asyncEnabledSetting = ConfigurationSettings.FirstOrDefault(setting =>
+                        setting.Name.Equals("Async:Enabled", StringComparison.OrdinalIgnoreCase)
+                        || setting.Key.EndsWith(":Async:Enabled", StringComparison.OrdinalIgnoreCase));
+                    var asyncFeatureEnabled = bool.TryParse(asyncEnabledSetting?.DraftValue, out var asyncFeatureValue)
+                        && asyncFeatureValue;
                     <div class="profile-file-toolbar">
                         <h4>Profile: @profile.Id</h4>
                         <button type="button" class="btn btn-outline-danger" @onclick="DeleteProfileAsync">Delete profile</button>
@@ -105,28 +136,87 @@
                                @bind:get="profile.Id" @bind:set="@(value => Change(() => profile.Id = value ?? ""))" @bind:event="oninput" />
                     </div>
                     <div class="profile-file-card">
-                        <h5>Async settings</h5>
-                        <label class="d-flex gap-2 align-items-center mb-2">
-                            <input type="checkbox" class="form-check-input" checked="@AsyncEnabled(profile)"
-                                   @onchange='args => SetAsyncValue(profile, "enabled", args.Value is true ? "true" : "false")' />
-                            Enable async processing
-                        </label>
-                        <div class="profile-file-async">
-                            <div>
-                                <label for="profile-async-container" class="form-label">Container name</label>
-                                <input id="profile-async-container" class="form-control" disabled="@(!AsyncEnabled(profile))"
-                                       @bind:get='@AsyncValue(profile, "containername")'
-                                       @bind:set='@((string? value) => SetAsyncValue(profile, "containername", value ?? ""))' @bind:event="oninput" />
-                            </div>
-                            <div>
-                                <label for="profile-async-topic" class="form-label">Topic (status)</label>
-                                <input id="profile-async-topic" class="form-control" disabled="@(!AsyncEnabled(profile))"
-                                       @bind:get='@AsyncValue(profile, "topic")'
-                                       @bind:set='@((string? value) => SetAsyncValue(profile, "topic", value ?? ""))' @bind:event="oninput" />
+                        <h5>Profile Behavior</h5>
+                        <div class="profile-file-behavior">
+                            <label class="d-flex gap-2 align-items-center">
+                                <input type="checkbox" class="form-check-input" checked="@isAdmin"
+                                       @onchange="@(args => Change(() => {
+                                           var field = profile.Fields.FirstOrDefault(item => item.Name.Equals("S7PAdministratorOverride", StringComparison.OrdinalIgnoreCase));
+                                           if (field is null) profile.Fields.Add(new ProfileConfigurationField { Name = "S7PAdministratorOverride", Value = args.Value is true ? "true" : "false" });
+                                           else field.Value = args.Value is true ? "true" : "false";
+                                       }))" />
+                                Admin user
+                            </label>
+                            <label class="d-flex gap-2 align-items-center">
+                                <input type="checkbox" class="form-check-input" checked="@isEntitled"
+                                       @onchange="@(args => Change(() => {
+                                           var value = args.Value is true ? "true" : "false";
+                                           foreach (var name in new[] { "S7PPremiumTenant", "S7PEnterpriseTenant" }) {
+                                               var field = profile.Fields.FirstOrDefault(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                                               if (field is null) profile.Fields.Add(new ProfileConfigurationField { Name = name, Value = value });
+                                               else field.Value = value;
+                                           }
+                                       }))" />
+                                Entitled tenant
+                            </label>
+                            <label class="d-flex gap-2 align-items-center">
+                                <input type="checkbox" class="form-check-input" checked="@isGovernance"
+                                       @onchange="@(args => Change(() => {
+                                           var value = args.Value is true ? "true" : "false";
+                                           foreach (var name in new[] { "S7PIncidentResponse", "S7PAuditInvestigation", "S7PComplianceRequired" }) {
+                                               var field = profile.Fields.FirstOrDefault(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                                               if (field is null) profile.Fields.Add(new ProfileConfigurationField { Name = name, Value = value });
+                                               else field.Value = value;
+                                           }
+                                       }))" />
+                                Governance user
+                            </label>
+                            <div class="profile-file-priority">
+                                <label for="profile-priority-key" class="form-label">Priority</label>
+                                <select id="profile-priority-key" class="form-select"
+                                        value="@currentPriority"
+                                        @onchange="@(args => Change(() => {
+                                            var value = args.Value?.ToString() ?? string.Empty;
+                                            if (priorityField is null) profile.Fields.Add(new ProfileConfigurationField { Name = priorityHeader, Value = value });
+                                            else priorityField.Value = value;
+                                        }))">
+                                    @if (!string.IsNullOrEmpty(currentPriority) && !priorityKeys.Contains(currentPriority, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <option value="@currentPriority">@currentPriority</option>
+                                    }
+                                    @foreach (var key in priorityKeys)
+                                    {
+                                        <option value="@key">@System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(key)</option>
+                                    }
+                                </select>
                             </div>
                         </div>
-                        <p class="small text-muted mb-0 mt-2">Optional timeout and generatesas values remain in the async-config field below.</p>
                     </div>
+                    @if (asyncFeatureEnabled)
+                    {
+                        <div class="profile-file-card">
+                            <h5>Async Settings</h5>
+                            <label class="d-flex gap-2 align-items-center mb-2">
+                                <input type="checkbox" class="form-check-input" checked="@AsyncEnabled(profile)"
+                                       @onchange='args => SetAsyncValue(profile, "enabled", args.Value is true ? "true" : "false")' />
+                                Enable async processing for this profile
+                            </label>
+                            <div class="profile-file-async">
+                                <div>
+                                    <label for="profile-async-container" class="form-label">Container name</label>
+                                    <input id="profile-async-container" class="form-control" disabled="@(!AsyncEnabled(profile))"
+                                           @bind:get='@AsyncValue(profile, "containername")'
+                                           @bind:set='@((string? value) => SetAsyncValue(profile, "containername", value ?? ""))' @bind:event="oninput" />
+                                </div>
+                                <div>
+                                    <label for="profile-async-topic" class="form-label">Topic (status)</label>
+                                    <input id="profile-async-topic" class="form-control" disabled="@(!AsyncEnabled(profile))"
+                                           @bind:get='@AsyncValue(profile, "topic")'
+                                           @bind:set='@((string? value) => SetAsyncValue(profile, "topic", value ?? ""))' @bind:event="oninput" />
+                                </div>
+                            </div>
+                        </div>
+                    }
                     <div class="profile-file-card">
                         <div class="profile-file-toolbar">
                             <h5>Profile fields (@profile.Fields.Count)</h5>
@@ -137,7 +227,14 @@
                             <table class="table table-sm align-middle">
                                 <thead><tr><th>Field</th><th>Value</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
                                 <tbody>
-                                    @foreach (var field in profile.Fields)
+                                    @foreach (var field in profile.Fields.Where(field =>
+                                        !field.Name.Equals("S7PAdministratorOverride", StringComparison.OrdinalIgnoreCase)
+                                        && !field.Name.Equals("S7PPremiumTenant", StringComparison.OrdinalIgnoreCase)
+                                        && !field.Name.Equals("S7PEnterpriseTenant", StringComparison.OrdinalIgnoreCase)
+                                        && !field.Name.Equals("S7PIncidentResponse", StringComparison.OrdinalIgnoreCase)
+                                        && !field.Name.Equals("S7PAuditInvestigation", StringComparison.OrdinalIgnoreCase)
+                                        && !field.Name.Equals("S7PComplianceRequired", StringComparison.OrdinalIgnoreCase)
+                                        && !field.Name.Equals(priorityHeader, StringComparison.OrdinalIgnoreCase)))
                                     {
                                         <tr @key="field">
                                             <td><input class="form-control form-control-sm" aria-label="Field name" autocomplete="off"
@@ -201,6 +298,7 @@
     [Parameter] public string View { get; set; } = "profile-editor";
     [Parameter] public EditorState State { get; set; } = new();
     [Parameter] public string IdentityField { get; set; } = "userId";
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> ConfigurationSettings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
     [Parameter] public EventCallback OnChanged { get; set; }
 
     private bool _busy;

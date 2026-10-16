@@ -326,7 +326,8 @@
         </section>
     }
     <div class="identity-access-panel" hidden="@(_selectedView is not ("profile-editor" or "rules"))">
-        <ProfileConfigurationEditor View="@_selectedView" State="ProfileFileState" OnChanged="OnChanged"
+        <ProfileConfigurationEditor View="@_selectedView" State="ProfileFileState"
+                                    ConfigurationSettings="ConfigurationSettings" OnChanged="OnChanged"
                                     IdentityField='@(FindSetting("User:UserIDFieldName")?.DraftValue ?? FindSetting("UserIDFieldName")?.DraftValue ?? "userId")' />
     </div>
 </div>
@@ -374,6 +375,7 @@
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> ConfigurationSettings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
     [Parameter] public EventCallback OnChanged { get; set; }
     [Parameter] public ProfileConfigurationEditor.EditorState ProfileFileState { get; set; } = new();
 

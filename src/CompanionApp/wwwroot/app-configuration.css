@@ -661,6 +661,15 @@ body:has(.app-configuration-page .config-modal-backdrop) {
     animation: config-popup-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+:where(.app-configuration-page) .config-modal:has(.identity-access-editor) {
+    width: min(96rem, 100%);
+    height: min(52rem, calc(100dvh - 1.5rem));
+}
+
+:where(.app-configuration-page) .config-modal:has(.identity-access-editor) > .config-modal-body {
+    flex: 1 1 auto;
+}
+
 :where(.app-configuration-page) .config-modal h2 {
     color: #1d1d1f;
     font-weight: 650;
