@@ -217,6 +217,8 @@ module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT &&
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
   dependsOn: [
+    // Companion-only deployments skip the proxy bootstrap's dependency on storage.
+    #disable-next-line no-unnecessary-dependson
     blobStorage
   ]
 }

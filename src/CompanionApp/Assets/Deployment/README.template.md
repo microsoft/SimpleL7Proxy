@@ -14,7 +14,7 @@ Storage networking requires a new Container Apps environment so applications joi
 When storage and Companion App are selected in the Bicep bundle, the final Companion App revision sets `CompanionApp__Profiles__StorageAccountName` to the deployed account name and `CompanionApp__Profiles__BlobContainerName` to `profiles`. Bootstrap leaves the account empty until identity permissions are assigned.
 
 > [!NOTE]
-> Temporary startup verification uses the app's `DefaultAzureCredential` to check the configured container and write `hello.json` containing `{"message":"hello"}` with JSON content type. Each startup overwrites this diagnostic blob; `config.json` is unchanged. A successful check prints the blob URL. Failures print the full exception and stack trace to the console and startup continues after a 30-second timeout. No check runs when the account is empty or `--uionly` is set. Use a Companion App image containing this code; a previously published image or downloaded ZIP does not gain the probe automatically.
+> Temporary startup verification uses the app's `DefaultAzureCredential` to check the configured container and write `hello.json` containing `{"message":"hello"}` with JSON content type. Each startup overwrites this diagnostic blob; `config.json` is unchanged. A successful check prints the blob URL. The check has a 30-second timeout; failures print the full exception and stack trace to the console and startup continues. No check runs when the account is empty or `--uionly` is set. Use a Companion App image containing this code; a previously published image or downloaded ZIP does not gain the probe automatically.
 
 ### Initialize profiles
 
