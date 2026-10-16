@@ -1,0 +1,126 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.47.16.16243",
+      "templateHash": "15800238231156060038"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string"
+    },
+    "storageAccountName": {
+      "type": "string"
+    },
+    "environmentId": {
+      "type": "string"
+    },
+    "appPrincipalIds": {
+      "type": "array",
+      "defaultValue": []
+    }
+  },
+  "variables": {
+    "$fxv#0": "import base64\nimport email.utils\nimport json\nimport os\nimport sys\nimport time\nimport urllib.error\nimport urllib.parse\nimport urllib.request\n\n\npayload = base64.b64decode(os.environ[\"PROFILE_SAMPLE_BASE64\"], validate=True)\njson.loads(payload)\nblob_url = os.environ[\"PROFILE_BLOB_URL\"]\nidentity_url = os.environ[\"IDENTITY_ENDPOINT\"]\nidentity_url += (\"&\" if \"?\" in identity_url else \"?\") + urllib.parse.urlencode({\n    \"resource\": os.environ[\"STORAGE_AUDIENCE\"],\n    \"api-version\": \"2019-08-01\",\n})\n\nfor attempt in range(1, 25):\n    try:\n        token_request = urllib.request.Request(identity_url, headers={\n            \"X-IDENTITY-HEADER\": os.environ[\"IDENTITY_HEADER\"],\n        })\n        with urllib.request.urlopen(token_request, timeout=15) as response:\n            token = json.load(response)[\"access_token\"]\n        request = urllib.request.Request(blob_url, data=payload, method=\"PUT\", headers={\n            \"Authorization\": \"Bearer \" + token,\n            \"x-ms-version\": \"2023-11-03\",\n            \"x-ms-date\": email.utils.formatdate(usegmt=True),\n            \"x-ms-blob-type\": \"BlockBlob\",\n            \"If-None-Match\": \"*\",\n            \"Content-Type\": \"application/json\",\n        })\n        with urllib.request.urlopen(request, timeout=15) as response:\n            if response.status != 201:\n                raise RuntimeError(\"Unexpected upload status: \" + str(response.status))\n        print(\"profiles/config.json created; existing blobs are never overwritten.\", flush=True)\n        sys.exit(0)\n    except urllib.error.HTTPError as error:\n        code = error.headers.get(\"x-ms-error-code\", \"\")\n        if error.url == blob_url and (\n            (error.code == 412 and code == \"ConditionNotMet\")\n            or (error.code == 409 and code == \"BlobAlreadyExists\")\n        ):\n            print(\"profiles/config.json already exists; preserved unchanged.\", flush=True)\n            sys.exit(0)\n        if error.code not in (401, 403, 408, 429, 500, 502, 503, 504):\n            print(f\"Profile seed failed: HTTP {error.code}, storage code {code}.\", file=sys.stderr, flush=True)\n            sys.exit(1)\n        print(f\"Profile seed attempt {attempt}/24: HTTP {error.code}; waiting for identity/RBAC/network.\", flush=True)\n    except (urllib.error.URLError, TimeoutError, ConnectionError) as error:\n        print(f\"Profile seed attempt {attempt}/24: network unavailable ({type(error).__name__}).\", flush=True)\n    if attempt < 24:\n        time.sleep(10)\n\nprint(\"Profile seed exhausted retries; check job execution logs, container RBAC and private DNS.\", file=sys.stderr, flush=True)\nsys.exit(1)\n",
+    "$fxv#1": "[\n    {\n        \"userId\": \"123456\",\n        \"S7PPriorityKey\": \"12345\",\n        \"Header1\": \"Value1\",\n        \"Header2\": \"Value2\",\n        \"fofo\": \"fofo\",\n        \"S7P-Model-Override\": \"gpt-4o\",\n        \"internal-fofo2\": \"fofo2\",\n        \"AllowedPaths\": \"/api*, /*\",\n        \"async-config\": \"enabled=true, containername=user123456, topic=status-123456\",\n        \"rules\": [\n            {\n                \"name\": \"premium-tier-overrides\",\n                \"if\": { \"name\": \"premium-tier\", \"field\": \"x-user-tier\", \"match\": \"equals\", \"value\": \"premium\", \"ignoreCase\": true },\n                \"then\": {\n                    \"name\": \"premium-overrides\",\n                    \"set\": {\n                        \"S7P-Model-Override\": \"gpt-4o\",\n                        \"S7PPriorityKey\": \"1\"\n                    }\n                }\n            },\n            {\n                \"name\": \"eu-region-routing\",\n                \"if\": { \"name\": \"eu-region\", \"field\": \"x-region\", \"match\": \"startsWith\", \"value\": \"eu-\" },\n                \"then\": {\n                    \"name\": \"eu-routing\",\n                    \"set\": {\n                        \"backend-pool\": \"eu-pool\",\n                        \"data-residency\": \"eu\"\n                    }\n                }\n            },\n            {\n                \"name\": \"BlueGreenRouting\",\n                \"if\": { \"name\": \"hash-0-25\", \"field\": \"S7PHash\", \"match\": \"between\", \"value\": \"0\", \"value2\": \"25\", \"mode\": \"inClosedOpenRange\" },\n                \"then\": {\n                    \"name\": \"blue-0-25\",\n                    \"set\": {\"Branch\": \"blue\"}\n                },\n                \"elseif\": [\n                    {\n                        \"name\": \"hash-25-40-clause\",\n                        \"if\": { \"name\": \"hash-25-40\", \"field\": \"S7PHash\", \"match\": \"between\", \"value\": \"25\", \"value2\": \"40\", \"mode\": \"inClosedOpenRange\" },\n                        \"then\": {\n                            \"name\": \"green-25-40\",\n                            \"set\" : { \"Branch\": \"green\" }\n                        }\n                    },\n                    {\n                        \"name\": \"hash-40-70-clause\",\n                        \"if\": { \"name\": \"hash-40-70\", \"field\": \"S7PHash\", \"match\": \"between\", \"value\": \"40\", \"value2\": \"70\", \"mode\": \"inClosedOpenRange\" },\n                        \"then\": {\n                            \"name\": \"yellow-40-70\",\n                            \"set\": {\"Branch\": \"yellow\"}\n                        }\n                    },\n                    {\n                        \"name\": \"hash-70-90-clause\",\n                        \"if\": { \"name\": \"hash-70-90\", \"field\": \"S7PHash\", \"match\": \"between\", \"value\": \"70\", \"value2\": \"90\", \"mode\": \"inClosedOpenRange\" },\n                        \"then\": {\n                            \"name\": \"orange-70-90\",\n                            \"set\": {\"Branch\": \"orange\"}\n                        }\n                    }\n                ],\n                \"else\": {\n                    \"name\": \"red-fallback\",\n                    \"set\": {\"Branch\": \"red\"}\n                }\n            }\n        ]\n    },\n    {\n        \"userId\": \"123455\",\n        \"S7PPriorityKey\": \"12345\",\n        \"Header1\": \"Value1\",\n        \"Header2\": \"Value2\",\n        \"async-config\": \"enabled=true, containername=user123455, topic=status-12355\"\n    },\n    {\n        \"userId\": \"1234567\",\n        \"Header1\": \"Value1\",\n        \"Header2\": \"Value2\",\n        \"async-config\": \"enabled=false\",\n        \"AllowedPaths\": \"/echo*, /file/*\"\n    }\n]\n",
+    "contributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "[format('profiles-{0}', uniqueString(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))))]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "environmentId": "[parameters('environmentId')]",
+        "workloadProfileName": "Consumption",
+        "configuration": {
+          "triggerType": "Schedule",
+          "replicaTimeout": 1200,
+          "replicaRetryLimit": 0,
+          "scheduleTriggerConfig": {
+            "cronExpression": "*/5 * * * *",
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          }
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "seed-profiles",
+              "image": "python:3.13.7-slim",
+              "command": [
+                "python",
+                "-c",
+                "[variables('$fxv#0')]"
+              ],
+              "env": [
+                {
+                  "name": "PROFILE_SAMPLE_BASE64",
+                  "value": "[base64(variables('$fxv#1'))]"
+                },
+                {
+                  "name": "PROFILE_BLOB_URL",
+                  "value": "[format('{0}profiles/config.json', reference(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').primaryEndpoints.blob)]"
+                },
+                {
+                  "name": "STORAGE_AUDIENCE",
+                  "value": "[reference(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').primaryEndpoints.blob]"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[0], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[1], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[2])]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[0], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[1], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[2]), resourceId('Microsoft.App/jobs', format('profiles-{0}', uniqueString(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))))), variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.App/jobs', format('profiles-{0}', uniqueString(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))))), '2024-03-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/jobs', format('profiles-{0}', uniqueString(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')))))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "appAccess",
+        "count": "[length(parameters('appPrincipalIds'))]"
+      },
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[0], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[1], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[2])]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[0], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[1], split(format('{0}/default/profiles', parameters('storageAccountName')), '/')[2]), parameters('appPrincipalIds')[copyIndex()], variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[parameters('appPrincipalIds')[copyIndex()]]",
+        "principalType": "ServicePrincipal"
+      }
+    }
+  ],
+  "outputs": {
+    "jobName": {
+      "type": "string",
+      "value": "[format('profiles-{0}', uniqueString(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))))]"
+    },
+    "jobResourceGroup": {
+      "type": "string",
+      "value": "[resourceGroup().name]"
+    }
+  }
+}

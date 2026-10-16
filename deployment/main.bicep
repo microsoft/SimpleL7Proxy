@@ -96,6 +96,22 @@ module storagePrivateEndpoint 'modules/storage-private-endpoint.bicep' = if (sto
   }
 }
 
+module profiles 'modules/profiles.bicep' = if (storageNetwork) {
+  scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
+  params: {
+    location: settings.LOCATION
+    storageAccountName: settings.STORAGE_ACCOUNT_NAME
+    environmentId: foundation.outputs.environmentId
+    appPrincipalIds: concat(
+      settings.DEPLOY_PROXY ? [containerAppBootstrap.?outputs.identityPrincipalId ?? ''] : [],
+      settings.DEPLOY_COMPANION_APP ? [companionAppBootstrap.?outputs.identityPrincipalId ?? ''] : []
+    )
+  }
+  dependsOn: [
+    storagePrivateEndpoint
+  ]
+}
+
 module requestApi 'modules/request-api.bicep' = if (settings.ASYNC_DEPLOYMENT) {
   scope: resourceGroup(settings.REQUESTAPI_RESOURCE_GROUP)
   params: {
@@ -173,6 +189,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     registryAccess
     configurationAccess
     eventHubAccess
+    profiles
   ]
 }
 
@@ -190,7 +207,7 @@ module metricsServer 'modules/metrics-server.bicep' = if (settings.DEPLOY_METRIC
   ]
 }
 
-module blobAccess 'modules/blob-access.bicep' = if ((settings.ASYNC_DEPLOYMENT || storageNetwork) && settings.DEPLOY_PROXY) {
+module blobAccess 'modules/blob-access.bicep' = if (settings.ASYNC_DEPLOYMENT && settings.DEPLOY_PROXY) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
     settings: settings
@@ -225,6 +242,7 @@ module containerApp 'modules/container-app.bicep' = if (settings.DEPLOY_PROXY) {
     registryAccess
     configurationAccess
     blobAccess
+    profiles
     serviceBusAccess
   ]
 }
@@ -242,3 +260,5 @@ module privateDns 'modules/private-dns.bicep' = if (settings.PRIVATE_NETWORK_DEP
 output proxyUrl string = settings.DEPLOY_PROXY ? 'https://${containerApp.?outputs.proxyFqdn ?? ''}' : ''
 output companionAppUrl string = companionApp.?outputs.url ?? ''
 output metricsServerUrl string = metricsServer.?outputs.url ?? ''
+output profileSeedJobName string = profiles.?outputs.jobName ?? ''
+output profileSeedJobResourceGroup string = profiles.?outputs.jobResourceGroup ?? ''

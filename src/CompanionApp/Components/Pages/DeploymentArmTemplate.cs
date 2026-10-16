@@ -75,7 +75,8 @@ public sealed class DeploymentArmTemplate {
                 AddContainerApp(proxyVersion, healthVersion, false, "container-app-bootstrap", "foundation", "configuration");
                 AddProxyAccess("container-app-bootstrap");
                 var accessDependencies = new List<string> { "registry-access", "configuration-access" };
-                if (Enabled("ASYNC_DEPLOYMENT") || Enabled("DEPLOY_STORAGE_NETWORK")) accessDependencies.Add("blob-access");
+                if (Enabled("ASYNC_DEPLOYMENT")) accessDependencies.Add("blob-access");
+                if (Enabled("DEPLOY_STORAGE_NETWORK")) accessDependencies.Add("profiles");
                 if (Enabled("ASYNC_DEPLOYMENT")) accessDependencies.Add("service-bus-access");
                 AddContainerApp(proxyVersion, healthVersion, true, "container-app", [.. accessDependencies]);
             } else {
@@ -215,7 +216,8 @@ public sealed class DeploymentArmTemplate {
         var configId = Id(Value("APPCONFIG_RESOURCE_GROUP"), "Microsoft.AppConfiguration/configurationStores", Value("APPCONFIG_NAME"));
         AddDeployment("configuration-access", Value("APPCONFIG_RESOURCE_GROUP"),
             new JsonArray(SystemRole(configId, appId, "516239f1-63e1-4d78-a4de-a74fb236a071")), appDeploymentName);
-        if (!Enabled("ASYNC_DEPLOYMENT") && !Enabled("DEPLOY_STORAGE_NETWORK")) return;
+        if (Enabled("DEPLOY_STORAGE_NETWORK")) AddProfiles(appDeploymentName);
+        if (!Enabled("ASYNC_DEPLOYMENT")) return;
 
         var blobId = Id(Value("STORAGE_RESOURCE_GROUP"), "Microsoft.Storage/storageAccounts", Value("STORAGE_ACCOUNT_NAME"));
         var blobRole = Value("CA_BLOB_ROLE") switch {
@@ -290,10 +292,11 @@ public sealed class DeploymentArmTemplate {
         var blobId = Id(blobGroup, "Microsoft.Storage/storageAccounts", blobName);
         JsonArray blobs = [Storage(blobName, Value("STORAGE_SKU"), _location)];
         if (Enabled("DEPLOY_STORAGE_NETWORK")) blobs[0]!["properties"]!["publicNetworkAccess"] = "Disabled";
-        if (Enabled("CREATE_CONTAINERS")) {
-            foreach (var container in Value("BLOB_CONTAINERS").Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal)) {
-                blobs.Add(BlobContainer(blobGroup, blobName, container));
-            }
+        var containers = Enabled("CREATE_CONTAINERS")
+            ? Value("BLOB_CONTAINERS").Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList() : [];
+        if (Enabled("DEPLOY_STORAGE_NETWORK")) containers.Add("profiles");
+        foreach (var container in containers.Distinct(StringComparer.Ordinal)) {
+            blobs.Add(BlobContainer(blobGroup, blobName, container));
         }
         AddDeployment("blob-storage", blobGroup, blobs, "foundation");
 
@@ -327,6 +330,28 @@ public sealed class DeploymentArmTemplate {
             zoneGroup["dependsOn"] = Strings($"[{endpointId}]", $"[{zoneId}]");
             AddDeployment("storage-private-endpoint", group, new JsonArray(zone, link, endpoint, zoneGroup), "network", "blob-storage");
         }
+    }
+
+    private void AddProfiles(string appDeploymentName) {
+        using var stream = typeof(DeploymentArmTemplate).Assembly.GetManifestResourceStream("DeploymentProfilesArmTemplate")
+            ?? throw new InvalidOperationException("The compiled profiles deployment module is missing.");
+        using var reader = new StreamReader(stream);
+        var template = JsonNode.Parse(reader.ReadToEnd())!;
+        var deployment = AddDeployment("profiles", Value("STORAGE_RESOURCE_GROUP"), [], "storage-private-endpoint", appDeploymentName);
+        deployment["properties"]!["template"] = template;
+        var principals = new JsonArray();
+        if (Enabled("DEPLOY_PROXY")) {
+            var appId = Id(Value("CONTAINER_APP_RESOURCE_GROUP"), "Microsoft.App/containerApps", Value("CONTAINER_APP_NAME"));
+            principals.Add($"[reference({appId}, '2024-03-01', 'Full').identity.principalId]");
+        }
+        deployment["properties"]!["parameters"] = new JsonObject {
+            ["location"] = new JsonObject { ["value"] = _location },
+            ["storageAccountName"] = new JsonObject { ["value"] = Value("STORAGE_ACCOUNT_NAME") },
+            ["environmentId"] = new JsonObject {
+                ["value"] = $"[{Id(Value("CONTAINER_APP_RESOURCE_GROUP"), "Microsoft.App/managedEnvironments", Value("ENVIRONMENT_NAME"))}]"
+            },
+            ["appPrincipalIds"] = new JsonObject { ["value"] = principals }
+        };
     }
 
     private void AddAsync() {
