@@ -5,11 +5,14 @@
 
 <div class="rule-node">
     <div class="rule-node-heading">
-        <label class="rule-name">
-            @(Depth == 0 ? "Rule name" : "Branch name")
-            <input class="form-control" required @bind:get="@(Read(Node, "name"))"
-                   @bind:set="@(value => SetTextAsync(Node, "name", value))" @bind:event="oninput" />
-        </label>
+        @if (Depth == 0)
+        {
+            <label class="rule-name">
+                Rule name
+                <input class="form-control" required @bind:get="@(Read(Node, "name"))"
+                       @bind:set="@(value => SetTextAsync(Node, "name", value))" @bind:event="oninput" />
+            </label>
+        }
         @if (!ElseIfClause)
         {
             <div class="rule-action" role="group" aria-label="Action type">
@@ -51,8 +54,13 @@
     }
     else if (Node["if"] is JsonObject condition)
     {
+        var isBetween = Read(condition, "match").Equals("between", StringComparison.OrdinalIgnoreCase);
         <details class="rule-section" open>
             <summary>IF</summary>
+            <label class="rule-summary-name">Condition name
+                <input class="form-control form-control-sm" @bind:get="@(Read(condition, "name"))"
+                       @bind:set="@(value => SetTextAsync(condition, "name", value))" @bind:event="oninput" />
+            </label>
             <div class="rule-condition">
                 <label>Field
                     <input class="form-control" @bind:get="@(Read(condition, "field"))"
@@ -67,9 +75,10 @@
                         }
                     </select>
                 </label>
-                <label>Value
+                <label>@(isBetween ? "Lower value" : "Value")
                     <input class="form-control" @bind:get="@(Read(condition, "value"))"
-                           @bind:set="@(value => SetTextAsync(condition, "value", value))" @bind:event="oninput" />
+                           @bind:set="@(value => SetTextAsync(condition, "value", value))" @bind:event="oninput"
+                           required="@isBetween" />
                 </label>
                 <label class="rule-ignore-case">
                     <input type="checkbox" class="form-check-input"
@@ -77,11 +86,12 @@
                            @onchange="args => SetIgnoreCaseAsync(condition, args.Value is true)" />
                     Ignore case
                 </label>
-                @if (Read(condition, "match").Equals("between", StringComparison.OrdinalIgnoreCase))
+                @if (isBetween)
                 {
                     <label>Upper value
                         <input class="form-control" @bind:get="@(Read(condition, "value2"))"
-                               @bind:set="@(value => SetTextAsync(condition, "value2", value))" @bind:event="oninput" />
+                               @bind:set="@(value => SetTextAsync(condition, "value2", value))" @bind:event="oninput"
+                               required="@isBetween" />
                     </label>
                     <label>Range boundaries
                         <select class="form-select" @bind:get="@(Read(condition, "mode", "inClosedRange").ToLowerInvariant())"
@@ -94,15 +104,15 @@
                     </label>
                 }
             </div>
-            <label class="rule-condition-name">Condition name
-                <input class="form-control form-control-sm" @bind:get="@(Read(condition, "name"))"
-                       @bind:set="@(value => SetTextAsync(condition, "name", value))" @bind:event="oninput" />
-            </label>
         </details>
         <details class="rule-section" open>
             <summary>THEN</summary>
             @if (Node["then"] is JsonObject then)
             {
+                <label class="rule-summary-name">Branch name
+                    <input class="form-control form-control-sm" @bind:get="@(Read(then, "name"))"
+                           @bind:set="@(value => SetTextAsync(then, "name", value))" @bind:event="oninput" />
+                </label>
                 <ProfileRuleNodeEditor @key="then" Node="then" Depth="@(Depth + 1)" OnChanged="OnChanged" />
             }
         </details>
@@ -113,7 +123,11 @@
                 @foreach (var alternative in alternatives.OfType<JsonObject>().ToArray())
                 {
                     <details class="rule-section" open @key="alternative">
-                        <summary>ELSE IF: @Read(alternative, "name")</summary>
+                        <summary>ELSE IF</summary>
+                        <label class="rule-summary-name">Branch name
+                            <input class="form-control form-control-sm" @bind:get="@(Read(alternative, "name"))"
+                                   @bind:set="@(value => SetTextAsync(alternative, "name", value))" @bind:event="oninput" />
+                        </label>
                         <ProfileRuleNodeEditor Node="alternative" Depth="@(Depth + 1)" ElseIfClause="true" OnChanged="OnChanged" />
                         <button type="button" class="btn btn-sm btn-outline-danger mt-2"
                                 @onclick="() => RemoveElseIfAsync(alternatives, alternative)">Remove ELSE IF</button>
@@ -126,6 +140,10 @@
                 <summary>ELSE</summary>
                 @if (Node["else"] is JsonObject fallback)
                 {
+                    <label class="rule-summary-name">Branch name
+                        <input class="form-control form-control-sm" @bind:get="@(Read(fallback, "name"))"
+                               @bind:set="@(value => SetTextAsync(fallback, "name", value))" @bind:event="oninput" />
+                    </label>
                     <ProfileRuleNodeEditor @key="fallback" Node="fallback" Depth="@(Depth + 1)" OnChanged="OnChanged" />
                     <button type="button" class="btn btn-sm btn-outline-danger mt-2" @onclick="@(() => RemoveAsync(Node, "else"))">Remove ELSE</button>
                 }

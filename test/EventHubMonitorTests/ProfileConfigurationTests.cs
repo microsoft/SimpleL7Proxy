@@ -115,7 +115,10 @@ public sealed class ProfileConfigurationTests {
             """{"name":"bad","set":{},"ELSEIF":null}""",
             """{"name":"bad","set":{"Header":"one\nInjected: true"}}""",
             """{"name":"bad","set":{"Header":"one"},"SET":{"Header":"two"}}""",
-            """{"name":"bad","if":{"name":"x","field":"h","value":null},"then":{"name":"x","set":{}}}"""
+            """{"name":"bad","if":{"name":"x","field":"h","value":null},"then":{"name":"x","set":{}}}""",
+            """{"name":"bad","if":{"name":"x","field":"h","match":"between","value":"10","value2":" "},"then":{"name":"x","set":{}}}""",
+            """{"name":"bad","if":{"name":"x","field":"h","match":"between","value2":"20"},"then":{"name":"x","set":{}}}""",
+            """{"name":"bad","if":{"name":"x","field":"h","match":"between","value":"10"},"then":{"name":"x","set":{}}}"""
         }) {
             Assert.ThrowsException<ArgumentException>(() => ProfileConfigurationDocument.ParseRule(invalid), invalid);
         }
