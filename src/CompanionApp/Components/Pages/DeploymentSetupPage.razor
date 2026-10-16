@@ -74,7 +74,7 @@
                             var locationField = _fields.First(field => field.Key == "LOCATION");
                             var locationError = _errors.GetValueOrDefault(locationField.Key);
                             var acrSkuField = _fields.First(field => field.Key == "ACR_SKU");
-                            <p class="text-muted">All deployment resources will use the same resource group. The container registry uses the Basic SKU.</p>
+                            <p class="text-muted">All deployment resources will use the same resource group. The container registry uses the Basic SKU. Bicep and Portal deployments include a virtual network, a dedicated storage subnet, and a storage account with a private Blob endpoint and private DNS. Application endpoints remain public.</p>
                             <div class="deployment-fields deployment-simple-fields">
                                 <div class="deployment-field">
                                     <label for="@locationField.Key">Azure region</label>
@@ -147,7 +147,7 @@
                         {
                         var healthSection = section == "health";
                         var sectionFields = _fields.Where(field => field.Group == group.Id
-                            && (!_simpleMode || field.Key is not ("DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER"))
+                            && (!_simpleMode || field.Key is not ("DEPLOY_PROXY" or "DEPLOY_COMPANION_APP" or "DEPLOY_METRICS_SERVER" or "DEPLOY_STORAGE_NETWORK"))
                             && field.Key is not ("HEALTHPROBE_TYPE" or "PROXY_IMAGE_NAME" or "PROXY_VERSION_OVERRIDE" or "COMPANION_IMAGE_NAME")
                             && (group.Id != "app" || field.Key == "DEPLOY_PROXY" || Value("DEPLOY_PROXY") == "true")
                             && (group.Id != "companion" || field.Key == "DEPLOY_COMPANION_APP" || Value("DEPLOY_COMPANION_APP") == "true")
@@ -347,6 +347,27 @@
                                             <article class="review-diagram-service">
                                                 <img src="images/azure/00009-icon-service-Log-Analytics-Workspaces.png" width="48" height="48" alt="" />
                                                 <div><h5>Log Analytics</h5><p>@Value("LOG_ANALYTICS_WORKSPACE_NAME")</p></div>
+                                            </article>
+                                        }
+                                        @if (Value("DEPLOY_STORAGE_NETWORK") == "true")
+                                        {
+                                            <article class="review-diagram-service">
+                                                <img src="images/azure/virtual-network-icon.png" width="48" height="48" alt="" />
+                                                <div>
+                                                    <h5>Virtual network</h5>
+                                                    <p>@Value("VNET_NAME")</p>
+                                                    <small>Container Apps subnet: @Value("SUBNET_ACA_NAME")</small>
+                                                    <small>Storage subnet: @Value("SUBNET_PRIVATEENDPOINTS_NAME")</small>
+                                                </div>
+                                            </article>
+                                            <article class="review-diagram-service">
+                                                <img src="images/azure/storage-account-icon.png" width="48" height="48" alt="" />
+                                                <div>
+                                                    <h5>Blob storage</h5>
+                                                    <p>@Value("STORAGE_ACCOUNT_NAME")</p>
+                                                    <small>Private endpoint · Private DNS</small>
+                                                    <small>Public storage access disabled</small>
+                                                </div>
                                             </article>
                                         }
                                     </div>
@@ -601,6 +622,7 @@ bash deploy.sh</code></pre>
             if (value == "yes|no") value = "no";
             if (key is "DEPLOY_PROXY" or "DEPLOY_COMPANION_APP") value = "true";
             if (key == "DEPLOY_METRICS_SERVER") value = "true";
+            if (key == "DEPLOY_STORAGE_NETWORK") value = _simpleMode ? "true" : "false";
             if (key == "REQUESTAPI_LOCATION") value = "";
             if (key == "UPDATE_CONTAINER_APP_ENV") value = "true";
             if (key is "ACR_NAME" or "STORAGE_ACCOUNT_NAME" or "REQUESTAPI_STORAGE_ACCOUNT")
@@ -658,7 +680,7 @@ bash deploy.sh</code></pre>
         || key == "HEALTHPROBE_VERSION_OVERRIDE";
 
     private bool IsGroupVisible((string Id, string Title) group) => group.Id switch {
-        "private" => Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes",
+        "private" => Value("PRIVATE_NETWORK_DEPLOYMENT") == "yes" || Value("DEPLOY_STORAGE_NETWORK") == "true",
         "async" => Value("ASYNC_DEPLOYMENT") == "yes",
         "app" => Value("DEPLOY_PROXY") == "true",
         "config" => Value("DEPLOY_COMPANION_APP") == "true",

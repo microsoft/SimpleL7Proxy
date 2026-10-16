@@ -5,6 +5,7 @@ type DeploymentSettings = {
   DEPLOY_PROXY: bool
   DEPLOY_COMPANION_APP: bool
   DEPLOY_METRICS_SERVER: bool
+  DEPLOY_STORAGE_NETWORK: bool?
   MAKE_UNIQ_SUFFIX: string
   LOCATION: string
   RESOURCE_GROUPS: string[]

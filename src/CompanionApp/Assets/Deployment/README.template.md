@@ -4,6 +4,33 @@ The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP i
 
 ![SimpleL7Proxy deployment architecture](arch.png)
 
+CompanionApp **Simple deployment** includes a virtual network with separate Container Apps and storage-private-endpoint subnets, a storage account, a Blob private endpoint, and a linked private DNS zone. The proxy and Companion App endpoints remain public. This does not enable async mode or deploy RequestAPI, Service Bus, or Cosmos DB.
+
+> [!NOTE]
+> Storage public network access, anonymous Blob access, and shared-key access remain disabled. A private `profiles` container is always created, even when `CREATE_CONTAINERS=false`. Each selected proxy and Companion App identity receives Storage Blob Data Contributor on that container only. The optional account-wide `CA_BLOB_ROLE` assignment remains exclusive to async mode. Internet-only clients cannot access Blob data. Advanced mode keeps storage networking disabled by default.
+
+Storage networking requires a new Container Apps environment so applications join the deployed VNet. Exports reject combining storage networking with an existing environment.
+
+### Initialize profiles
+
+**The deployment creates `profiles/config.json` only when absent; an existing blob is never overwritten.** The supplied sample lives in `assets/config.json`; its values and routing rules are uploaded unchanged. This does not change the active profile source, lookup field, or App Configuration settings.
+
+A managed-identity Container Apps job runs in the VNet-attached environment and uses an atomic `If-None-Match: *` Blob upload. Its identity has Storage Blob Data Contributor only on `profiles`. Each execution retries identity, RBAC, DNS, and transient service failures up to 24 attempts with 10-second delays and 15-second request timeouts; permanent storage errors fail immediately.
+
+- The bundle's `create` operation uses Azure CLI authentication and `curl` to start the job through Azure Resource Manager. It follows an HTTP 202 polling `Location` for up to 25 minutes, prints the execution name, then waits up to 25 minutes for execution success. A failed operation, failed execution, or timeout fails the script; `validate` and `what-if` never start it.
+- The job also runs every five minutes (UTC), including Portal ARM exports, which have no bundle script. Portal deployment success confirms infrastructure creation, **not** seed execution success; inspect the job execution separately.
+- Recurring executions preserve existing content and recover a missing sample. They incur Container Apps execution/image-pull costs. After verifying the blob, an operator can stop recurrence by changing the job to a manual trigger.
+
+Verify in Azure portal:
+
+- [ ] In the storage resource group, open the `profiles-...` Container Apps job and confirm the latest execution is `Succeeded`.
+- [ ] Open its execution logs: `created` means the sample was uploaded; `preserved unchanged` means the existing blob won the atomic create.
+- [ ] From the linked network with an authorized identity, open `profiles/config.json` and confirm the three sample user profiles (or your previously saved content).
+- [ ] Confirm storage public network access is `Disabled` and the container's anonymous access is `Private`.
+
+> [!WARNING]
+> If the seed fails, inspect its execution logs, container-scoped identity assignment, private endpoint approval, and the VNet link to the Blob private DNS zone. Keep storage public access disabled. Resolve the cause and start the same job again, or rerun the original bundle's `create` after the deployment is terminal; existing profile content remains unchanged.
+
 ## Before you begin
 
 You need:
@@ -224,6 +251,7 @@ The deployment:
 - `bootstrap.bicep` creates the selected resource groups and Azure Container Registry.
 - `main.bicep` creates or updates the selected application infrastructure.
 - `modules/*.bicep` contains the Bicep modules used by the entry points.
+- `assets/config.json` and `assets/seed-profiles.py` are the canonical profile seed payload and standard-library-only uploader.
 - `parameters.json` contains the values selected in Deployment Setup.
 - `deploy.sh` validates, previews, and creates the deployment.
 

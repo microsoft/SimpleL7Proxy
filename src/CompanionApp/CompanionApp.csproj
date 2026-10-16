@@ -30,6 +30,8 @@
     <EmbeddedResource Include="Assets\Deployment\deploy.template.sh" LogicalName="DeploymentScriptTemplate" />
     <EmbeddedResource Include="..\..\deployment\*.bicep" LogicalName="DeploymentBicepAsset/%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\deployment\modules\*.bicep" LogicalName="DeploymentBicepAsset/modules/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\deployment\assets\*" LogicalName="DeploymentBicepAsset/assets/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\deployment\modules\profiles.json" LogicalName="DeploymentProfilesArmTemplate" />
   </ItemGroup>
 
   <ItemGroup>

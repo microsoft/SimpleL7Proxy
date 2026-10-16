@@ -5,12 +5,14 @@ import { DeploymentSettings } from './types.bicep'
 @description('Deployment Setup values consumed by the static Bicep templates.')
 param settings DeploymentSettings
 
+var storageNetwork = settings.?DEPLOY_STORAGE_NETWORK ?? false
+
 resource existingEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = if (settings.USE_EXISTING_ENVIRONMENT) {
   name: settings.ENVIRONMENT_NAME
   scope: resourceGroup(settings.ENVIRONMENT_RESOURCE_GROUP)
 }
 
-module network 'modules/network.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT) {
+module network 'modules/network.bicep' = if (settings.PRIVATE_NETWORK_DEPLOYMENT || storageNetwork) {
   scope: resourceGroup(settings.NETWORK_RESOURCE_GROUP)
   params: {
     settings: settings
@@ -77,11 +79,37 @@ module metricsServerBootstrap 'modules/metrics-server.bicep' = if (settings.DEPL
   }
 }
 
-module blobStorage 'modules/blob-storage.bicep' = if (settings.ASYNC_DEPLOYMENT) {
+module blobStorage 'modules/blob-storage.bicep' = if (settings.ASYNC_DEPLOYMENT || storageNetwork) {
   scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
   params: {
     settings: settings
   }
+}
+
+module storagePrivateEndpoint 'modules/storage-private-endpoint.bicep' = if (storageNetwork) {
+  scope: resourceGroup(settings.NETWORK_RESOURCE_GROUP)
+  params: {
+    settings: settings
+    storageAccountId: blobStorage.?outputs.storageAccountId ?? ''
+    privateEndpointSubnetId: network.?outputs.privateEndpointSubnetId ?? ''
+    virtualNetworkId: network.?outputs.virtualNetworkId ?? ''
+  }
+}
+
+module profiles 'modules/profiles.bicep' = if (storageNetwork) {
+  scope: resourceGroup(settings.STORAGE_RESOURCE_GROUP)
+  params: {
+    location: settings.LOCATION
+    storageAccountName: settings.STORAGE_ACCOUNT_NAME
+    environmentId: foundation.outputs.environmentId
+    appPrincipalIds: concat(
+      settings.DEPLOY_PROXY ? [containerAppBootstrap.?outputs.identityPrincipalId ?? ''] : [],
+      settings.DEPLOY_COMPANION_APP ? [companionAppBootstrap.?outputs.identityPrincipalId ?? ''] : []
+    )
+  }
+  dependsOn: [
+    storagePrivateEndpoint
+  ]
 }
 
 module requestApi 'modules/request-api.bicep' = if (settings.ASYNC_DEPLOYMENT) {
@@ -161,6 +189,7 @@ module companionApp 'modules/companion-app.bicep' = if (settings.DEPLOY_COMPANIO
     registryAccess
     configurationAccess
     eventHubAccess
+    profiles
   ]
 }
 
@@ -213,6 +242,7 @@ module containerApp 'modules/container-app.bicep' = if (settings.DEPLOY_PROXY) {
     registryAccess
     configurationAccess
     blobAccess
+    profiles
     serviceBusAccess
   ]
 }
@@ -230,3 +260,5 @@ module privateDns 'modules/private-dns.bicep' = if (settings.PRIVATE_NETWORK_DEP
 output proxyUrl string = settings.DEPLOY_PROXY ? 'https://${containerApp.?outputs.proxyFqdn ?? ''}' : ''
 output companionAppUrl string = companionApp.?outputs.url ?? ''
 output metricsServerUrl string = metricsServer.?outputs.url ?? ''
+output profileSeedJobName string = profiles.?outputs.jobName ?? ''
+output profileSeedJobResourceGroup string = profiles.?outputs.jobResourceGroup ?? ''

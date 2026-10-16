@@ -13,7 +13,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2024-01-01' = {
         settings.VNET_ADDRESS_PREFIX
       ]
     }
-    subnets: [
+    subnets: filter([
       {
         name: settings.SUBNET_ACA_NAME
         properties: {
@@ -58,12 +58,14 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2024-01-01' = {
         name: settings.SUBNET_PRIVATEENDPOINTS_NAME
         properties: {
           addressPrefix: settings.SUBNET_PRIVATEENDPOINTS_PREFIX
-          privateEndpointNetworkPolicies: settings.DISABLE_PRIVATE_ENDPOINT_NETWORK_POLICIES ? 'Disabled' : 'Enabled'
+          privateEndpointNetworkPolicies: (settings.DISABLE_PRIVATE_ENDPOINT_NETWORK_POLICIES || (settings.?DEPLOY_STORAGE_NETWORK ?? false)) ? 'Disabled' : 'Enabled'
         }
       }
-    ]
+    ], subnet => settings.PRIVATE_NETWORK_DEPLOYMENT || subnet.name == settings.SUBNET_ACA_NAME || subnet.name == settings.SUBNET_PRIVATEENDPOINTS_NAME || (settings.ASYNC_DEPLOYMENT && subnet.name == settings.SUBNET_AZUREFUNCTIONS_NAME))
   }
 }
 
 output acaSubnetId string = '${virtualNetwork.id}/subnets/${settings.SUBNET_ACA_NAME}'
 output functionsSubnetId string = '${virtualNetwork.id}/subnets/${settings.SUBNET_AZUREFUNCTIONS_NAME}'
+output privateEndpointSubnetId string = '${virtualNetwork.id}/subnets/${settings.SUBNET_PRIVATEENDPOINTS_NAME}'
+output virtualNetworkId string = virtualNetwork.id
