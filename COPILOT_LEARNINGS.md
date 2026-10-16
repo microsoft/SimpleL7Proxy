@@ -1,6 +1,7 @@
 # Copilot Learnings
 
 - Deployment Review service cards use a fixed icon column followed by the text column. Include an image for each new service and explicitly keep its text wrapper in column 2; an icon-less single child otherwise wraps all service text inside the narrow icon track. Validate the rendered layout, not only the build.
+- Check Review diagram balance as well as overflow: top-align the environment with the services, keep identity in normal flow, and use the available panel width for reflow so an expanded sidebar cannot squeeze the diagram into narrow tracks.
 
 - Bicep optional object properties use nullable types (`FLAG: bool?`), not TypeScript-style `FLAG?: bool`. Filter subnet arrays with `filter(..., subnet => ...)`; conditional `for` filters are not valid in ordinary property arrays. Compile the Bicep entry point immediately after network edits.
 
