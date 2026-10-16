@@ -5,6 +5,7 @@
 !src/CompanionApp/Startup/**
 !src/CompanionApp/Components/**
 !src/CompanionApp/Tokenomics/**
+!src/CompanionApp/Observability/**
 !src/CompanionApp/wwwroot/**
 !src/CompanionApp/Assets/**
 !src/CompanionApp/appsettings.json
