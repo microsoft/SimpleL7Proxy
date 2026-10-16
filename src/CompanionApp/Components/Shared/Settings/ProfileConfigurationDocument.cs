@@ -209,6 +209,16 @@ public sealed class ProfileConfigurationDocument {
                 ReadString(condition[key], key);
             }
         }
+        if (condition["match"] is JsonValue matchValue && matchValue.TryGetValue<string>(out var match)
+            && match.Equals("between", StringComparison.OrdinalIgnoreCase)) {
+            var lowerValue = condition["value"] is JsonValue lowerValueNode
+                && lowerValueNode.TryGetValue<string>(out var lower) ? lower : "";
+            var upperValue = condition["value2"] is JsonValue upperValueNode
+                && upperValueNode.TryGetValue<string>(out var upper) ? upper : "";
+            if (string.IsNullOrWhiteSpace(lowerValue) || string.IsNullOrWhiteSpace(upperValue)) {
+                throw new ArgumentException("Between comparisons require non-empty lower and upper values.");
+            }
+        }
         if (node["then"] is not JsonObject then) {
             throw new ArgumentException("A conditional rule requires a then branch.");
         }
