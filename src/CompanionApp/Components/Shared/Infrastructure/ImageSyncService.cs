@@ -96,11 +96,11 @@ public sealed class ImageSyncService
         }
         var source = new ContainerRegistryContentClient(SourceEndpoint, repository);
         var target = CreateTargetClient(targetRepository);
-        _logger.LogInformation("Image sync started {Source}/{Repository}:{Tag} -> {Target}/{TargetRepository} at {Timestamp}",
-            SourceLoginServer, repository, tag, TargetLoginServer, targetRepository, DateTimeOffset.UtcNow);
+        _logger.LogInformation("Image copy started: {Source}/{Repository}:{Tag} -> {Target}/{TargetRepository}:{TargetTag}.",
+            SourceLoginServer, repository, tag, TargetLoginServer, targetRepository, tag);
         await CopyManifestAsync(source, target, tag, tag, progress, cancellationToken);
-        _logger.LogInformation("Image sync completed {Source}/{Repository}:{Tag} -> {Target}/{TargetRepository} at {Timestamp}",
-            SourceLoginServer, repository, tag, TargetLoginServer, targetRepository, DateTimeOffset.UtcNow);
+        _logger.LogInformation("Image copy completed: {Source}/{Repository}:{Tag} -> {Target}/{TargetRepository}:{TargetTag}.",
+            SourceLoginServer, repository, tag, TargetLoginServer, targetRepository, tag);
     }
 
     /// <summary>True when <paramref name="repository"/> is a valid registry repository name.</summary>

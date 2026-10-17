@@ -34,11 +34,19 @@ internal static class Program
         ConfigureServices(builder, replayOptions, uiOnly);
 
         var app = builder.Build();
+        app.Logger.LogDebug(
+            "Starting CompanionApp. Environment={Environment}. UI-only mode={UiOnly}.",
+            app.Environment.EnvironmentName,
+            uiOnly);
 
         var profileStorageAccountName = app.Configuration["CompanionApp:Profiles:StorageAccountName"];
         var profileBlobContainerName = app.Configuration["CompanionApp:Profiles:BlobContainerName"] ?? "profiles";
         if (!uiOnly && !string.IsNullOrWhiteSpace(profileStorageAccountName))
         {
+            app.Logger.LogDebug(
+                "Profile storage: checking read and write access to account {Account}, container {Container}.",
+                profileStorageAccountName,
+                profileBlobContainerName);
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -55,12 +63,25 @@ internal static class Program
                         HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
                     },
                     timeout.Token);
-                Console.WriteLine($"{DateTimeOffset.UtcNow:O} Profile storage startup check wrote {container.Uri}/hello.json");
+                app.Logger.LogInformation(
+                    "Profile storage OK: wrote {Container}/hello.json.",
+                    profileBlobContainerName);
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine($"{DateTimeOffset.UtcNow:O} Profile storage startup check failed for {profileStorageAccountName}/{profileBlobContainerName}: {exception}");
+                app.Logger.LogError(
+                    exception,
+                    "Profile storage check failed: {Account}/{Container}. Check connectivity and storage permissions. Startup will continue.",
+                    profileStorageAccountName,
+                    profileBlobContainerName);
+                app.Logger.LogDebug(exception, "Profile storage failure details.");
             }
+        }
+        else
+        {
+            app.Logger.LogInformation(
+                "Profile storage check skipped: {Reason}.",
+                uiOnly ? "UI-only mode" : "no storage account configured");
         }
 
         await app.Services
@@ -69,6 +90,11 @@ internal static class Program
         await InitializeStoresAsync(app);
         ProxyMetricsSeeder.Seed(app.Services.GetRequiredService<ProxyMetricsCatalog>());
         ConfigureHttpPipeline(app);
+
+        app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation(
+            "CompanionApp started."));
+        app.Lifetime.ApplicationStopping.Register(() => app.Logger.LogInformation(
+            "CompanionApp is stopping."));
 
         app.Run();
     }

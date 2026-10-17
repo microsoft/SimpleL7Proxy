@@ -391,7 +391,7 @@ public sealed class AppConfigurationScaffoldService
         LastConnectMs = firstItemMs < 0 ? elapsedMs : firstItemMs;
         LastDownloadMs = elapsedMs - LastConnectMs;
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Loaded {SettingCount} published proxy settings across {LabelCount} labels from {Endpoint} in one call",
             settings.Count,
             labels.Count,

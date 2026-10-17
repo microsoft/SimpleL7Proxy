@@ -25,6 +25,49 @@ Once deployed, you can follow the quick guides below for your scenario.
 </tbody>
 </table>
 
+## Build the container locally
+
+From the repository root, build without logging into ACR or pushing an image:
+
+```bash
+docker build --tag companionapp:local --file src/CompanionApp/Dockerfile .
+```
+
+The repository root is the required build context because CompanionApp references shared projects and embeds files from `deployment/`. The Dockerfile copies the deployment directory as a whole so new deployment assets do not require individual copy rules.
+
+`Dockerfile.dockerignore` excludes build outputs, local environment overrides, deployment parameter values, telemetry files, and credential files. It must not enumerate application source files or feature directories. Keep local settings in `appsettings.Development.json` and deployment values in `deploy.parameters.sh` or `parameters.json`; these files are excluded from the build context. The tracked base settings and parameter example remain available.
+
+Use this container build to validate changes to project references or embedded resources; a successful local `dotnet build` does not validate Docker's build inputs. The image build also checks that both Blazor JavaScript entry points are published. `build.sh` logs into ACR, builds, and pushes the versioned image; it is not a build-only check.
+
+## Update images and restart
+
+Open **Image Synchronization**. The page automatically compares the public CompanionApp image for the running version with the deployment registry. When it shows **Update available**, select **Update now**. The page verifies the copied digest before offering **Restart CompanionApp**.
+
+Restart gracefully exits only the current CompanionApp process; ACA manages its restart. The button is unavailable outside ACA. The browser connection closes during restart; wait for the app to return, then reload the page. Restart does not update other replicas or change the configured image reference, and a copied registry image does not prove which digest is running.
+
+For a different CompanionApp version, expand **Details**, copy the desired tag, then set that image tag in the Container App's **Containers > Edit and deploy** workflow. For a same-tag update, confirm the configured registry and tag match the copied image and verify the resulting running image after restart; do not assume a mutable tag guarantees the new digest.
+
+To update the other services:
+
+1. Expand **Details** and copy the required proxy, metrics server, or health probe image. Wait for successful completion.
+2. Open that service's Container App in the Azure Portal. Use **Containers > Edit and deploy** to apply a different image tag or digest and create a revision.
+3. To restart an existing revision without changing its image reference, use **Revisions and replicas**, select the active revision, and choose **Restart**. Repeat for each active revision that needs restarting.
+4. Wait for healthy replicas and verify the running version or digest and startup logs.
+
+The proxy and metrics server have separate Container Apps. A health probe deployed as a sidecar belongs to the proxy's Container App; edit its `health` container to update it, and remember that restarting the revision also restarts the proxy. A separately deployed health probe uses its own app. An internal probe has no separate image to update. The page includes these instructions under **Restart the other apps**.
+
+## Read startup logs
+
+Normal console messages show the result without repeated component, instance or revision prefixes. Warnings and errors are marked explicitly; there is no `INFO` column. The existing optional timestamp behavior is unchanged. Exceptions show their message and root cause without a stack trace. Debug and Trace entries retain component and container identity, plus full exceptions when supplied; profile storage and configuration failures also emit Debug entries with the full exception.
+
+- **Profile storage:** a successful write names the `hello.json` blob. A skipped check explicitly says this startup did not write it. A failed check does not stop startup.
+- **Configuration:** the result names the endpoint, label and settings count. Existing labels are left unchanged; a missing label is created with defaults. Errors include recovery guidance.
+- **Event Hub:** connecting, successful partition discovery, and received Tokenomics entry counts are separate signals. A zero count alone does not prove a failure or a healthy connection. A missing local import file does not prevent live reading.
+- **Web server:** startup completion means the server started, not that every optional startup check succeeded. Instance and revision identify which startup or shutdown a message belongs to when logs are interleaved.
+- **Image copy:** completion means the image was copied to the target registry, not that a running app has been updated.
+
+Framework warnings remain visible. Container-local protection keys can be lost when the container is replaced, invalidating protected cookies or tokens; configure persistent key storage to retain them. The separate encryption warning means the application has not configured encryption for stored protection keys. An HTTPS redirect warning means the application could not find a redirect port; check whether TLS is handled by Container Apps ingress or by the app before changing redirect settings. For a token deserialization failure, inspect the component and exception details rather than assuming an expired login.
+
 ## Set up CompanionApp
 
 The default settings in the file should be sufficient, however you want to override the default values you can update either settings.   If you deployed to Azure Container Apps, the settings will be in the Azure Portal for the Container Environment variables.  If running locally from the repo, the application configuration file is located in the application root folder at: `src/CompanionApp`.  

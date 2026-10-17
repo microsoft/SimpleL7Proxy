@@ -4,13 +4,100 @@
 @implements IDisposable
 @using CompanionApp.Components.Shared
 @inject ImageSyncService ImageSync
+@inject Microsoft.Extensions.Hosting.IHostApplicationLifetime ApplicationLifetime
+@inject ILogger<ImageSyncPage> Logger
 
-<PageTitle>Image Synchronization</PageTitle>
+<PageTitle>Updates</PageTitle>
 
 <SectionContent SectionName="page-heading">
-    <h1 class="h4 mb-0">Image Synchronization</h1>
+    <h1 class="h4 mb-0">Updates</h1>
 </SectionContent>
 
+<div class="card shadow-sm mb-3">
+    <div class="card-body" aria-live="polite" aria-busy="@(_busy ? "true" : "false")">
+        <h2 class="h5">CompanionApp</h2>
+        <p class="text-muted">@CompanionTag</p>
+        @if (_restarting)
+        {
+            <p role="status">Restarting. Reload this page in a moment.</p>
+        }
+        else if (_busy)
+        {
+            <p role="status">@(_updatingCompanion ? "Updating..." : "Checking for updates...")</p>
+        }
+        else if (_restartReady && CompanionImageMatches)
+        {
+            <p class="fw-semibold">Update complete.</p>
+            <button type="button" class="btn btn-primary" disabled="@(!RendererInfo.IsInteractive || !CanRestart)" @onclick="RestartAsync">Restart</button>
+            @if (!CanRestart)
+            {
+                <p class="small mt-2 mb-0">Running locally? Stop and start the app to restart.</p>
+            }
+        }
+        else if (!ImageSync.HasTarget)
+        {
+            <p>Updates aren't set up yet. Open Details to finish setup.</p>
+        }
+        else if (_error is not null || CompanionRepository?.Error is not null)
+        {
+            <p class="text-danger">Couldn't check for updates. Try again.</p>
+        }
+        else if (CompanionUpdateAvailable)
+        {
+            <p class="fw-semibold">Update available.</p>
+            <button type="button" class="btn btn-primary" disabled="@(!RendererInfo.IsInteractive)" @onclick="UpdateCompanionAsync">Click to update</button>
+        }
+        else if (CompanionRepository is { } customRepository
+            && !string.Equals(customRepository.TargetName, "companionapp", StringComparison.Ordinal))
+        {
+            <p>Use Details to update your custom image.</p>
+        }
+        else if (CompanionRepository?.SourceDigests.ContainsKey(CompanionTag) == true)
+        {
+            <p>No new update found.</p>
+        }
+        else if (_repositories.Count == 0)
+        {
+            <p role="status">Checking for updates...</p>
+        }
+        else
+        {
+            <p>No update found for this version.</p>
+        }
+        @if (!_busy && !_restarting && ImageSync.HasTarget)
+        {
+            <button type="button" class="btn btn-outline-secondary mt-2" disabled="@(!RendererInfo.IsInteractive)" @onclick="LoadAsync">Check for updates</button>
+        }
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger" role="alert">@_error</div>
+}
+@if (CompanionRepository?.Error is not null)
+{
+    <div class="alert alert-danger" role="alert">@CompanionRepository.Error</div>
+}
+
+<details class="card shadow-sm mb-3">
+    <summary class="card-header">Restart the other apps</summary>
+    <div class="card-body">
+        <p>Restart the proxy and metrics server separately in the Azure Portal.</p>
+        <ol>
+            <li>Copy the required image under <strong>Details</strong>.</li>
+            <li>Open its Container App in the Azure Portal.</li>
+            <li>Open <strong>Revisions and replicas</strong>, select the active revision, then choose <strong>Restart</strong>.</li>
+            <li>Wait for healthy replicas and check the startup logs.</li>
+        </ol>
+        <p>Installing a different version? Use <strong>Containers → Edit and deploy</strong> to select the new image first. Restarting alone doesn't change the selected image.</p>
+        <p class="mb-0"><strong>Health probe:</strong> a sidecar restarts with the proxy. A separate health probe app must be restarted separately. An internal probe needs no separate update.</p>
+    </div>
+</details>
+
+<details>
+<summary class="mb-3">Details</summary>
+<p class="small">The quick update copies the published image for @CompanionTag to <code>@ImageSync.TargetLoginServer/companionapp:@CompanionTag</code>. Before restarting, confirm ACA uses that image. A restart does not change the configured tag or guarantee a new digest. To use a different version, copy its tag below and select it in ACA under <strong>Containers → Edit and deploy</strong>.</p>
 <div class="card shadow-sm mb-3">
     <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
         <span class="fw-semibold">Registries</span>
@@ -39,11 +126,6 @@
         </button>
     </div>
 </div>
-
-@if (_error is not null)
-{
-    <div class="alert alert-danger" role="alert">@_error</div>
-}
 
 @if (_repositories.Count > 0)
 {
@@ -163,6 +245,7 @@
         </div>
     </div>
 }
+</details>
 
 @code {
     private readonly List<RepositoryState> _repositories = new();
@@ -171,6 +254,71 @@
     private string? _error;
     private bool _busy;
     private bool _confirming;
+    private bool _updatingCompanion;
+    private bool _restartReady;
+    private bool _restarting;
+
+    private string CompanionTag => $"v{Constants.VERSION}";
+    private RepositoryState? CompanionRepository => _repositories.FirstOrDefault(repository =>
+        string.Equals(repository.Name, "companionapp", StringComparison.Ordinal));
+    private bool CompanionUpdateAvailable => ImageSync.HasTarget
+        && CompanionRepository is { Error: null } repository
+        && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
+        && repository.SourceDigests.TryGetValue(CompanionTag, out var sourceDigest)
+        && (!repository.TargetDigests.TryGetValue(CompanionTag, out var targetDigest)
+            || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal));
+    private bool CompanionImageMatches => ImageSync.HasTarget
+        && CompanionRepository is { Error: null } repository
+        && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
+        && repository.SourceDigests.TryGetValue(CompanionTag, out var sourceDigest)
+        && repository.TargetDigests.TryGetValue(CompanionTag, out var targetDigest)
+        && string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal);
+    private bool CanRestart => !string.IsNullOrWhiteSpace(
+        Environment.GetEnvironmentVariable("CONTAINER_APP_NAME"));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && ImageSync.HasTarget)
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateCompanionAsync()
+    {
+        if (_busy || _restarting || !CompanionUpdateAvailable
+            || CompanionRepository is not { } companionRepository)
+        {
+            return;
+        }
+        foreach (var repository in _repositories)
+        {
+            repository.Selected.Clear();
+        }
+        companionRepository.Selected.Add(CompanionTag);
+        _updatingCompanion = true;
+        try
+        {
+            await SynchronizeAsync();
+        }
+        finally
+        {
+            _updatingCompanion = false;
+        }
+    }
+
+    private async Task RestartAsync()
+    {
+        if (_busy || _restarting || !_restartReady || !CompanionImageMatches || !CanRestart)
+        {
+            return;
+        }
+        _restarting = true;
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        Logger.LogWarning("Restart requested from Image Synchronization after a CompanionApp image copy. Exiting this instance; ACA is responsible for restarting it. Other apps and replicas are not restarted.");
+        ApplicationLifetime.StopApplication();
+    }
 
     private IEnumerable<(RepositoryState Repository, string Tag)> SelectedImages =>
         _repositories.SelectMany(repository => repository.SourceTags
@@ -315,15 +463,30 @@
                 try
                 {
                     await ImageSync.CopyImageAsync(repository.Name, tag, repository.TargetName, progress, cancellation.Token);
-                    if (repository.SourceDigests.TryGetValue(tag, out var sourceDigest))
+                    await LoadTargetTagsAsync(repository, cancellation.Token);
+                    if (repository.Error is not null)
                     {
-                        repository.TargetDigests[tag] = sourceDigest;
+                        throw new InvalidOperationException(repository.Error);
+                    }
+                    if (!repository.SourceDigests.TryGetValue(tag, out var sourceDigest)
+                        || !repository.TargetDigests.TryGetValue(tag, out var targetDigest)
+                        || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException("The copied image could not be verified in the deployment registry. Check for updates again before restarting.");
+                    }
+                    if (string.Equals(repository.Name, "companionapp", StringComparison.Ordinal)
+                        && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
+                        && string.Equals(tag, CompanionTag, StringComparison.Ordinal))
+                    {
+                        _restartReady = true;
                     }
                     repository.Selected.Remove(tag);
                     completed++;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    _error = $"Unable to update {repository.Name}:{tag}: {ex.Message}";
+                    Logger.LogError(ex, "Image update failed for {Repository}:{Tag}.", repository.Name, tag);
                     AddLog($"Failed {repository.Name}:{tag}: {ex.Message}");
                 }
                 StateHasChanged();

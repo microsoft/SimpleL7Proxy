@@ -23,7 +23,7 @@ internal sealed class AppConfigurationStartupInitializer
 
     public async Task InitializeAsync(bool uiOnly)
     {
-        _logger.LogInformation(
+        _logger.LogDebug(
             "App Configuration startup initialization entered. UiOnly={UiOnly}, EndpointConfigured={EndpointConfigured}, Label={Label}",
             uiOnly,
             !string.IsNullOrWhiteSpace(_appConfiguration.DefaultEndpoint),
@@ -32,14 +32,14 @@ internal sealed class AppConfigurationStartupInitializer
         if (uiOnly)
         {
             _logger.LogInformation(
-                "UI-only mode: App Configuration startup access and Event Hub reader are disabled");
+                "UI-only mode: configuration loading and live events are disabled.");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(_appConfiguration.DefaultEndpoint))
         {
             _logger.LogWarning(
-                "App Configuration startup check skipped because CompanionApp:AppConfigurationEndpoint is empty");
+                "Configuration loading skipped: no App Configuration endpoint configured.");
             return;
         }
 
@@ -49,12 +49,16 @@ internal sealed class AppConfigurationStartupInitializer
 
         try
         {
+            _logger.LogDebug(
+                "Configuration: loading proxy settings for label {Label} from {Endpoint}.",
+                labelDisplay,
+                _appConfiguration.DefaultEndpoint);
             var settings = await _appConfiguration.LoadAsync(_appConfiguration.DefaultEndpoint);
             var labelExists = _appConfiguration.CachedLabels?
                 .Contains(configuredLabel, StringComparer.Ordinal) == true;
             var labelSettingCount = settings.Count(setting =>
                 string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "App Configuration startup load completed. Endpoint={Endpoint}, TotalSettings={TotalSettings}, Labels={LabelCount}, TargetLabel={Label}, TargetLabelExists={LabelExists}, TargetLabelSettings={TargetLabelSettings}",
                 _appConfiguration.DefaultEndpoint,
                 settings.Count,
@@ -71,7 +75,7 @@ internal sealed class AppConfigurationStartupInitializer
             {
                 phase = "creating configured label";
                 _logger.LogInformation(
-                    "Configured App Configuration label {Label} was not found; startup will create it. EventHubDefaultsApplied={EventHubDefaultsApplied}",
+                    "Creating configuration label {Label} with defaults. Include Event Hub settings={EventHubDefaultsApplied}.",
                     labelDisplay,
                     hasEventHubDefaults);
                 await InitializeAppConfigurationLabelAsync(
@@ -84,7 +88,7 @@ internal sealed class AppConfigurationStartupInitializer
             else if (labelSettingCount == 0)
             {
                 _logger.LogError(
-                    "App Configuration startup check failed: label {Label} at {Endpoint} contains no published proxy settings",
+                    "No proxy settings found for label {Label} at {Endpoint}. Open Admin Configuration to save settings.",
                     labelDisplay,
                     _appConfiguration.DefaultEndpoint);
             }
@@ -92,20 +96,20 @@ internal sealed class AppConfigurationStartupInitializer
             {
                 _appConfiguration.CachedLabel = configuredLabel;
                 _logger.LogInformation(
-                    "App Configuration startup check succeeded: label {Label} contains {SettingCount} published proxy settings at {Endpoint}",
-                    labelDisplay,
+                    "Configuration loaded: {SettingCount} settings from label {Label}.",
                     labelSettingCount,
-                    _appConfiguration.DefaultEndpoint);
+                    labelDisplay);
             }
         }
         catch (Exception exception)
         {
             _logger.LogError(
                 exception,
-                "App Configuration startup initialization failed during phase {Phase} for label {Label} at {Endpoint}; the admin page remains available for recovery",
+                "Configuration failed while {Phase} for label {Label} at {Endpoint}. Check access in Admin Configuration. Startup will continue.",
                 phase,
                 labelDisplay,
                 _appConfiguration.DefaultEndpoint);
+            _logger.LogDebug(exception, "Configuration failure details.");
         }
     }
 
@@ -150,7 +154,7 @@ internal sealed class AppConfigurationStartupInitializer
         bool hasEventHubDefaults)
     {
         var drafts = _appConfiguration.CreateLabelDraft(configuredLabel);
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Prepared App Configuration label {Label} with {SettingCount} draft settings",
             labelDisplay,
             drafts.Count);
@@ -187,14 +191,14 @@ internal sealed class AppConfigurationStartupInitializer
         if (initializedSettingCount == 0)
         {
             _logger.LogError(
-                "App Configuration label {Label} write returned successfully but verification found zero settings at {Endpoint}",
+                "Configuration verification failed: saving label {Label} at {Endpoint} returned no published settings. Startup will continue; review the label in Admin Configuration.",
                 labelDisplay,
                 _appConfiguration.DefaultEndpoint);
             return;
         }
 
         _logger.LogInformation(
-            "App Configuration startup initialized label {Label} with {SettingCount} published settings at {Endpoint}",
+            "Configuration created: label {Label} now has {SettingCount} published proxy settings at {Endpoint}.",
             labelDisplay,
             initializedSettingCount,
             _appConfiguration.DefaultEndpoint);
