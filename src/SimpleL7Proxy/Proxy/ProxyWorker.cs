@@ -1028,11 +1028,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
 
         // Set headers on the HTTP context so WriteResponseAsync finds them already applied
-        if (request.Context != null)
-        {
-            request.Context.Response.StatusCode = (int)lastStatusCode;
-            request.Context.Response.Headers = errorHeaders;
-        }
+        request.Context?.Response.StatusCode = (int)lastStatusCode;
+        request.Context?.Response.Headers = errorHeaders;
 
         return new ProxyData
         {

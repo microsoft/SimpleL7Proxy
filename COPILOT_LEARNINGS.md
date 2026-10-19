@@ -1,5 +1,8 @@
 # Copilot Learnings
 
+- When removing a Razor branch, keep the next branch header (`else if (...)`) out of `old_str` unless it is restored in the same edit; a blank `new_str` silently deletes it. Re-grep `_selectedView ==` afterward to confirm every branch still opens and closes.
+- Tool views can mask literal text (for example, a label rendered as `******`). When an exact-match edit fails on such a line, read the characters directly (char codes) before retrying rather than repeating the same `old_str`.
+
 - Deployment Review service cards use a fixed icon column followed by the text column. Include an image for each new service and explicitly keep its text wrapper in column 2; an icon-less single child otherwise wraps all service text inside the narrow icon track. Validate the rendered layout, not only the build.
 - Check Review diagram balance as well as overflow: top-align the environment with the services, keep identity in normal flow, and use the available panel width for reflow so an expanded sidebar cannot squeeze the diagram into narrow tracks.
 

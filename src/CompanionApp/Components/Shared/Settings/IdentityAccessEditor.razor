@@ -23,14 +23,6 @@
             <span class="bi bi-arrow-repeat" aria-hidden="true"></span>
             <span>Profile Reader</span>
         </button>
-        <button id="identity-tab-authentication" type="button" role="tab"
-                class="@(_selectedView == "authentication" ? "is-selected" : string.Empty)"
-                aria-selected="@(_selectedView == "authentication" ? "true" : "false")"
-                aria-controls="identity-panel-authentication"
-                @onclick='@(() => SelectView("authentication"))'>
-            <span class="bi bi-key-fill" aria-hidden="true"></span>
-            <span>OldAuth</span>
-        </button>
         <button id="identity-tab-applications" type="button" role="tab"
                 class="@(_selectedView == "applications" ? "is-selected" : string.Empty)"
                 aria-selected="@(_selectedView == "applications" ? "true" : "false")"
@@ -38,14 +30,6 @@
                 @onclick='@(() => SelectView("applications"))'>
             <span class="bi bi-grid-fill" aria-hidden="true"></span>
             <span>Applications</span>
-        </button>
-        <button id="identity-tab-profiles" type="button" role="tab"
-                class="@(_selectedView == "profiles" ? "is-selected" : string.Empty)"
-                aria-selected="@(_selectedView == "profiles" ? "true" : "false")"
-                aria-controls="identity-panel-profiles"
-                @onclick='@(() => SelectView("profiles"))'>
-            <span class="bi bi-person" aria-hidden="true"></span>
-            <span>oldPR</span>
         </button>
         <button id="identity-tab-profile-editor" type="button" role="tab"
                 class="@(_selectedView == "profile-editor" ? "is-selected" : string.Empty)"
@@ -421,188 +405,7 @@
             </div>
         </section>
     }
-    else if (_selectedView == "authentication")
-    {
-        var configSetting = FindSetting("Auth:Config");
-        var primaryKeySetting = FindSetting("Auth:Key1");
-        var secondaryKeySetting = FindSetting("Auth:Key2");
-        <section id="identity-panel-authentication" class="identity-access-panel" role="tabpanel"
-                 aria-labelledby="identity-tab-authentication">
-            <div class="identity-access-panel-heading">
-                <div>
-                    <h3>OldAuth</h3>
-                    <p>Configure how clients authenticate with the proxy.</p>
-                </div>
-                <label class="identity-access-switch form-switch">
-                    <input class="form-check-input" type="checkbox" checked="@AuthenticationEnabled"
-                           disabled="@(configSetting is null)" @onchange="SetAuthenticationEnabledAsync" />
-                    <span>Require authentication</span>
-                </label>
-            </div>
-            <ConfigurationExplanation Section="Identity & Access" Topic="Authentication" />
 
-            <fieldset class="identity-access-fieldset" disabled="@(!AuthenticationEnabled || configSetting is null)">
-                <legend>Authentication method</legend>
-                <label class="identity-access-method" for="identity-auth-key">
-                    <input id="identity-auth-key" class="form-check-input" type="radio" name="identity-auth-method"
-                           checked='@IsAuthenticationMode("key")'
-                           @onchange="@(() => SetAuthenticationModeAsync("key"))" />
-                    <span>
-                        <strong>API key</strong>
-                        <small>Clients provide a static key in the request header.</small>
-                    </span>
-                </label>
-                <label class="identity-access-method" for="identity-auth-oauth">
-                    <input id="identity-auth-oauth" class="form-check-input" type="radio" name="identity-auth-method"
-                           checked='@IsAuthenticationMode("oauth2")'
-                           @onchange="@(() => SetAuthenticationModeAsync("oauth2"))" />
-                    <span>
-                        <strong>OAuth token</strong>
-                        <small>Clients provide a signed bearer token, such as one issued by Microsoft Entra ID.</small>
-                    </span>
-                </label>
-                <label class="identity-access-method" for="identity-auth-mixed">
-                    <input id="identity-auth-mixed" class="form-check-input" type="radio" name="identity-auth-method"
-                           checked='@IsAuthenticationMode("mixed")'
-                           @onchange="@(() => SetAuthenticationModeAsync("mixed"))" />
-                    <span>
-                        <strong>Mixed</strong>
-                        <small>Clients can use either an API key or an OAuth token. Both settings sections are shown.</small>
-                    </span>
-                </label>
-            </fieldset>
-
-            @if (UsesApiKey)
-            {
-                <fieldset class="identity-access-fieldset" disabled="@(!AuthenticationEnabled)">
-                    <legend>API key settings</legend>
-                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
-                        <div class="config-setting-heading">
-                            <label for="identity-auth-header">API key header name</label>
-                            <ConfigurationHelp Section="Profiles" Topic="Auth:Config" />
-                        </div>
-                        <input id="identity-auth-header" class="form-control" type="text" autocomplete="off"
-                               value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />
-                    </div>
-                    @if (primaryKeySetting is not null)
-                    {
-                        <div class="identity-access-form-row @(primaryKeySetting.IsChanged ? "config-field-changed" : string.Empty)">
-                            <div class="config-setting-heading">
-                                <label for="@primaryKeySetting.Key">Primary key</label>
-                                <ConfigurationHelp Section="Profiles" Topic="@primaryKeySetting.Name" />
-                            </div>
-                            <div>
-                                <div class="input-group">
-                                    <input id="@primaryKeySetting.Key" class="form-control" autocomplete="off"
-                                           type="@(_showPrimaryKey ? "text" : "password")"
-                                           @bind:get="primaryKeySetting.DraftValue"
-                                           @bind:set="@(value => SetSettingValueAsync(primaryKeySetting, value))"
-                                           @bind:event="oninput" />
-                                    <button class="btn btn-outline-secondary" type="button"
-                                            aria-label="@(_showPrimaryKey ? "Hide primary key" : "Show primary key")"
-                                            aria-pressed="@(_showPrimaryKey ? "true" : "false")"
-                                            @onclick="@(() => _showPrimaryKey = !_showPrimaryKey)">
-                                        <span class="bi @(_showPrimaryKey ? "bi-eye-slash" : "bi-eye")" aria-hidden="true"></span>
-                                    </button>
-                                </div>
-                                @if (primaryKeySetting.IsChanged)
-                                {
-                                    <div class="identity-access-change">
-                                        <span>Current: (hidden)</span>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                @onclick="@(() => RevertAsync(primaryKeySetting))">Revert</button>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                    @if (secondaryKeySetting is not null)
-                    {
-                        <div class="identity-access-form-row @(secondaryKeySetting.IsChanged ? "config-field-changed" : string.Empty)">
-                            <div class="config-setting-heading">
-                                <label for="@secondaryKeySetting.Key">Secondary key <span>Optional</span></label>
-                                <ConfigurationHelp Section="Profiles" Topic="@secondaryKeySetting.Name" />
-                            </div>
-                            <div>
-                                <div class="input-group">
-                                    <input id="@secondaryKeySetting.Key" class="form-control" autocomplete="off"
-                                           type="@(_showSecondaryKey ? "text" : "password")"
-                                           @bind:get="secondaryKeySetting.DraftValue"
-                                           @bind:set="@(value => SetSettingValueAsync(secondaryKeySetting, value))"
-                                           @bind:event="oninput" />
-                                    <button class="btn btn-outline-secondary" type="button"
-                                            aria-label="@(_showSecondaryKey ? "Hide secondary key" : "Show secondary key")"
-                                            aria-pressed="@(_showSecondaryKey ? "true" : "false")"
-                                            @onclick="@(() => _showSecondaryKey = !_showSecondaryKey)">
-                                        <span class="bi @(_showSecondaryKey ? "bi-eye-slash" : "bi-eye")" aria-hidden="true"></span>
-                                    </button>
-                                </div>
-                                @if (secondaryKeySetting.IsChanged)
-                                {
-                                    <div class="identity-access-change">
-                                        <span>Current: (hidden)</span>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                @onclick="@(() => RevertAsync(secondaryKeySetting))">Revert</button>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                </fieldset>
-            }
-
-            @if (UsesOAuth)
-            {
-                <fieldset class="identity-access-fieldset" disabled="@(!AuthenticationEnabled)">
-                    <legend>OAuth token settings</legend>
-                    @if (string.IsNullOrWhiteSpace(OAuthIssuer) || string.IsNullOrWhiteSpace(OAuthAudience))
-                    {
-                        <div class="alert alert-warning py-2" role="alert">
-                            OAuth authentication requires an issuer and at least one audience before the configuration is saved.
-                        </div>
-                    }
-                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
-                        <div class="config-setting-heading">
-                            <label for="identity-oauth-header">Bearer token header</label>
-                            <ConfigurationHelp Section="Profiles" Topic="Auth:Config" />
-                        </div>
-                        <input id="identity-oauth-header" class="form-control" type="text" autocomplete="off"
-                               value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />
-                    </div>
-                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
-                        <label for="identity-oauth-issuer">Issuer URL</label>
-                        <input id="identity-oauth-issuer" class="form-control" type="url" autocomplete="off"
-                               value="@OAuthIssuer" @oninput="SetOAuthIssuerAsync" />
-                    </div>
-                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
-                        <label for="identity-oauth-audience">Audience</label>
-                        <input id="identity-oauth-audience" class="form-control" type="text" autocomplete="off"
-                               value="@OAuthAudience" @oninput="SetOAuthAudienceAsync" />
-                    </div>
-                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
-                        <label for="identity-oauth-metadata">Metadata address <span>Optional</span></label>
-                        <input id="identity-oauth-metadata" class="form-control" type="url" autocomplete="off"
-                               placeholder="Derived from the issuer URL"
-                               value="@OAuthMetadataAddress" @oninput="SetOAuthMetadataAddressAsync" />
-                    </div>
-                    <div class="identity-access-form-row @(configSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
-                        <label for="identity-oauth-skew">Clock skew (minutes)</label>
-                        <input id="identity-oauth-skew" class="form-control" type="number" min="0" step="1"
-                               value="@OAuthClockSkewMinutes" @oninput="SetOAuthClockSkewAsync" />
-                    </div>
-                </fieldset>
-            }
-
-            @if (configSetting is { IsChanged: true })
-            {
-                <div class="identity-access-config-change">
-                    <span>Authentication settings have local changes.</span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                            @onclick="@(() => RevertAsync(configSetting))">Revert authentication</button>
-                </div>
-            }
-        </section>
-    }
     else if (_selectedView == "applications")
     {
         var enabledSetting = FindSetting("Auth:ValidateAppIDEnabled");
@@ -720,40 +523,6 @@
                     <span>Application validation has local changes.</span>
                     <button type="button" class="btn btn-sm btn-outline-secondary"
                             @onclick="@(() => RevertAsync(enabledSetting))">Revert validation</button>
-                </div>
-            }
-        </section>
-    }
-    else if (_selectedView == "profiles")
-    {
-        var enabledSetting = FindSetting("User:UseProfiles");
-        var profileSettings = Settings.Where(setting =>
-            (setting.Name.StartsWith("User:", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(setting.Name, "User:UseProfiles", StringComparison.OrdinalIgnoreCase))
-            || !setting.Name.Contains(':'))
-            .ToList();
-        <section id="identity-panel-profiles" class="identity-access-panel" role="tabpanel"
-                 aria-labelledby="identity-tab-profiles">
-            <div class="identity-access-panel-heading">
-                <div>
-                    <h3>oldPR</h3>
-                    <p>Load caller profiles and control how requests map to them.</p>
-                </div>
-                <label class="identity-access-switch form-switch">
-                    <input class="form-check-input" type="checkbox" checked="@UserProfilesEnabled(Settings)"
-                           disabled="@(enabledSetting is null)"
-                           @onchange="@(args => SetBooleanSettingAsync(enabledSetting, args.Value is true))" />
-                    <span>Enable user profiles</span>
-                </label>
-            </div>
-            <ConfigurationExplanation Section="Identity & Access" Topic="User Profiles" />
-            <ConfigurationFields Settings="profileSettings" OnChanged="OnChanged" />
-            @if (enabledSetting is { IsChanged: true })
-            {
-                <div class="identity-access-config-change">
-                    <span>User profile enablement has local changes.</span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                            @onclick="@(() => RevertAsync(enabledSetting))">Revert enablement</button>
                 </div>
             }
         </section>
