@@ -149,6 +149,27 @@
     private static string FieldOf(JsonObject entry, string name) =>
         entry[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : string.Empty;
 
+    private static List<JsonObject> ParseSuspendedUsersArray(string json)
+    {
+        var array = JsonNode.Parse(json) as JsonArray ?? throw new InvalidDataException("The suspended user list must be a JSON array.");
+        var entries = new List<JsonObject>();
+        foreach (var node in array)
+        {
+            entries.Add(node as JsonObject ?? throw new InvalidDataException("Each suspended user entry must be a JSON object."));
+        }
+        return entries;
+    }
+
+    private static (string Host, string Container, string Blob)? ParseSuspendedUsersBlobUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "azblob")
+        {
+            return null;
+        }
+        var parts = uri.AbsolutePath.Trim('/').Split('/', 2);
+        return parts.Length == 2 ? (uri.Host, parts[0], parts[1]) : null;
+    }
+
     private string ExportSuspendedUsers()
     {
         var array = new JsonArray();
@@ -167,7 +188,7 @@
         {
             return;
         }
-        var target = ParseAppIdsBlobUrl(url);
+        var target = ParseSuspendedUsersBlobUrl(url);
         if (target is null)
         {
             _suspendedError = $"Suspended user list URL must be azblob://account/container/blob. Found: {url}";
@@ -178,7 +199,7 @@
         try
         {
             var blob = StorageBackend.CreateBlobContainerClient(target.Value.Host, target.Value.Container).GetBlobClient(target.Value.Blob);
-            var entries = ParseAppIdsArray((await blob.DownloadContentAsync()).Value.Content.ToString());
+            var entries = ParseSuspendedUsersArray((await blob.DownloadContentAsync()).Value.Content.ToString());
             _suspendedEntries.Clear();
             _suspendedEntries.AddRange(entries);
             _suspendedSavedJson = ExportSuspendedUsers();
@@ -241,7 +262,7 @@
             setting.DraftValue = $"azblob://{account}/{containerName}/suspended.json";
         }
 
-        var target = ParseAppIdsBlobUrl(setting.DraftValue);
+        var target = ParseSuspendedUsersBlobUrl(setting.DraftValue);
         if (target is null)
         {
             _suspendedError = $"Suspended user list URL must be azblob://account/container/blob. Found: {setting.DraftValue}";
@@ -275,7 +296,7 @@
     private void CancelSuspendedUsers()
     {
         _suspendedEntries.Clear();
-        _suspendedEntries.AddRange(ParseAppIdsArray(_suspendedSavedJson));
+        _suspendedEntries.AddRange(ParseSuspendedUsersArray(_suspendedSavedJson));
         _suspendedSelected.Clear();
         _suspendedEditing = null;
         _suspendedEditingIsNew = false;
