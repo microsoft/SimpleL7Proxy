@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace CompanionApp.Components.Shared;
@@ -12,6 +11,8 @@ public sealed class ImageSyncComponentState(string name, string repositoryName)
 
     private IReadOnlyDictionary<string, string> _sourceDigests = new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, string> _targetDigests = new Dictionary<string, string>(StringComparer.Ordinal);
+    private bool _currentVersionWasAssumedLatest;
+    private bool _targetInformationAvailable;
 
     public string Name { get; } = name;
     public string RepositoryName { get; } = repositoryName;
@@ -39,6 +40,18 @@ public sealed class ImageSyncComponentState(string name, string repositoryName)
                 return true;
             }
 
+            if (!_targetInformationAvailable)
+            {
+                return false;
+            }
+
+            if (_currentVersionWasAssumedLatest
+                && !_targetDigests.ContainsKey(CurrentVersion)
+                && _sourceDigests.ContainsKey(SelectedVersion))
+            {
+                return false;
+            }
+
             return !_sourceDigests.TryGetValue(SelectedVersion, out var selectedDigest)
                 || !_targetDigests.TryGetValue(CurrentVersion, out var currentDigest)
                 || !string.Equals(selectedDigest, currentDigest, StringComparison.Ordinal);
@@ -51,7 +64,8 @@ public sealed class ImageSyncComponentState(string name, string repositoryName)
     public void Refresh(
         IReadOnlyDictionary<string, string> sourceDigests,
         IReadOnlyDictionary<string, string> targetDigests,
-        string? configuredCurrentVersion)
+        string? configuredCurrentVersion,
+        bool targetInformationAvailable = true)
     {
         var previousSelection = SelectedVersion;
         AvailableVersions = sourceDigests.Keys
@@ -63,13 +77,15 @@ public sealed class ImageSyncComponentState(string name, string repositoryName)
         _targetDigests = targetDigests;
         Error = null;
         SelectionWasReset = false;
+        _currentVersionWasAssumedLatest = string.IsNullOrWhiteSpace(configuredCurrentVersion);
+        _targetInformationAvailable = targetInformationAvailable;
 
         var latest = AvailableVersions.FirstOrDefault();
         var configured = string.IsNullOrWhiteSpace(configuredCurrentVersion)
             ? null
             : FindVersion(configuredCurrentVersion, AvailableVersions);
         CurrentVersion = configured
-            ?? (string.IsNullOrWhiteSpace(configuredCurrentVersion) ? latest : FormatVersion(configuredCurrentVersion));
+            ?? (string.IsNullOrWhiteSpace(configuredCurrentVersion) ? latest ?? string.Empty : FormatVersion(configuredCurrentVersion));
 
         var retained = previousSelection is null ? null : FindExactVersion(previousSelection, AvailableVersions);
         if (retained is not null)

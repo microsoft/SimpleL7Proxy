@@ -257,7 +257,8 @@
 
     private bool CanSynchronize =>
         ImageSync.HasTarget && !_busy && SelectedCount > 0 &&
-        SelectedImages.All(image => image.Component.Error is null);
+        SelectedImages.All(image => image.Component.Error is null
+            || image.Component.SynchronizationStatus == "Synchronization failed");
 
     private bool CanRestart => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CONTAINER_APP_NAME"));
 
@@ -367,11 +368,20 @@
     {
         var sourceDigests = await ImageSync.GetSourceTagDigestsAsync(component.RepositoryName, cancellationToken);
         IReadOnlyDictionary<string, string> targetDigests = new Dictionary<string, string>(StringComparer.Ordinal);
+        var targetInformationAvailable = false;
         if (ImageSync.HasTarget)
         {
-            targetDigests = await ImageSync.GetTargetTagDigestsAsync(component.RepositoryName, cancellationToken);
+            try
+            {
+                targetDigests = await ImageSync.GetTargetTagDigestsAsync(component.RepositoryName, cancellationToken);
+                targetInformationAvailable = true;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                AddActivity(component.Name, $"Unable to read synchronized image details: {ex.Message}");
+            }
         }
-        component.Refresh(sourceDigests, targetDigests, currentVersion);
+        component.Refresh(sourceDigests, targetDigests, currentVersion, targetInformationAvailable);
     }
 
     private IReadOnlyDictionary<string, string> GetConfiguredCurrentVersions()
