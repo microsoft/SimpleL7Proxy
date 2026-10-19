@@ -27,6 +27,20 @@
 .profile-rule-json { min-height: 24rem; tab-size: 4; }
 .profile-file-footer { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; }
 .profile-file-footer > span { margin-right: auto; }
+.profile-file-status-auto-dismiss { animation: profile-file-status-dismiss 200ms ease 5s forwards; }
+@keyframes profile-file-status-dismiss {
+    to {
+        opacity: 0;
+        height: 0;
+        margin: 0;
+        padding: 0;
+        border-width: 0;
+        font-size: 0;
+        line-height: 0;
+        overflow: hidden;
+        visibility: hidden;
+    }
+}
 @media (max-width: 1100px) {
     .profile-file-layout { grid-template-columns: minmax(0, 1fr); }
     .profile-file-list { max-height: 16rem; overflow-y: auto; }
