@@ -25,6 +25,7 @@ public sealed class HeaderValidationRule
 // Each parameter is available to use as a config setting with the following metadata:
 // ConfigName is only needed when the env var / config key differs from the
 // C# property name.  When omitted, the property name is used as-is.
+// Sensitive (defaults to false) masks the value in configuration diagnostics.
 //
 // Mode (defaults to Warm):
 //   Warm   — hot-reloaded from App Configuration (~30 s), no restart needed.
@@ -97,9 +98,9 @@ public class ProxyConfig
 
     [ConfigOption("Profiles:Auth:Config")]
     public string ValidateAuthConfig { get; set; } = "enabled=false, mode=none, header=S7P-KEY";
-    [ConfigOption("Profiles:Auth:Key1")]
+    [ConfigOption("Profiles:Auth:Key1", Sensitive = true)]
     public string ValidateAuthKey1 { get; set; } = "";
-    [ConfigOption("Profiles:Auth:Key2")]
+    [ConfigOption("Profiles:Auth:Key2", Sensitive = true)]
     public string ValidateAuthKey2 { get; set; } = "";
 
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
@@ -174,7 +175,7 @@ public class ProxyConfig
     // ════════════════════════════════════════════════════════════════════
 
     // ── Async ──
-    [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold, Sensitive = true)]
     public string AsyncBlobStorageConfig { get; set; } = "";//"uri=https://mystorageaccount.blob.core.windows.net,mi=true";
     [ConfigOption("Async:Storage:Workers", ConfigName = "AsyncBlobWorkerCount", Mode = ConfigMode.Cold)]
     public int AsyncBlobWorkerCount { get; set; } = 2;
@@ -192,7 +193,7 @@ public class ProxyConfig
     public string AsyncClassNames { get; set; } = "";
     [ConfigOption("Async:Enabled", ConfigName = "AsyncModeEnabled", Mode = ConfigMode.Cold)]
     public bool AsyncModeEnabled { get; set;  } = false;
-    [ConfigOption("Async:ServiceBus:Config", ConfigName = "AsyncSBConfig", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:ServiceBus:Config", ConfigName = "AsyncSBConfig", Mode = ConfigMode.Cold, Sensitive = true)]
     public string AsyncSBConfig { get; set; } = "cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false";
     [ConfigOption("Async:Storage:ContainerName", ConfigName = "StorageDbContainerName", Mode = ConfigMode.Cold)]
     public string StorageDbContainerName { get; set; } = "Requests";
@@ -207,11 +208,11 @@ public class ProxyConfig
     public int SuccessRate { get; set; } = 80;
 
     // ── Logging ──
-    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold, Sensitive = true)]
     public string AppInsightsConnectionString { get; set; } = "";
     [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
     public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
-    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold, Sensitive = true)]
     public string EventHubConnectionString { get; set; } = "";
     [ConfigOption("Logging:EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
     public int EventHubMaxReconnectAttempts { get; set; } = 5;
@@ -290,7 +291,7 @@ public class ProxyConfig
 
     // ── Parsed from AsyncBlobStorageConfig ──
     [ParsedConfig("AsyncBlobStorageConfig")]
-    [ConfigOption("Async:BlobStorageConnectionString", Mode = ConfigMode.Hidden)]
+    [ConfigOption("Async:BlobStorageConnectionString", Mode = ConfigMode.Hidden, Sensitive = true)]
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string";
     [ParsedConfig("AsyncBlobStorageConfig")]
     [ConfigOption("Async:BlobStorageUseMI", Mode = ConfigMode.Hidden)]
@@ -301,7 +302,7 @@ public class ProxyConfig
 
     // ── Parsed from AsyncSBConfig ──
     [ParsedConfig("AsyncSBConfig")]
-    [ConfigOption("Async:SBConnectionString", Mode = ConfigMode.Hidden)]
+    [ConfigOption("Async:SBConnectionString", Mode = ConfigMode.Hidden, Sensitive = true)]
     public string AsyncSBConnectionString { get; set; } = "example-sb-connection-string";
     [ParsedConfig("AsyncSBConfig")]
     [ConfigOption("Async:SBQueue", Mode = ConfigMode.Hidden)]
@@ -322,7 +323,7 @@ public class ProxyConfig
     // ── App Config ──
     [ConfigOption("AppConfig:Endpoint", ConfigName = "AZURE_APPCONFIG_ENDPOINT", Mode = ConfigMode.Hidden)]
     public string? AppConfigEndpoint { get; set; }
-    [ConfigOption("AppConfig:ConnectionString", ConfigName = "AZURE_APPCONFIG_CONNECTION_STRING", Mode = ConfigMode.Hidden)]
+    [ConfigOption("AppConfig:ConnectionString", ConfigName = "AZURE_APPCONFIG_CONNECTION_STRING", Mode = ConfigMode.Hidden, Sensitive = true)]
     public string? AppConfigConnectionString { get; set; }
     [ConfigOption("AppConfig:Label", ConfigName = "AZURE_APPCONFIG_LABEL", Mode = ConfigMode.Hidden)]
     public string? AppConfigLabel { get; set; }

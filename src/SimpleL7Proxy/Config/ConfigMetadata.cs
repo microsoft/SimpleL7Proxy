@@ -37,6 +37,9 @@ public sealed class ConfigOptionAttribute : Attribute
 
     /// <summary>Reload mode. Default: Warm.</summary>
     public ConfigMode Mode { get; set; } = ConfigMode.Warm;
+
+    /// <summary>Whether this option's value is masked in configuration diagnostics. Default: false.</summary>
+    public bool Sensitive { get; set; }
 }
 
 /// <summary>
