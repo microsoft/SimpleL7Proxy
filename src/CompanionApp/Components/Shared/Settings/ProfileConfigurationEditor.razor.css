@@ -16,7 +16,9 @@
 .profile-file-detail { min-width: 0; }
 .profile-file-card { padding: 0.85rem; border: 1px solid #dce5f2; border-radius: 6px; margin-bottom: 0.5rem; }
 .profile-file-card h5 { margin-bottom: 0.5rem; }
-.profile-file-behavior { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(10rem, 0.8fr); gap: 0.75rem; align-items: center; }
+.profile-file-behavior { display: grid; grid-template-columns: minmax(12rem, 1.25fr) repeat(3, minmax(max-content, 1fr)) minmax(9rem, 0.8fr); gap: 0.75rem; align-items: center; }
+.profile-file-id { min-width: 0; }
+.profile-file-id .form-label { display: block; margin-bottom: 0.25rem; }
 .profile-file-priority { min-width: 0; }
 .profile-file-priority .form-label { display: block; margin-bottom: 0.25rem; }
 .profile-file-async { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
