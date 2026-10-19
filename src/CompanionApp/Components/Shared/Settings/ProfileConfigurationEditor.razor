@@ -682,7 +682,48 @@
         }
     }
 
+    private async Task LoadProfileBlobAsync() {
+        var url = ConfigurationSettings.FirstOrDefault(item =>
+            item.Name.Equals("User:UserConfigUrl", StringComparison.OrdinalIgnoreCase)
+            || item.Name.Equals("UserConfigUrl", StringComparison.OrdinalIgnoreCase))?.LoadedValue;
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "azblob") {
+            return;
+        }
+        var parts = uri.AbsolutePath.Trim('/').Split('/', 2);
+        if (parts.Length != 2) {
+            return;
+        }
+
+        _busy = true;
+        try {
+            var blob = StorageBackend.CreateBlobContainerClient(uri.Host, parts[0]).GetBlobClient(parts[1]);
+            var json = (await blob.DownloadContentAsync()).Value.Content.ToString();
+            var loaded = new ProfileConfigurationDocument { UserIdField = IdentityField };
+            loaded.Import(json);
+            State.Document = loaded;
+            State.SavedJson = loaded.Export();
+            State.SavedUserIdField = IdentityField;
+            State.SelectedProfile = State.Document.Profiles.FirstOrDefault();
+            State.SelectedRule = State.Document.Rules.FirstOrDefault();
+            State.Search = "";
+            State.IsDirty = false;
+            State.PendingBlobJson = null;
+            ResetRuleBuffer();
+            State.Status = $"Loaded profiles from {url}.";
+            await OnChanged.InvokeAsync();
+        } catch (Azure.RequestFailedException exception) when (exception.Status == 404) {
+            State.Status = $"No profile blob at {url} yet. Add a profile and Save config.json.";
+        } catch (Exception exception) when (exception is Azure.RequestFailedException or JsonException or ArgumentException or InvalidOperationException) {
+            State.Error = $"Profile blob not loaded from {url}: {exception.Message}";
+        } finally {
+            _busy = false;
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (firstRender && State.Document.Profiles.Count == 0 && !State.IsDirty) {
+            await LoadProfileBlobAsync();
+        }
         if (_lastDirty != State.IsDirty) {
             _lastDirty = State.IsDirty;
             await OnChanged.InvokeAsync();
