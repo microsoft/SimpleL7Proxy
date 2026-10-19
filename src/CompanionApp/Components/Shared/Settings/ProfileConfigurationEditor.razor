@@ -222,13 +222,13 @@
                                     <label for="profile-async-container" class="form-label">Container name</label>
                                     <input id="profile-async-container" class="form-control" disabled="@(!AsyncEnabled(profile))"
                                            @bind:get='@AsyncValue(profile, "containername")'
-                                           @bind:set='@((string? value) => SetAsyncValue(profile, "containername", value ?? ""))' @bind:event="oninput" />
+                                           @bind:set='@(value => SetAsyncValue(profile, "containername", value ?? ""))' @bind:event="oninput" />
                                 </div>
                                 <div>
                                     <label for="profile-async-topic" class="form-label">Topic (status)</label>
                                     <input id="profile-async-topic" class="form-control" disabled="@(!AsyncEnabled(profile))"
                                            @bind:get='@AsyncValue(profile, "topic")'
-                                           @bind:set='@((string? value) => SetAsyncValue(profile, "topic", value ?? ""))' @bind:event="oninput" />
+                                           @bind:set='@(value => SetAsyncValue(profile, "topic", value ?? ""))' @bind:event="oninput" />
                                 </div>
                             </div>
                         </div>
