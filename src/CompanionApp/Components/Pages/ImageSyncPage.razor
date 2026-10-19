@@ -7,7 +7,6 @@
 @inject Microsoft.Extensions.Hosting.IHostApplicationLifetime ApplicationLifetime
 @inject ILogger<ImageSyncPage> Logger
 @inject IConfiguration Configuration
-@inject IWebHostEnvironment HostEnvironment
 
 <PageTitle>Updates</PageTitle>
 
@@ -15,69 +14,41 @@
     <h1 class="h4 mb-0">Updates</h1>
 </SectionContent>
 
-<details open class="card shadow-sm mb-3">
-    <summary class="card-header">Debug configuration</summary>
-    <div class="card-body">
-        <h2 class="h6">Process environment variables</h2>
-        <pre class="small text-break">@EnvironmentDump</pre>
-        <h2 class="h6">Effective configuration</h2>
-        <pre class="small text-break">@ConfigurationDump</pre>
-        <h2 class="h6">appsettings files</h2>
-        <pre class="small text-break">@AppSettingsDump</pre>
-    </div>
-</details>
-
 <div class="card shadow-sm mb-3">
-    <div class="card-body" aria-live="polite" aria-busy="@(_busy ? "true" : "false")">
-        <h2 class="h5">CompanionApp</h2>
-        <p class="text-muted">@CompanionTag</p>
-        @if (_restarting)
-        {
-            <p role="status">Restarting. Reload this page in a moment.</p>
-        }
-        else if (_busy)
-        {
-            <p role="status">Checking for updates...</p>
-        }
-        else if (_restartReady && CompanionImageMatches)
-        {
-            <p class="fw-semibold">Update complete.</p>
-            <button type="button" class="btn btn-primary" disabled="@(!RendererInfo.IsInteractive || !CanRestart)" @onclick="RestartAsync">Restart</button>
-            @if (!CanRestart)
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3" aria-live="polite" aria-busy="@(_busy ? "true" : "false")">
+        <div>
+            @if (_error is not null)
             {
-                <p class="small mt-2 mb-0">Running locally? Stop and start the app to restart.</p>
+                <h2 class="h5 mb-1 text-danger">Update check failed</h2>
+                <p class="mb-1">Unable to retrieve available versions. Try again.</p>
             }
-        }
-        else if (!ImageSync.HasTarget)
-        {
-            <p>Updates aren't set up yet. Open Details to finish setup.</p>
-        }
-        else if (_error is not null || _repositories.Any(repository => repository.Error is not null))
-        {
-            <p class="text-danger">Couldn't check for updates. Try again.</p>
-        }
-        else if (CompanionUpdateAvailable)
-        {
-            <p class="fw-semibold">Updates are available.</p>
-            <p class="small mb-0">Choose the tags to copy in the table below.</p>
-        }
-        else if (CompanionRepository is { } customRepository
-            && !string.Equals(customRepository.TargetName, "companionapp", StringComparison.Ordinal))
-        {
-            <p>Use Details to update your custom image.</p>
-        }
-        else if (_repositories.Count == 0)
-        {
-            <p role="status">Checking for updates...</p>
-        }
-        else
-        {
-            <p>No new update found.</p>
-        }
-        @if (!_busy && !_restarting && ImageSync.HasTarget)
-        {
-            <button type="button" class="btn btn-outline-secondary mt-2" disabled="@(!RendererInfo.IsInteractive)" @onclick="LoadAsync">Check for updates</button>
-        }
+            else if (_lastChecked is null)
+            {
+                <h2 class="h5 mb-1">Check for available versions</h2>
+                <p class="mb-0">Choose which component versions to synchronize. Nothing is copied until you select components and synchronize.</p>
+            }
+            else if (_busy)
+            {
+                <h2 class="h5 mb-1">Checking for updates...</h2>
+            }
+            else if (NewerComponentCount > 0)
+            {
+                <h2 class="h5 mb-1">Newer versions are available</h2>
+                <p class="mb-1">@NewerComponentCount of @_components.Count components have newer versions available. Select the version you want to synchronize.</p>
+            }
+            else
+            {
+                <h2 class="h5 mb-1">All components are current.</h2>
+                <p class="mb-1">Historical versions remain available for intentional rollback.</p>
+            }
+            @if (_lastChecked is { } checkedAt)
+            {
+                <p class="small text-muted mb-0">Last checked: @checkedAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</p>
+            }
+        </div>
+        <button type="button" class="btn btn-outline-primary" disabled="@(_busy || _restarting || !RendererInfo.IsInteractive)" @onclick="LoadAsync">
+            Check for updates
+        </button>
     </div>
 </div>
 
@@ -85,466 +56,420 @@
 {
     <div class="alert alert-danger" role="alert">@_error</div>
 }
-@if (CompanionRepository?.Error is not null)
+@if (!ImageSync.HasTarget)
 {
-    <div class="alert alert-danger" role="alert">@CompanionRepository.Error</div>
+    <div class="alert alert-warning" role="alert">Image synchronization is not configured for this deployment.</div>
+}
+@if (_restarting)
+{
+    <div class="alert alert-info" role="status">Restarting CompanionApp. Reload this page in a moment.</div>
 }
 
-<details class="card shadow-sm mb-3">
-    <summary class="card-header">Restart the other apps</summary>
-    <div class="card-body">
-        <p>Restart the proxy and metrics server separately in the Azure Portal.</p>
-        <ol>
-            <li>Copy the required image under <strong>Details</strong>.</li>
-            <li>Open its Container App in the Azure Portal.</li>
-            <li>Open <strong>Revisions and replicas</strong>, select the active revision, then choose <strong>Restart</strong>.</li>
-            <li>Wait for healthy replicas and check the startup logs.</li>
-        </ol>
-        <p>Installing a different version? Use <strong>Containers → Edit and deploy</strong> to select the new image first. Restarting alone doesn't change the selected image.</p>
-        <p class="mb-0"><strong>Health probe:</strong> a sidecar restarts with the proxy. A separate health probe app must be restarted separately. An internal probe needs no separate update.</p>
-    </div>
-</details>
-
-<details open="@(_repositories.Count > 0)">
-<summary class="mb-3">Details</summary>
-<p class="small">Pick the tags you want below and select <strong>Synchronize</strong>. Nothing is selected by default. Images are copied to <code>@ImageSync.TargetLoginServer</code>. Before restarting, confirm ACA uses the image. The proxy and metrics apps still need a restart in the Azure Portal. A restart does not change the configured tag or guarantee a new digest. To use a different version, select it in ACA under <strong>Containers → Edit and deploy</strong>.</p>
 <div class="card shadow-sm mb-3">
-    <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
-        <span class="fw-semibold">Registries</span>
+    <div class="card-header">
+        <h2 class="h5 mb-0">Components</h2>
     </div>
-    <div class="card-body">
-        <p class="mb-1">Source (public): <code>@ImageSyncService.SourceLoginServer</code></p>
-        <p class="mb-3">
-            Target (deployment):
-            @if (ImageSync.HasTarget)
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th scope="col" aria-label="Select component"></th>
+                    <th scope="col">Component</th>
+                    <th scope="col">Current version</th>
+                    <th scope="col">Available version</th>
+                    <th scope="col">Selected version</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var component in _components)
+                {
+                    <tr @key="component.RepositoryName">
+                        <td>
+                            <input class="form-check-input" type="checkbox"
+                                   aria-label="@($"Select {component.Name} for synchronization")"
+                                   checked="@component.SelectedForSynchronization"
+                                   disabled="@(_busy || component.AvailableVersions.Count == 0)"
+                                   @onchange="@(args => ToggleSynchronization(component, args.Value is true))" />
+                        </td>
+                        <th scope="row">@component.Name</th>
+                        <td>@(component.CurrentVersion.Length == 0 ? "Not checked" : component.CurrentVersion)</td>
+                        <td>
+                            <select class="form-select form-select-sm"
+                                    aria-label="@($"Available versions for {component.Name}")"
+                                    value="@component.SelectedVersion"
+                                    disabled="@(_busy || component.AvailableVersions.Count == 0 || component.Error is not null)"
+                                    @onchange="@(args => SelectVersion(component, args.Value?.ToString()))">
+                                @if (component.AvailableVersions.Count == 0)
+                                {
+                                    <option value="">No versions loaded</option>
+                                }
+                                @foreach (var version in component.AvailableVersions)
+                                {
+                                    <option value="@version">@VersionOptionLabel(component, version)</option>
+                                }
+                            </select>
+                        </td>
+                        <td>@(component.SelectedVersion ?? "—")</td>
+                        <td>
+                            @if (component.Error is not null)
+                            {
+                                <span class="text-danger" title="@component.Error">@(component.SynchronizationStatus ?? "Unable to check versions")</span>
+                            }
+                            else if (component.SynchronizationStatus is not null)
+                            {
+                                <span>@component.SynchronizationStatus</span>
+                            }
+                            else if (component.SelectedVersion is null)
+                            {
+                                <span class="text-muted">Check for updates</span>
+                            }
+                            else if (!component.NeedsSynchronization)
+                            {
+                                <span class="badge text-bg-success">Current</span>
+                            }
+                            else if (ImageSyncComponentState.IsNewerVersion(component.SelectedVersion, component.CurrentVersion))
+                            {
+                                <span class="badge text-bg-warning">Newer version available</span>
+                            }
+                            else if (!ImageSyncComponentState.VersionsMatch(component.SelectedVersion, component.CurrentVersion))
+                            {
+                                <span class="badge text-bg-info">Version selected</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-warning">Image changed</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="card-body d-flex flex-wrap align-items-center gap-2">
+        <button type="button" class="btn btn-primary" disabled="@(!CanSynchronize)" @onclick="SynchronizeAsync">
+            @if (_busy && _cancellation is not null)
             {
-                <code>@ImageSync.TargetLoginServer</code>
+                <span>Synchronizing...</span>
             }
             else
             {
-                <span class="text-danger">not configured</span>
+                <span>Synchronize selected (@SelectedCount)</span>
             }
-        </p>
-        @if (!ImageSync.HasTarget)
-        {
-            <div class="alert alert-warning" role="alert">
-                Set <code>CompanionApp__proxyacr</code> to the deployment registry name to synchronize images. The Bicep deployment sets it automatically and grants this app's managed identity <code>AcrPush</code> on that registry.
-            </div>
-        }
-        <button type="button" class="btn btn-primary" disabled="@(!RendererInfo.IsInteractive || _busy)" @onclick="LoadAsync">
-            @(_repositories.Count == 0 ? "Check public images" : "Refresh")
         </button>
+        <button type="button" class="btn btn-outline-secondary" disabled="@_busy"
+                aria-expanded="@(_showRestartDetails ? "true" : "false")"
+                @onclick="() => _showRestartDetails = !_showRestartDetails">
+            Restart applications
+        </button>
+        <span class="small text-muted ms-lg-auto">Synchronization copies selected images to the deployment registry. Restart is a separate step required for changes to take effect.</span>
     </div>
 </div>
 
-@if (_repositories.Count > 0)
+@if (_showRestartDetails)
 {
     <div class="card shadow-sm mb-3">
-        <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
-            <span class="fw-semibold">Public images</span>
-            <span class="small">Select missing tags or tags whose image digest has changed.</span>
-        </div>
+        <div class="card-header"><h2 class="h6 mb-0">Restart applications</h2></div>
         <div class="card-body">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th scope="col">Repository</th>
-                        <th scope="col">Target repository</th>
-                        <th scope="col">Tags</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var repository in _repositories)
-                    {
-                        <tr @key="repository.Name">
-                            <td><code>@repository.Name</code></td>
-                            <td>
-                                <input class="form-control form-control-sm" aria-label="@($"Target repository for {repository.Name}")"
-                                       value="@repository.TargetName" disabled="@(_busy || !ImageSync.HasTarget)"
-                                       @onchange="@(args => ChangeTargetAsync(repository, args.Value?.ToString()))" />
-                                @if (!ImageSyncService.IsValidRepositoryName(repository.TargetName))
-                                {
-                                    <div class="small text-danger">Use lowercase letters, digits, and '.', '_', '-', or '/' separators.</div>
-                                }
-                            </td>
-                            <td>
-                                @if (repository.Error is not null)
-                                {
-                                    <span class="text-danger small">@repository.Error</span>
-                                }
-                                else if (repository.SourceTags.Count == 0)
-                                {
-                                    <span class="text-muted small">No tags</span>
-                                }
-                                @foreach (var tag in repository.SourceTags)
-                                {
-                                    var present = repository.TargetDigests.TryGetValue(tag, out var targetDigest);
-                                    var digestMatches = present
-                                        && repository.SourceDigests.TryGetValue(tag, out var sourceDigest)
-                                        && string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal);
-                                    var id = $"sync-{repository.Name}-{tag}";
-                                    <div class="form-check form-check-inline" @key="tag">
-                                        <input class="form-check-input" type="checkbox" id="@id"
-                                               checked="@repository.Selected.Contains(tag)" disabled="@(_busy || !ImageSync.HasTarget)"
-                                               @onchange="@(args => ToggleTag(repository, tag, args.Value is true))" />
-                                        <label class="form-check-label" for="@id">
-                                            @tag
-                                            @if (ImageSync.HasTarget && repository.Error is null && digestMatches)
-                                            {
-                                                <span class="badge text-bg-success ms-1">in local</span>
-                                            }
-                                            else if (ImageSync.HasTarget && repository.Error is null && present)
-                                            {
-                                                <span class="badge text-bg-warning ms-1">changed</span>
-                                            }
-                                            else if (ImageSync.HasTarget && repository.Error is null)
-                                            {
-                                                <span class="badge text-bg-warning ms-1">missing</span>
-                                            }
-                                        </label>
-                                    </div>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-
-            @if (_confirming)
-            {
-                <div class="alert alert-info" role="alertdialog" aria-label="Confirm image synchronization">
-                    <p class="mb-2">Copy @SelectedCount image(s) from <code>@ImageSyncService.SourceLoginServer</code> to <code>@ImageSync.TargetLoginServer</code>? Existing tags with the same name are overwritten.</p>
-                    <ul class="mb-2">
-                        @foreach (var item in SelectedImages)
-                        {
-                            <li><code>@item.Repository.Name:@item.Tag</code> &rarr; <code>@item.Repository.TargetName:@item.Tag</code></li>
-                        }
-                    </ul>
-                    <button type="button" class="btn btn-primary me-2" @onclick="SynchronizeAsync">Synchronize</button>
-                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _confirming = false">Cancel</button>
-                </div>
-            }
-            else
-            {
-                <button type="button" class="btn btn-outline-secondary me-2" disabled="@(_busy || !ImageSync.HasTarget)" @onclick="SelectMissing">Select missing or changed</button>
-                <button type="button" class="btn btn-primary me-2" disabled="@(_busy || !CanSynchronize)" @onclick="() => _confirming = true">
-                    Synchronize selected (@SelectedCount)
-                </button>
-                @if (_busy && _cancellation is not null)
-                {
-                    <button type="button" class="btn btn-outline-danger" @onclick="() => _cancellation.Cancel()">Cancel</button>
-                }
-            }
-        </div>
-    </div>
-}
-
-@if (_log.Count > 0)
-{
-    <div class="card shadow-sm">
-        <div class="card-header bg-secondary text-white">
-            <span class="fw-semibold">Activity</span>
-        </div>
-        <div class="card-body">
-            <ul class="list-unstyled small mb-0" aria-live="polite">
-                @foreach (var line in _log)
-                {
-                    <li>@line</li>
-                }
+            <p>Restart applications only after their deployment is configured to use the synchronized image.</p>
+            <ul>
+                <li>Restart Proxy, MetricsServer, and a separately deployed HealthProbe through the Azure Portal or your deployment workflow.</li>
+                <li>A HealthProbe sidecar restarts with its Proxy application.</li>
             </ul>
+            @if (_restartReady && CanRestart)
+            {
+                <button type="button" class="btn btn-outline-primary" disabled="@_busy" @onclick="RestartAsync">Restart CompanionApp</button>
+            }
+            else if (_restartReady)
+            {
+                <p class="small mb-0">Restart CompanionApp by stopping and starting the app in your hosting environment.</p>
+            }
         </div>
     </div>
 }
+
+<details class="card shadow-sm">
+    <summary class="card-header">Activity</summary>
+    <div class="card-body p-0">
+        @if (_activity.Count == 0)
+        {
+            <p class="text-muted p-3 mb-0">No activity yet.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr><th scope="col">Time</th><th scope="col">Component</th><th scope="col">Message</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in _activity.AsEnumerable().Reverse())
+                        {
+                            <tr>
+                                <td>@entry.Time.ToLocalTime().ToString("M/d/yyyy h:mm:ss tt")</td>
+                                <td>@entry.Component</td>
+                                <td>@entry.Message</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
 </details>
 
 @code {
-    private readonly List<RepositoryState> _repositories = new();
-    private readonly List<string> _log = new();
+    private readonly List<ImageSyncComponentState> _components =
+    [
+        new("CompanionApp", "companionapp"),
+        new("HealthProbe", "healthprobe"),
+        new("MetricsServer", "metricsserver"),
+        new("SimpleL7Proxy", "simplel7proxy")
+    ];
+    private readonly List<ActivityEntry> _activity = new();
     private CancellationTokenSource? _cancellation;
+    private DateTimeOffset? _lastChecked;
     private string? _error;
     private bool _busy;
-    private bool _confirming;
-
     private bool _restartReady;
     private bool _restarting;
+    private bool _showRestartDetails;
 
-    private string EnvironmentDump
+    private int NewerComponentCount => _components.Count(component =>
+        component.Error is null && component.AvailableVersions.Any(version =>
+            ImageSyncComponentState.IsNewerVersion(version, component.CurrentVersion)));
+
+    private IEnumerable<(ImageSyncComponentState Component, string Version)> SelectedImages
     {
         get
         {
-            var variables = Environment.GetEnvironmentVariables();
-            var keys = new List<string>(variables.Count);
-            foreach (var key in variables.Keys)
+            foreach (var component in _components)
             {
-                keys.Add(key?.ToString() ?? string.Empty);
-            }
-            keys.Sort(StringComparer.OrdinalIgnoreCase);
-            return string.Join(Environment.NewLine, keys.Select(key => $"{key}={variables[key]}"));
-        }
-    }
-
-    private string ConfigurationDump => string.Join(
-        Environment.NewLine,
-        Configuration.AsEnumerable()
-            .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(entry => $"{entry.Key}={entry.Value}"));
-
-    private string AppSettingsDump
-    {
-        get
-        {
-            var builder = new System.Text.StringBuilder();
-            foreach (var fileName in new[] { "appsettings.json", $"appsettings.{HostEnvironment.EnvironmentName}.json" })
-            {
-                var path = Path.Combine(HostEnvironment.ContentRootPath, fileName);
-                builder.AppendLine($"# {path}");
-                builder.AppendLine(File.Exists(path) ? File.ReadAllText(path) : "(file not found)");
-                builder.AppendLine();
-            }
-            return builder.ToString();
-        }
-    }
-
-    private string CompanionTag => $"v{Constants.VERSION}";
-    private RepositoryState? CompanionRepository => _repositories.FirstOrDefault(repository =>
-        string.Equals(repository.Name, "companionapp", StringComparison.Ordinal));
-    private bool CompanionUpdateAvailable => OutdatedImages.Any();
-    private IEnumerable<(RepositoryState Repository, string Tag)> OutdatedImages
-    {
-        get
-        {
-            foreach (var repository in _repositories)
-            {
-                if (repository.Error is not null || !ImageSync.HasTarget
-                    || !ImageSyncService.IsValidRepositoryName(repository.TargetName))
+                if (component.GetSynchronizationVersion() is { } version)
                 {
-                    continue;
-                }
-                var isCompanion = string.Equals(repository.Name, "companionapp", StringComparison.Ordinal);
-                if (isCompanion && !string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                // CompanionApp keeps its version tag because the restart check compares that tag.
-                var tag = isCompanion ? CompanionTag : "2.3.0";
-                if (!repository.SourceDigests.TryGetValue(tag, out var sourceDigest))
-                {
-                    continue;
-                }
-                if (!repository.TargetDigests.TryGetValue(tag, out var targetDigest)
-                    || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal))
-                {
-                    yield return (repository, tag);
+                    yield return (component, version);
                 }
             }
         }
     }
-    private bool CompanionImageMatches => ImageSync.HasTarget
-        && CompanionRepository is { Error: null } repository
-        && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
-        && repository.SourceDigests.TryGetValue(CompanionTag, out var sourceDigest)
-        && repository.TargetDigests.TryGetValue(CompanionTag, out var targetDigest)
-        && string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal);
-    private bool CanRestart => !string.IsNullOrWhiteSpace(
-        Environment.GetEnvironmentVariable("CONTAINER_APP_NAME"));
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private int SelectedCount => SelectedImages.Count();
+
+    private bool CanSynchronize =>
+        ImageSync.HasTarget && !_busy && SelectedCount > 0 &&
+        SelectedImages.All(image => image.Component.Error is null);
+
+    private bool CanRestart => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CONTAINER_APP_NAME"));
+
+    private static string VersionOptionLabel(ImageSyncComponentState component, string version)
     {
-        if (firstRender && ImageSync.HasTarget)
+        var labels = new List<string>();
+        if (component.AvailableVersions.FirstOrDefault() == version)
         {
-            await LoadAsync();
-            StateHasChanged();
+            labels.Add("latest");
+        }
+        if (ImageSyncComponentState.VersionsMatch(component.CurrentVersion, version))
+        {
+            labels.Add("current");
+        }
+        return labels.Count == 0 ? version : $"{version} ({string.Join(", ", labels)})";
+    }
+
+    private static void SelectVersion(ImageSyncComponentState component, string? version)
+    {
+        component.SelectedVersion = version;
+        component.SynchronizationStatus = null;
+        component.Error = null;
+    }
+
+    private static void ToggleSynchronization(ImageSyncComponentState component, bool selected)
+    {
+        component.SelectedForSynchronization = selected;
+        if (selected)
+        {
+            component.Error = null;
+            if (component.SynchronizationStatus == "Synchronization failed")
+            {
+                component.SynchronizationStatus = null;
+            }
         }
     }
+
+    private async Task LoadAsync()
+    {
+        using var cancellation = StartOperation();
+        try
+        {
+            _error = null;
+            var repositories = new HashSet<string>(
+                await ImageSync.GetSourceRepositoriesAsync(cancellation.Token),
+                StringComparer.Ordinal);
+            var configuredVersions = GetConfiguredCurrentVersions();
+
+            foreach (var component in _components)
+            {
+                if (!repositories.Contains(component.RepositoryName))
+                {
+                    component.Error = $"No source image was found for {component.Name}.";
+                    AddActivity(component.Name, "No source image was found.");
+                    continue;
+                }
+
+                try
+                {
+                    var currentVersion = configuredVersions.TryGetValue(component.Name, out var value) ? value : null;
+                    await LoadTagsAsync(component, currentVersion, cancellation.Token);
+                    if (component.SynchronizationStatus == "Synchronization failed")
+                    {
+                        component.SynchronizationStatus = null;
+                    }
+                    if (component.SelectionWasReset)
+                    {
+                        AddActivity(component.Name, $"The previously selected version is no longer available. Selected {component.SelectedVersion ?? "no version"} instead.");
+                    }
+
+                    var newerVersion = component.AvailableVersions.FirstOrDefault(version =>
+                        ImageSyncComponentState.IsNewerVersion(version, component.CurrentVersion));
+                    AddActivity(component.Name, newerVersion is null
+                        ? $"No newer version found. Current version: {component.CurrentVersion}"
+                        : $"Available version {newerVersion} found. Current version: {component.CurrentVersion}");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    component.Error = ex.Message;
+                    component.SynchronizationStatus = "Unable to check versions";
+                    AddActivity(component.Name, $"Unable to check versions: {ex.Message}");
+                }
+            }
+
+            _lastChecked = DateTimeOffset.UtcNow;
+            AddActivity("System", "Update check completed.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _error = ex.Message;
+            AddActivity("System", $"Unable to check for updates: {ex.Message}");
+        }
+        catch (OperationCanceledException)
+        {
+            AddActivity("System", "Update check cancelled.");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    private async Task LoadTagsAsync(
+        ImageSyncComponentState component,
+        string? currentVersion,
+        CancellationToken cancellationToken)
+    {
+        var sourceDigests = await ImageSync.GetSourceTagDigestsAsync(component.RepositoryName, cancellationToken);
+        IReadOnlyDictionary<string, string> targetDigests = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (ImageSync.HasTarget)
+        {
+            targetDigests = await ImageSync.GetTargetTagDigestsAsync(component.RepositoryName, cancellationToken);
+        }
+        component.Refresh(sourceDigests, targetDigests, currentVersion);
+    }
+
+    private IReadOnlyDictionary<string, string> GetConfiguredCurrentVersions()
+    {
+        var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in ImageSyncComponentState.ParseCurrentVersions(
+                     Configuration["CurrentVersions"] ?? Environment.GetEnvironmentVariable("CurrentVersions")))
+        {
+            versions[CanonicalComponentName(entry.Key)] = entry.Value;
+        }
+        foreach (var entry in Configuration.GetSection("CurrentVersions").GetChildren())
+        {
+            if (!string.IsNullOrWhiteSpace(entry.Value))
+            {
+                versions[CanonicalComponentName(entry.Key)] = entry.Value;
+            }
+        }
+        return versions;
+    }
+
+    private static string CanonicalComponentName(string name) => name.ToLowerInvariant() switch
+    {
+        "proxy" or "simplel7proxy" => "SimpleL7Proxy",
+        "metrics" or "metricsserver" => "MetricsServer",
+        "healthprobe" => "HealthProbe",
+        "companionapp" => "CompanionApp",
+        _ => name
+    };
 
     private async Task RestartAsync()
     {
-        if (_busy || _restarting || !_restartReady || !CompanionImageMatches || !CanRestart)
+        if (_busy || _restarting || !_restartReady || !CanRestart)
         {
             return;
         }
+
         _restarting = true;
         await Task.Delay(TimeSpan.FromSeconds(1));
         Logger.LogWarning("Restart requested from Image Synchronization after a CompanionApp image copy. Exiting this instance; ACA is responsible for restarting it. Other apps and replicas are not restarted.");
         ApplicationLifetime.StopApplication();
     }
 
-    private IEnumerable<(RepositoryState Repository, string Tag)> SelectedImages =>
-        _repositories.SelectMany(repository => repository.SourceTags
-            .Where(repository.Selected.Contains)
-            .Select(tag => (repository, tag)));
-
-    private int SelectedCount => SelectedImages.Count();
-
-    private bool CanSynchronize => ImageSync.HasTarget && SelectedCount > 0 &&
-        _repositories.Where(repository => repository.Selected.Count > 0).All(repository => ImageSyncService.IsValidRepositoryName(repository.TargetName));
-
-    private async Task LoadAsync()
-    {
-        using var cancellation = StartOperation();
-        _repositories.Clear();
-        try
-        {
-            foreach (var name in await ImageSync.GetSourceRepositoriesAsync(cancellation.Token))
-            {
-                var repository = new RepositoryState(name);
-                _repositories.Add(repository);
-                await LoadTagsAsync(repository, cancellation.Token);
-                StateHasChanged();
-            }
-            if (_repositories.Count == 0)
-            {
-                _error = $"No repositories were found in {ImageSyncService.SourceLoginServer}.";
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _error = $"Unable to list repositories in {ImageSyncService.SourceLoginServer}: {ex.Message}";
-        }
-        catch (OperationCanceledException)
-        {
-            AddLog("Cancelled.");
-        }
-        finally
-        {
-            EndOperation();
-        }
-    }
-
-    private async Task LoadTagsAsync(RepositoryState repository, CancellationToken cancellationToken)
-    {
-        repository.Error = null;
-        try
-        {
-                repository.SourceDigests = await ImageSync.GetSourceTagDigestsAsync(repository.Name, cancellationToken);
-                repository.SourceTags = repository.SourceDigests.Keys.ToArray();
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            repository.Error = $"Unable to list public tags: {ex.Message}";
-            return;
-        }
-        await LoadTargetTagsAsync(repository, cancellationToken);
-    }
-
-    private async Task LoadTargetTagsAsync(RepositoryState repository, CancellationToken cancellationToken)
-    {
-        repository.Error = null;
-        repository.TargetDigests = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (!ImageSync.HasTarget || !ImageSyncService.IsValidRepositoryName(repository.TargetName))
-        {
-            return;
-        }
-        try
-        {
-            repository.TargetDigests = new Dictionary<string, string>(
-                await ImageSync.GetTargetTagDigestsAsync(repository.TargetName, cancellationToken),
-                StringComparer.Ordinal);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            repository.Error = $"Unable to list tags in {ImageSync.TargetLoginServer}: {ex.Message}";
-        }
-    }
-
-    private async Task ChangeTargetAsync(RepositoryState repository, string? targetName)
-    {
-        repository.TargetName = (targetName ?? string.Empty).Trim();
-        using var cancellation = StartOperation();
-        try
-        {
-            await LoadTargetTagsAsync(repository, cancellation.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            AddLog("Cancelled.");
-        }
-        finally
-        {
-            EndOperation();
-        }
-    }
-
-    private static void ToggleTag(RepositoryState repository, string tag, bool selected)
-    {
-        if (selected)
-        {
-            repository.Selected.Add(tag);
-        }
-        else
-        {
-            repository.Selected.Remove(tag);
-        }
-    }
-
-    private void SelectMissing()
-    {
-        foreach (var repository in _repositories)
-        {
-            repository.Selected.Clear();
-            if (repository.Error is null)
-            {
-                repository.Selected.UnionWith(repository.SourceTags.Where(tag =>
-                    !repository.TargetDigests.TryGetValue(tag, out var targetDigest)
-                    || !repository.SourceDigests.TryGetValue(tag, out var sourceDigest)
-                    || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal)));
-            }
-        }
-    }
-
     private async Task SynchronizeAsync()
     {
-        _confirming = false;
         var images = SelectedImages.ToList();
         using var cancellation = StartOperation();
-        var progress = new Progress<string>(message =>
-        {
-            AddLog(message);
-            _ = InvokeAsync(StateHasChanged);
-        });
         var completed = 0;
         try
         {
-            foreach (var (repository, tag) in images)
+            foreach (var (component, version) in images)
             {
-                AddLog($"Copying {ImageSyncService.SourceLoginServer}/{repository.Name}:{tag} to {ImageSync.TargetLoginServer}/{repository.TargetName}:{tag}");
+                component.Error = null;
+                component.SynchronizationStatus = "Synchronizing...";
+                AddActivity(component.Name, $"Synchronizing selected version {version}.");
                 StateHasChanged();
                 try
                 {
-                    await ImageSync.CopyImageAsync(repository.Name, tag, repository.TargetName, progress, cancellation.Token);
-                    await LoadTargetTagsAsync(repository, cancellation.Token);
-                    if (repository.Error is not null)
-                    {
-                        throw new InvalidOperationException(repository.Error);
-                    }
-                    if (!repository.SourceDigests.TryGetValue(tag, out var sourceDigest)
-                        || !repository.TargetDigests.TryGetValue(tag, out var targetDigest)
+                    var progress = new Progress<string>(message => AddActivity(component.Name, message));
+                    await ImageSync.CopyImageAsync(
+                        component.RepositoryName,
+                        version,
+                        component.RepositoryName,
+                        progress,
+                        cancellation.Token);
+                    var targetDigests = await ImageSync.GetTargetTagDigestsAsync(component.RepositoryName, cancellation.Token);
+                    if (!component.SourceDigests.TryGetValue(version, out var sourceDigest)
+                        || !targetDigests.TryGetValue(version, out var targetDigest)
                         || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal))
                     {
-                        throw new InvalidOperationException("The copied image could not be verified in the deployment registry. Check for updates again before restarting.");
+                        throw new InvalidOperationException("The synchronized image could not be verified.");
                     }
-                    if (string.Equals(repository.Name, "companionapp", StringComparison.Ordinal)
-                        && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
-                        && string.Equals(tag, CompanionTag, StringComparison.Ordinal))
+
+                    component.Refresh(component.SourceDigests, targetDigests, component.CurrentVersion);
+                    component.SelectedForSynchronization = false;
+                    component.SynchronizationStatus = "Synchronized — restart required";
+                    if (string.Equals(component.Name, "CompanionApp", StringComparison.Ordinal))
                     {
                         _restartReady = true;
                     }
-                    repository.Selected.Remove(tag);
+                    AddActivity(component.Name, $"{version} synchronized successfully. Restart required.");
                     completed++;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _error = $"Unable to update {repository.Name}:{tag}: {ex.Message}";
-                    Logger.LogError(ex, "Image update failed for {Repository}:{Tag}.", repository.Name, tag);
-                    AddLog($"Failed {repository.Name}:{tag}: {ex.Message}");
+                    component.Error = ex.Message;
+                    component.SynchronizationStatus = "Synchronization failed";
+                    Logger.LogError(ex, "Image synchronization failed for {Component}:{Version}.", component.Name, version);
+                    AddActivity(component.Name, $"Synchronization failed for {version}: {ex.Message}");
                 }
+
                 StateHasChanged();
             }
-            AddLog($"Synchronized {completed} of {images.Count} image(s).");
+
+            AddActivity("System", $"Synchronized {completed} of {images.Count} selected image(s).");
         }
         catch (OperationCanceledException)
         {
-            AddLog($"Cancelled after {completed} of {images.Count} image(s).");
+            AddActivity("System", $"Synchronization cancelled after {completed} of {images.Count} image(s).");
         }
         finally
         {
@@ -554,7 +479,6 @@
 
     private CancellationTokenSource StartOperation()
     {
-        _error = null;
         _busy = true;
         _cancellation = new CancellationTokenSource();
         return _cancellation;
@@ -566,19 +490,10 @@
         _cancellation = null;
     }
 
-    private void AddLog(string message) =>
-        _log.Add($"{DateTimeOffset.Now:HH:mm:ss} {message}");
+    private void AddActivity(string component, string message) =>
+        _activity.Add(new ActivityEntry(DateTimeOffset.Now, component, message));
 
     public void Dispose() => _cancellation?.Cancel();
 
-    private sealed class RepositoryState(string name)
-    {
-        public string Name { get; } = name;
-        public string TargetName { get; set; } = name;
-        public IReadOnlyList<string> SourceTags { get; set; } = Array.Empty<string>();
-        public IReadOnlyDictionary<string, string> SourceDigests { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
-        public Dictionary<string, string> TargetDigests { get; set; } = new(StringComparer.Ordinal);
-        public HashSet<string> Selected { get; } = new(StringComparer.Ordinal);
-        public string? Error { get; set; }
-    }
+    private sealed record ActivityEntry(DateTimeOffset Time, string Component, string Message);
 }
