@@ -17,6 +17,7 @@
 .profile-file-card { padding: 0.85rem; border: 1px solid #dce5f2; border-radius: 6px; margin-bottom: 0.5rem; }
 .profile-file-card h5 { margin-bottom: 0.5rem; }
 .profile-file-behavior { display: grid; grid-template-columns: minmax(12rem, 1.25fr) repeat(3, minmax(max-content, 1fr)) minmax(9rem, 0.8fr); gap: 0.75rem; align-items: center; }
+.profile-file-role { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; text-align: center; white-space: nowrap; }
 .profile-file-id { min-width: 0; }
 .profile-file-id .form-label { display: block; margin-bottom: 0.25rem; }
 .profile-file-priority { min-width: 0; }
