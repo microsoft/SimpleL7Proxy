@@ -214,7 +214,7 @@ The deployment:
 - Imports the selected proxy, HealthProbe, Companion App, and Metrics Server images.
 - Creates the selected infrastructure.
 - Enables system-assigned identities on the Container Apps.
-- Grants ACR pull access to each selected app; grants the Companion App ACR push, App Configuration Data Owner, and Event Hubs Data Receiver access when selected.
+- Grants ACR pull access to each selected app; grants the Companion App ACR push, App Configuration Data Owner, and Event Hubs Data Receiver access when selected; grants the proxy Event Hubs Data Sender access on the Companion App's Event Hub.
 - Updates the Container Apps to use the imported ACR images.
 - Creates the Metrics Server as a single-replica internal Container App when selected.
 - Prints the deployment name and available application URLs.

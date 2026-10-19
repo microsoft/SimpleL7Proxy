@@ -63,6 +63,7 @@ module eventHubAccess 'modules/event-hub-access.bicep' = if (settings.DEPLOY_COM
   params: {
     settings: settings
     companionAppPrincipalId: companionAppBootstrap.?outputs.identityPrincipalId ?? ''
+    proxyPrincipalId: containerAppBootstrap.?outputs.identityPrincipalId ?? ''
   }
   dependsOn: [
     eventHub
