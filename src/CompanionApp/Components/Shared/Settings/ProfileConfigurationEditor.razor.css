@@ -29,7 +29,7 @@
 .profile-rule-json { min-height: 24rem; tab-size: 4; }
 .profile-file-footer { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; }
 .profile-file-footer > span { margin-right: auto; }
-.profile-file-status-auto-dismiss { animation: profile-file-status-dismiss 200ms ease 5s forwards; }
+.profile-file-status-auto-dismiss { animation: profile-file-status-dismiss 1s ease 3s forwards; }
 @keyframes profile-file-status-dismiss {
     to {
         opacity: 0;
