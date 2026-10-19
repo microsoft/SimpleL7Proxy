@@ -153,16 +153,17 @@
                                 <input id="profile-file-user-id" class="form-control" autocomplete="off"
                                        @bind:get="profile.Id" @bind:set="@(value => Change(() => profile.Id = value ?? ""))" @bind:event="oninput" />
                             </div>
-                            <label class="d-flex gap-2 align-items-center">
+                            <label class="profile-file-role">
+                                Admin user
                                 <input type="checkbox" class="form-check-input" checked="@isAdmin"
                                        @onchange="@(args => Change(() => {
                                            var field = profile.Fields.FirstOrDefault(item => item.Name.Equals("S7PAdministratorOverride", StringComparison.OrdinalIgnoreCase));
                                            if (field is null) profile.Fields.Add(new ProfileConfigurationField { Name = "S7PAdministratorOverride", Value = args.Value is true ? "true" : "false" });
                                            else field.Value = args.Value is true ? "true" : "false";
                                        }))" />
-                                Admin user
                             </label>
-                            <label class="d-flex gap-2 align-items-center">
+                            <label class="profile-file-role">
+                                Entitled tenant
                                 <input type="checkbox" class="form-check-input" checked="@isEntitled"
                                        @onchange="@(args => Change(() => {
                                            var value = args.Value is true ? "true" : "false";
@@ -172,9 +173,9 @@
                                                else field.Value = value;
                                            }
                                        }))" />
-                                Entitled tenant
                             </label>
-                            <label class="d-flex gap-2 align-items-center">
+                            <label class="profile-file-role">
+                                Governance user
                                 <input type="checkbox" class="form-check-input" checked="@isGovernance"
                                        @onchange="@(args => Change(() => {
                                            var value = args.Value is true ? "true" : "false";
@@ -184,7 +185,6 @@
                                                else field.Value = value;
                                            }
                                        }))" />
-                                Governance user
                             </label>
                             <div class="profile-file-priority">
                                 <label for="profile-priority-key" class="form-label">Priority</label>
