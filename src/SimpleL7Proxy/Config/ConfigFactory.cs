@@ -205,7 +205,7 @@ public static class ConfigFactory
       // If unchanged, skip.
       if (DeepEquals(currentValue, newValue)) continue;
 
-      Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{currentValue}' -> '{newValue}'"); // TODO: remove debug
+      Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{MaskSensitive(descriptor.Attribute.KeyPath, currentValue?.ToString() ?? "")}' -> '{MaskSensitive(descriptor.Attribute.KeyPath, newValue?.ToString() ?? "")}'");
 
       changedProps.Add(field);
       changeList.Add(new ConfigChange
@@ -369,20 +369,6 @@ public static class ConfigFactory
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-    static string MaskSensitive(string key, string value)
-    {
-      if (string.IsNullOrEmpty(value)) return value;
-
-      var lower = key.ToLowerInvariant();
-      if (lower.Contains("connectionstring") || lower.Contains("password") ||
-          lower.Contains("secret") || lower.Contains("token") ||
-          lower.Contains("apikey") || lower.Contains("sas"))
-      {
-        return value.Length <= 4 ? "****" : $"{value[..2]}***{value[^2..]}";
-      }
-      return value;
-    }
-
     static string FormatValue(object? rawValue)
     {
       if (rawValue == null) return "";
@@ -398,6 +384,24 @@ public static class ConfigFactory
         _ => rawValue.ToString() ?? ""
       };
     }
+  }
+
+  private static string MaskSensitive(string key, string value)
+  {
+    if (key.Equals("Profiles:Auth:Key1", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("Profiles:Auth:Key2", StringComparison.OrdinalIgnoreCase))
+      return "[REDACTED]";
+
+    if (string.IsNullOrEmpty(value)) return value;
+
+    var lower = key.ToLowerInvariant();
+    if (lower.Contains("connectionstring") || lower.Contains("password") ||
+        lower.Contains("secret") || lower.Contains("token") ||
+        lower.Contains("apikey") || lower.Contains("sas"))
+    {
+      return value.Length <= 4 ? "****" : $"{value[..2]}***{value[^2..]}";
+    }
+    return value;
   }
 
   /// <summary>
