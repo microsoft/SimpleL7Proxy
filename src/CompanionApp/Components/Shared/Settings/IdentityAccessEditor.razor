@@ -143,7 +143,15 @@
 
     private string _selectedView = "overview";
 
-    private void SelectView(string view) => _selectedView = view;
+    private void SelectView(string view)
+    {
+        if (_selectedView == "profile-editor" && view != "profile-editor"
+            && ProfileFileState.Status?.StartsWith("Loaded profiles from ", StringComparison.Ordinal) == true)
+        {
+            ProfileFileState.Status = null;
+        }
+        _selectedView = view;
+    }
     private AppConfigurationScaffoldSetting? FindSetting(string name) => FindSetting(Settings, name);
 
     public static string AuthenticationSummary(IEnumerable<AppConfigurationScaffoldSetting> settings)
