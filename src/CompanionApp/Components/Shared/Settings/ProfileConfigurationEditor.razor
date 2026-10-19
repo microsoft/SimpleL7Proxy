@@ -32,7 +32,7 @@
     }
     @if (State.Status is not null)
     {
-        <div class="alert @(string.IsNullOrEmpty(State.PendingBlobJson) ? "alert-success" : "alert-warning")" role="status">@State.Status</div>
+        <div class="alert @(string.IsNullOrEmpty(State.PendingBlobJson) ? "alert-success" : "alert-warning") @(State.Status.StartsWith("Loaded profiles from ", StringComparison.Ordinal) ? "profile-file-status-auto-dismiss" : string.Empty)" role="status">@State.Status</div>
     }
     <fieldset disabled="@_busy">
         <div class="profile-file-layout">
