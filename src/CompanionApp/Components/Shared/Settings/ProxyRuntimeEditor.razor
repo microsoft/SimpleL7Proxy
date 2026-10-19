@@ -12,6 +12,8 @@
     var garbageCollectionSetting = FindSetting(Settings, "GC2InternalSecs");
     var streamFlushSetting = FindSetting(Settings, "StreamFlushInterval");
     var ignoreCertificateSetting = FindSetting(Settings, "IgnoreSSLCert");
+    var authProviderSetting = FindSetting(Settings, "AuthProviderClass");
+    var environmentPluginSetting = FindSetting(Settings, "EnvPluginClass");
     var requestPreprocessorSetting = FindSetting(Settings, "RequestPreprocessorPlugins");
 }
 
@@ -215,6 +217,36 @@
                                 <p>Disable validation only for controlled development environments that use untrusted certificates.</p>
                             </div>
                         }
+                        @if (authProviderSetting is not null)
+                        {
+                            <div class="proxy-settings-field @(authProviderSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                                <div class="config-setting-heading">
+                                    <label for="@authProviderSetting.Key">Authentication provider classes</label>
+                                    <ConfigurationHelp Section="Server" Topic="@authProviderSetting.Name" />
+                                </div>
+                                <ConfigurationExplanation Section="Server" Topic="@authProviderSetting.Name" />
+                                <input id="@authProviderSetting.Key" class="form-control"
+                                       @bind:get="authProviderSetting.DraftValue"
+                                       @bind:set="@(value => SetDraftValue(authProviderSetting, value))"
+                                       @bind:event="oninput"
+                                       @onchange="NotifyChangedAsync" />
+                            </div>
+                        }
+                        @if (environmentPluginSetting is not null)
+                        {
+                            <div class="proxy-settings-field @(environmentPluginSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                                <div class="config-setting-heading">
+                                    <label for="@environmentPluginSetting.Key">Environment plugin class</label>
+                                    <ConfigurationHelp Section="Server" Topic="@environmentPluginSetting.Name" />
+                                </div>
+                                <ConfigurationExplanation Section="Server" Topic="@environmentPluginSetting.Name" />
+                                <input id="@environmentPluginSetting.Key" class="form-control"
+                                       @bind:get="environmentPluginSetting.DraftValue"
+                                       @bind:set="@(value => SetDraftValue(environmentPluginSetting, value))"
+                                       @bind:event="oninput"
+                                       @onchange="NotifyChangedAsync" />
+                            </div>
+                        }
                         @if (requestPreprocessorSetting is not null)
                         {
                             <div class="proxy-settings-field @(requestPreprocessorSetting.IsChanged ? "config-field-changed" : string.Empty)">
@@ -254,6 +286,8 @@
         "TerminationGracePeriodSeconds",
         "GC2InternalSecs",
         "StreamFlushInterval",
+        "AuthProviderClass",
+        "EnvPluginClass",
     };
 
     public static bool IsProxyRuntimeSetting(AppConfigurationScaffoldSetting setting) =>
