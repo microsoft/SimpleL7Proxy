@@ -1,0 +1,423 @@
+@namespace CompanionApp.Components.Shared
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+@inject IConfiguration Configuration
+        <section id="identity-panel-suspended" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-suspended">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>Suspended Users</h3>
+                    <p>Manage the list of suspended users. Suspended users are blocked from accessing the proxy.</p>
+                </div>
+                <div class="app-id-heading-actions">
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            @onclick="AddSuspendedUser"><span class="bi bi-plus-lg" aria-hidden="true"></span> Add suspended user</button>
+                </div>
+            </div>
+            <ConfigurationExplanation Section="Identity & Access" Topic="Suspended Users" />
+            <div class="app-id-editor">
+                <div class="app-id-toolbar">
+                    <input class="form-control form-control-sm" type="search" placeholder="Search user IDs..."
+                           value="@_suspendedSearch" @oninput="@(args => _suspendedSearch = args.Value?.ToString() ?? string.Empty)" />
+                    <span class="app-id-count">@VisibleSuspendedEntries.Count() suspended users</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger"
+                            disabled="@(_suspendedSelected.Count == 0 || _suspendedBusy)"
+                            @onclick="@(() => RemoveSuspendedEntries(_suspendedSelected.ToList()))">Delete selected</button>
+                </div>
+                @if (_suspendedError is not null)
+                {
+                    <div class="alert alert-danger py-2" role="alert">@_suspendedError</div>
+                }
+                <table class="app-id-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="app-id-select"><input type="checkbox" class="form-check-input" aria-label="Select all visible suspended users"
+                                                                         checked="@(VisibleSuspendedEntries.Any() && VisibleSuspendedEntries.All(entry => _suspendedSelected.Contains(entry)))"
+                                                                         @onchange="@(args => { foreach (var entry in VisibleSuspendedEntries.ToList()) { SetSuspendedSelected(entry, args.Value is true); } })" /></th>
+                            <th scope="col">User ID</th>
+                            <th scope="col">Reason (optional)</th>
+                            <th scope="col">Suspended At (UTC, optional)</th>
+                            <th scope="col" class="app-id-actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in VisibleSuspendedEntries)
+                        {
+                            var current = entry;
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input" checked="@_suspendedSelected.Contains(current)"
+                                           @onchange="@(args => SetSuspendedSelected(current, args.Value is true))" />
+                                </td>
+                                <td>
+                                    @if (ReferenceEquals(_suspendedEditing, current))
+                                    {
+                                        <input class="form-control form-control-sm" @bind="_suspendedEditUserId" />
+                                    }
+                                    else
+                                    {
+                                        <code>@FieldOf(current, SuspendedUserIdFieldName)</code>
+                                    }
+                                </td>
+                                <td>
+                                    @if (ReferenceEquals(_suspendedEditing, current))
+                                    {
+                                        <input class="form-control form-control-sm" @bind="_suspendedEditReason" />
+                                    }
+                                    else
+                                    {
+                                        <span>@FieldOf(current, "Reason")</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (ReferenceEquals(_suspendedEditing, current))
+                                    {
+                                        <input class="form-control form-control-sm" placeholder="2026-10-01T00:00:00Z" @bind="_suspendedEditSuspendedAt" />
+                                    }
+                                    else
+                                    {
+                                        <span>@FieldOf(current, "SuspendedAt")</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    @if (ReferenceEquals(_suspendedEditing, current))
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="CommitEditSuspendedUser">Done</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="@(() => { if (_suspendedEditingIsNew) { _suspendedEntries.Remove(current); } _suspendedEditing = null; _suspendedEditingIsNew = false; _suspendedError = null; })">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-link app-id-icon-btn" aria-label="Edit suspended user" title="Edit"
+                                                @onclick="@(() => BeginEditSuspendedUser(current))"><span class="bi bi-pencil" aria-hidden="true"></span></button>
+                                        <button type="button" class="btn btn-sm btn-link app-id-icon-btn text-danger" aria-label="Delete suspended user" title="Delete"
+                                                @onclick="@(() => RemoveSuspendedEntries(new[] { current }))"><span class="bi bi-trash" aria-hidden="true"></span></button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="app-id-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(!SuspendedUsersDirty || _suspendedBusy)"
+                            @onclick="CancelSuspendedUsers">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" disabled="@(!SuspendedUsersDirty || _suspendedBusy)"
+                            @onclick="SaveSuspendedUsersAsync">Save</button>
+                </div>
+            </div>
+        </section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> ConfigurationSettings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    private readonly List<JsonObject> _suspendedEntries = new();
+    private readonly HashSet<JsonObject> _suspendedSelected = new(ReferenceEqualityComparer.Instance);
+    private string _suspendedSavedJson = "[]";
+    private string _suspendedSearch = string.Empty;
+    private bool _suspendedEditingIsNew;
+    private string _suspendedEditReason = string.Empty;
+    private string _suspendedEditSuspendedAt = string.Empty;
+    private string _suspendedEditUserId = string.Empty;
+    private JsonObject? _suspendedEditing;
+    private string? _suspendedError;
+    private bool _suspendedBusy;
+    private bool _suspendedLoaded;
+    private AppConfigurationScaffoldSetting? FindSetting(string name) => FindSetting(Settings, name);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+    private AppConfigurationScaffoldSetting? SuspendedConfigUrlSetting => ConfigurationSettings.FirstOrDefault(item =>
+        item.Name.Equals("SuspendedUser:ConfigUrl", StringComparison.OrdinalIgnoreCase)
+        || item.Key.EndsWith("Profiles:SuspendedUser:ConfigUrl", StringComparison.OrdinalIgnoreCase));
+
+    private string SuspendedUserIdFieldName =>
+        FindSetting("Profiles:User:IDFieldName")?.DraftValue is { Length: > 0 } configuredName ? configuredName : "userId";
+
+    private IEnumerable<JsonObject> VisibleSuspendedEntries =>
+        string.IsNullOrWhiteSpace(_suspendedSearch)
+            ? _suspendedEntries
+            : _suspendedEntries.Where(entry => FieldOf(entry, SuspendedUserIdFieldName).Contains(_suspendedSearch.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool SuspendedUsersDirty => ExportSuspendedUsers() != _suspendedSavedJson;
+
+    private static string FieldOf(JsonObject entry, string name) =>
+        entry[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : string.Empty;
+
+    private string ExportSuspendedUsers()
+    {
+        var array = new JsonArray();
+        foreach (var entry in _suspendedEntries)
+        {
+            array.Add(entry.DeepClone());
+        }
+        return array.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private async Task LoadSuspendedUsersAsync()
+    {
+        _suspendedLoaded = true;
+        var url = SuspendedConfigUrlSetting?.DraftValue;
+        if (string.IsNullOrWhiteSpace(url) || url == "-")
+        {
+            return;
+        }
+        var target = ParseAppIdsBlobUrl(url);
+        if (target is null)
+        {
+            _suspendedError = $"Suspended user list URL must be azblob://account/container/blob. Found: {url}";
+            return;
+        }
+
+        _suspendedBusy = true;
+        try
+        {
+            var blob = StorageBackend.CreateBlobContainerClient(target.Value.Host, target.Value.Container).GetBlobClient(target.Value.Blob);
+            var entries = ParseAppIdsArray((await blob.DownloadContentAsync()).Value.Content.ToString());
+            _suspendedEntries.Clear();
+            _suspendedEntries.AddRange(entries);
+            _suspendedSavedJson = ExportSuspendedUsers();
+        }
+        catch (Azure.RequestFailedException exception) when (exception.Status == 404)
+        {
+            // A missing blob means no suspended user list has been saved yet.
+        }
+        catch (Exception exception) when (exception is Azure.RequestFailedException or JsonException or InvalidDataException or InvalidOperationException)
+        {
+            _suspendedError = $"Suspended user list not loaded from {url}: {exception.Message}";
+        }
+        finally
+        {
+            _suspendedBusy = false;
+        }
+    }
+
+    private async Task SaveSuspendedUsersAsync()
+    {
+        _suspendedError = null;
+        if (_suspendedEditingIsNew)
+        {
+            _suspendedError = "Finish or cancel the new suspended user before saving.";
+            return;
+        }
+        var setting = SuspendedConfigUrlSetting;
+        if (setting is null || string.IsNullOrWhiteSpace(setting.DraftValue) || setting.DraftValue == "-")
+        {
+            var account = Configuration["CompanionApp:Profiles:StorageAccountName"];
+            if (string.IsNullOrWhiteSpace(account))
+            {
+                _suspendedError = "Storage account was not read from CompanionApp:Profiles:StorageAccountName. The suspended user list cannot be created.";
+                return;
+            }
+            var containerName = Configuration["CompanionApp:Profiles:BlobContainerName"];
+            if (string.IsNullOrWhiteSpace(containerName))
+            {
+                containerName = "profiles";
+            }
+            if (setting is null)
+            {
+                if (ConfigurationSettings is not IList<AppConfigurationScaffoldSetting> settings)
+                {
+                    _suspendedError = "The suspended user list URL was not in the loaded settings, and the settings list cannot be updated.";
+                    return;
+                }
+                var sibling = settings.FirstOrDefault(item => item.Key.Contains(":Profiles:", StringComparison.OrdinalIgnoreCase));
+                setting = new AppConfigurationScaffoldSetting(
+                    "Warm:Profiles:SuspendedUser:ConfigUrl",
+                    "Warm",
+                    "Profiles",
+                    "SuspendedUser:ConfigUrl",
+                    sibling?.Label ?? string.Empty,
+                    string.Empty) {
+                    IsNew = true
+                };
+                settings.Add(setting);
+            }
+            setting.DraftValue = $"azblob://{account}/{containerName}/suspended.json";
+        }
+
+        var target = ParseAppIdsBlobUrl(setting.DraftValue);
+        if (target is null)
+        {
+            _suspendedError = $"Suspended user list URL must be azblob://account/container/blob. Found: {setting.DraftValue}";
+            return;
+        }
+
+        _suspendedBusy = true;
+        try
+        {
+            var json = ExportSuspendedUsers();
+            var blob = StorageBackend.CreateBlobContainerClient(target.Value.Host, target.Value.Container).GetBlobClient(target.Value.Blob);
+            await blob.UploadAsync(
+                BinaryData.FromString(json),
+                new BlobUploadOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
+                });
+            _suspendedSavedJson = json;
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception exception) when (exception is Azure.RequestFailedException or InvalidOperationException)
+        {
+            _suspendedError = $"Suspended user list not saved: {exception.Message}";
+        }
+        finally
+        {
+            _suspendedBusy = false;
+        }
+    }
+
+    private void CancelSuspendedUsers()
+    {
+        _suspendedEntries.Clear();
+        _suspendedEntries.AddRange(ParseAppIdsArray(_suspendedSavedJson));
+        _suspendedSelected.Clear();
+        _suspendedEditing = null;
+        _suspendedEditingIsNew = false;
+        _suspendedError = null;
+    }
+
+    private void AddSuspendedUser()
+    {
+        if (_suspendedEditing is not null)
+        {
+            _suspendedError = "Finish editing the current suspended user before adding another.";
+            return;
+        }
+        var entry = new JsonObject { [SuspendedUserIdFieldName] = string.Empty };
+        _suspendedSearch = string.Empty;
+        _suspendedEntries.Insert(0, entry);
+        _suspendedEditing = entry;
+        _suspendedEditingIsNew = true;
+        _suspendedEditUserId = string.Empty;
+        _suspendedEditReason = string.Empty;
+        _suspendedEditSuspendedAt = string.Empty;
+        _suspendedError = null;
+    }
+
+    private void BeginEditSuspendedUser(JsonObject entry)
+    {
+        if (_suspendedEditingIsNew)
+        {
+            _suspendedError = "Finish or cancel the new suspended user before editing another.";
+            return;
+        }
+        _suspendedEditing = entry;
+        _suspendedEditUserId = FieldOf(entry, SuspendedUserIdFieldName);
+        _suspendedEditReason = FieldOf(entry, "Reason");
+        _suspendedEditSuspendedAt = FieldOf(entry, "SuspendedAt");
+        _suspendedError = null;
+    }
+
+    private void CommitEditSuspendedUser()
+    {
+        var entry = _suspendedEditing;
+        if (entry is null)
+        {
+            return;
+        }
+        var id = _suspendedEditUserId.Trim();
+        _suspendedError = ValidateSuspendedUserId(id, entry);
+        if (_suspendedError is not null)
+        {
+            return;
+        }
+        var suspendedAt = _suspendedEditSuspendedAt.Trim();
+        if (suspendedAt.Length > 0)
+        {
+            if (!DateTimeOffset.TryParse(suspendedAt, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var parsedAt))
+            {
+                _suspendedError = $"Suspended At must be a date and time, for example 2026-10-01T00:00:00Z. Found: {suspendedAt}";
+                return;
+            }
+            suspendedAt = parsedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        var reason = _suspendedEditReason.Trim();
+
+        entry[SuspendedUserIdFieldName] = id;
+        if (reason.Length > 0)
+        {
+            entry["Reason"] = reason;
+        }
+        else
+        {
+            entry.Remove("Reason");
+        }
+        if (suspendedAt.Length > 0)
+        {
+            entry["SuspendedAt"] = suspendedAt;
+        }
+        else
+        {
+            entry.Remove("SuspendedAt");
+        }
+        _suspendedEditing = null;
+        _suspendedEditingIsNew = false;
+    }
+
+    private void RemoveSuspendedEntries(IReadOnlyCollection<JsonObject> entries)
+    {
+        _suspendedEntries.RemoveAll(entry => entries.Contains(entry));
+        _suspendedSelected.ExceptWith(entries);
+        if (_suspendedEditing is not null && entries.Contains(_suspendedEditing))
+        {
+            _suspendedEditing = null;
+            _suspendedEditingIsNew = false;
+        }
+    }
+
+    private void SetSuspendedSelected(JsonObject entry, bool selected)
+    {
+        if (selected)
+        {
+            _suspendedSelected.Add(entry);
+        }
+        else
+        {
+            _suspendedSelected.Remove(entry);
+        }
+    }
+
+    private string? ValidateSuspendedUserId(string id, JsonObject? current)
+    {
+        if (id.Length == 0)
+        {
+            return "Enter a user ID.";
+        }
+        return _suspendedEntries.Any(entry => !ReferenceEquals(entry, current) && FieldOf(entry, SuspendedUserIdFieldName).Equals(id, StringComparison.Ordinal))
+            ? $"User ID '{id}' is already in the suspended list."
+            : null;
+    }
+
+
+    private async Task SetBooleanSettingAsync(AppConfigurationScaffoldSetting? setting, bool enabled)
+    {
+        if (setting is null)
+        {
+            return;
+        }
+        setting.DraftValue = enabled ? "true" : "false";
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RevertAsync(AppConfigurationScaffoldSetting setting)
+    {
+        setting.RevertDraft();
+        await OnChanged.InvokeAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsSelected && !_suspendedLoaded && !_suspendedBusy)
+        {
+            await LoadSuspendedUsersAsync();
+            StateHasChanged();
+        }
+    }
+}
