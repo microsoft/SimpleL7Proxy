@@ -268,6 +268,11 @@ public class Program
 
         services.AddSingleton<WorkerContext>();
 
+        // Profile reads need a blob client whether or not async mode is on.
+        // The lazy pump is not resolved unless a queued writer is created.
+        services.AddSingleton(sp => new Lazy<BlobWorkerPump>(() => sp.GetRequiredService<BlobWorkerPump>()));
+        services.AddSingleton<BlobWriterFactory>();
+
         if (backendOptions.AsyncModeEnabled)
             RegisterAsyncDI(services, startupLogger, backendOptions);
         else
@@ -459,7 +464,10 @@ public class Program
         {
             var iType = Array.Find(assemblyTypes, t => t.Name == kvp.Key && t.IsInterface)!;
             var cType = Array.Find(assemblyTypes, t => t.Name == kvp.Value && !t.IsAbstract)!;
-            services.AddSingleton(iType, cType);
+            if (cType == typeof(BlobWriterFactory))
+                services.AddSingleton(iType, sp => sp.GetRequiredService<BlobWriterFactory>());
+            else
+                services.AddSingleton(iType, cType);
 
             if (typeof(IHostedService).IsAssignableFrom(cType))
             {
@@ -488,9 +496,7 @@ public class Program
 
         services.AddSingleton<BlobWorkerPump>();
         services.AddHostedService(sp => sp.GetRequiredService<BlobWorkerPump>());
-        // Lazy wrapper lets BlobWriterFactory.CreateQueuedBlobWriter() resolve the pump
-        // on demand without forming a DI cycle (BlobWorkerPump itself takes IBlobWriterFactory).
-        services.AddSingleton(sp => new Lazy<BlobWorkerPump>(() => sp.GetRequiredService<BlobWorkerPump>()));
+        // Lazy<BlobWorkerPump> is registered before the async-mode check. CreateQueuedBlobWriter resolves it.
 
         // Distinct binding for consumers that explicitly want the queued write path.
         // Resolved through the factory so the wrapping logic lives in one place.

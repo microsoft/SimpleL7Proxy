@@ -8,6 +8,8 @@
 @inject NavigationManager Navigation
 @using Azure
 @using Azure.Identity
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
 @using CompanionApp.Components.Shared
 @using CompanionApp.Components.Widgets.AppConfiguration
 @using Microsoft.AspNetCore.Components.Routing
@@ -167,7 +169,7 @@
             <div class="d-flex align-items-center gap-2 ms-auto">
                 <button class="btn btn-sm btn-warning text-nowrap" type="button"
                         disabled="@IsLoading" @onclick='() => SelectSection("Local change review")'>
-                    <span class="bi bi-list-check me-1" aria-hidden="true"></span>@ChangedCount @(ChangedCount == 1 ? "setting changed" : "settings changed")
+                    <span class="bi bi-list-check me-1" aria-hidden="true"></span>@PendingReviewLabel
                 </button>
                 <button class="btn btn-primary btn-sm text-nowrap" type="button" disabled="@IsLoading" @onclick="UpdateSettingsAsync">
                     <span class="bi bi-cloud-upload me-1" aria-hidden="true"></span>Update
@@ -310,7 +312,7 @@
             <div class="config-tokenomics-save-bar">
                 <div class="config-tokenomics-save-status" role="status">
                     <span class="bi @(HasPendingChanges ? "bi-pencil-square" : "bi-check-circle-fill")" aria-hidden="true"></span>
-                    <span>@(HasPendingChanges ? $"{ChangedCount} unsaved configuration changes" : "No unsaved configuration changes")</span>
+                    <span>@PendingChangesText</span>
                 </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-outline-secondary" disabled="@(IsLoading || !HasPendingChanges)"
@@ -455,9 +457,13 @@
                         }
                         @if (SelectedSection == "Local change review")
                         {
+                            @if (HasPendingProfileBlob)
+                            {
+                                <p class="text-warning">A profile blob update is pending. Save changes writes config.json and publishes UserConfigUrl.</p>
+                            }
                             @if (ChangedCount == 0)
                             {
-                                <p class="text-muted mb-0">No local changes.</p>
+                                <p class="text-muted mb-0">@(HasPendingProfileBlob ? "No other local changes." : "No local changes.")</p>
                             }
                             else
                             {
@@ -635,7 +641,11 @@
     <p>Your changes have not been saved.</p>
     @if (_profileFileState.IsDirty)
     {
-        <p class="text-warning">The local profile file has unsaved edits. Cancel and use Save config.json in Identity &amp; Access before leaving to keep them. App Configuration Save does not save this file.</p>
+        <p class="text-warning">The profile editor has unstaged edits. Cancel and use Save config.json in Identity &amp; Access before leaving to stage them.</p>
+    }
+    @if (HasPendingProfileBlob)
+    {
+        <p>Save changes writes the staged profile blob and publishes App Configuration.</p>
     }
     @if (HasLoadError)
     {
@@ -686,7 +696,20 @@
     private DotNetObjectReference<AdminConfigurationPage>? _pageReference;
     private Func<Task>? _pendingLeave;
     private bool LabelsReady => _dialogModule is not null && string.Equals(_loadedEndpoint, Endpoint.Trim(), StringComparison.OrdinalIgnoreCase);
-    private bool HasPendingChanges => _editingLabel && (_newLabelDraft || ChangedCount > 0);
+    private bool HasPendingProfileBlob => !string.IsNullOrEmpty(_profileFileState.PendingBlobJson);
+    private bool HasPendingChanges => _editingLabel && (_newLabelDraft || ChangedCount > 0 || HasPendingProfileBlob);
+    private string PendingReviewLabel => HasPendingProfileBlob && ChangedCount == 0
+        ? "Profile blob pending"
+        : HasPendingProfileBlob
+            ? $"{ChangedCount} settings changed; blob pending"
+            : $"{ChangedCount} {(ChangedCount == 1 ? "setting changed" : "settings changed")}";
+    private string PendingChangesText => !HasPendingChanges
+        ? "No unsaved configuration changes"
+        : HasPendingProfileBlob && ChangedCount == 0 && !_newLabelDraft
+            ? "Profile blob update is pending"
+            : HasPendingProfileBlob
+                ? $"{ChangedCount} unsaved configuration changes; profile blob update is pending"
+                : $"{ChangedCount} unsaved configuration changes";
     private string? LabelNameError => string.IsNullOrWhiteSpace(_draftLabelName) ? null
         : _draftLabelName.Trim().IndexOfAny(['*', ',', '\\', '\0']) >= 0 ? "Names cannot contain *, comma, backslash, or null characters."
         : AvailableLabels.Contains(_draftLabelName.Trim(), StringComparer.Ordinal) ? "A label with this name already exists."
@@ -805,22 +828,45 @@
     private async Task UpdateSettingsAsync()
     {
         CancelStatusClear();
+        if (_profileFileState.IsDirty)
+        {
+            HasLoadError = true;
+            StatusMessage = "Profile editor has unstaged edits. Save config.json in Identity & Access before saving App Configuration.";
+            return;
+        }
+
         IsLoading = true;
         HasLoadError = false;
-        StatusMessage = $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
+        StatusMessage = HasPendingProfileBlob
+            ? "Writing the profile blob..."
+            : $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         StartTimer(stopwatch);
+        var wroteProfileBlob = false;
         try
         {
+            if (HasPendingProfileBlob)
+            {
+                await WritePendingProfileBlobAsync(_profileFileState.PendingBlobJson!);
+                wroteProfileBlob = true;
+                StatusMessage = $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
+            }
             var result = await AppConfiguration.UpdateAsync(Endpoint.Trim(), Label, Settings, createLabel: _newLabelDraft);
             _allSettings = result.Settings.ToList();
             _lastLoadedAtUtc = DateTime.UtcNow;
             _newLabelDraft = false;
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
             ApplyLabelFilter();
+            if (wroteProfileBlob)
+            {
+                _profileFileState.PendingBlobJson = null;
+                _profileFileState.Status = "Profile blob and App Configuration were updated.";
+            }
 
-            StatusMessage = $"Updated and verified {result.UpdatedCount} setting(s); Warm:Sentinel {result.PreviousSentinel} → {result.NewSentinel}; re-downloaded {_allSettings.Count} settings in {stopwatch.ElapsedMilliseconds} ms.";
+            StatusMessage = wroteProfileBlob
+                ? $"Wrote the profile blob. Updated and verified {result.UpdatedCount} setting(s); Warm:Sentinel {result.PreviousSentinel} → {result.NewSentinel}; re-downloaded {_allSettings.Count} settings in {stopwatch.ElapsedMilliseconds} ms."
+                : $"Updated and verified {result.UpdatedCount} setting(s); Warm:Sentinel {result.PreviousSentinel} → {result.NewSentinel}; re-downloaded {_allSettings.Count} settings in {stopwatch.ElapsedMilliseconds} ms.";
             _dataReadyAtUtc = DateTime.UtcNow;
             StateHasChanged();
         }
@@ -832,7 +878,9 @@
         catch (RequestFailedException ex)
         {
             HasLoadError = true;
-            StatusMessage = $"App Configuration returned {ex.Status}: {ex.Message}";
+            StatusMessage = wroteProfileBlob
+                ? $"App Configuration returned {ex.Status}: {ex.Message}"
+                : $"Profile blob write returned {ex.Status}: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -841,9 +889,9 @@
         }
         finally
         {
-            if (HasLoadError)
+            if (HasLoadError && wroteProfileBlob)
             {
-                StatusMessage += " Some writes may have completed. Reload the label list to inspect saved values before retrying.";
+                StatusMessage += " The profile blob was written, but App Configuration may not have been published. Reload the label list before retrying.";
             }
             stopwatch.Stop();
             _elapsed = stopwatch.Elapsed;
@@ -1260,9 +1308,45 @@
         {
             Reset(setting);
         }
+        _profileFileState.PendingBlobJson = null;
+        _profileFileState.Status = "Discarded the pending profile blob update.";
         // Recreate persistent editors to discard buffered invalid input as well as saved drafts.
         Settings = Settings.ToList();
     }
+
+    private async Task WritePendingProfileBlobAsync(string json)
+    {
+        var configuredAccount = Configuration["CompanionApp:Profiles:StorageAccountName"];
+        var environmentAccount = Environment.GetEnvironmentVariable("CompanionApp__Profiles__StorageAccountName");
+        var account = FirstNonEmpty(configuredAccount, environmentAccount);
+        var containerName = FirstNonEmpty(
+            Configuration["CompanionApp:Profiles:BlobContainerName"],
+            Environment.GetEnvironmentVariable("CompanionApp__Profiles__BlobContainerName")) ?? "profiles";
+        if (string.IsNullOrWhiteSpace(account))
+        {
+            throw new InvalidOperationException($"Profile storage account was not read. Configuration='{configuredAccount ?? ""}'; Environment='{environmentAccount ?? ""}'. The profile blob was not written.");
+        }
+
+        var setting = Settings.FirstOrDefault(item =>
+            item.Name.Equals("User:UserConfigUrl", StringComparison.OrdinalIgnoreCase)
+            || item.Key.EndsWith(":User:UserConfigUrl", StringComparison.OrdinalIgnoreCase));
+        if (setting is null)
+        {
+            throw new InvalidOperationException("User:UserConfigUrl is not in this label. The profile blob was not written.");
+        }
+        setting.DraftValue = $"azblob://{account}/{containerName}/config.json";
+
+        var container = StorageBackend.CreateBlobContainerClient(account, containerName);
+        await container.GetBlobClient("config.json").UploadAsync(
+            BinaryData.FromString(json),
+            new BlobUploadOptions
+            {
+                HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
+            });
+    }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.Select(value => value?.Trim()).FirstOrDefault(value => !string.IsNullOrEmpty(value));
 
     private Task ResetToDefaultsAsync()
     {

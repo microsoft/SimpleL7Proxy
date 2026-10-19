@@ -15,14 +15,15 @@ A profile is the single place to define a caller's priority, validation values, 
 | Setting | Default | Unit or format | Reload | Purpose |
 | --- | --- | --- | --- | --- |
 | `UseProfiles` | `false` | Boolean | Warm | Enables profile loading and profile-driven request enrichment. |
-| `UserConfigUrl` | `""` | URL or `file:` location | Warm | Source for the profile JSON array. |
+| `UserConfigUrl` | `""` | HTTP(S), `file:`, or `azblob://account/container/blob` | Warm | Source for the profile JSON array. |
 | `UserConfigRequired` | `false` | Boolean | Warm | Rejects a request when a profile header is missing and required checks are enabled. |
 | `UserIDFieldName` | `userId` | JSON property name | Warm | Names the field that identifies a profile record. |
 | `UserProfileHeader` | `X-UserProfile` | Header name | Warm | Incoming header that selects the profile. |
 | `UniqueUserHeaders` | `["X-UserID"]` | Ordered header list | Warm | Builds the queue-accounting identity. |
 | `UserConfigRefreshIntervalSecs` | `3600` | Seconds | Cold | Normal refresh interval for profile source polling. |
 | `UserSoftDeleteTTLMinutes` | `360` | Minutes | Cold | Grace period for removed profiles and failure threshold. |
-| `SuspendedUserConfigUrl` | `""` | URL or `file:` location | Warm | Separate JSON array of suspended IDs. |
+| `SuspendedUserConfigUrl` | `""` | HTTP(S), `file:`, or `azblob://account/container/blob` | Warm | Separate JSON array of suspended IDs. |
+| `ValidateAuthAppIDUrl` | `""` | HTTP(S), `file:`, or `azblob://account/container/blob` | Warm | Source for the app ID configuration array. |
 
 Units used in this doc: seconds for refresh intervals, minutes for retention, and unitless priority levels.
 
@@ -31,7 +32,7 @@ Units used in this doc: seconds for refresh intervals, minutes for retention, an
 
 ## 1. Choose a profile source
 
-**Store profiles as a JSON array at a URL or a `file:` location that the proxy can read.**
+**Store profiles as a JSON array at an HTTP(S), `file:`, or `azblob:` location that the proxy can read.**
 
 The proxy loads the source into memory and refreshes it in the background. Incoming requests use the cached profiles, so the proxy does not fetch the source for every request.
 
@@ -44,6 +45,24 @@ UserConfigUrl=file:/etc/simplel7proxy/users.json
 ```
 
 The settings above follow the [configuration catalog](../../taxonomy/concepts.json). Warm settings support runtime reload; cold settings require a restart. Profile records refresh independently of configuration changes.
+
+To read a private Azure blob using the proxy's Azure credential:
+
+```dotenv
+UseProfiles=true
+UserConfigRequired=true
+UserConfigUrl=azblob://myappstoragef96uu/profiles/production/users.json
+```
+
+This reads `production/users.json` from the `profiles` container at `https://myappstoragef96uu.blob.core.windows.net`. The account, container and blob must already exist. Grant the **proxy's identity** Storage Blob Data Reader on the container; locally, the shared Azure credential can use your Azure CLI login.
+
+The same syntax works for `SuspendedUserConfigUrl` and `ValidateAuthAppIDUrl`. Account-bound readers are reused across refreshes. After three consecutive read failures for an account, its cached reader is removed; the next attempt creates a new client using the shared credential. A successful read resets that account's failure count. JSON parsing failures do not reset the client. Blob reads do not create containers, enable async mode, or use the write queue or pump.
+
+> [!NOTE]
+> `azblob:` uses public Azure storage endpoints. Include a container and blob name, percent-encode special characters in the blob path, and omit credentials, ports, query strings and fragments. Existing file and HTTP sources are unchanged.
+
+> [!TIP]
+> For a blob load failure, check the `[PROFILE]`/blob error, the proxy identity's data-reader role, the blob name, and network/DNS access from the proxy. Authentication failures do not fall back to anonymous HTTP; existing cached-profile and retry behavior remains in effect.
 
 ## 2. Identify the caller
 
@@ -117,6 +136,9 @@ Rules produce header values, not independent routing or access decisions. A prio
 **Each rule tests an input and applies the header values from the selected branch.**
 
 Add this array as the profile's `rules` property. The `interactive-post` rule is also used in the worked example below.
+
+> [!NOTE]
+> Companion App exports shared rules separately. Each profile's `S7PRules` array lists rule names, and the final array entry contains only `S7PRules` with the rule definitions. The proxy resolves those names when it loads the file. An inline `rules` array on a profile still works.
 
 ```json
 [

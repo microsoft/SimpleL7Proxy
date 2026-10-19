@@ -6,12 +6,26 @@
 @inject ImageSyncService ImageSync
 @inject Microsoft.Extensions.Hosting.IHostApplicationLifetime ApplicationLifetime
 @inject ILogger<ImageSyncPage> Logger
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment HostEnvironment
 
 <PageTitle>Updates</PageTitle>
 
 <SectionContent SectionName="page-heading">
     <h1 class="h4 mb-0">Updates</h1>
 </SectionContent>
+
+<details open class="card shadow-sm mb-3">
+    <summary class="card-header">Debug configuration</summary>
+    <div class="card-body">
+        <h2 class="h6">Process environment variables</h2>
+        <pre class="small text-break">@EnvironmentDump</pre>
+        <h2 class="h6">Effective configuration</h2>
+        <pre class="small text-break">@ConfigurationDump</pre>
+        <h2 class="h6">appsettings files</h2>
+        <pre class="small text-break">@AppSettingsDump</pre>
+    </div>
+</details>
 
 <div class="card shadow-sm mb-3">
     <div class="card-body" aria-live="polite" aria-busy="@(_busy ? "true" : "false")">
@@ -23,7 +37,7 @@
         }
         else if (_busy)
         {
-            <p role="status">@(_updatingCompanion ? "Updating..." : "Checking for updates...")</p>
+            <p role="status">Checking for updates...</p>
         }
         else if (_restartReady && CompanionImageMatches)
         {
@@ -38,23 +52,19 @@
         {
             <p>Updates aren't set up yet. Open Details to finish setup.</p>
         }
-        else if (_error is not null || CompanionRepository?.Error is not null)
+        else if (_error is not null || _repositories.Any(repository => repository.Error is not null))
         {
             <p class="text-danger">Couldn't check for updates. Try again.</p>
         }
         else if (CompanionUpdateAvailable)
         {
-            <p class="fw-semibold">Update available.</p>
-            <button type="button" class="btn btn-primary" disabled="@(!RendererInfo.IsInteractive)" @onclick="UpdateCompanionAsync">Click to update</button>
+            <p class="fw-semibold">Updates are available.</p>
+            <p class="small mb-0">Choose the tags to copy in the table below.</p>
         }
         else if (CompanionRepository is { } customRepository
             && !string.Equals(customRepository.TargetName, "companionapp", StringComparison.Ordinal))
         {
             <p>Use Details to update your custom image.</p>
-        }
-        else if (CompanionRepository?.SourceDigests.ContainsKey(CompanionTag) == true)
-        {
-            <p>No new update found.</p>
         }
         else if (_repositories.Count == 0)
         {
@@ -62,7 +72,7 @@
         }
         else
         {
-            <p>No update found for this version.</p>
+            <p>No new update found.</p>
         }
         @if (!_busy && !_restarting && ImageSync.HasTarget)
         {
@@ -95,9 +105,9 @@
     </div>
 </details>
 
-<details>
+<details open="@(_repositories.Count > 0)">
 <summary class="mb-3">Details</summary>
-<p class="small">The quick update copies the published image for @CompanionTag to <code>@ImageSync.TargetLoginServer/companionapp:@CompanionTag</code>. Before restarting, confirm ACA uses that image. A restart does not change the configured tag or guarantee a new digest. To use a different version, copy its tag below and select it in ACA under <strong>Containers → Edit and deploy</strong>.</p>
+<p class="small">Pick the tags you want below and select <strong>Synchronize</strong>. Nothing is selected by default. Images are copied to <code>@ImageSync.TargetLoginServer</code>. Before restarting, confirm ACA uses the image. The proxy and metrics apps still need a restart in the Azure Portal. A restart does not change the configured tag or guarantee a new digest. To use a different version, select it in ACA under <strong>Containers → Edit and deploy</strong>.</p>
 <div class="card shadow-sm mb-3">
     <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
         <span class="fw-semibold">Registries</span>
@@ -254,19 +264,81 @@
     private string? _error;
     private bool _busy;
     private bool _confirming;
-    private bool _updatingCompanion;
+
     private bool _restartReady;
     private bool _restarting;
+
+    private string EnvironmentDump
+    {
+        get
+        {
+            var variables = Environment.GetEnvironmentVariables();
+            var keys = new List<string>(variables.Count);
+            foreach (var key in variables.Keys)
+            {
+                keys.Add(key?.ToString() ?? string.Empty);
+            }
+            keys.Sort(StringComparer.OrdinalIgnoreCase);
+            return string.Join(Environment.NewLine, keys.Select(key => $"{key}={variables[key]}"));
+        }
+    }
+
+    private string ConfigurationDump => string.Join(
+        Environment.NewLine,
+        Configuration.AsEnumerable()
+            .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => $"{entry.Key}={entry.Value}"));
+
+    private string AppSettingsDump
+    {
+        get
+        {
+            var builder = new System.Text.StringBuilder();
+            foreach (var fileName in new[] { "appsettings.json", $"appsettings.{HostEnvironment.EnvironmentName}.json" })
+            {
+                var path = Path.Combine(HostEnvironment.ContentRootPath, fileName);
+                builder.AppendLine($"# {path}");
+                builder.AppendLine(File.Exists(path) ? File.ReadAllText(path) : "(file not found)");
+                builder.AppendLine();
+            }
+            return builder.ToString();
+        }
+    }
 
     private string CompanionTag => $"v{Constants.VERSION}";
     private RepositoryState? CompanionRepository => _repositories.FirstOrDefault(repository =>
         string.Equals(repository.Name, "companionapp", StringComparison.Ordinal));
-    private bool CompanionUpdateAvailable => ImageSync.HasTarget
-        && CompanionRepository is { Error: null } repository
-        && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
-        && repository.SourceDigests.TryGetValue(CompanionTag, out var sourceDigest)
-        && (!repository.TargetDigests.TryGetValue(CompanionTag, out var targetDigest)
-            || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal));
+    private bool CompanionUpdateAvailable => OutdatedImages.Any();
+    private IEnumerable<(RepositoryState Repository, string Tag)> OutdatedImages
+    {
+        get
+        {
+            foreach (var repository in _repositories)
+            {
+                if (repository.Error is not null || !ImageSync.HasTarget
+                    || !ImageSyncService.IsValidRepositoryName(repository.TargetName))
+                {
+                    continue;
+                }
+                var isCompanion = string.Equals(repository.Name, "companionapp", StringComparison.Ordinal);
+                if (isCompanion && !string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                // CompanionApp keeps its version tag because the restart check compares that tag.
+                var tag = isCompanion ? CompanionTag : "2.3.0";
+                if (!repository.SourceDigests.TryGetValue(tag, out var sourceDigest))
+                {
+                    continue;
+                }
+                if (!repository.TargetDigests.TryGetValue(tag, out var targetDigest)
+                    || !string.Equals(sourceDigest, targetDigest, StringComparison.Ordinal))
+                {
+                    yield return (repository, tag);
+                }
+            }
+        }
+    }
     private bool CompanionImageMatches => ImageSync.HasTarget
         && CompanionRepository is { Error: null } repository
         && string.Equals(repository.TargetName, "companionapp", StringComparison.Ordinal)
@@ -282,29 +354,6 @@
         {
             await LoadAsync();
             StateHasChanged();
-        }
-    }
-
-    private async Task UpdateCompanionAsync()
-    {
-        if (_busy || _restarting || !CompanionUpdateAvailable
-            || CompanionRepository is not { } companionRepository)
-        {
-            return;
-        }
-        foreach (var repository in _repositories)
-        {
-            repository.Selected.Clear();
-        }
-        companionRepository.Selected.Add(CompanionTag);
-        _updatingCompanion = true;
-        try
-        {
-            await SynchronizeAsync();
-        }
-        finally
-        {
-            _updatingCompanion = false;
         }
     }
 

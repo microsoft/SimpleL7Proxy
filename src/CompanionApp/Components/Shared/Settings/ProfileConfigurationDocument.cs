@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SharedParser.Profiles;
 using SimpleL7Proxy.Rules;
 
 namespace CompanionApp.Components.Shared;
@@ -92,16 +93,23 @@ public sealed class ProfileConfigurationDocument {
     /// </summary>
     public string Export() {
         Validate();
+        var profiles = new UserProfiles();
         var result = new JsonArray();
         foreach (var profile in Profiles) {
-            var item = new JsonObject { [UserIdField] = profile.Id };
-            foreach (var field in profile.Fields) {
-                item.Add(field.Name, JsonValue.Create(field.Value));
-            }
-            item["S7PRules"] = new JsonArray(profile.RuleNames.Select(name => (JsonNode?)JsonValue.Create(name)).ToArray());
-            result.Add(item);
+            result.Add(JsonNode.Parse(profiles.ToProfileString(
+                UserIdField,
+                profile.Id,
+                profile.Fields.Select(field => KeyValuePair.Create(field.Name, field.Value)),
+                profile.RuleNames)));
         }
-        result.Add(new JsonObject { ["S7PRules"] = new JsonArray(Rules.Select(rule => (JsonNode?)rule.DeepClone()).ToArray()) });
+
+        var ruleConfig = new RuleConfig();
+        foreach (var rule in Rules) {
+            var parsed = RuleConfigParser.ParseRules(new JsonArray(rule.DeepClone()).ToJsonString());
+            ruleConfig.Rules.Add(parsed.Rules[0]);
+        }
+
+        result.Add(JsonNode.Parse(profiles.ToRuleString(ruleConfig)));
         return result.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 

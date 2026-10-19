@@ -2,6 +2,8 @@
 @using System.Text.Json
 @using System.Text.Json.Nodes
 @inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment HostEnvironment
 
 <section id="@(View == "rules" ? "identity-panel-rules" : "identity-panel-profile-editor")"
          class="profile-file-editor" role="tabpanel"
@@ -9,7 +11,7 @@
     <div class="profile-file-toolbar">
         <div>
             <h3>@(View == "rules" ? "Rules" : "Profiles")</h3>
-            <p>@(View == "rules" ? "Create and manage reusable rules." : "Manage user profiles and their ordered rules in a local file.")</p>
+            <p>@(View == "rules" ? "Create and manage reusable rules." : "Stage user profiles here. Save changes publishes the URL and writes the profile blob.")</p>
         </div>
         <label class="btn btn-outline-secondary mb-0">
             Open JSON
@@ -30,7 +32,7 @@
     }
     @if (State.Status is not null)
     {
-        <div class="alert alert-success" role="status">@State.Status</div>
+        <div class="alert @(string.IsNullOrEmpty(State.PendingBlobJson) ? "alert-success" : "alert-warning")" role="status">@State.Status</div>
     }
     <fieldset disabled="@_busy">
         <div class="profile-file-layout">
@@ -301,7 +303,7 @@
             </div>
         </div>
         <div class="profile-file-footer">
-            <span class="small text-muted">@(State.IsDirty ? "Local file has unsaved edits." : "No unsaved file edits.")</span>
+            <span class="small text-muted">@ProfileSaveStatus</span>
             <button type="button" class="btn btn-outline-secondary" disabled="@(!State.IsDirty)" @onclick="CancelAsync">Cancel file edits</button>
             <button type="button" class="btn btn-primary" @onclick="SaveAsync">Save config.json</button>
         </div>
@@ -333,6 +335,7 @@
         public string Search { get; set; } = "";
         public string SavedJson { get; set; } = "[{\"S7PRules\":[]}]";
         public string SavedUserIdField { get; set; } = "userId";
+        public string? PendingBlobJson { get; set; }
         public bool IsDirty { get; set; }
         public string? Error { get; set; }
         public string? Status { get; set; }
@@ -364,11 +367,19 @@
         }
     }
 
+    private string ProfileSaveStatus => State.IsDirty
+        ? "Local edits are not staged."
+        : string.IsNullOrEmpty(State.PendingBlobJson)
+            ? "No pending profile update."
+            : "Profile blob update is pending until Save changes.";
+
     private void Change(Action action) {
         action();
         State.IsDirty = true;
+        State.PendingBlobJson = null;
         State.Error = null;
         State.Status = null;
+        PointUserConfigAtProfileBlob();
     }
 
     private void SetRuleJson(string? value) => Change(() => State.RuleJson = value ?? "");
@@ -395,6 +406,7 @@
     }
 
     private void AddProfile() {
+        var firstProfile = State.Document.Profiles.Count == 0;
         var suffix = 1;
         while (State.Document.Profiles.Any(profile => profile.Id == $"user{suffix}")) {
             suffix++;
@@ -404,6 +416,34 @@
             State.Document.Profiles.Add(State.SelectedProfile);
             State.Search = "";
         });
+        if (firstProfile) {
+            PersistProfileStorageAccount();
+        }
+    }
+
+    private void PersistProfileStorageAccount() {
+        var account = Configuration["CompanionApp:Profiles:StorageAccountName"]?.Trim() ?? "";
+        if (account.Length is < 3 or > 24 || !account.All(static character => char.IsAsciiLetterOrDigit(character) && char.IsLower(character))) {
+            return;
+        }
+
+        foreach (var fileName in new[] { "appsettings.json", $"appsettings.{HostEnvironment.EnvironmentName}.json" }) {
+            var path = Path.Combine(HostEnvironment.ContentRootPath, fileName);
+            if (!File.Exists(path)) {
+                continue;
+            }
+            try {
+                var json = File.ReadAllText(path);
+                var updated = json
+                    .Replace("\"Profiles\": {\n      \"StorageAccountName\": \"\"", $"\"Profiles\": {{\n      \"StorageAccountName\": \"{account}\"", StringComparison.Ordinal)
+                    .Replace("\"Profiles\": {\r\n      \"StorageAccountName\": \"\"", $"\"Profiles\": {{\r\n      \"StorageAccountName\": \"{account}\"", StringComparison.Ordinal);
+                if (!string.Equals(updated, json, StringComparison.Ordinal)) {
+                    File.WriteAllText(path, updated);
+                }
+            } catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+                State.Error = $"Profile was created, but {fileName} could not be updated: {exception.Message}";
+            }
+        }
     }
 
     private void AddField(ProfileConfigurationEntry profile) =>
@@ -556,8 +596,10 @@
             State.SelectedRule = State.Document.Rules.FirstOrDefault();
             State.Search = "";
             State.IsDirty = false;
+            State.PendingBlobJson = null;
             ResetRuleBuffer();
-            State.Status = "File opened locally. No active proxy settings were changed.";
+            State.Status = "File opened locally. Save config.json to stage the profile blob.";
+            await OnChanged.InvokeAsync();
         } catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException or IOException) {
             State.Error = $"File not opened: {exception.Message}";
         } finally {
@@ -577,20 +619,62 @@
                 throw new ArgumentException("Use the Profile Reader ID field before saving this file.");
             }
             var json = State.Document.Export();
-            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Shared/Settings/ProfileConfigurationEditor.razor.js");
-            await module.InvokeVoidAsync("download", json);
+            var updateError = PointUserConfigAtProfileBlob();
+            if (updateError is not null) {
+                State.Error = updateError;
+                return;
+            }
+            State.PendingBlobJson = json;
             State.SavedJson = json;
             State.SavedUserIdField = State.Document.UserIdField;
             State.IsDirty = false;
-            State.Status = "config.json download started. No file was uploaded to storage.";
+            State.Status = "Profile update is pending. Save changes publishes UserConfigUrl and writes the profile blob.";
+            await OnChanged.InvokeAsync();
         } catch (Exception exception) when (exception is ArgumentException or JsonException or InvalidOperationException) {
             State.Error = exception.Message;
-        } catch (JSException) {
-            State.Error = "The browser could not start the download. Your edits are retained; retry Save.";
         } finally {
             _busy = false;
         }
     }
+
+    private string? PointUserConfigAtProfileBlob() {
+        var configuredAccount = Configuration["CompanionApp:Profiles:StorageAccountName"];
+        var environmentAccount = Environment.GetEnvironmentVariable("CompanionApp__Profiles__StorageAccountName");
+        var account = FirstNonEmpty(configuredAccount, environmentAccount);
+        var container = FirstNonEmpty(
+            Configuration["CompanionApp:Profiles:BlobContainerName"],
+            Environment.GetEnvironmentVariable("CompanionApp__Profiles__BlobContainerName")) ?? "profiles";
+        if (string.IsNullOrWhiteSpace(account)) {
+            return $"Storage account was not read. Configuration='{configuredAccount ?? ""}'; Environment='{environmentAccount ?? ""}'.";
+        }
+
+        var setting = ConfigurationSettings.FirstOrDefault(item =>
+            item.Name.Equals("User:UserConfigUrl", StringComparison.OrdinalIgnoreCase)
+            || item.Name.Equals("UserConfigUrl", StringComparison.OrdinalIgnoreCase)
+            || item.Key.EndsWith("UserConfigUrl", StringComparison.OrdinalIgnoreCase));
+        if (setting is null) {
+            if (ConfigurationSettings is not IList<AppConfigurationScaffoldSetting> settings) {
+                return $"UserConfigUrl was not in the loaded settings, and the settings list cannot be updated ({ConfigurationSettings?.GetType().Name ?? "null"}, count {ConfigurationSettings?.Count ?? 0}).";
+            }
+            var sibling = settings.FirstOrDefault(item => item.Key.Contains(":Profiles:", StringComparison.OrdinalIgnoreCase));
+            setting = new AppConfigurationScaffoldSetting(
+                "Warm:Profiles:User:UserConfigUrl",
+                "Warm",
+                "Profiles",
+                "User:UserConfigUrl",
+                sibling?.Label ?? string.Empty,
+                string.Empty) {
+                IsNew = true
+            };
+            settings.Add(setting);
+        }
+
+        setting.DraftValue = $"azblob://{account}/{container}/config.json";
+        return null;
+    }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.Select(value => value?.Trim()).FirstOrDefault(value => !string.IsNullOrEmpty(value));
 
     private async Task CancelAsync() {
         if (await JS.InvokeAsync<bool>("confirm", "Discard file edits since the last Open or Save?")) {

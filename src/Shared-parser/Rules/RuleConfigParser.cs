@@ -31,7 +31,7 @@ namespace SimpleL7Proxy.Rules;
 /// </remarks>
 public static class RuleConfigParser
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    internal static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
