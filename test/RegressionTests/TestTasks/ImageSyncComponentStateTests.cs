@@ -80,6 +80,7 @@ public sealed class ImageSyncComponentStateTests
     {
         var state = CreateState("v2.3.0", ("v2.3.0", "old"), ("v2.3.1", "middle"), ("v2.4.0", "new"));
         state.SelectedVersion = "v2.3.1";
+        state.SelectedForSynchronization = true;
 
         state.Refresh(
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -92,6 +93,7 @@ public sealed class ImageSyncComponentStateTests
             "v2.3.0");
 
         Assert.AreEqual("v2.3.1", state.SelectedVersion);
+        Assert.IsTrue(state.SelectedForSynchronization);
         Assert.IsFalse(state.SelectionWasReset);
     }
 
