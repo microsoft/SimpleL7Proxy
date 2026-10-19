@@ -147,13 +147,12 @@
                         <button type="button" class="btn btn-outline-danger" @onclick="DeleteProfileAsync">Delete profile</button>
                     </div>
                     <div class="profile-file-card">
-                        <label for="profile-file-user-id" class="form-label">Profile ID (@State.Document.UserIdField)</label>
-                        <input id="profile-file-user-id" class="form-control" autocomplete="off"
-                               @bind:get="profile.Id" @bind:set="@(value => Change(() => profile.Id = value ?? ""))" @bind:event="oninput" />
-                    </div>
-                    <div class="profile-file-card">
-                        <h5>Profile Behavior</h5>
                         <div class="profile-file-behavior">
+                            <div class="profile-file-id">
+                                <label for="profile-file-user-id" class="form-label">Profile ID (@State.Document.UserIdField)</label>
+                                <input id="profile-file-user-id" class="form-control" autocomplete="off"
+                                       @bind:get="profile.Id" @bind:set="@(value => Change(() => profile.Id = value ?? ""))" @bind:event="oninput" />
+                            </div>
                             <label class="d-flex gap-2 align-items-center">
                                 <input type="checkbox" class="form-check-input" checked="@isAdmin"
                                        @onchange="@(args => Change(() => {
