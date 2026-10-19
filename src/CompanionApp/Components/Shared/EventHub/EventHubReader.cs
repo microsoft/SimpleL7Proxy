@@ -388,8 +388,11 @@ public sealed class EventHubReader : BackgroundService
 
         var connString = string.IsNullOrEmpty(settings.ConnectionString) ? "Azure identity" : "connection string";
         _logger.LogInformation(
-            "Event Hub connected: {EventHubName}.",
-            settings.EventHubName);
+            "Event Hub connected: {EventHubName}  NS:{NameSpace}  CG:{ConsumerGroup}.",
+            settings.EventHubName,
+            settings.EventHubNamespace,
+            settings.ConsumerGroup);
+
         _logger.LogDebug(
             "Event Hub details: {EventHubName} in {EventHubNamespace}. Consumer group={ConsumerGroup}; partitions={PartitionCount}; authentication={ConnString}.",
             settings.EventHubName,
