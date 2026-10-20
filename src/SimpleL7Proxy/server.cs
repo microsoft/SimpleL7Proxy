@@ -824,7 +824,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
                         if (rd.Context is not null)
                         {
-                            ed.Type = EventType.ServerError;
+                            ed.Type = notEnquedCode is 401 or 403 ? EventType.Authentication : EventType.ServerError;
                             ed["ErrorDetail"] = "EnqueueFailed";
                             ed.Status = (HttpStatusCode)notEnquedCode;
                             ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();

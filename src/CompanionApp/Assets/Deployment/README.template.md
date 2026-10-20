@@ -1,43 +1,15 @@
 # Deploy SimpleL7Proxy
 
-The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP included in the repo.  Once deployed, you will have the following resources:
+The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP included in the repo.  The diagram below shows the deployed architecture:
 
 ![SimpleL7Proxy deployment architecture](arch.png)
 
-CompanionApp **Simple deployment** includes a virtual network with separate Container Apps and storage-private-endpoint subnets, a storage account, a Blob private endpoint, and a linked private DNS zone. The proxy and Companion App endpoints remain public. This does not enable async mode or deploy RequestAPI, Service Bus, or Cosmos DB.
+The deployment creates a complete SimpleL7Proxy environment inside a single Azure resource group. A dedicated Container Apps environment 
+hosts the Simple L7 Proxy, Companion App, and Metrics Server. The Proxy and Companion App expose public endpoints for application and administrative access.
 
-> [!NOTE]
-> Storage public network access, anonymous Blob access, and shared-key access remain disabled. A private `profiles` container is always created, even when `CREATE_CONTAINERS=false`. Each selected proxy and Companion App identity receives Storage Blob Data Contributor on that container only. The optional account-wide `CA_BLOB_ROLE` assignment remains exclusive to async mode. Internet-only clients cannot access Blob data. Advanced mode keeps storage networking disabled by default.
+The deployment also creates a virtual network with private Blob Storage connectivity, keeping storage traffic off the public internet.
+Supporting services include Azure Container Registry for images, Event Hubs for events, Application Insights for observability, and App Configuration for centralized configuration. Microsoft Entra ID provides identity and authentication.
 
-Storage networking requires a new Container Apps environment so applications join the deployed VNet. Exports reject combining storage networking with an existing environment.
-
-When storage and Companion App are selected in the Bicep bundle, the final Companion App revision sets `CompanionApp__Profiles__StorageAccountName` to the deployed account name and `CompanionApp__Profiles__BlobContainerName` to `profiles`. Bootstrap leaves the account empty until identity permissions are assigned.
-
-> [!NOTE]
-> Temporary startup verification uses the app's `DefaultAzureCredential` to check the configured container and write `hello.json` containing `{"message":"hello"}` with JSON content type. Each startup overwrites this diagnostic blob; `config.json` is unchanged. A successful check prints the blob URL. The check has a 30-second timeout; failures print the full exception and stack trace to the console and startup continues. No check runs when the account is empty or `--uionly` is set. Use a Companion App image containing this code; a previously published image or downloaded ZIP does not gain the probe automatically.
-
-### Initialize profiles
-
-**The deployment creates `profiles/config.json` only when absent; an existing blob is never overwritten.** The supplied sample lives in `assets/config.json`; its values and routing rules are uploaded unchanged. This does not change the active profile source, lookup field, or App Configuration settings.
-
-A managed-identity Container Apps job runs in the VNet-attached environment and uses an atomic `If-None-Match: *` Blob upload. Its identity has Storage Blob Data Contributor only on `profiles`. Each execution retries identity, RBAC, DNS, and transient service failures up to 24 attempts with 10-second delays and 15-second request timeouts; permanent storage errors fail immediately.
-
-- The bundle's `create` operation uses Azure CLI authentication and `curl` to start the job through Azure Resource Manager. It follows an HTTP 202 polling `Location` for up to 25 minutes, prints the execution name, then waits up to 25 minutes for execution success. A failed operation, failed execution, or timeout fails the script; `validate` and `what-if` never start it.
-- The job also runs every five minutes (UTC), including Portal ARM exports, which have no bundle script. Portal deployment success confirms infrastructure creation, **not** seed execution success; inspect the job execution separately.
-- Recurring executions preserve existing content and recover a missing sample. They incur Container Apps execution/image-pull costs. After verifying the blob, an operator can stop recurrence by changing the job to a manual trigger.
-
-Verify in Azure portal:
-
-- [ ] In the storage resource group, open the `profiles-...` Container Apps job and confirm the latest execution is `Succeeded`.
-- [ ] Open its execution logs: `created` means the sample was uploaded; `preserved unchanged` means the existing blob won the atomic create.
-- [ ] From the linked network with an authorized identity, open `profiles/config.json` and confirm the three sample user profiles (or your previously saved content).
-- [ ] Confirm storage public network access is `Disabled` and the container's anonymous access is `Private`.
-
-> [!WARNING]
-> If the seed fails, inspect its execution logs, container-scoped identity assignment, private endpoint approval, and the VNet link to the Blob private DNS zone. Keep storage public access disabled. Resolve the cause and start the same job again, or rerun the original bundle's `create` after the deployment is terminal; existing profile content remains unchanged.
-
-> [!NOTE]
-> If deployment reports `Succeeded` followed by `curl: (22) The requested URL returned error: 411`, infrastructure provisioning completed but the explicit profile-seed start was rejected. In the downloaded `deploy.sh`, add `--header 'Content-Length: 0'` beside `--request POST` in the profile job-start curl command, then rerun `./deploy.sh "$sub" create` from the same bundle with the original subscription and parameters after confirming the deployment is terminal. Existing profile content remains unchanged. Newly generated bundles contain the correction after CompanionApp is rebuilt and restarted; existing ZIPs are not updated.
 
 ## Before you begin
 
