@@ -1,17 +1,13 @@
+using Azure.Identity;
 using CompanionApp.Components;
 using CompanionApp.Components.Shared;
 using CompanionApp.Components.Shared.EventHub;
+using CompanionApp.Startup;
 using CompanionApp.Tokenomics;
-using Azure.Identity;
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.StreamProcessor;
-using SimpleL7Proxy.Tokenomics;
-using CompanionApp.Simulated;
-using CompanionApp.Startup;
 
 internal static class Program
 {
@@ -30,73 +26,107 @@ internal static class Program
         }
 
         var uiOnly = replayOptions.ApplicationArgs.Contains("--uionly", StringComparer.OrdinalIgnoreCase);
-        var builder = CreateBuilder(replayOptions);
-        ConfigureServices(builder, replayOptions, uiOnly);
+        var applicationArgs = replayOptions.ApplicationArgs
+            .Where(arg => !string.Equals(arg, "--uionly", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
+        var builder = WebApplication.CreateBuilder(applicationArgs);
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole(options => options.FormatterName = "custom");
+        builder.Logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+        CompanionAppStartup.AddModelConfigFiles(builder);
+        StartupDI(builder, replayOptions, uiOnly);
         var app = builder.Build();
-        app.Logger.LogDebug(
-            "Starting CompanionApp. Environment={Environment}. UI-only mode={UiOnly}.",
-            app.Environment.EnvironmentName,
-            uiOnly);
-
-        var profileStorageAccountName = app.Configuration["CompanionApp:Profiles:StorageAccountName"];
-        var profileBlobContainerName = app.Configuration["CompanionApp:Profiles:BlobContainerName"] ?? "profiles";
-        if (!uiOnly && !string.IsNullOrWhiteSpace(profileStorageAccountName))
+        if (uiOnly)
         {
-            app.Logger.LogDebug(
-                "Profile storage: checking read and write access to account {Account}, container {Container}.",
-                profileStorageAccountName,
-                profileBlobContainerName);
-            try
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var container = new BlobServiceClient(
-                    new Uri($"https://{profileStorageAccountName}.blob.core.windows.net"),
-                    app.Services.GetRequiredService<DefaultAzureCredential>())
-                    .GetBlobContainerClient(profileBlobContainerName);
-                await container.GetPropertiesAsync(cancellationToken: timeout.Token);
-                // Temporary startup probe: remove after deployed profile storage access is verified.
-                await container.GetBlobClient("hello.json").UploadAsync(
-                    BinaryData.FromString("{\"message\":\"hello\"}"),
-                    new BlobUploadOptions
-                    {
-                        HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
-                    },
-                    timeout.Token);
-                app.Logger.LogInformation(
-                    "Profile storage OK: wrote {Container}/hello.json.",
-                    profileBlobContainerName);
-            }
-            catch (Exception exception)
-            {
-                app.Logger.LogError(
-                    exception,
-                    "Profile storage check failed: {Account}/{Container}. Check connectivity and storage permissions. Startup will continue.",
-                    profileStorageAccountName,
-                    profileBlobContainerName);
-                app.Logger.LogDebug(exception, "Profile storage failure details.");
-            }
+            app.Logger.LogInformation(
+                "UI-only mode: profile storage check and configuration loading are disabled.");
         }
         else
         {
-            app.Logger.LogInformation(
-                "Profile storage check skipped: {Reason}.",
-                uiOnly ? "UI-only mode" : "no storage account configured");
+            await StartupStorageBlob.CheckProfileStorageAsync(app);
+            await StartupAppConfig.InitializeAsync(app);
+        }
+        await CompanionAppStartup.InitializeAsync(app);
+        StartupHttpPipeline(app);
+        app.Run();
+    }
+
+    private static void StartupDI(
+        WebApplicationBuilder builder,
+        TokenomicsReplayOptions replayOptions,
+        bool uiOnly)
+    {
+        builder.Services.AddRazorComponents()
+            .AddInteractiveServerComponents();
+        builder.Services.AddDataProtection()
+            .SetApplicationName("chat_tester")
+            .PersistKeysToFileSystem(
+                new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".keys")));
+
+        builder.Services.AddSingleton(new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(5)
+        });
+        builder.Services.AddSingleton<AuthTokenSettings>();
+        builder.Services.AddSingleton<UserSettings>();
+        builder.Services.AddSingleton<HeaderSettings>();
+        builder.Services.AddSingleton<HistorySettings>();
+        builder.Services.AddSingleton<ConversationSettings>();
+        builder.Services.AddSingleton<RequestDebugSettings>();
+        builder.Services.AddSingleton<AutoCollapseSettings>();
+        builder.Services.AddSingleton<ModelDefaults>();
+        builder.Services.AddSingleton<VisionModelCatalog>();
+        builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
+        builder.Services.AddSingleton<AppConfigurationScaffoldService>();
+        builder.Services.AddSingleton<ImageSyncService>();
+        builder.Services.AddSingleton<ChatHistoryStore>();
+        builder.Services.AddSingleton<ChatConversationStore>();
+        builder.Services.AddSingleton<EventHubMonitorStore>();
+
+        TokenomicsStartup.ConfigureServices(builder, replayOptions, uiOnly);
+        builder.Services.AddSingleton<CompanionApp.Observability.ObservabilityDashboardStore>();
+        builder.Services.AddHostedService(services =>
+            services.GetRequiredService<CompanionApp.Observability.ObservabilityDashboardStore>());
+        ConfigureOptions(builder);
+    }
+
+    private static void ConfigureOptions(WebApplicationBuilder builder)
+    {
+        builder.Services.AddScoped<UserPreferencesService>();
+        builder.Services.Configure<CompanionAppOptions>(
+            builder.Configuration.GetSection(CompanionAppOptions.SectionName));
+        builder.Services.Configure<CompanionAppOptions>(options =>
+        {
+            options.AppConfigurationRules = builder.Configuration
+                .GetSection($"{CompanionAppOptions.UiSectionName}:AppConfigurationRules")
+                .Get<List<AppConfigurationSettingRule>>() ?? new();
+            options.Hosts = builder.Configuration
+                .GetSection($"{CompanionAppOptions.UiSectionName}:Hosts")
+                .Get<AppConfigHostSettings>() ?? new();
+            options.Hosts.FieldChoices["processor"] = StreamProcessorFactory.ProcessorNames.ToArray();
+        });
+        builder.Services.Configure<EventHubMonitorOptions>(
+            builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
+    }
+
+    private static void StartupHttpPipeline(WebApplication app)
+    {
+        if (!app.Environment.IsDevelopment())
+        {
+            app.UseExceptionHandler("/Error", createScopeForErrors: true);
+            app.UseHsts();
         }
 
-        await app.Services
-            .GetRequiredService<AppConfigurationStartupInitializer>()
-            .InitializeAsync(uiOnly);
-        await InitializeStoresAsync(app);
-        ProxyMetricsSeeder.Seed(app.Services.GetRequiredService<ProxyMetricsCatalog>());
-        ConfigureHttpPipeline(app);
+        app.UseStatusCodePagesWithReExecute(
+            "/not-found",
+            createScopeForStatusCodePages: true);
+        app.UseHttpsRedirection();
+        app.UseAntiforgery();
 
-        app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation(
-            "CompanionApp started."));
-        app.Lifetime.ApplicationStopping.Register(() => app.Logger.LogInformation(
-            "CompanionApp is stopping."));
-
-        app.Run();
+        app.MapStaticAssets();
+        app.MapRazorComponents<App>()
+            .AddInteractiveServerRenderMode();
     }
 
     internal static TokenomicsReplayOptions ParseCommandLineArguments(string[] args)
@@ -130,123 +160,5 @@ internal static class Program
         }
 
         return TokenomicsReplayOptions.Load(applicationArgs.ToArray(), replayFileName);
-    }
-
-    private static WebApplicationBuilder CreateBuilder(TokenomicsReplayOptions replayOptions)
-    {
-        var applicationArgs = replayOptions.ApplicationArgs
-            .Where(arg => !string.Equals(arg, "--uionly", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        var builder = WebApplication.CreateBuilder(applicationArgs);
-        builder.Logging.ClearProviders();
-        builder.Logging.AddConsole(options => options.FormatterName = "custom");
-        builder.Logging.AddConsoleFormatter<CompanionApp.Startup.CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
-        builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
-        builder.Configuration.AddJsonFile(
-            $"chat-models.{builder.Environment.EnvironmentName}.json",
-            optional: true,
-            reloadOnChange: true);
-        builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
-        builder.Configuration.AddJsonFile(
-            $"vision-models.{builder.Environment.EnvironmentName}.json",
-            optional: true,
-            reloadOnChange: true);
-
-        return builder;
-    }
-
-    private static void ConfigureServices(
-        WebApplicationBuilder builder,
-        TokenomicsReplayOptions replayOptions,
-        bool uiOnly)
-    {
-        builder.Services.AddRazorComponents()
-            .AddInteractiveServerComponents();
-        builder.Services.AddDataProtection()
-            .SetApplicationName("chat_tester")
-            .PersistKeysToFileSystem(
-                new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".keys")));
-
-        builder.Services.AddSingleton(new HttpClient
-        {
-            Timeout = TimeSpan.FromMinutes(5)
-        });
-        builder.Services.AddSingleton<AuthTokenSettings>();
-        builder.Services.AddSingleton<UserSettings>();
-        builder.Services.AddSingleton<HeaderSettings>();
-        builder.Services.AddSingleton<HistorySettings>();
-        builder.Services.AddSingleton<ConversationSettings>();
-        builder.Services.AddSingleton<RequestDebugSettings>();
-        builder.Services.AddSingleton<AutoCollapseSettings>();
-        builder.Services.AddSingleton<ModelDefaults>();
-        builder.Services.AddSingleton<VisionModelCatalog>();
-        builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
-        builder.Services.AddSingleton<AppConfigurationScaffoldService>();
-        builder.Services.AddSingleton<AppConfigurationStartupInitializer>();
-        builder.Services.AddSingleton<ImageSyncService>();
-        builder.Services.AddSingleton<ChatHistoryStore>();
-        builder.Services.AddSingleton<ChatConversationStore>();
-        builder.Services.AddSingleton<EventHubMonitorStore>();
-
-        TokenomicsStartup.ConfigureServices(builder, replayOptions, uiOnly);
-        builder.Services.AddSingleton<CompanionApp.Observability.ObservabilityDashboardStore>();
-        builder.Services.AddHostedService(services =>
-            services.GetRequiredService<CompanionApp.Observability.ObservabilityDashboardStore>());
-        ConfigureOptions(builder);
-    }
-
-    private static void ConfigureOptions(WebApplicationBuilder builder)
-    {
-        builder.Services.AddScoped<UserPreferencesService>();
-        builder.Services.Configure<CompanionAppOptions>(
-            builder.Configuration.GetSection(CompanionAppOptions.SectionName));
-        builder.Services.Configure<CompanionAppOptions>(options =>
-        {
-            options.AppConfigurationRules = builder.Configuration
-                .GetSection($"{CompanionAppOptions.UiSectionName}:AppConfigurationRules")
-                .Get<List<AppConfigurationSettingRule>>() ?? new();
-            options.Hosts = builder.Configuration
-                .GetSection($"{CompanionAppOptions.UiSectionName}:Hosts")
-                .Get<AppConfigHostSettings>() ?? new();
-            options.Hosts.FieldChoices["processor"] = StreamProcessorFactory.ProcessorNames.ToArray();
-        });
-        builder.Services.Configure<EventHubMonitorOptions>(
-            builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
-    }
-
-    private static async Task InitializeStoresAsync(WebApplication app)
-    {
-        var companionAppOptions = app.Services
-            .GetRequiredService<IOptions<CompanionAppOptions>>()
-            .Value;
-
-        app.Services.GetRequiredService<HistorySettings>()
-            .ApplyDefaultsIfMissing(companionAppOptions.History);
-        app.Services.GetRequiredService<ConversationSettings>()
-            .ApplyDefaultsIfMissing(companionAppOptions.Conversations);
-
-        await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
-        await app.Services.GetRequiredService<ChatConversationStore>().ReloadAsync();
-    }
-
-
-    private static void ConfigureHttpPipeline(WebApplication app)
-    {
-        if (!app.Environment.IsDevelopment())
-        {
-            app.UseExceptionHandler("/Error", createScopeForErrors: true);
-            app.UseHsts();
-        }
-
-        app.UseStatusCodePagesWithReExecute(
-            "/not-found",
-            createScopeForStatusCodePages: true);
-        app.UseHttpsRedirection();
-        app.UseAntiforgery();
-
-        app.MapStaticAssets();
-        app.MapRazorComponents<App>()
-            .AddInteractiveServerRenderMode();
     }
 }
