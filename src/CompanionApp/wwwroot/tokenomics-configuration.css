@@ -74,6 +74,23 @@
 .tokenomics-configuration .tokenomics-limits-default-toggle small{ display: block; margin-top: 0.2rem; color: #596c96; }
 .tokenomics-configuration .tokenomics-limits-fields{ min-width: 0; padding: 0.75rem; }
 .tokenomics-configuration .tokenomics-limits-fields:disabled{ opacity: 0.65; }
+.tokenomics-configuration .tokenomics-limits-category-tabs{ display: flex; gap: 0.5rem; margin: 0.75rem 0.75rem 0; border-bottom: 1px solid #cbd8e9; }
+.tokenomics-configuration .tokenomics-limits-category-tabs button{ display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem; padding: 0.65rem 1.25rem; border: 1px solid #d6e0ee; border-bottom: 0; border-radius: 5px 5px 0 0; background: #f2f4f8; color: #596c96; font-size: 0.875rem; font-weight: 600; }
+.tokenomics-configuration .tokenomics-limits-category-tabs button:hover{ background: #e8f1fc; }
+.tokenomics-configuration .tokenomics-limits-category-tabs button.is-selected{ background: #fff; color: #1976f3; border-color: #1976f3; box-shadow: inset 0 2px #1976f3; }
+.tokenomics-configuration .tokenomics-limits-category-tabs button:focus-visible{ outline: 2px solid #1976f3; outline-offset: 2px; }
+.tokenomics-configuration .tokenomics-limits-section{ min-width: 0; padding: 0.75rem; border: 1px solid #dce5f2; border-radius: 5px; background: #fafbfe; }
+.tokenomics-configuration .tokenomics-limits-section + .tokenomics-limits-section{ margin-top: 0.75rem; }
+.tokenomics-configuration .tokenomics-limits-section-heading{ display: flex; align-items: flex-start; gap: 0.65rem; margin-bottom: 0.65rem; color: #071c61; }
+.tokenomics-configuration .tokenomics-limits-section-heading > .bi{ color: #635bff; font-size: 1.4rem; }
+.tokenomics-configuration .tokenomics-limits-section-heading h5{ margin: 0; font-size: 0.95rem; font-weight: 700; }
+.tokenomics-configuration .tokenomics-limits-section-heading p{ margin: 0.2rem 0 0; color: #596c96; font-size: 0.75rem; }
+.tokenomics-configuration .tokenomics-limits-action-note{ margin-bottom: 0.65rem; padding: 0.5rem 0.65rem; border-radius: 4px; background: #e8f1fc; color: #38558b; font-size: 0.75rem; }
+.tokenomics-configuration .tokenomics-workload-action-row .tokenomics-period-row-label{ padding: 0.45rem; border-left: 3px solid #77a8ef; background: #e9eff8; }
+.tokenomics-configuration .tokenomics-workload-action-row:nth-child(3) .tokenomics-period-row-label{ border-left-color: #b18be8; background: #f0eafa; }
+.tokenomics-configuration .tokenomics-workload-action-row:nth-child(4) .tokenomics-period-row-label{ border-left-color: #59c6a0; background: #e0f3eb; }
+.tokenomics-configuration .tokenomics-workload-action-row .tokenomics-period-row-label strong{ display: block; color: #071c61; font-size: 0.8rem; }
+.tokenomics-configuration .tokenomics-workload-action-row .tokenomics-period-row-label small{ display: block; margin-top: 0.15rem; color: #596c96; font-size: 0.72rem; font-weight: 400; }
 .tokenomics-configuration .tokenomics-limits-workbench .tokenomics-period-matrix-row{ border-radius: 4px; }
 .tokenomics-configuration .tokenomics-limits-actions{ display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; }
 .tokenomics-configuration .tokenomics-limits-actions .btn{ min-width: 5rem; }

@@ -17,6 +17,14 @@
 <div id="tokenomics-settings-content" class="tokenomics-settings-content">
 @if (OptionsSetting is { } optionsSetting)
 {
+    @if (_parseError is null && _options.IgnoredFields.Count > 0)
+    {
+        <div class="alert alert-warning py-2" role="status">
+            <strong>Some Tokenomics fields were ignored when loading these options.</strong>
+            Unknown fields or invalid values were not applied; existing or default values remain in use.
+            <div>Ignored fields: <code>@string.Join(", ", _options.IgnoredFields)</code></div>
+        </div>
+    }
     @if (_parseError is not null)
     {
         <section class="tokenomics-editor-section" aria-labelledby="tokenomics-options-heading">
@@ -44,7 +52,7 @@
                 <Summary>
                     <span><strong>Tokens:</strong> @CompactNumber(_options.DefaultLimits.HourlyTokenLimit) hourly · @CompactNumber(_options.DefaultLimits.DailyTokenLimit) daily · @CompactNumber(_options.DefaultLimits.MonthlyTokenLimit) monthly</span>
                     <span><strong>Budgets:</strong> $@CompactNumber(_options.DefaultLimits.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DefaultLimits.DailyBudgetUsd) daily · $@CompactNumber(_options.DefaultLimits.MonthlyBudgetUsd) monthly</span>
-                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultLimitActions.HourlyQuotaExceededAction, _options.DefaultLimitActions.DailyQuotaExceededAction, _options.DefaultLimitActions.MonthlyQuotaExceededAction)</span>
+                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultLimitActions.HourlyLimitAction, _options.DefaultLimitActions.DailyLimitAction, _options.DefaultLimitActions.MonthlyLimitAction)</span>
                 </Summary>
             </TokenomicsLimitsBudgetsSettingsWidget>
             <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
@@ -137,6 +145,18 @@
                     } else {
                         _options.DefaultLimits = new();
                         _options.DefaultLimitActions = new();
+                    }
+                    var workloadDefaults = new TokenomicsLimitActions();
+                    _options.PremiumWorkloadLimitActions = new();
+                    _options.CriticalWorkloadLimitActions.HourlyBudgetExceededAction = workloadDefaults.HourlyBudgetExceededAction;
+                    _options.CriticalWorkloadLimitActions.DailyBudgetExceededAction = workloadDefaults.DailyBudgetExceededAction;
+                    _options.CriticalWorkloadLimitActions.MonthlyBudgetExceededAction = workloadDefaults.MonthlyBudgetExceededAction;
+                    _options.CriticalWorkloadLimitActions.HourlyLimitAction = workloadDefaults.HourlyLimitAction;
+                    _options.CriticalWorkloadLimitActions.DailyLimitAction = workloadDefaults.DailyLimitAction;
+                    _options.CriticalWorkloadLimitActions.MonthlyLimitAction = workloadDefaults.MonthlyLimitAction;
+                    foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith("limits:PremiumWorkload:", StringComparison.Ordinal)
+                        || key.StartsWith("limits:CriticalWorkload:", StringComparison.Ordinal)).ToArray()) {
+                        _fieldErrors.Remove(key);
                     }
                     foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith($"limits:{_limitsModel ?? "default"}:", StringComparison.Ordinal)).ToArray()) {
                         _fieldErrors.Remove(key);
@@ -361,16 +381,10 @@
         ActionProperties.Where(property => string.Equals(ActionTab(property.Name), tab, StringComparison.Ordinal));
 
     private static string ActionTab(string name) => name switch {
-        nameof(TokenomicsLimitActions.HourlyQuotaGovernanceAction)
-            or nameof(TokenomicsLimitActions.DailyQuotaGovernanceAction)
-            or nameof(TokenomicsLimitActions.MonthlyQuotaGovernanceAction)
-            or nameof(TokenomicsLimitActions.HourlyQuotaExceededAction)
-            or nameof(TokenomicsLimitActions.DailyQuotaExceededAction)
-            or nameof(TokenomicsLimitActions.MonthlyQuotaExceededAction) => "limits",
-        nameof(TokenomicsLimitActions.HourlyBudgetEntitledTenantAction)
-            or nameof(TokenomicsLimitActions.DailyBudgetEntitledTenantAction)
-            or nameof(TokenomicsLimitActions.MonthlyBudgetEntitledTenantAction)
-            or nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
+        nameof(TokenomicsLimitActions.HourlyLimitAction)
+            or nameof(TokenomicsLimitActions.DailyLimitAction)
+            or nameof(TokenomicsLimitActions.MonthlyLimitAction) => "limits",
+        nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
             or nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
             or nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "budgets",
         nameof(TokenomicsSettings.CapacityCriticalWorkloadAction)
@@ -535,10 +549,10 @@
         LoadOptions(setting);
     }
 
-    private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args, string? limitModel = null) {
+    private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args, string? limitModel = null, string? workload = null) {
         var value = args.Value?.ToString() ?? string.Empty;
         var isLimit = property.DeclaringType == typeof(TokenomicsLimits) || property.DeclaringType == typeof(TokenomicsLimitActions);
-        var errorKey = isLimit ? $"limits:{limitModel ?? "default"}:{property.Name}" : property.Name;
+        var errorKey = isLimit ? $"limits:{workload ?? limitModel ?? "default"}:{property.Name}" : property.Name;
         if (!TryParseValue(property.PropertyType, property.Name, value, out var parsedValue)
             || property.Name == nameof(TokenomicsSettings.DelayDuration) && parsedValue is int duration && duration < 0
             || property.DeclaringType == typeof(TokenomicsLimits) && Convert.ToDecimal(parsedValue, CultureInfo.InvariantCulture) < 0) {
@@ -555,12 +569,14 @@
             : null;
 
         _fieldErrors.Remove(errorKey);
-        if (isLimit && limitModel is not null && (!_options.ModelLimits.ContainsKey(limitModel) || !_options.ModelLimitActions.ContainsKey(limitModel))) {
+        if (isLimit && workload is null && limitModel is not null && (!_options.ModelLimits.ContainsKey(limitModel) || !_options.ModelLimitActions.ContainsKey(limitModel))) {
             var copy = ParseOptions(_options.ToString())!;
             _options.ModelLimits.TryAdd(limitModel, copy.DefaultLimits);
             _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultLimitActions);
         }
-        object target = property.DeclaringType == typeof(TokenomicsLimits)
+        object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
+            : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
+            : property.DeclaringType == typeof(TokenomicsLimits)
             ? limitModel is null ? _options.DefaultLimits : _options.ModelLimits[limitModel]
             : property.DeclaringType == typeof(TokenomicsLimitActions)
                 ? limitModel is null ? _options.DefaultLimitActions : _options.ModelLimitActions[limitModel]
@@ -908,7 +924,12 @@
         await OnChanged.InvokeAsync();
     }
 
-    private bool IsOptionChanged(PropertyInfo property, string? model = null) {
+    private bool IsOptionChanged(PropertyInfo property, string? model = null, string? workload = null) {
+        if (workload is not null) {
+            var current = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions : _options.CriticalWorkloadLimitActions;
+            var loaded = workload == "PremiumWorkload" ? _loadedOptions.PremiumWorkloadLimitActions : _loadedOptions.CriticalWorkloadLimitActions;
+            return !Equals(property.GetValue(current), property.GetValue(loaded));
+        }
         if (property.DeclaringType == typeof(TokenomicsLimits)) {
             var current = model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits;
             var loaded = model is not null && _loadedOptions.ModelLimits.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimits;
@@ -988,14 +1009,36 @@
 
 
     private RenderFragment RenderField(string name, bool compact = false, string? model = null) {
-        var property = OptionProperties.Single(property => property.Name == name);
-        object target = property.DeclaringType == typeof(TokenomicsLimits)
+        var workload = name switch {
+            nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyLimitAction)
+                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyLimitAction)
+                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyLimitAction)
+                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "PremiumWorkload",
+            nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyLimitAction)
+                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyLimitAction)
+                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyLimitAction)
+                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
+                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
+                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "CriticalWorkload",
+            _ => null
+        };
+        var propertyName = workload switch {
+            "PremiumWorkload" => name[(nameof(TokenomicsSettings.PremiumWorkloadLimitActions).Length + 1)..],
+            "CriticalWorkload" => name[(nameof(TokenomicsSettings.CriticalWorkloadLimitActions).Length + 1)..],
+            _ => name
+        };
+        var property = OptionProperties.Single(property => property.Name == propertyName);
+        object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
+            : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
+            : property.DeclaringType == typeof(TokenomicsLimits)
             ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits
             : property.DeclaringType == typeof(TokenomicsLimitActions)
                 ? model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions
                 : _options;
         var errorKey = property.DeclaringType == typeof(TokenomicsLimits) || property.DeclaringType == typeof(TokenomicsLimitActions)
-            ? $"limits:{model ?? "default"}:{property.Name}" : property.Name;
+            ? $"limits:{workload ?? model ?? "default"}:{property.Name}" : property.Name;
         if (name == nameof(TokenomicsSettings.DefaultModelAPI)) {
             var apiNames = RoutingApis.Select(api => api.Name)
                 .Concat(_options.ModelHostOptions.Values.SelectMany(hosts => hosts.Values)
@@ -1026,13 +1069,14 @@
                 }
             </div>;
         }
-        return @<TokenomicsOptionFieldWidget Name="@property.Name" Label="@FieldLabel(property.Name)"
+        return @<TokenomicsOptionFieldWidget Name="@name"
+            Label="@(workload is null ? FieldLabel(name) : $"{(workload == "CriticalWorkload" ? "Privileged workload" : "Premium tenant")} {FieldLabel(property.Name)}")"
             Value="@FormatValue(property.GetValue(target), property.Name)" Step="@InputStep(property.PropertyType)"
             InputType="@(property.PropertyType == typeof(string) || property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
             Error="@(_fieldErrors.TryGetValue(errorKey, out var error) ? error : null)"
-            IsChanged="@IsOptionChanged(property, model)" IsAction="@(property.PropertyType == typeof(TokenActionEnum))"
+            IsChanged="@IsOptionChanged(property, model, workload)" IsAction="@(property.PropertyType == typeof(TokenActionEnum))"
             Compact="compact" ActionLabel="@(action => FieldLabel(action.ToString()))"
-            OnChanged="@(args => SetOptionAsync(property, args, model))" />;
+            OnChanged="@(args => SetOptionAsync(property, args, model, workload))" />;
     }
 
 

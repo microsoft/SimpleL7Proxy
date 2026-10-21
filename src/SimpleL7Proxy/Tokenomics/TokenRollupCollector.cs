@@ -114,6 +114,12 @@ public sealed class TokenRollupCollector : BackgroundService, IConfigChangeSubsc
             return;
         }
 
+        if (_settings.IgnoredFields.Count > 0)
+        {
+            _logger.LogWarning("[TOKN-IX] Ignored Tokenomics fields with unknown names or invalid values: {Fields}",
+                string.Join(", ", _settings.IgnoredFields));
+        }
+
         var replicaId = string.IsNullOrWhiteSpace(_options.ReplicaName) ? "DEV" : _options.ReplicaName!;
         var httpClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(10) };
         _transmitter = new TokenomicsTransmitter(metricsServerUri, replicaId, httpClient);

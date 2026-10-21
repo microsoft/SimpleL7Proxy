@@ -5,17 +5,30 @@ using SimpleL7Proxy.Queue;
 public sealed class TokenomicsCondition
 {
     public bool AbuseDetected { get; set; }
-    public bool MonthlyQuotaExceeded { get; set; }
-    public bool AdministratorOverride { get; set; }
-    public bool ApprovedException { get; set; }
+
+    // Standard work
     public bool DailyQuotaExceeded { get; set; }
+    public bool MonthlyQuotaExceeded { get; set; }
+    public bool DailyBudgetExceeded { get; set; }
+    public bool MonthlyBudgetExceeded { get; set; }
+
+    // Premium Workload
+    public bool PremiumHourlyQuotaExceeded { get; set; }
+    public bool PremiumDailyQuotaExceeded { get; set; }
+    public bool PremiumMonthlyQuotaExceeded { get; set; }
+    public bool PremiumHourlyBudgetExceeded { get; set; }
+    public bool PremiumDailyBudgetExceeded { get; set; }
+    public bool PremiumMonthlyBudgetExceeded { get; set; }
+    public bool PremiumTenant { get; set; }
+    public bool EnterpriseTenant { get; set; }
+
+    // Critical Workload
     public bool IncidentResponse { get; set; }
     public bool AuditInvestigation { get; set; }
     public bool ComplianceRequired { get; set; }
-    public bool MonthlyBudgetExceeded { get; set; }
-    public bool PremiumTenant { get; set; }
-    public bool EnterpriseTenant { get; set; }
-    public bool DailyBudgetExceeded { get; set; }
+   
+    public bool AdministratorOverride { get; set; }
+    public bool ApprovedException { get; set; }
     public bool CapacityConstrained { get; set; }
     public bool CriticalPriority { get; set; }
     public bool HighPriority { get; set; }

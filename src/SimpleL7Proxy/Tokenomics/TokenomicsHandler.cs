@@ -239,25 +239,36 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             return ("AbuseDetected", Settings.AbuseDetectedAction);
 
         if (c.MonthlyQuotaExceeded && !c.AdministratorOverride && !c.ApprovedException)
-            return ("MonthlyQuotaExceeded", actions.MonthlyQuotaExceededAction);
+            return ("MonthlyQuotaExceeded", actions.MonthlyLimitAction);
 
         if (c.AdministratorOverride || c.ApprovedException)
             return ("AdministratorOverride", Settings.AdministratorOverrideAction);
 
-        if (c.DailyQuotaExceeded)
+        if (c.IncidentResponse || c.AuditInvestigation || c.ComplianceRequired)
+        {
+            if (c.PremiumHourlyQuotaExceeded)
+                return ("Premium Hourly Quota Exceeded", Settings.PremiumWorkloadLimitActions.HourlyLimitAction);
+            if (c.PremiumDailyQuotaExceeded)
+                return ("Premium Daily Quota Exceeded", Settings.PremiumWorkloadLimitActions.DailyLimitAction);
+            if (c.PremiumMonthlyQuotaExceeded)
+                return ("Premium Monthly Quota Exceeded", Settings.PremiumWorkloadLimitActions.MonthlyLimitAction);
+            if (c.PremiumHourlyBudgetExceeded)
+                return ("Premium Hourly Budget Exceeded", Settings.PremiumWorkloadLimitActions.HourlyBudgetExceededAction);
+            if (c.PremiumDailyBudgetExceeded)
+                return ("Premium Daily Budget Exceeded", Settings.PremiumWorkloadLimitActions.DailyBudgetExceededAction);
+            if (c.PremiumMonthlyBudgetExceeded)
+                return ("Premium Monthly Budget Exceeded", Settings.PremiumWorkloadLimitActions.MonthlyBudgetExceededAction);
+        }
+        else if (c.DailyQuotaExceeded)
         {
             Console.WriteLine("Daily quota exceeded for user: " + data.UserID);
-
-            if (c.IncidentResponse || c.AuditInvestigation || c.ComplianceRequired)
-                return ("DailyQuotaGovernance", actions.DailyQuotaGovernanceAction);
-
-            return ("DailyQuotaExceeded", actions.DailyQuotaExceededAction);
+            return ("DailyQuotaExceeded", actions.DailyLimitAction);
         }
 
         if (c.MonthlyBudgetExceeded)
         {
             if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("MonthlyBudgetEntitledTenant", actions.MonthlyBudgetEntitledTenantAction);
+                return ("MonthlyBudgetEntitledTenant", Settings.CriticalWorkloadLimitActions.MonthlyBudgetExceededAction);
 
             return ("MonthlyBudgetExceeded", actions.MonthlyBudgetExceededAction);
         }
@@ -265,7 +276,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         if (c.DailyBudgetExceeded)
         {
             if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("DailyBudgetEntitledTenant", actions.DailyBudgetEntitledTenantAction);
+                return ("DailyBudgetEntitledTenant", Settings.CriticalWorkloadLimitActions.DailyBudgetExceededAction);
 
             return ("DailyBudgetExceeded", actions.DailyBudgetExceededAction);
         }

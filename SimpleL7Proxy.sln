@@ -41,7 +41,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HealthProbe", "src\HealthPr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MetricsServer", "src\MetricsServer\MetricsServer.csproj", "{B55A4BF8-E9C1-41D6-8469-3B0DF2964058}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenomicsSettingsCheck", "..\..\..\..\tmp\tokenomics-settings-check\TokenomicsSettingsCheck.csproj", "{72C65AAF-62B7-4D05-96BB-B1EC5905DCF5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

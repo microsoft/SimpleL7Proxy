@@ -9,12 +9,20 @@ public class TokenomicsSettings
 {
     /// <summary>Gets or sets the default token limits and USD budgets, serialized using their unprefixed property names.</summary>
     public TokenomicsLimits DefaultLimits { get; set; } = new();
-    /// <summary>Gets or sets the default quota and budget actions, serialized using their unprefixed property names.</summary>
+    /// <summary>Gets or sets default actions, serialized using their unprefixed property names.</summary>
     public TokenomicsLimitActions DefaultLimitActions { get; set; } = new();
+    /// <summary>Gets or sets premium workload limits, serialized as PremiumWorkloadLimits.Field=value.</summary>
+    public TokenomicsLimits PremiumWorkloadLimits { get; set; } = new();
+    /// <summary>Gets or sets premium workload actions, serialized as PremiumWorkloadLimitActions.Field=value.</summary>
+    public TokenomicsLimitActions PremiumWorkloadLimitActions { get; set; } = new();
+    /// <summary>Gets or sets critical workload limits, serialized as CriticalWorkloadLimits.Field=value.</summary>
+    public TokenomicsLimits CriticalWorkloadLimits { get; set; } = new();
+    /// <summary>Gets or sets critical workload actions, serialized as CriticalWorkloadLimitActions.Field=value.</summary>
+    public TokenomicsLimitActions CriticalWorkloadLimitActions { get; set; } = new();
+
 
     /// <summary>Gets or sets token limits and USD budgets keyed by model name.</summary>
     public Dictionary<string, TokenomicsLimits> ModelLimits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>Gets or sets quota and budget actions keyed by model name.</summary>
     public Dictionary<string, TokenomicsLimitActions> ModelLimitActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets or sets the delay duration in milliseconds.</summary>
@@ -54,25 +62,8 @@ public class TokenomicsSettings
     /// <summary>Gets or sets the action for an administrator override or approved exception.</summary>
     public TokenActionEnum AdministratorOverrideAction { get; set; } = TokenActionEnum.Bypass;
 
-    /// <summary>Gets or sets the hourly-quota action for premium tenants.</summary>
-    public TokenActionEnum HourlyQuotaPremiumTenantAction { get; set; } = TokenActionEnum.Bypass;
 
-    /// <summary>Gets or sets the daily-quota action for premium tenants.</summary>
-    public TokenActionEnum DailyQuotaPremiumTenantAction { get; set; } = TokenActionEnum.Bypass;
-
-    /// <summary>Gets or sets the monthly-quota action for premium tenants.</summary>
-    public TokenActionEnum MonthlyQuotaPremiumTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-
-    /// <summary>Gets or sets the hourly-budget action for privileged workloads.</summary>
-    public TokenActionEnum HourlyBudgetPrivilegedWorkloadAction { get; set; } = TokenActionEnum.Bypass;
-
-    /// <summary>Gets or sets the daily-budget action for privileged workloads.</summary>
-    public TokenActionEnum DailyBudgetPrivilegedWorkloadAction { get; set; } = TokenActionEnum.Bypass;
-
-    /// <summary>Gets or sets the monthly-budget action for privileged workloads.</summary>
-    public TokenActionEnum MonthlyBudgetPrivilegedWorkloadAction { get; set; } = TokenActionEnum.DowngradeModel;
-
-    /// <summary>Gets or sets the capacity-constrained action for critical-priority or incident-response work.</summary>
+    // Critical Workload
     public TokenActionEnum CapacityCriticalWorkloadAction { get; set; } = TokenActionEnum.IncreasePriority;
 
     /// <summary>Gets or sets the capacity-constrained action for other high-priority work.</summary>
@@ -117,50 +108,26 @@ public class TokenomicsSettings
 
     
     private static readonly PropertyInfo[] SettableProperties =
-        typeof(TokenomicsSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        typeof(TokenomicsSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property => property.SetMethod?.IsPublic == true)
+            .ToArray();
 
     private static readonly string ModelCostPrefix = nameof(ModelCostPerToken) + ".";
 
+    /// <summary>Gets the field names ignored by the last parse because their names or values were invalid.</summary>
+    public IReadOnlyList<string> IgnoredFields { get; private set; } = Array.Empty<string>();
 
     /// <summary>
-    /// Applies key=value settings separated by commas or semicolons.
-    /// Omitted settings keep their current values.
+    /// Applies recognized comma- or semicolon-separated key=value pairs. Unprefixed limit and action
+    /// keys target defaults; workload keys use their container name, such as
+    /// CriticalWorkloadLimitActions.DailyLimitAction=bypass or PremiumWorkloadLimits.DailyTokenLimit=5000.
+    /// Model overrides retain ModelLimits=model=Field:value and ModelLimitActions=model=Field:value syntax.
+    /// Omitted or invalid fields retain their existing values. Invalid entries are skipped and reported
+    /// in IgnoredFields; a failed compound entry cannot apply partial changes. Returns false only for
+    /// empty input or input that cannot be split into entries.
     /// </summary>
-    /// <param name="data">Settings text, such as <c>HourlyTokenLimit=5000; DelayDuration=10s</c>.</param>
-    /// <returns>
-    /// True if all settings are applied; false for empty or invalid input, with no changes.
-    /// </returns>
-    /// <remarks>
-    /// <para>
-    /// Numbers use a decimal point; setting and action names ignore case.
-    /// URI-escape special characters in names and paths, such as spaces (%20).
-    /// </para>
-    /// <para>
-    /// Delays: <c>500ms</c>, <c>10s</c>, <c>ss:fff</c>, or <c>mm:ss:fff</c>.
-    /// Prices: <c>ModelCostPerToken.gpt-4o=Input:0.000005|CachedInput:0|Output:0.000015</c>.
-    /// A single price sets output pricing only.
-    /// </para>
-    /// <para>
-    /// Groups: <c>ModelHierarchy=gpt: [gpt-4o, gpt-4o-mini]</c>.
-    /// </para>
-    /// <para>
-    /// Model limits: <c>ModelLimits=gpt-4o=HourlyTokenLimit:5000|DailyBudgetUsd:200</c>.
-    /// Model actions: <c>ModelLimitActions=gpt-4o=HourlyQuotaExceededAction:throttle</c>.
-    /// Repeat entries for additional models. Omitted fields retain existing values; new entries use their type defaults.
-    /// </para>
-    /// <para>
-    /// Host options: <c>HostOptions=host=Enabled:true|Api:name:passThrough:overridePath[:path]</c>.
-    /// Per-model options: use <c>ModelHostOptions=model=host=Enabled:true|Api:...</c>.
-    /// Repeat entries for additional hosts or model-host pairs.
-    /// </para>
-    /// <para>
-    /// API flags: <c>true:false</c> preserves the path; <c>false:false</c> uses the default;
-    /// <c>false:true:path</c> supplies an override.
-    /// Legacy <c>Api:name:overridePath[:path]</c> entries remain accepted.
-    /// </para>
-    /// </remarks>
-
     public bool TryParse(string data) {
+        IgnoredFields = Array.Empty<string>();
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
         }
@@ -170,13 +137,22 @@ public class TokenomicsSettings
         }
 
         var pending = CloneForParse();
+        var ignoredFields = new List<string>();
+        var applied = false;
         foreach (var part in parts) {
-            if (!pending.TryApplyPart(part)) {
-                return false;
+            var candidate = pending.CloneForParse();
+            if (candidate.TryApplyPart(part)) {
+                pending = candidate;
+                applied = true;
+            } else {
+                ignoredFields.Add(TrySplitKeyValue(part, out var key, out _) ? key : "(malformed entry)");
             }
         }
 
-        CopyFrom(pending);
+        if (applied) {
+            CopyFrom(pending);
+        }
+        IgnoredFields = ignoredFields.Distinct(StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly();
         return true;
     }
 
@@ -316,6 +292,16 @@ public class TokenomicsSettings
 
         if (key.StartsWith(ModelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
             return TryParseModelCost(key[ModelCostPrefix.Length..], value);
+        }
+
+        var dotIndex = key.IndexOf('.');
+        if (dotIndex >= 0) {
+            var scope = SettableProperties.FirstOrDefault(property =>
+                property.Name.Equals(key[..dotIndex], StringComparison.OrdinalIgnoreCase)
+                && (property.Name is nameof(PremiumWorkloadLimits) or nameof(PremiumWorkloadLimitActions)
+                    or nameof(CriticalWorkloadLimits) or nameof(CriticalWorkloadLimitActions)));
+            return scope?.GetValue(this) is { } target
+                && TryParseScalar(key[(dotIndex + 1)..], value, target);
         }
 
         if (key.Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase)) {
@@ -673,7 +659,7 @@ public class TokenomicsSettings
         return true;
     }
 
-    /// <summary>Returns semicolon-separated settings with invariant numbers, named actions, URI-escaped names and paths, and model-host assignments.</summary>
+    /// <summary>Returns semicolon-separated settings with dotted workload fields, unprefixed defaults, invariant numbers, named actions, URI-escaped names and paths, and model-host assignments.</summary>
     public override string ToString() {
         var parts = new List<string>();
         foreach (var property in SettableProperties) {
@@ -688,6 +674,13 @@ public class TokenomicsSettings
             } else if (property.Name == nameof(DefaultLimitActions)) {
                 foreach (var actionProperty in typeof(TokenomicsLimitActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                     parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultLimitActions)!)}");
+                }
+            } else if (property.PropertyType == typeof(TokenomicsLimits)
+                || property.PropertyType == typeof(TokenomicsLimitActions)) {
+                var scope = property.GetValue(this)
+                    ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
+                foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                    parts.Add($"{property.Name}.{field.Name}={FormatScalar(field.GetValue(scope)!)}");
                 }
             } else if (property.Name is nameof(ModelLimits) or nameof(ModelLimitActions)) {
                 var modelOptions = property.Name == nameof(ModelLimits)
@@ -837,28 +830,17 @@ public class TokenomicsSettings
 
     private TokenomicsSettings CloneForParse() {
         var clone = (TokenomicsSettings)MemberwiseClone();
-        clone.DefaultLimits = new TokenomicsLimits {
-            MonthlyTokenLimit = DefaultLimits.MonthlyTokenLimit,
-            DailyTokenLimit = DefaultLimits.DailyTokenLimit,
-            HourlyTokenLimit = DefaultLimits.HourlyTokenLimit,
-            HourlyBudgetUsd = DefaultLimits.HourlyBudgetUsd,
-            DailyBudgetUsd = DefaultLimits.DailyBudgetUsd,
-            MonthlyBudgetUsd = DefaultLimits.MonthlyBudgetUsd
-        };
-        clone.DefaultLimitActions = new TokenomicsLimitActions {
-            HourlyQuotaGovernanceAction = DefaultLimitActions.HourlyQuotaGovernanceAction,
-            DailyQuotaGovernanceAction = DefaultLimitActions.DailyQuotaGovernanceAction,
-            MonthlyQuotaGovernanceAction = DefaultLimitActions.MonthlyQuotaGovernanceAction,
-            HourlyQuotaExceededAction = DefaultLimitActions.HourlyQuotaExceededAction,
-            DailyQuotaExceededAction = DefaultLimitActions.DailyQuotaExceededAction,
-            MonthlyQuotaExceededAction = DefaultLimitActions.MonthlyQuotaExceededAction,
-            HourlyBudgetExceededAction = DefaultLimitActions.HourlyBudgetExceededAction,
-            DailyBudgetExceededAction = DefaultLimitActions.DailyBudgetExceededAction,
-            MonthlyBudgetExceededAction = DefaultLimitActions.MonthlyBudgetExceededAction,
-            HourlyBudgetEntitledTenantAction = DefaultLimitActions.HourlyBudgetEntitledTenantAction,
-            DailyBudgetEntitledTenantAction = DefaultLimitActions.DailyBudgetEntitledTenantAction,
-            MonthlyBudgetEntitledTenantAction = DefaultLimitActions.MonthlyBudgetEntitledTenantAction
-        };
+        foreach (var property in SettableProperties.Where(property =>
+            property.PropertyType == typeof(TokenomicsLimits) || property.PropertyType == typeof(TokenomicsLimitActions))) {
+            var source = property.GetValue(this)
+                ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
+            object scope = property.PropertyType == typeof(TokenomicsLimits)
+                ? new TokenomicsLimits() : new TokenomicsLimitActions();
+            foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                field.SetValue(scope, field.GetValue(source));
+            }
+            property.SetValue(clone, scope);
+        }
         clone.ModelLimits = ModelLimits.ToDictionary(entry => entry.Key, entry => new TokenomicsLimits {
             MonthlyTokenLimit = entry.Value.MonthlyTokenLimit,
             DailyTokenLimit = entry.Value.DailyTokenLimit,
@@ -868,18 +850,12 @@ public class TokenomicsSettings
             MonthlyBudgetUsd = entry.Value.MonthlyBudgetUsd
         }, ModelLimits.Comparer);
         clone.ModelLimitActions = ModelLimitActions.ToDictionary(entry => entry.Key, entry => new TokenomicsLimitActions {
-            HourlyQuotaGovernanceAction = entry.Value.HourlyQuotaGovernanceAction,
-            DailyQuotaGovernanceAction = entry.Value.DailyQuotaGovernanceAction,
-            MonthlyQuotaGovernanceAction = entry.Value.MonthlyQuotaGovernanceAction,
-            HourlyQuotaExceededAction = entry.Value.HourlyQuotaExceededAction,
-            DailyQuotaExceededAction = entry.Value.DailyQuotaExceededAction,
-            MonthlyQuotaExceededAction = entry.Value.MonthlyQuotaExceededAction,
+            HourlyLimitAction = entry.Value.HourlyLimitAction,
+            DailyLimitAction = entry.Value.DailyLimitAction,
+            MonthlyLimitAction = entry.Value.MonthlyLimitAction,
             HourlyBudgetExceededAction = entry.Value.HourlyBudgetExceededAction,
             DailyBudgetExceededAction = entry.Value.DailyBudgetExceededAction,
-            MonthlyBudgetExceededAction = entry.Value.MonthlyBudgetExceededAction,
-            HourlyBudgetEntitledTenantAction = entry.Value.HourlyBudgetEntitledTenantAction,
-            DailyBudgetEntitledTenantAction = entry.Value.DailyBudgetEntitledTenantAction,
-            MonthlyBudgetEntitledTenantAction = entry.Value.MonthlyBudgetEntitledTenantAction
+            MonthlyBudgetExceededAction = entry.Value.MonthlyBudgetExceededAction
         }, ModelLimitActions.Comparer);
         clone.ModelCostPerToken = new Dictionary<string, ModelTokenPricing>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in ModelCostPerToken) {
