@@ -8,11 +8,35 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.StreamProcessor;
+using System.Text;
 
-internal static class Program
+internal static partial class Program
 {
+    public static int DEBUGLEVEL =0;
+
+    internal static readonly StringBuilder checkpoints = new StringBuilder("InitializeAsync: entered");
+    static string lastStage = "entered";
+
+    internal static void checkpointHelper(string action, string stage)
+    {
+        if (DEBUGLEVEL == 1 && lastStage != stage)
+        {
+            checkpoints.Append($" Entering stage: {stage}");
+        } else if (DEBUGLEVEL >= 2)
+        {
+            checkpoints.Append($"; {action} ");
+        }
+        lastStage = stage;
+    }
+
+    [LoggerMessage(
+        Level = LogLevel.Critical,
+        Message = "{Checkpoint}")]
+    internal static partial void LogCheckpoint(ILogger logger, string checkpoint);
+
     public static async Task Main(string[] args)
     {
+        
         TokenomicsReplayOptions replayOptions;
         try
         {
@@ -44,8 +68,9 @@ internal static class Program
         }
         else
         {
+            var (drafts, defaultedProfileKeys) = await StartupAppConfig.InitializeAsync(app);
             await StartupStorageBlob.CheckProfileStorageAsync(app);
-            await StartupAppConfig.InitializeAsync(app);
+            await StartupStorageBlob.CreateDefaultProfileBlobsAsync(app, drafts, defaultedProfileKeys);
         }
         await CompanionAppStartup.InitializeAsync(app);
         StartupHttpPipeline(app);

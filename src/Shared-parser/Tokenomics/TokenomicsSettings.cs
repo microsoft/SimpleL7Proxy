@@ -54,6 +54,24 @@ public class TokenomicsSettings
     /// <summary>Gets or sets the action for an administrator override or approved exception.</summary>
     public TokenActionEnum AdministratorOverrideAction { get; set; } = TokenActionEnum.Bypass;
 
+    /// <summary>Gets or sets the hourly-quota action for premium tenants.</summary>
+    public TokenActionEnum HourlyQuotaPremiumTenantAction { get; set; } = TokenActionEnum.Bypass;
+
+    /// <summary>Gets or sets the daily-quota action for premium tenants.</summary>
+    public TokenActionEnum DailyQuotaPremiumTenantAction { get; set; } = TokenActionEnum.Bypass;
+
+    /// <summary>Gets or sets the monthly-quota action for premium tenants.</summary>
+    public TokenActionEnum MonthlyQuotaPremiumTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
+
+    /// <summary>Gets or sets the hourly-budget action for privileged workloads.</summary>
+    public TokenActionEnum HourlyBudgetPrivilegedWorkloadAction { get; set; } = TokenActionEnum.Bypass;
+
+    /// <summary>Gets or sets the daily-budget action for privileged workloads.</summary>
+    public TokenActionEnum DailyBudgetPrivilegedWorkloadAction { get; set; } = TokenActionEnum.Bypass;
+
+    /// <summary>Gets or sets the monthly-budget action for privileged workloads.</summary>
+    public TokenActionEnum MonthlyBudgetPrivilegedWorkloadAction { get; set; } = TokenActionEnum.DowngradeModel;
+
     /// <summary>Gets or sets the capacity-constrained action for critical-priority or incident-response work.</summary>
     public TokenActionEnum CapacityCriticalWorkloadAction { get; set; } = TokenActionEnum.IncreasePriority;
 

@@ -132,9 +132,9 @@ else
     };
 
     private static readonly (string Label, string[] Names)[] ActionRows = {
-        ("Quota governance action", new[] { nameof(TokenomicsLimitActions.HourlyQuotaGovernanceAction), nameof(TokenomicsLimitActions.DailyQuotaGovernanceAction), nameof(TokenomicsLimitActions.MonthlyQuotaGovernanceAction) }),
-        ("Quota exceeded action", new[] { nameof(TokenomicsLimitActions.HourlyQuotaExceededAction), nameof(TokenomicsLimitActions.DailyQuotaExceededAction), nameof(TokenomicsLimitActions.MonthlyQuotaExceededAction) }),
         ("Budget exceeded action", new[] { nameof(TokenomicsLimitActions.HourlyBudgetExceededAction), nameof(TokenomicsLimitActions.DailyBudgetExceededAction), nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) }),
-        ("Entitled tenant action", new[] { nameof(TokenomicsLimitActions.HourlyBudgetEntitledTenantAction), nameof(TokenomicsLimitActions.DailyBudgetEntitledTenantAction), nameof(TokenomicsLimitActions.MonthlyBudgetEntitledTenantAction) })
+        ("Quota exceeded action", new[] { nameof(TokenomicsLimitActions.HourlyQuotaExceededAction), nameof(TokenomicsLimitActions.DailyQuotaExceededAction), nameof(TokenomicsLimitActions.MonthlyQuotaExceededAction) }),
+        ("Privileged workload action", new[] { nameof(TokenomicsLimitActions.HourlyQuotaGovernanceAction), nameof(TokenomicsLimitActions.DailyQuotaGovernanceAction), nameof(TokenomicsLimitActions.MonthlyQuotaGovernanceAction) }),
+        ("Premium tenant action", new[] { nameof(TokenomicsLimitActions.HourlyBudgetEntitledTenantAction), nameof(TokenomicsLimitActions.DailyBudgetEntitledTenantAction), nameof(TokenomicsLimitActions.MonthlyBudgetEntitledTenantAction) })
     };
 }

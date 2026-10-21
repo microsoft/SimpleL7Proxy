@@ -1,13 +1,21 @@
 using CompanionApp.Components.Shared;
 using CompanionApp.Components.Shared.EventHub;
 using Microsoft.Extensions.Options;
+using static Program;
 
 namespace CompanionApp.Startup;
 
 internal static class StartupAppConfig
 {
-    internal static async Task InitializeAsync(WebApplication app)
+        /// <summary>Loads App Configuration and creates the label when missing. Returns the drafts and the profile URL keys that were defaulted.</summary>
+    internal static async Task<(IReadOnlyList<AppConfigurationScaffoldSetting> Drafts, IReadOnlyList<string> DefaultedKeys)> InitializeAsync(WebApplication app)
     {
+        if (Environment.GetEnvironmentVariable("DEBUGLEVEL") is string debugLevelStr
+            && int.TryParse(debugLevelStr, out var debugLevel))
+        {
+            Program.DEBUGLEVEL = debugLevel;
+        }
+
         var appConfiguration = app.Services.GetRequiredService<AppConfigurationScaffoldService>();
         var eventHubMonitorOptions = app.Services.GetRequiredService<IOptions<EventHubMonitorOptions>>();
         var logger = app.Services.GetRequiredService<ILoggerFactory>()
@@ -22,12 +30,15 @@ internal static class StartupAppConfig
         {
             logger.LogWarning(
                 "Configuration loading skipped: no App Configuration endpoint configured.");
-            return;
+            checkpointHelper("Configuration loading skipped: no App Configuration endpoint configured.", "endpoint missing, skipped");
+
+            return ([], []);
         }
 
         var configuredLabel = appConfiguration.DefaultLabel;
         var labelDisplay = string.IsNullOrEmpty(configuredLabel) ? "(No label)" : configuredLabel;
         var phase = "loading settings";
+        (IReadOnlyList<AppConfigurationScaffoldSetting> Drafts, IReadOnlyList<string> DefaultedKeys) profileDefaults = ([], []);
 
         try
         {
@@ -40,6 +51,7 @@ internal static class StartupAppConfig
                 .Contains(configuredLabel, StringComparer.Ordinal) == true;
             var labelSettingCount = settings.Count(setting =>
                 string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
+            checkpointHelper($"settings loaded={settings.Count}, label exists={labelExists}, label settings={labelSettingCount}", "settings loaded");
             logger.LogDebug(
                 "App Configuration startup load completed. Endpoint={Endpoint}, TotalSettings={TotalSettings}, Labels={LabelCount}, TargetLabel={Label}, TargetLabelExists={LabelExists}, TargetLabelSettings={TargetLabelSettings}",
                 appConfiguration.DefaultEndpoint,
@@ -52,15 +64,19 @@ internal static class StartupAppConfig
             var eventHubOptions = eventHubMonitorOptions.Value;
             var eventHubDefaults = StartupEventHub.GetEventHubDefaults(eventHubOptions);
             var hasEventHubDefaults = StartupEventHub.HasEventHubDefaults(eventHubOptions, eventHubDefaults);
+            checkpointHelper($"event hub defaults present={hasEventHubDefaults}", "event hub defaults read");
 
-            if (!labelExists)
+            if (!labelExists || labelSettingCount == 0)
             {
                 phase = "creating configured label";
+                checkpointHelper("label create path chosen", phase);
                 logger.LogInformation(
-                    "Creating configuration label {Label} with defaults. Include Event Hub settings={EventHubDefaultsApplied}.",
+                    "Creating configuration label {Label} with defaults (LabelExists={LabelExists}, TargetLabelSettings={TargetLabelSettings}). Include Event Hub settings={EventHubDefaultsApplied}.",
                     labelDisplay,
+                    labelExists,
+                    labelSettingCount,
                     hasEventHubDefaults);
-                await InitializeAppConfigurationLabelAsync(
+                profileDefaults = await InitializeAppConfigurationLabelAsync(
                     appConfiguration,
                     logger,
                     configuredLabel,
@@ -68,17 +84,12 @@ internal static class StartupAppConfig
                     eventHubDefaults,
                     hasEventHubDefaults);
                 phase = "label created";
-            }
-            else if (labelSettingCount == 0)
-            {
-                logger.LogError(
-                    "No proxy settings found for label {Label} at {Endpoint}. Open Admin Configuration to save settings.",
-                    labelDisplay,
-                    appConfiguration.DefaultEndpoint);
+                checkpointHelper("label create path completed", phase);
             }
             else
             {
                 appConfiguration.CachedLabel = configuredLabel;
+                checkpointHelper("label already has settings", "label already has settings");
                 logger.LogInformation(
                     "Configuration loaded: {SettingCount} settings from label {Label}.",
                     labelSettingCount,
@@ -93,11 +104,18 @@ internal static class StartupAppConfig
                 phase,
                 labelDisplay,
                 appConfiguration.DefaultEndpoint);
+            checkpointHelper($"failed while {phase} ({exception.GetType().Name})", phase);
             logger.LogDebug(exception, "Configuration failure details.");
         }
+
+        if (Program.DEBUGLEVEL >= 1)
+        {
+            LogCheckpoint(logger, checkpoints.ToString());
+        }
+        return profileDefaults;
     }
 
-    private static async Task InitializeAppConfigurationLabelAsync(
+    private static async Task<(IReadOnlyList<AppConfigurationScaffoldSetting> Drafts, IReadOnlyList<string> DefaultedKeys)> InitializeAppConfigurationLabelAsync(
         AppConfigurationScaffoldService appConfiguration,
         ILogger logger,
         string configuredLabel,
@@ -105,11 +123,13 @@ internal static class StartupAppConfig
         Dictionary<string, string> eventHubDefaults,
         bool hasEventHubDefaults)
     {
+        checkpointHelper("InitializeAppConfigurationLabelAsync: entered", "entered");
         var drafts = appConfiguration.CreateLabelDraft(configuredLabel);
         logger.LogDebug(
             "Prepared App Configuration label {Label} with {SettingCount} draft settings",
             labelDisplay,
             drafts.Count);
+        checkpointHelper($"drafts created={drafts.Count}", "drafts created");
 
         if (hasEventHubDefaults)
         {
@@ -120,9 +140,11 @@ internal static class StartupAppConfig
             }
 
             drafts.Single(setting => setting.Key == "Cold:Logging:EventLoggers").DraftValue = "eventhub";
+            checkpointHelper("event hub defaults applied", "event hub defaults applied");
         }
 
-        StartupEnvOverrides.ApplyStartupOverrides(drafts);
+        var defaultedKeys = StartupEnvOverrides.ApplyStartupOverrides(drafts, appConfiguration.DefaultEndpoint);
+        checkpointHelper($"overrides applied={defaultedKeys.Count}", "overrides applied");
 
         logger.LogInformation(
             "Writing App Configuration label {Label} to {Endpoint} with {SettingCount} draft settings",
@@ -137,6 +159,7 @@ internal static class StartupAppConfig
             createLabel: true);
 
         appConfiguration.CachedLabel = configuredLabel;
+        checkpointHelper("UpdateAsync completed", "UpdateAsync completed");
         var initializedSettingCount = result.Settings.Count(setting =>
             string.Equals(setting.Label, configuredLabel, StringComparison.Ordinal));
 
@@ -146,7 +169,8 @@ internal static class StartupAppConfig
                 "Configuration verification failed: saving label {Label} at {Endpoint} returned no published settings. Startup will continue; review the label in Admin Configuration.",
                 labelDisplay,
                 appConfiguration.DefaultEndpoint);
-            return;
+            checkpointHelper("no published settings", "no published settings");
+            return (drafts, defaultedKeys);
         }
 
         logger.LogInformation(
@@ -154,5 +178,7 @@ internal static class StartupAppConfig
             labelDisplay,
             initializedSettingCount,
             appConfiguration.DefaultEndpoint);
+        checkpointHelper($"published settings={initializedSettingCount}", "settings published");
+        return (drafts, defaultedKeys);
     }
 }
