@@ -63,7 +63,8 @@ internal sealed class CustomConsoleFormatter : ConsoleFormatter
         textWriter.WriteLine(message);
         if (logEntry.Exception is not null)
         {
-            if (logEntry.LogLevel is LogLevel.Debug or LogLevel.Trace)
+            if (logEntry.LogLevel is LogLevel.Debug or LogLevel.Trace
+                || string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_DETAILEDERRORS"), "true", StringComparison.OrdinalIgnoreCase))
             {
                 textWriter.WriteLine(logEntry.Exception);
             }
