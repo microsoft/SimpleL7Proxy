@@ -109,6 +109,8 @@ Profile settings control how user-specific policy is loaded and applied at runti
 
 Use these settings to control what the proxy strips, forwards, or adds on behalf of callers — including queue priority assignment and per-caller timeout and TTL overrides.
 
+<a id="request-header-policy"></a>
+<a id="request-priority-mapping"></a>
 <details>
 <summary><strong>Request Header Policy</strong></summary>
 
@@ -199,16 +201,6 @@ These rules validate incoming request shape before processing and help enforce c
 | <small>`Request:DisallowedHeaders`</small> | <small>`DisallowedHeaders`</small> | <small>`[]`</small> | Removes forbidden headers from incoming requests. |
 
 </details>
-
-<a id="request-header-policy"></a>
-<a id="request-priority-mapping"></a>
-## Request Header and Priority Policy
-
-The request policy table above covers headers removed or validated at the proxy and priorities assigned from caller-supplied keys. Priority key names and values are paired by position; `PriorityWorker` reserves workers for configured priority levels.
-
-> [!NOTE]
-> For the priority mapping workflow and per-user queue-share behavior, see [Advanced Configuration](advanced-configuration.md#priority-mapping).
-
 
 ---
 
@@ -391,6 +383,7 @@ The proxy polls each backend to determine which endpoints are healthy before rou
 
 Under high concurrency, multiple requests selecting endpoints at the same time can all pick the same host and cause uneven load. Expand to configure the shared iterator state that distributes selection across concurrent requests.
 
+<a id="shared-endpoint-selection"></a>
 <details>
 <summary><strong>Concurrent endpoint selection</strong></summary>
 
@@ -435,6 +428,7 @@ Each log sink requires its own connection credentials. Expand to connect Applica
 
 Log volume can be high under load. Use these settings to route specific event categories to specific sinks — for example, send only exceptions to the console while sending all categories to Application Insights.
 
+<a id="sink-selection-and-category-filters"></a>
 <details>
 <summary><strong>Sink selection and category filters</strong></summary>
 
