@@ -45,16 +45,16 @@ These settings determine how many requests the proxy can handle simultaneously a
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
 | <small>`Server:AuthProviderClass`</small> | <small>`AuthProviders`</small> | <small>`Auth.AzureProvider`</small> | Comma-separated token-provider type names registered at startup. Cold setting; changes require a restart. |
-| <small>`Server:Port`</small> | <small>`Port`</small> | `8000`</small> | The container port the proxy listens on. |
-| <small>`Server:Workers`</small> | <small>`Workers`</small> | `10`</small> | The number of concurrent workers. |
-| <small>`Server:MaxQueueLength`</small> | <small>`MaxQueueLength`</small> | `1000`</small> | Maximum number of backlogged requests. |
+| <small><a id="server-port"></a>`Server:Port`</small> | <small>`Port`</small> | `8000`</small> | The container port the proxy listens on. |
+| <small><a id="server-workers"></a>`Server:Workers`</small> | <small>`Workers`</small> | `10`</small> | The number of concurrent workers. |
+| <small><a id="server-max-queue-length"></a>`Server:MaxQueueLength`</small> | <small>`MaxQueueLength`</small> | `1000`</small> | Maximum number of backlogged requests. |
 | <small>`Server:TerminationGracePeriodSeconds`</small> | <small>`TerminationGracePeriodSeconds`</small> | `30`</small> | Gives endpoints time to drain in-flight requests during shutdown. |
 | <small>`Server:PriorityWorker`</small> | <small>`PriorityWorker`</small> | `2:1, 3:1`</small> | Dedicated workers per priority level (`priority:count` pairs). If no work exists at their assigned priority, these workers process the next available request. Prevents lower-priority requests from starving. |
 | <small>`Server:GC2InternalSecs`</small> | <small>`GC2InternalSecs`</small> | `300`</small> | How often (in seconds) the proxy runs garbage collection. |
 | <small>`Server:StreamFlushInterval`</small> | <small>`StreamFlushInterval`</small> | `250`</small> | Interval (in milliseconds) used by StreamFlusher to flush active response streams. |
 | <small>`Security:UseOAuthGov`</small> | <small>`UseOAuthGov`</small> | `false`</small> | Switches OAuth endpoint logic to government cloud boundary. |
 | <small>`Security:IgnoreSSLCert`</small> | <small>`IgnoreSSLCert`</small> | `false`</small> | TLS certificate validation bypass for explicit non-production scenarios. |
-| <small>`Server:MaxUndrainedEvents`</small> | <small>`EVENTHUB_MAX_UNDRAINED_EVENTS`</small> | <small>`10000`</small> | Backpressure cap for buffered Event Hub events. |
+| <small><a id="server-max-undrained-events"></a>`Server:MaxUndrainedEvents`</small> | <small>`EVENTHUB_MAX_UNDRAINED_EVENTS`</small> | <small>`10000`</small> | Backpressure cap for buffered Event Hub events. |
 </details>
 
 ACA monitors the container via liveness, readiness, and startup probes. By default these probes hit the proxy directly — expand to redirect them to a sidecar and reduce probe overhead on the proxy in high-volume deployments.
