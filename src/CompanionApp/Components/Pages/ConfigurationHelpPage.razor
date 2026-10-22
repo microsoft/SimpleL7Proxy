@@ -8,7 +8,7 @@
     <h1 class="h4 mb-0">@(string.IsNullOrWhiteSpace(Topic) || Topic == "top" ? HelpTopic ?? Section : Topic) help</h1>
 </SectionContent>
 
-<main class="configuration-help-page">
+<section class="configuration-help-page" aria-label="Configuration help">
     <a href="/admin/configuration" class="configuration-help-back">Back to Proxy Configuration</a>
     @if (string.IsNullOrWhiteSpace(Section))
     {
@@ -35,7 +35,7 @@
             <p class="text-muted">No help content is configured for this setting.</p>
         }
     }
-</main>
+</section>
 
 <style>
     .configuration-help-page { max-width: 52rem; margin: 1rem auto; padding: 1.5rem; border: 1px solid #dce4ef; border-radius: .5rem; background: #fff; }
