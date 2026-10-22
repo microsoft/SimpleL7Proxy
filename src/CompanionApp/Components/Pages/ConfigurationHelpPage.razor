@@ -69,7 +69,8 @@
                     : helpEntry.GetChildren().Select(line => line.Value ?? string.Empty))
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .Where(line => !Uri.TryCreate(line.Trim(), UriKind.Absolute, out var url)
-                    || url.Scheme is not (Uri.UriSchemeHttp or Uri.UriSchemeHttps))
+                    || (!string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
         }
     }
@@ -93,9 +94,11 @@
                 : Configuration[$"{CompanionAppOptions.UiSectionName}:TopicDocumentation:{Section}:{Topic}"];
 
             return helpUrl.FirstOrDefault(line => Uri.TryCreate(line.Trim(), UriKind.Absolute, out var url)
-                    && url.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps)
+                    && (string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
                 ?? (Uri.TryCreate(configuredUrl, UriKind.Absolute, out var documentationUrl)
-                    && documentationUrl.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps
+                    && (string.Equals(documentationUrl.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(documentationUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
                     ? documentationUrl.AbsoluteUri
                     : null);
         }
