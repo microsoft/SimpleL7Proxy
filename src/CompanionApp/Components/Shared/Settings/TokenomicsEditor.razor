@@ -1047,8 +1047,9 @@
                 .ToList();
             return @<div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
                 <div class="config-setting-heading">
-                    <label class="form-label" for="tokenomics-DefaultModelAPI">Default Model API</label>
-                    <ConfigurationHelp Section="Tokenomics" Topic="DefaultModelAPI" />
+                    <ConfigurationHelp Section="Tokenomics" Topic="DefaultModelAPI">
+                        <label class="form-label" for="tokenomics-DefaultModelAPI">Default Model API</label>
+                    </ConfigurationHelp>
                 </div>
                 <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@_options.DefaultModelAPI"
                         aria-label="Default Model API" @onchange="@(args => SetOptionAsync(property, args))">

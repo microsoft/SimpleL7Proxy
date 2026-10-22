@@ -23,7 +23,7 @@ else
             <th scope="col">Host</th>
             @foreach (var column in HostColumns)
             {
-                <th scope="col">@column <ConfigurationHelp Section="Hosts" Topic="@column" /></th>
+                <th scope="col"><ConfigurationHelp Section="Hosts" Topic="@column">@column</ConfigurationHelp></th>
             }
             @if (TokenomicsEnabled)
             {
@@ -122,8 +122,9 @@ else
                     <div class="config-newhost-grid">
                         <div class="config-newhost-field @(!string.Equals(_newHostName, _editingHost?.Name ?? string.Empty, StringComparison.Ordinal) ? "config-field-changed" : string.Empty)">
                             <div class="config-setting-heading">
-                                <label class="form-label" for="newHostName">Name</label>
-                                <ConfigurationHelp Section="Hosts" Topic="Host name" HelpTopic="Name" />
+                                <ConfigurationHelp Section="Hosts" Topic="Host name" HelpTopic="Name">
+                                    <label class="form-label" for="newHostName">Name</label>
+                                </ConfigurationHelp>
                             </div>
                             <input id="newHostName" @ref="_newHostNameInput" class="form-control form-control-sm" placeholder="Host_name"
                                    disabled="@(_editingHost is not null)"
@@ -134,9 +135,10 @@ else
                         {
                             <div class='config-newhost-field @((changedFields.Contains(field.Name) || (field.Name == "host" && changedFields.Contains("ipaddress"))) ? "config-field-changed" : string.Empty)'>
                                 <div class="config-setting-heading">
-                                    <label class="form-label" title="@field.Description">@HostLabel(field)</label>
                                     <ConfigurationHelp Section="Hosts" Topic="@field.Name"
-                                                       HelpTopic='@(string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase) ? "Hostname" : field.Name)' />
+                                                       HelpTopic='@(string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase) ? "Hostname" : field.Name)'>
+                                        <label class="form-label" title="@field.Description">@HostLabel(field)</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 @if (string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase))
                                 {
@@ -202,8 +204,9 @@ else
                         <div class="config-auth-section">
                     <div class='config-newhost-field config-auth-toggle @(changedFields.Contains("usemi") ? "config-field-changed" : string.Empty)'>
                         <div class="config-setting-heading">
-                            <label class="form-label">use token auth</label>
-                            <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication" />
+                            <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication">
+                                <label class="form-label">use token auth</label>
+                            </ConfigurationHelp>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" checked="@IsTokenAuth" @onchange="SetTokenAuth" />
@@ -215,8 +218,9 @@ else
                             <div class="config-auth-fields">
                                 <div class='config-newhost-field @(changedFields.Contains("authprovider") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">auth provider</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="authprovider" />
+                                        <ConfigurationHelp Section="Hosts" Topic="authprovider">
+                                            <label class="form-label">auth provider</label>
+                                        </ConfigurationHelp>
                                     </div>
                                     <select class="form-select form-select-sm" value='@NewHostValue("authprovider")' disabled="@(!IsTokenAuth)"
                                             @onchange='args => SetNewHostValue("authprovider", args.Value?.ToString())'>
@@ -233,8 +237,9 @@ else
                                 </div>
                                 <div class='config-newhost-field @(changedFields.Contains("audience") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">audience</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="audience" />
+                                        <ConfigurationHelp Section="Hosts" Topic="audience">
+                                            <label class="form-label">audience</label>
+                                        </ConfigurationHelp>
                                     </div>
                                     <input class="form-control form-control-sm" value='@NewHostValue("audience")' disabled="@(!IsTokenAuth)"
                                            @oninput='args => SetNewHostValue("audience", args.Value?.ToString())' />
@@ -246,16 +251,18 @@ else
                             <div class="config-auth-fields">
                                 <div class='config-newhost-field @(changedFields.Contains("api-key-header") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">api-key-header</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="api-key-header" />
+                                        <ConfigurationHelp Section="Hosts" Topic="api-key-header">
+                                            <label class="form-label">api-key-header</label>
+                                        </ConfigurationHelp>
                                     </div>
                                     <input class="form-control form-control-sm" placeholder="api-key" value='@NewHostValue("api-key-header")' disabled="@IsTokenAuth"
                                            @oninput='args => SetNewHostValue("api-key-header", args.Value?.ToString())' />
                                 </div>
                                 <div class='config-newhost-field @(changedFields.Contains("api-key") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">api-key</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="api-key" />
+                                        <ConfigurationHelp Section="Hosts" Topic="api-key">
+                                            <label class="form-label">api-key</label>
+                                        </ConfigurationHelp>
                                     </div>
                                     <input class="form-control form-control-sm" value='@NewHostValue("api-key")' disabled="@IsTokenAuth"
                                            @oninput='args => SetNewHostValue("api-key", args.Value?.ToString())' />
@@ -278,8 +285,9 @@ else
                             {
                                 <div class='config-newhost-field @(changedFields.Contains(field.Name) ? "config-field-changed" : string.Empty) @(string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase) ? "config-priority-field-wide" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label" title="@field.Description">@HostLabel(field)</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="@field.Name" HelpTopic="@field.Name" />
+                                        <ConfigurationHelp Section="Hosts" Topic="@field.Name" HelpTopic="@field.Name">
+                                            <label class="form-label" title="@field.Description">@HostLabel(field)</label>
+                                        </ConfigurationHelp>
                                     </div>
                                     @if (string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase))
                                     {

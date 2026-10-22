@@ -109,8 +109,9 @@
         {
         <div id="config-connection-form" class="config-header-row">
         <div class="config-header-endpoint">
-            <label class="form-label small mb-1" for="config-endpoint">App Configuration URL</label>
-            <ConfigurationHelp Section="General" Topic="App Configuration URL" />
+            <ConfigurationHelp Section="General" Topic="App Configuration URL">
+                <label class="form-label small mb-1" for="config-endpoint">App Configuration URL</label>
+            </ConfigurationHelp>
             <input id="config-endpoint" class="form-control form-control-sm" type="url"
                      disabled="@(_editingLabel || IsLoading)"
                    placeholder="https://&lt;store&gt;.azconfig.io" @bind="Endpoint" @bind:event="oninput" />
@@ -141,8 +142,9 @@
                 {
                     <text>@StatusMessage · </text>
                 }
-                <text>Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "(not found)")</text>
-                <ConfigurationHelp Section="General" Topic="Sentinel" />
+                <ConfigurationHelp Section="General" Topic="Sentinel">
+                    Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "(not found)")
+                </ConfigurationHelp>
             }
             else
             {
@@ -342,7 +344,6 @@
                                 {
                                     <span class="bi bi-diagram-3-fill fs-4 text-primary" aria-hidden="true"></span>
                                 }
-                                <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
                                 @if (SelectedSection != "Local change review")
                                 {
                                     <ConfigurationHelp Section="@(IsRequestProcessingSection || IsHeaderPolicySection
@@ -353,7 +354,13 @@
                                             ? "Server"
                                         : IsBackendRoutingSection
                                             ? "LoadBalancing"
-                                        : SelectedSection)" />
+                                        : SelectedSection)">
+                                        <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
+                                    </ConfigurationHelp>
+                                }
+                                else
+                                {
+                                    <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
                                     || (SelectedSection.ToLowerInvariant() is "backend resilience" or "backend routing" or "identity & access" or "proxy runtime"
@@ -450,8 +457,7 @@
                                             {
                                                 <tr>
                                                     <td class="font-monospace text-break">
-                                                        @setting.Key
-                                                        <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name" />
+                                                        <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name">@setting.Key</ConfigurationHelp>
                                                     </td>
                                                     <td class="font-monospace text-break">@DisplayLoadedValue(setting.LoadedValue)</td>
                                                     <td class="font-monospace text-break">@DisplayLoadedValue(setting.DraftValue)</td>
@@ -538,7 +544,7 @@
                                 {
                                     <tr class="@(setting.IsChanged ? "config-row-changed" : string.Empty)">
                                         <th scope="row">
-                                            <div class="fw-semibold">@setting.Name <ConfigurationHelp Section="@setting.Section" Topic="@setting.Name" /></div>
+                                            <div class="fw-semibold"><ConfigurationHelp Section="@setting.Section" Topic="@setting.Name">@setting.Name</ConfigurationHelp></div>
                                             <div class="small text-muted font-monospace text-break">@setting.Key</div>
                                             <ConfigurationExplanation Section="@setting.Section" Topic="@setting.Name" />
                                         </th>

@@ -33,8 +33,9 @@
             {
                 <div class="proxy-settings-field @(portSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@portSetting.Key">Port</label>
-                        <ConfigurationHelp Section="Server" Topic="@portSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@portSetting.Name">
+                            <label for="@portSetting.Key">Port</label>
+                        </ConfigurationHelp>
                     </div>
                     <input id="@portSetting.Key" class="form-control" type="number" min="1" max="65535" step="1"
                            value="@NumericDraft(portSetting)"
@@ -46,8 +47,9 @@
             {
                 <div class="proxy-settings-field @(workersSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@workersSetting.Key">Workers</label>
-                        <ConfigurationHelp Section="Server" Topic="@workersSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@workersSetting.Name">
+                            <label for="@workersSetting.Key">Workers</label>
+                        </ConfigurationHelp>
                     </div>
                     <input id="@workersSetting.Key" class="form-control" type="number" min="1" step="1"
                            value="@NumericDraft(workersSetting)"
@@ -59,8 +61,9 @@
             {
                 <div class="proxy-settings-field @(maxQueueLengthSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@maxQueueLengthSetting.Key">Maximum queue length</label>
-                        <ConfigurationHelp Section="Server" Topic="@maxQueueLengthSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@maxQueueLengthSetting.Name">
+                            <label for="@maxQueueLengthSetting.Key">Maximum queue length</label>
+                        </ConfigurationHelp>
                     </div>
                     <input id="@maxQueueLengthSetting.Key" class="form-control" type="number" min="0" step="1"
                            value="@NumericDraft(maxQueueLengthSetting)"
@@ -72,8 +75,9 @@
             {
                 <div class="proxy-settings-field @(maxUndrainedEventsSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@maxUndrainedEventsSetting.Key">Maximum undrained events</label>
-                        <ConfigurationHelp Section="Server" Topic="@maxUndrainedEventsSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@maxUndrainedEventsSetting.Name">
+                            <label for="@maxUndrainedEventsSetting.Key">Maximum undrained events</label>
+                        </ConfigurationHelp>
                     </div>
                     <input id="@maxUndrainedEventsSetting.Key" class="form-control" type="number" min="0" step="1"
                            value="@NumericDraft(maxUndrainedEventsSetting)"
@@ -110,8 +114,9 @@
                         {
                             <div class="proxy-settings-field @(healthProbeSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="proxy-runtime-health-probe">Health probe sidecar</label>
-                                    <ConfigurationHelp Section="HealthProbe" Topic="@healthProbeSetting.Name" />
+                                    <ConfigurationHelp Section="HealthProbe" Topic="@healthProbeSetting.Name">
+                                        <label for="proxy-runtime-health-probe">Health probe sidecar</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div class="form-check form-switch proxy-settings-switch">
                                     <input id="proxy-runtime-health-probe" class="form-check-input" type="checkbox"
@@ -125,8 +130,9 @@
                             </div>
                             <div class="proxy-settings-field @(healthProbeSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="proxy-runtime-health-probe-url">Health probe URL</label>
-                                    <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL" />
+                                    <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL">
+                                        <label for="proxy-runtime-health-probe-url">Health probe URL</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <input id="proxy-runtime-health-probe-url" class="form-control" type="url"
                                        placeholder="http://localhost:9000"
@@ -139,8 +145,9 @@
                         {
                             <div class="proxy-settings-field @(gracePeriodSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="@gracePeriodSetting.Key">Termination grace period</label>
-                                    <ConfigurationHelp Section="Server" Topic="@gracePeriodSetting.Name" />
+                                    <ConfigurationHelp Section="Server" Topic="@gracePeriodSetting.Name">
+                                        <label for="@gracePeriodSetting.Key">Termination grace period</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div class="input-group">
                                     <input id="@gracePeriodSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -164,8 +171,9 @@
                         {
                             <div class="proxy-settings-field @(garbageCollectionSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="@garbageCollectionSetting.Key">Generation 2 collection interval</label>
-                                    <ConfigurationHelp Section="Server" Topic="@garbageCollectionSetting.Name" />
+                                    <ConfigurationHelp Section="Server" Topic="@garbageCollectionSetting.Name">
+                                        <label for="@garbageCollectionSetting.Key">Generation 2 collection interval</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div class="input-group">
                                     <input id="@garbageCollectionSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -179,8 +187,9 @@
                         {
                             <div class="proxy-settings-field @(streamFlushSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="@streamFlushSetting.Key">Stream flush interval</label>
-                                    <ConfigurationHelp Section="Server" Topic="@streamFlushSetting.Name" />
+                                    <ConfigurationHelp Section="Server" Topic="@streamFlushSetting.Name">
+                                        <label for="@streamFlushSetting.Key">Stream flush interval</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div class="input-group">
                                     <input id="@streamFlushSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -203,8 +212,9 @@
                         {
                             <div class="proxy-settings-field @(ignoreCertificateSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="proxy-runtime-validate-certificates">Validate backend certificates</label>
-                                    <ConfigurationHelp Section="Security" Topic="@ignoreCertificateSetting.Name" />
+                                    <ConfigurationHelp Section="Security" Topic="@ignoreCertificateSetting.Name">
+                                        <label for="proxy-runtime-validate-certificates">Validate backend certificates</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div class="form-check form-switch proxy-settings-switch">
                                     <input id="proxy-runtime-validate-certificates" class="form-check-input" type="checkbox"
@@ -221,8 +231,9 @@
                         {
                             <div class="proxy-settings-field @(authProviderSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="@authProviderSetting.Key">Authentication provider classes</label>
-                                    <ConfigurationHelp Section="Server" Topic="@authProviderSetting.Name" />
+                                    <ConfigurationHelp Section="Server" Topic="@authProviderSetting.Name">
+                                        <label for="@authProviderSetting.Key">Authentication provider classes</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <ConfigurationExplanation Section="Server" Topic="@authProviderSetting.Name" />
                                 <input id="@authProviderSetting.Key" class="form-control"
@@ -236,8 +247,9 @@
                         {
                             <div class="proxy-settings-field @(environmentPluginSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="@environmentPluginSetting.Key">Environment plugin class</label>
-                                    <ConfigurationHelp Section="Server" Topic="@environmentPluginSetting.Name" />
+                                    <ConfigurationHelp Section="Server" Topic="@environmentPluginSetting.Name">
+                                        <label for="@environmentPluginSetting.Key">Environment plugin class</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <ConfigurationExplanation Section="Server" Topic="@environmentPluginSetting.Name" />
                                 <input id="@environmentPluginSetting.Key" class="form-control"
@@ -251,8 +263,9 @@
                         {
                             <div class="proxy-settings-field @(requestPreprocessorSetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="@requestPreprocessorSetting.Key">Request preprocessor plugins</label>
-                                    <ConfigurationHelp Section="Server" Topic="@requestPreprocessorSetting.Name" />
+                                    <ConfigurationHelp Section="Server" Topic="@requestPreprocessorSetting.Name">
+                                        <label for="@requestPreprocessorSetting.Key">Request preprocessor plugins</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <textarea id="@requestPreprocessorSetting.Key" class="form-control font-monospace" rows="3"
                                           placeholder="Namespace.PluginClass"

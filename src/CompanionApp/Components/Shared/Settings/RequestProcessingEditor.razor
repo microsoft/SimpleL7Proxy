@@ -58,8 +58,9 @@
             {
                 <div class="request-processing-field @(timeoutSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@timeoutSetting.Key">Default timeout (ms)</label>
-                        <ConfigurationHelp Section="Request" Topic="@timeoutSetting.Name" />
+                        <ConfigurationHelp Section="Request" Topic="@timeoutSetting.Name">
+                            <label for="@timeoutSetting.Key">Default timeout (ms)</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="request-processing-value-with-unit">
                         <input id="@timeoutSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -73,8 +74,9 @@
             {
                 <div class="request-processing-field @(ttlSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@ttlSetting.Key">Default TTL (seconds)</label>
-                        <ConfigurationHelp Section="Request" Topic="@ttlSetting.Name" />
+                        <ConfigurationHelp Section="Request" Topic="@ttlSetting.Name">
+                            <label for="@ttlSetting.Key">Default TTL (seconds)</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="request-processing-value-with-unit">
                         <input id="@ttlSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -97,8 +99,9 @@
             {
                 <div class="request-processing-field @(defaultPrioritySetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@defaultPrioritySetting.Key">Default priority</label>
-                        <ConfigurationHelp Section="Request" Topic="@defaultPrioritySetting.Name" />
+                        <ConfigurationHelp Section="Request" Topic="@defaultPrioritySetting.Name">
+                            <label for="@defaultPrioritySetting.Key">Default priority</label>
+                        </ConfigurationHelp>
                     </div>
                     <select id="@defaultPrioritySetting.Key" class="form-select"
                             value="@defaultPrioritySetting.DraftValue"
@@ -118,8 +121,9 @@
             {
                 <div class="request-processing-field @(greedyUserThresholdSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@greedyUserThresholdSetting.Key">Greedy user threshold</label>
-                        <ConfigurationHelp Section="Request" Topic="@greedyUserThresholdSetting.Name" />
+                        <ConfigurationHelp Section="Request" Topic="@greedyUserThresholdSetting.Name">
+                            <label for="@greedyUserThresholdSetting.Key">Greedy user threshold</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="request-processing-value-with-unit">
                         <input id="@greedyUserThresholdSetting.Key" class="form-control" type="number" min="0" max="1" step="0.01"
@@ -182,8 +186,8 @@
                     <thead>
                         <tr>
                             <th scope="col">Priority name</th>
-                            <th scope="col">Value <ConfigurationHelp Section="Request" Topic="Priority:PriorityValues" /></th>
-                            <th scope="col">Worker weight <ConfigurationHelp Section="Request" Topic="Priority:PriorityWorker" /></th>
+                            <th scope="col"><ConfigurationHelp Section="Request" Topic="Priority:PriorityValues">Value</ConfigurationHelp></th>
+                            <th scope="col"><ConfigurationHelp Section="Request" Topic="Priority:PriorityWorker">Worker weight</ConfigurationHelp></th>
                             <th scope="col" class="text-end">Actions</th>
                         </tr>
                     </thead>
