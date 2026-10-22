@@ -298,16 +298,10 @@
 
         <div class="tokenomics-configuration">
             <section class="config-tokenomics-page tokenomics-configuration" aria-label="Tokenomics configuration" aria-busy="@(IsLoading ? "true" : "false")">
-                <CascadingValue TValue="bool" Name="ShowConfigurationDetails" Value="_showConfigurationDetails">
-                    <fieldset class="config-tokenomics-fields" disabled="@IsLoading">
-                        @if (TokenomicsEditor.IsEnabled(tokenomicsSettings))
-                        {
-                            <ConfigurationExplanation Section="Tokenomics" />
-                        }
-                        <TokenomicsEditor Settings="tokenomicsSettings" Hosts="configuredHosts"
-                            OnChanged="StateHasChanged" @key="Settings" />
-                    </fieldset>
-                </CascadingValue>
+                <fieldset class="config-tokenomics-fields" disabled="@IsLoading">
+                    <TokenomicsEditor Settings="tokenomicsSettings" Hosts="configuredHosts"
+                        OnChanged="StateHasChanged" @key="Settings" />
+                </fieldset>
             </section>
             <div class="config-tokenomics-save-bar">
                 <div class="config-tokenomics-save-status" role="status">
@@ -324,7 +318,6 @@
 
         @if (SelectedSection is not null)
         {
-            <CascadingValue TValue="bool" Name="ShowConfigurationDetails" Value="_showConfigurationDetails">
             <AppConfigurationSectionWidget Section="@SelectedSection" IsExpanded="true" OnClose="CloseSection">
                 <HeaderContent>
                         <div>
@@ -419,24 +412,6 @@
                             }
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            @if (SelectedSection != "Local change review")
-                            {
-                                <label class="d-flex align-items-center gap-2 small text-nowrap">
-                                    <input class="form-check-input m-0" type="checkbox" disabled="@(!_configurationHelpLoaded)"
-                                           @bind="_showConfigurationDetails" @bind:after='async () =>
-                                           {
-                                               try
-                                               {
-                                                   await JS.InvokeVoidAsync("sessionStorage.setItem", "chat-tester.configuration.help", _showConfigurationDetails ? "true" : "false");
-                                               }
-                                               catch (Exception ex) when (ex is JSException or JSDisconnectedException)
-                                               {
-                                                   Console.Error.WriteLine($"Unable to save configuration Help preference: {ex.Message}");
-                                               }
-                                           }' />
-                                    Help
-                                </label>
-                            }
                             @if (SelectedSection == "Local change review")
                             {
                                 <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button" disabled="@(ChangedCount == 0)" @onclick="ResetAll">
@@ -612,7 +587,6 @@
                         }
                 </EditorContent>
             </AppConfigurationSectionWidget>
-            </CascadingValue>
         }
     }
     </div>
@@ -673,8 +647,6 @@
     private List<AppConfigurationScaffoldSetting> _allSettings = new();
     private string? SelectedSection { get; set; }
     private readonly ProfileConfigurationEditor.EditorState _profileFileState = new();
-    private bool _showConfigurationDetails;
-    private bool _configurationHelpLoaded;
     private DateTime? _dataReadyAtUtc;
     private DateTime? _lastLoadedAtUtc;
     private System.Timers.Timer? _uiTimer;
@@ -1239,17 +1211,6 @@
                 return;
             }
             _pageReference = DotNetObjectReference.Create(this);
-            try
-            {
-                var savedHelp = await JS.InvokeAsync<string?>("sessionStorage.getItem", "chat-tester.configuration.help");
-                _showConfigurationDetails = bool.TryParse(savedHelp, out var helpEnabled) && helpEnabled;
-            }
-            catch (Exception ex) when (ex is JSException or JSDisconnectedException)
-            {
-                Console.Error.WriteLine($"Unable to restore configuration Help preference: {ex.Message}");
-            }
-            if (_disposed) return;
-            _configurationHelpLoaded = true;
             if (!string.IsNullOrWhiteSpace(Endpoint))
             {
                 await LoadSettingsAsync();
