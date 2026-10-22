@@ -44,10 +44,6 @@
                    aria-invalid="@(Error is null ? "false" : "true")"
                    aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @onchange="OnChanged" />
         }
-        @if (Compact)
-        {
-            <ConfigurationHelp Section="Tokenomics" Topic="@Name">@Label</ConfigurationHelp>
-        }
     </div>
     @if (Error is not null)
     {
