@@ -93,14 +93,15 @@
                 ? Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"]
                 : Configuration[$"{CompanionAppOptions.UiSectionName}:TopicDocumentation:{Section}:{Topic}"];
 
-            return helpUrl.FirstOrDefault(line => Uri.TryCreate(line.Trim(), UriKind.Absolute, out var url)
-                    && (string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
-                ?? (Uri.TryCreate(configuredUrl, UriKind.Absolute, out var documentationUrl)
-                    && (string.Equals(documentationUrl.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(documentationUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                    ? documentationUrl.AbsoluteUri
-                    : null);
+            return helpUrl
+                .Concat(new[] { configuredUrl, Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"] })
+                .FirstOrDefault(line => Uri.TryCreate(line?.Trim(), UriKind.Absolute, out var url)
+                    && string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                    && url.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                    && (url.AbsolutePath.StartsWith("/microsoft/SimpleL7Proxy/blob/main/docs/", StringComparison.OrdinalIgnoreCase)
+                        || url.AbsolutePath.StartsWith("/microsoft/SimpleL7Proxy/tree/main/docs/", StringComparison.OrdinalIgnoreCase)
+                        || url.AbsolutePath.Equals("/microsoft/SimpleL7Proxy/tree/main/docs", StringComparison.OrdinalIgnoreCase)))
+                ?? "https://github.com/microsoft/SimpleL7Proxy/tree/main/docs";
         }
     }
 }

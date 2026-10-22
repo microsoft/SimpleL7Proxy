@@ -12,10 +12,16 @@
         ? new[] { topicValue }
         : helpEntryForTopic.GetChildren().Select(line => line.Value ?? string.Empty))
         .Where(line => !string.IsNullOrWhiteSpace(line));
-    var helpUrl = helpLinesForTopic.FirstOrDefault(line => Uri.TryCreate(line.Trim(), UriKind.Absolute, out var candidate)
-        && (candidate.Scheme == Uri.UriSchemeHttps || candidate.Scheme == Uri.UriSchemeHttp));
+    var helpUrl = helpLinesForTopic
+        .Concat(new[] { configuredUrl, Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"] })
+        .FirstOrDefault(line => Uri.TryCreate(line?.Trim(), UriKind.Absolute, out var candidate)
+            && candidate.Scheme == Uri.UriSchemeHttps
+            && candidate.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            && (candidate.AbsolutePath.StartsWith("/microsoft/SimpleL7Proxy/blob/main/docs/", StringComparison.OrdinalIgnoreCase)
+                || candidate.AbsolutePath.StartsWith("/microsoft/SimpleL7Proxy/tree/main/docs/", StringComparison.OrdinalIgnoreCase)
+                || candidate.AbsolutePath.Equals("/microsoft/SimpleL7Proxy/tree/main/docs", StringComparison.OrdinalIgnoreCase)));
     var documentationUrl = "https://github.com/microsoft/SimpleL7Proxy/tree/main/docs";
-    if (Uri.TryCreate(helpUrl ?? configuredUrl, UriKind.Absolute, out var documentationUri)
+    if (Uri.TryCreate(helpUrl, UriKind.Absolute, out var documentationUri)
         && (documentationUri.Scheme == Uri.UriSchemeHttps || documentationUri.Scheme == Uri.UriSchemeHttp)
         && documentationUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
     {
