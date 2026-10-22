@@ -152,6 +152,7 @@ The proxy can reject unauthorized callers using either **OAuth** or **Keys**. Ke
 
 Inbound authentication blocks callers that do not satisfy the configured key or OAuth mode. Expand to configure the mode and accepted credentials.
 
+<a id="inbound-key-and-oauth-authentication"></a>
 <details>
 <summary><strong>Inbound Key and OAuth Authentication</strong></summary>
 
@@ -199,8 +200,136 @@ These rules validate incoming request shape before processing and help enforce c
 
 </details>
 
+<a id="request-header-policy"></a>
+<a id="request-priority-mapping"></a>
+## Request Header and Priority Policy
+
+The request policy table above covers headers removed or validated at the proxy and priorities assigned from caller-supplied keys. Priority key names and values are paired by position; `PriorityWorker` reserves workers for configured priority levels.
+
+> [!NOTE]
+> For the priority mapping workflow and per-user queue-share behavior, see [Advanced Configuration](advanced-configuration.md#priority-mapping).
+
 
 ---
+
+## Tokenomics
+
+Tokenomics settings define request policy for token quotas, USD budgets, capacity and queue pressure, priority, model routing, and estimated model spend.
+
+> **TL;DR**
+> - **Limits and budgets set guardrails; their action fields determine what happens when a guardrail is reached.**
+> - Capacity, queue, priority, and workload flags select policy actions before backend routing.
+> - Model routing and per-token prices affect model selection and recorded spend; models without prices are excluded from spend totals.
+
+> Units used in this section: token counts are tokens, budgets and prices are USD, `DelayDuration` is milliseconds, and utilization values are percentages or fractions as named.
+
+| Settings | Default | Purpose |
+|---|---|---|
+| Default token limits | Hourly `1000`, daily `1000`, monthly `10000` | Request token quotas for the default policy. |
+| Default USD budgets | Hourly `$10`, daily `$50`, monthly `$1000` | Spend limits for the default policy. |
+| Default limit actions | `DowngradeModel` | Actions when token quotas are exceeded. |
+| Default budget actions | Hourly/daily `DecreaseLimit`; monthly `DowngradeModel` | Actions when budgets are exceeded. |
+| Capacity and queue inputs | Current utilization `0%`; constraint threshold `80%`; high queue depth `0.90`; large context `2048` tokens; delay `10000` ms | Conditions used by capacity, queue, and large-context policy. |
+| Priority levels | Critical `1`; high `2`; default action `Bypass` | Classifies requests and sets the action when no higher-priority policy matches. |
+| Model selection | Default model/API unset; default tenant `Contoso` | Selects a default model/API and model hierarchy when configured. |
+| Model prices | Not configured | Input, cached-input, and output USD prices are stored per model; unlisted models are excluded from spend totals. |
+
+### Tokenomics Limits and Budgets
+
+**Set token quotas and USD budgets separately, then choose the action for each exceeded limit.**
+
+```text
+DailyTokenLimit=5000
+DailyBudgetUsd=50
+DailyLimitAction=DowngradeModel
+```
+
+The default limits and actions apply unless model-specific overrides are configured. Premium and critical workload containers provide separate workload-level values and actions.
+
+> [!TIP]
+> **Troubleshooting:** If an expected limit does not take effect, check whether a model override or workload-specific setting is selected instead of the default values.
+
+### Tokenomics Capacity and Queue
+
+**Set thresholds to mark capacity, queue depth, or input size conditions and configure the matching policy actions.**
+
+```text
+CapacityConstraintThresholdPercent=80
+HighQueueDepthThreshold=0.9
+CapacityConstrainedAction=Delay
+```
+
+Capacity is constrained when current utilization is at least the configured percentage. Queue depth is high when the queued count reaches the configured fraction of maximum queue length; large-context detection compares input tokens with `LargeContextThreshold`.
+
+> [!TIP]
+> **Troubleshooting:** If a capacity or queue action is not selected, verify the current utilization value, queue length, input-token count, and the action configured for the matching condition.
+
+### Tokenomics Priority and Governance
+
+**Set critical and high priority levels, then select actions for priority, entitlement, abuse, and governance conditions.**
+
+```text
+CriticalPriority=1
+HighPriority=2
+CriticalPriorityAction=IncreasePriority
+```
+
+Lower numeric priority values represent higher priority. Workload-specific quota and budget actions are configured separately from the global priority and governance actions.
+
+> [!TIP]
+> **Troubleshooting:** If a request enters an unexpected priority policy, check its assigned priority and the request headers used for premium, enterprise, governance, administrator-override, or approved-exception conditions.
+
+### Tokenomics Model Routing
+
+**Set a default model and API only when requests need a configured fallback; model assignments determine which hosts and APIs can serve each model.**
+
+```text
+DefaultModel=gpt-4o
+DefaultModelAPI=openai-chat
+PreferredModelReplacementAction=ChangeModel
+```
+
+`ModelHierarchy` groups model alternatives by prefix. The model editor assigns hosts and API path behavior per model; the replacement and unavailable actions control what happens when the preferred model cannot be used.
+
+> [!TIP]
+> **Troubleshooting:** If a model is not offered for routing, check that it exists in the model catalog and that its model-to-host and API assignments are configured.
+
+### Tokenomics Model Pricing
+
+**Configure input, cached-input, and output prices for each model whose spend belongs in the totals.**
+
+```text
+ModelCostPerToken.gpt-4o=Input:0.0000025|CachedInput:0.00000125|Output:0.00001
+ModelCostPerToken.gpt-4o-mini=Input:0.00000015|CachedInput:0.000000075|Output:0.0000006
+DefaultModel=gpt-4o
+```
+
+Prices are USD per token. Cached input is priced separately from uncached input; a model without a price entry is excluded from spend totals.
+
+> [!TIP]
+> **Troubleshooting:** If spend is missing or unexpected, confirm the model ID exactly matches the request model and that all three prices use USD per token.
+
+### Tokenomics Policy Flow
+
+```mermaid
+flowchart LR
+    A[Request usage, priority, and workload signals] --> B[Evaluate quota, budget, capacity, queue, and model conditions]
+    B --> C[Select the configured action for the matching policy]
+    C --> D[Continue, delay, requeue, change model, or reject]
+    D --> E[Route to an eligible model host and API]
+    E --> F[Apply configured model prices to captured usage]
+```
+
+### Worked Example
+
+Assuming no earlier policy condition matches, a queue with maximum length `1000` reaches the configured high-depth condition at `900` queued requests. If the configured `QueueDepthHighAction` is `Requeue`, the policy selects requeue behavior at that threshold.
+
+| Step | Value | Result |
+|---|---:|---|
+| Maximum queue length | `1000` | Queue capacity used for the threshold calculation. |
+| High queue depth threshold | `0.90` | Condition threshold is 90% of queue capacity. |
+| Current queued requests | `900` | `900 >= 1000 × 0.90`; high queue depth condition is true. |
+| Configured action | `Requeue` | The matching policy selects requeue behavior. |
 
 # Endpoints
 
