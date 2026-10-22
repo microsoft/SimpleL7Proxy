@@ -11,11 +11,11 @@
             <div class="logging-destination-label config-newhost-field @(loggerSetting?.IsChanged == true && destination.Logger.Length > 0 ? "config-field-changed" : string.Empty)">
                 @if (destination.Logger.Length > 0)
                 {
-                    <label class="d-inline-flex align-items-center gap-2">
+                    <span class="d-inline-flex align-items-center gap-2">
                         <input class="form-check-input m-0 flex-shrink-0" type="checkbox" checked="@enabled"
                                aria-label="@destination.Name" disabled="@(loggerSetting is null)"
                                @onchange="args => ToggleLogger(loggerSetting!, destination.Logger, args.Value is true)" />
-                    </label>
+                    </span>
                 }
                 <ConfigurationHelp Section="Logging" Topic="@destination.Name">@destination.Name</ConfigurationHelp>
             </div>
