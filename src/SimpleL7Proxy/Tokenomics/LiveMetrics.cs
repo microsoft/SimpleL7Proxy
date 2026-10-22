@@ -133,6 +133,11 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
 
     }
 
+    public long GetHourlyTokenBalanceAsync(ResponseMetric pm)
+    {
+        return pm.HourlyInputTokens + pm.HourlyOutputTokens;
+    }
+
     public long GetDailyTokenBalanceAsync(ResponseMetric pm)
     { 
         return pm.DailyInputTokens + pm.DailyOutputTokens;

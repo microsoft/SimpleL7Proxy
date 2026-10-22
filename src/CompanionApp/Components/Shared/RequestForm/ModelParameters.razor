@@ -52,7 +52,7 @@
                             </div>
                             <div class="vision-feature-extra">
                                 <label class="form-label" for="@GetFieldId("featuresExtra")">Additional</label>
-                                <input class="form-control" id="@GetFieldId("featuresExtra")" value="@AdditionalFeaturesText" @onchange="RaiseAdditionalFeaturesChanged" />
+                                <input class="form-control" id="@GetFieldId("featuresExtra")" @bind:get="AdditionalFeaturesText" @bind:set="@(value => RaiseAdditionalFeaturesChanged(new ChangeEventArgs { Value = value }))" />
                             </div>
                         </div>
                     </div>
@@ -61,7 +61,7 @@
                 {
                     <div class="col-12 col-md-6 col-xl-4">
                         <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
-                        <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => RaiseFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
+                        <input class="form-control" id="@GetFieldId(field.Key)" @bind:get="field.Value" @bind:set="@(value => RaiseFieldChanged(field.Key, value ?? string.Empty))" @bind:event="oninput" />
                     </div>
                 }
             }

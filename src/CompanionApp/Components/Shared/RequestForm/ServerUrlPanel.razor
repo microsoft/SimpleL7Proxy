@@ -14,8 +14,8 @@
             }
                  <input id="serverBaseUrl"
                      class="form-control"
-                     value="@Settings.ServerBaseUrl"
-                     @oninput="HandleServerUrlInputAsync"
+                     @bind:get="Settings.ServerBaseUrl"
+                     @bind:set="@(value => HandleServerUrlInputAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput"
                      @onblur="HandleServerUrlBlurAsync" />
         </div>
     </div>
@@ -72,10 +72,10 @@
         await ServerUrlChanged.InvokeAsync();
     }
 
-    private async Task HandleServerUrlInputAsync(ChangeEventArgs args)
+    private Task HandleServerUrlInputAsync(ChangeEventArgs args)
     {
         Settings.ServerBaseUrl = args.Value?.ToString() ?? string.Empty;
-        await SaveServerUrlAsync();
+        return Task.CompletedTask;
     }
 
     private Task HandleServerUrlBlurAsync() => SaveServerUrlAsync();

@@ -64,8 +64,8 @@
                     </div>
                     <div class="request-processing-value-with-unit">
                         <input id="@timeoutSetting.Key" class="form-control" type="number" min="0" step="1"
-                               value="@(timeoutValue >= 0 ? timeoutValue.ToString(CultureInfo.InvariantCulture) : string.Empty)"
-                               @oninput="@(args => SetSettingValueAsync(timeoutSetting, args.Value?.ToString()))" />
+                               @bind:get="@(timeoutSetting.IsChanged ? timeoutSetting.DraftValue : timeoutValue >= 0 ? timeoutValue.ToString(CultureInfo.InvariantCulture) : string.Empty)"
+                               @bind:set="@(value => SetSettingValueAsync(timeoutSetting, value))" @bind:event="oninput" />
                         <span>@DurationLabel(timeoutSetting.DraftValue, milliseconds: true)</span>
                     </div>
                 </div>
@@ -80,8 +80,8 @@
                     </div>
                     <div class="request-processing-value-with-unit">
                         <input id="@ttlSetting.Key" class="form-control" type="number" min="0" step="1"
-                               value="@(ttlValue >= 0 ? ttlValue.ToString(CultureInfo.InvariantCulture) : string.Empty)"
-                               @oninput="@(args => SetSettingValueAsync(ttlSetting, args.Value?.ToString()))" />
+                               @bind:get="@(ttlSetting.IsChanged ? ttlSetting.DraftValue : ttlValue >= 0 ? ttlValue.ToString(CultureInfo.InvariantCulture) : string.Empty)"
+                               @bind:set="@(value => SetSettingValueAsync(ttlSetting, value))" @bind:event="oninput" />
                         <span>@DurationLabel(ttlSetting.DraftValue, milliseconds: false)</span>
                     </div>
                 </div>
@@ -127,8 +127,8 @@
                     </div>
                     <div class="request-processing-value-with-unit">
                         <input id="@greedyUserThresholdSetting.Key" class="form-control" type="number" min="0" max="1" step="0.01"
-                               value="@(greedyUserThresholdValue >= 0 ? greedyUserThresholdValue.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty)"
-                               @oninput="@(args => SetSettingValueAsync(greedyUserThresholdSetting, args.Value?.ToString()))" />
+                               @bind:get="@(greedyUserThresholdSetting.IsChanged ? greedyUserThresholdSetting.DraftValue : greedyUserThresholdValue >= 0 ? greedyUserThresholdValue.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty)"
+                               @bind:set="@(value => SetSettingValueAsync(greedyUserThresholdSetting, value))" @bind:event="oninput" />
                         <span>@PercentageLabel(greedyUserThresholdValue)</span>
                     </div>
                     <div class="small text-muted mt-2">Maximum active-request share before a user loses the queue fairness boost. Set to 0 to disable.</div>

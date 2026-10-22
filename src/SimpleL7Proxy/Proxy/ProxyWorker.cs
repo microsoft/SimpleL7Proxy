@@ -374,6 +374,20 @@ public class ProxyWorker : IConfigChangeSubscriber
                     request.OriginalModel = parseResult.SourceModel ?? "unknown";
                     request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
                     request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
+                    request.IsPremiumWorkload = request.Headers["S7P-Premium-Workload"]?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+                    var PremiumTenant = bool.TryParse(request.Headers[Constants.TokenizerPremiumTenant], out var premiumTenant) && premiumTenant;
+                    var EnterpriseTenant = bool.TryParse(request.Headers[Constants.TokenizerEnterpriseTenant], out var enterpriseTenant) && enterpriseTenant;
+                    request.IsPremiumWorkload = PremiumTenant || EnterpriseTenant || request.IsPremiumWorkload;
+
+                    var AdministratorOverride = bool.TryParse(request.Headers[Constants.TokenizerAdministratorOverride], out var administratorOverride) && administratorOverride;
+                    var ApprovedException = bool.TryParse(request.Headers[Constants.TokenizerApprovedException], out var approvedException) && approvedException;
+                    request.IsOverride = AdministratorOverride || ApprovedException || request.IsOverride;
+
+                    var IncidentResponse = bool.TryParse(request.Headers[Constants.TokenizerIncidentResponse], out var incidentResponse) && incidentResponse;
+                    var AuditInvestigation = bool.TryParse(request.Headers[Constants.TokenizerAuditInvestigation], out var auditInvestigation) && auditInvestigation;
+                    var ComplianceRequired = bool.TryParse(request.Headers[Constants.TokenizerComplianceRequired], out var complianceRequired) && complianceRequired;
+                    request.IsCriticalWorkload = IncidentResponse || AuditInvestigation || ComplianceRequired || request.IsCriticalWorkload;
+
 
                     request.S7PInputTokens = (int)((double)request.WordCount * .75);
 

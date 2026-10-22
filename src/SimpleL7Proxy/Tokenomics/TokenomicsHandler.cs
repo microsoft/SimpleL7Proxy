@@ -229,57 +229,21 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
     public async Task<(string, TokenActionEnum)> EvaluateAsync(RequestData data, TokenomicsCondition c)
     {
-        if (!doTokenomics)
-            return ("TokenomicsDisabled", TokenActionEnum.None);
+        if (!doTokenomics)              return ("TokenomicsDisabled", TokenActionEnum.None);
+        if (c.AbuseDetected)            return ("AbuseDetected", Settings.AbuseDetectedAction);
+        if (data.IsOverride)            return ("Administrator Override", Settings.AdministratorOverrideAction);
 
-        var actions = data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
-            ? modelActions : Settings.DefaultLimitActions;
+        var (actionType, actions) = data.IsCriticalWorkload ? ("Critical ", Settings.CriticalWorkloadLimitActions)
+            : data.IsPremiumWorkload ? ("Premium ", Settings.PremiumWorkloadLimitActions)
+            : data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
+                ? ("Model ", modelActions) : ("", Settings.DefaultLimitActions);
 
-        if (c.AbuseDetected)
-            return ("AbuseDetected", Settings.AbuseDetectedAction);
-
-        if (c.MonthlyQuotaExceeded && !c.AdministratorOverride && !c.ApprovedException)
-            return ("MonthlyQuotaExceeded", actions.MonthlyLimitAction);
-
-        if (c.AdministratorOverride || c.ApprovedException)
-            return ("AdministratorOverride", Settings.AdministratorOverrideAction);
-
-        if (c.IncidentResponse || c.AuditInvestigation || c.ComplianceRequired)
-        {
-            if (c.PremiumHourlyQuotaExceeded)
-                return ("Premium Hourly Quota Exceeded", Settings.PremiumWorkloadLimitActions.HourlyLimitAction);
-            if (c.PremiumDailyQuotaExceeded)
-                return ("Premium Daily Quota Exceeded", Settings.PremiumWorkloadLimitActions.DailyLimitAction);
-            if (c.PremiumMonthlyQuotaExceeded)
-                return ("Premium Monthly Quota Exceeded", Settings.PremiumWorkloadLimitActions.MonthlyLimitAction);
-            if (c.PremiumHourlyBudgetExceeded)
-                return ("Premium Hourly Budget Exceeded", Settings.PremiumWorkloadLimitActions.HourlyBudgetExceededAction);
-            if (c.PremiumDailyBudgetExceeded)
-                return ("Premium Daily Budget Exceeded", Settings.PremiumWorkloadLimitActions.DailyBudgetExceededAction);
-            if (c.PremiumMonthlyBudgetExceeded)
-                return ("Premium Monthly Budget Exceeded", Settings.PremiumWorkloadLimitActions.MonthlyBudgetExceededAction);
-        }
-        else if (c.DailyQuotaExceeded)
-        {
-            Console.WriteLine("Daily quota exceeded for user: " + data.UserID);
-            return ("DailyQuotaExceeded", actions.DailyLimitAction);
-        }
-
-        if (c.MonthlyBudgetExceeded)
-        {
-            if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("MonthlyBudgetEntitledTenant", Settings.CriticalWorkloadLimitActions.MonthlyBudgetExceededAction);
-
-            return ("MonthlyBudgetExceeded", actions.MonthlyBudgetExceededAction);
-        }
-
-        if (c.DailyBudgetExceeded)
-        {
-            if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("DailyBudgetEntitledTenant", Settings.CriticalWorkloadLimitActions.DailyBudgetExceededAction);
-
-            return ("DailyBudgetExceeded", actions.DailyBudgetExceededAction);
-        }
+        if (c.HourlyQuotaExceeded )     return ($"{actionType}Hourly Quota Exceeded", actions.DailyBudgetExceededAction);
+        if (c.DailyQuotaExceeded)       return ($"{actionType}Daily Quota Exceeded", actions.DailyBudgetExceededAction);
+        if (c.MonthlyQuotaExceeded)     return ($"{actionType}Monthly Quota Exceeded", actions.MonthlyLimitAction);
+        if (c.HourlyBudgetExceeded)     return ($"{actionType}Hourly Budget Exceeded", actions.HourlyBudgetExceededAction);
+        if (c.DailyBudgetExceeded)      return ($"{actionType}Daily Budget Exceeded", actions.DailyBudgetExceededAction);
+        if (c.MonthlyBudgetExceeded)    return ($"{actionType}Monthly Budget Exceeded", actions.MonthlyBudgetExceededAction);
 
         if (c.CapacityConstrained)
         {

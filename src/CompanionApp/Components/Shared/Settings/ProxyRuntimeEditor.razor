@@ -38,8 +38,8 @@
                         </ConfigurationHelp>
                     </div>
                     <input id="@portSetting.Key" class="form-control" type="number" min="1" max="65535" step="1"
-                           value="@NumericDraft(portSetting)"
-                           @oninput="@(args => SetSettingValueAsync(portSetting, args.Value?.ToString()))" />
+                           @bind:get="NumericDraft(portSetting)"
+                           @bind:set="@(value => SetSettingValueAsync(portSetting, value))" @bind:event="oninput" />
                     <p>TCP port used by the proxy listener.</p>
                 </div>
             }
@@ -52,8 +52,8 @@
                         </ConfigurationHelp>
                     </div>
                     <input id="@workersSetting.Key" class="form-control" type="number" min="1" step="1"
-                           value="@NumericDraft(workersSetting)"
-                           @oninput="@(args => SetSettingValueAsync(workersSetting, args.Value?.ToString()))" />
+                           @bind:get="NumericDraft(workersSetting)"
+                           @bind:set="@(value => SetSettingValueAsync(workersSetting, value))" @bind:event="oninput" />
                     <p>Concurrent proxy workers available to process requests.</p>
                 </div>
             }
@@ -66,8 +66,8 @@
                         </ConfigurationHelp>
                     </div>
                     <input id="@maxQueueLengthSetting.Key" class="form-control" type="number" min="0" step="1"
-                           value="@NumericDraft(maxQueueLengthSetting)"
-                           @oninput="@(args => SetSettingValueAsync(maxQueueLengthSetting, args.Value?.ToString()))" />
+                           @bind:get="NumericDraft(maxQueueLengthSetting)"
+                           @bind:set="@(value => SetSettingValueAsync(maxQueueLengthSetting, value))" @bind:event="oninput" />
                     <p>Maximum number of requests waiting for a worker.</p>
                 </div>
             }
@@ -80,8 +80,8 @@
                         </ConfigurationHelp>
                     </div>
                     <input id="@maxUndrainedEventsSetting.Key" class="form-control" type="number" min="0" step="1"
-                           value="@NumericDraft(maxUndrainedEventsSetting)"
-                           @oninput="@(args => SetSettingValueAsync(maxUndrainedEventsSetting, args.Value?.ToString()))" />
+                           @bind:get="NumericDraft(maxUndrainedEventsSetting)"
+                           @bind:set="@(value => SetSettingValueAsync(maxUndrainedEventsSetting, value))" @bind:event="oninput" />
                     <p>Event backlog allowed before the proxy applies backpressure.</p>
                 </div>
             }
@@ -136,8 +136,8 @@
                                 </div>
                                 <input id="proxy-runtime-health-probe-url" class="form-control" type="url"
                                        placeholder="http://localhost:9000"
-                                       value="@HealthProbeField(healthProbeSetting, "url")"
-                                       @oninput="@(args => SetHealthProbeUrlAsync(healthProbeSetting, args.Value?.ToString()))" />
+                                       @bind:get="@(HealthProbeField(healthProbeSetting, "url"))"
+                                       @bind:set="@(value => SetHealthProbeUrlAsync(healthProbeSetting, value))" @bind:event="oninput" />
                                 <p>Sidecar endpoint that receives proxy health updates.</p>
                             </div>
                         }
@@ -151,8 +151,8 @@
                                 </div>
                                 <div class="input-group">
                                     <input id="@gracePeriodSetting.Key" class="form-control" type="number" min="0" step="1"
-                                           value="@NumericDraft(gracePeriodSetting)"
-                                           @oninput="@(args => SetSettingValueAsync(gracePeriodSetting, args.Value?.ToString()))" />
+                                           @bind:get="NumericDraft(gracePeriodSetting)"
+                                           @bind:set="@(value => SetSettingValueAsync(gracePeriodSetting, value))" @bind:event="oninput" />
                                     <span class="input-group-text">seconds</span>
                                 </div>
                                 <p>Time available to drain requests before shutdown completes.</p>
@@ -177,8 +177,8 @@
                                 </div>
                                 <div class="input-group">
                                     <input id="@garbageCollectionSetting.Key" class="form-control" type="number" min="0" step="1"
-                                           value="@NumericDraft(garbageCollectionSetting)"
-                                           @oninput="@(args => SetSettingValueAsync(garbageCollectionSetting, args.Value?.ToString()))" />
+                                           @bind:get="NumericDraft(garbageCollectionSetting)"
+                                           @bind:set="@(value => SetSettingValueAsync(garbageCollectionSetting, value))" @bind:event="oninput" />
                                     <span class="input-group-text">seconds</span>
                                 </div>
                             </div>
@@ -193,8 +193,8 @@
                                 </div>
                                 <div class="input-group">
                                     <input id="@streamFlushSetting.Key" class="form-control" type="number" min="0" step="1"
-                                           value="@NumericDraft(streamFlushSetting)"
-                                           @oninput="@(args => SetSettingValueAsync(streamFlushSetting, args.Value?.ToString()))" />
+                                           @bind:get="NumericDraft(streamFlushSetting)"
+                                           @bind:set="@(value => SetSettingValueAsync(streamFlushSetting, value))" @bind:event="oninput" />
                                     <span class="input-group-text">ms</span>
                                 </div>
                             </div>
@@ -320,6 +320,11 @@
 
     private static string NumericDraft(AppConfigurationScaffoldSetting setting)
     {
+        if (setting.IsChanged)
+        {
+            return setting.DraftValue;
+        }
+
         var value = ConfigParser.ReadEnvironmentVariableOrDefault(
             new Dictionary<string, string> { ["value"] = setting.DraftValue },
             "value",

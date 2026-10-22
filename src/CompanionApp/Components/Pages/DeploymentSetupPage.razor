@@ -79,7 +79,7 @@
                                 <div class="deployment-field">
                                     <label for="@locationField.Key">Azure region</label>
                                     <input id="@locationField.Key" class="form-control @(locationError is null ? "" : "is-invalid")" type="text"
-                                           value="@locationField.Value" @oninput="@(args => SetValue(locationField, args.Value?.ToString() ?? ""))"
+                                           @bind:get="locationField.Value" @bind:set="@(value => SetValue(locationField, value ?? ""))" @bind:event="oninput"
                                            aria-invalid="@(locationError is not null ? "true" : "false")"
                                            aria-describedby="@($"hint-{locationField.Key} error-{locationField.Key}")" spellcheck="false" />
                                     <small id="@($"hint-{locationField.Key}")" class="text-muted">Enter the Azure region identifier, such as eastus.</small>
@@ -91,7 +91,7 @@
                                 <div class="deployment-field">
                                     <label for="@resourceGroupField.Key">Resource group name</label>
                                     <input id="@resourceGroupField.Key" class="form-control @(resourceGroupError is null ? "" : "is-invalid")" type="text"
-                                           value="@resourceGroupField.Value" @oninput="@(args => SetValue(resourceGroupField, args.Value?.ToString() ?? ""))"
+                                           @bind:get="resourceGroupField.Value" @bind:set="@(value => SetValue(resourceGroupField, value ?? ""))" @bind:event="oninput"
                                            aria-invalid="@(resourceGroupError is not null ? "true" : "false")"
                                            aria-describedby="@($"hint-{resourceGroupField.Key} error-{resourceGroupField.Key}")" spellcheck="false" />
                                     <small id="@($"hint-{resourceGroupField.Key}")" class="text-muted">Used for the Container Apps environment, proxy, Companion App, registry, and supporting resources.</small>
@@ -221,7 +221,7 @@
                                     }
                                     else
                                     {
-                                        <input id="@field.Key" class="form-control @(error is null ? "" : "is-invalid")" type="@(IsNumeric(field.Key) ? "number" : "text")" min="@(field.Key == "MIN_REPLICAS" ? "0" : field.Key.EndsWith("_PORT") || field.Key.EndsWith("_REPLICAS") ? "1" : null)" max="@(field.Key.EndsWith("_PORT") ? "65535" : field.Key.EndsWith("_REPLICAS") ? "999" : null)" step="@(field.Key.EndsWith("CPU") || field.Key is "WEB_MEMORY" or "HEALTH_MEMORY" ? "0.25" : "1")" value="@field.Value" @oninput="@(args => SetValue(field, args.Value?.ToString() ?? ""))" aria-invalid="@(error is not null ? "true" : "false")" aria-describedby="@($"hint-{field.Key} error-{field.Key}")" spellcheck="false" />
+                                            <input id="@field.Key" class="form-control @(error is null ? "" : "is-invalid")" type="@(IsNumeric(field.Key) ? "number" : "text")" min="@(field.Key == "MIN_REPLICAS" ? "0" : field.Key.EndsWith("_PORT") || field.Key.EndsWith("_REPLICAS") ? "1" : null)" max="@(field.Key.EndsWith("_PORT") ? "65535" : field.Key.EndsWith("_REPLICAS") ? "999" : null)" step="@(field.Key.EndsWith("CPU") || field.Key is "WEB_MEMORY" or "HEALTH_MEMORY" ? "0.25" : "1")" @bind:get="field.Value" @bind:set="@(value => SetValue(field, value ?? ""))" @bind:event="oninput" aria-invalid="@(error is not null ? "true" : "false")" aria-describedby="@($"hint-{field.Key} error-{field.Key}")" spellcheck="false" />
                                     }
                                     <small id="@($"hint-{field.Key}")" class="text-muted">@(_sameResourceGroup && field.Key == "CONTAINER_APP_RESOURCE_GROUP" ? "" : field.Hint)</small>
                                     @if (error is not null)

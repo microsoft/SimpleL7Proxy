@@ -241,6 +241,9 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string OriginalModel { get; set; } = "";   // Tokenomics related original model
     public string OriginalAPIName { get; set; } = "";   // Tokenomics related original API
     public bool ModelReplaced { get; set; } = false;   // Tokenomics related flag
+    public bool IsPremiumWorkload { get; set; } = false;   // Tokenomics related flag
+    public bool IsCriticalWorkload { get; set; } = false;   // Tokenomics related flag
+    public bool IsOverride { get; set; } = false;   // Tokenomics related flag
     public string ParentId { get; set; } = "";
     public string Path { get; set; }
     public bool Requeued { get; set; } = false;

@@ -29,16 +29,16 @@ var suspendedUrlSetting = FindSetting("SuspendedUser:ConfigUrl");
                             <label for="identity-pr-refresh">Refresh interval (seconds)</label>
                         </div>
                         <input id="identity-pr-refresh" class="form-control" type="number" min="1"
-                               value="@refreshIntervalSetting?.DraftValue" disabled="@(refreshIntervalSetting is null)"
-                               @oninput="@(args => SetSettingValueAsync(refreshIntervalSetting!, args.Value?.ToString()))" />
+                               @bind:get="refreshIntervalSetting?.DraftValue" disabled="@(refreshIntervalSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(refreshIntervalSetting!, value))" @bind:event="oninput" />
                     </div>
                     <div class="identity-access-form-row">
                         <div class="config-setting-heading">
                             <label for="identity-pr-soft-delete">Soft delete TTL (minutes)</label>
                         </div>
                         <input id="identity-pr-soft-delete" class="form-control" type="number" min="1"
-                               value="@softDeleteTtlSetting?.DraftValue" disabled="@(softDeleteTtlSetting is null)"
-                               @oninput="@(args => SetSettingValueAsync(softDeleteTtlSetting!, args.Value?.ToString()))" />
+                               @bind:get="softDeleteTtlSetting?.DraftValue" disabled="@(softDeleteTtlSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(softDeleteTtlSetting!, value))" @bind:event="oninput" />
                     </div>
                 </div>
             </div>
@@ -57,8 +57,8 @@ var suspendedUrlSetting = FindSetting("SuspendedUser:ConfigUrl");
                     </div>
                     <input id="identity-pr-applications-url" class="form-control" type="text" autocomplete="off"
                            placeholder="azblob://account/container/applications.json"
-                           value="@applicationsUrlSetting?.DraftValue" disabled="@(applicationsUrlSetting is null)"
-                           @oninput="@(args => SetSettingValueAsync(applicationsUrlSetting!, args.Value?.ToString()))" />
+                           @bind:get="applicationsUrlSetting?.DraftValue" disabled="@(applicationsUrlSetting is null)"
+                           @bind:set="@(value => SetSettingValueAsync(applicationsUrlSetting!, value))" @bind:event="oninput" />
                 </div>
                 <div class="identity-access-form-row">
                     <div class="config-setting-heading">
@@ -67,8 +67,8 @@ var suspendedUrlSetting = FindSetting("SuspendedUser:ConfigUrl");
                     </div>
                     <input id="identity-pr-profiles-url" class="form-control" type="text" autocomplete="off"
                            placeholder="azblob://account/container/profiles.json"
-                           value="@userProfilesUrlSetting?.DraftValue" disabled="@(userProfilesUrlSetting is null)"
-                           @oninput="@(args => SetSettingValueAsync(userProfilesUrlSetting!, args.Value?.ToString()))" />
+                           @bind:get="userProfilesUrlSetting?.DraftValue" disabled="@(userProfilesUrlSetting is null)"
+                           @bind:set="@(value => SetSettingValueAsync(userProfilesUrlSetting!, value))" @bind:event="oninput" />
                 </div>
                 <div class="identity-access-form-row">
                     <div class="config-setting-heading">
@@ -77,8 +77,8 @@ var suspendedUrlSetting = FindSetting("SuspendedUser:ConfigUrl");
                     </div>
                     <input id="identity-pr-suspended-url" class="form-control" type="text" autocomplete="off"
                            placeholder="azblob://account/container/suspended.json"
-                           value="@suspendedUrlSetting?.DraftValue" disabled="@(suspendedUrlSetting is null)"
-                           @oninput="@(args => SetSettingValueAsync(suspendedUrlSetting!, args.Value?.ToString()))" />
+                           @bind:get="suspendedUrlSetting?.DraftValue" disabled="@(suspendedUrlSetting is null)"
+                           @bind:set="@(value => SetSettingValueAsync(suspendedUrlSetting!, value))" @bind:event="oninput" />
                 </div>
                 <div class="alert alert-info py-2 mt-3" role="alert">
                     These sources are read according to the refresh interval. The data is used by

@@ -90,8 +90,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@errorThresholdSetting.Key" class="form-control" type="number" min="1" step="1"
-                               value="@errorThresholdSetting.DraftValue"
-                               @oninput="@(args => SetSettingValueAsync(errorThresholdSetting, args.Value?.ToString()))" />
+                               @bind:get="errorThresholdSetting.DraftValue"
+                               @bind:set="@(value => SetSettingValueAsync(errorThresholdSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">failures</span>
                     </div>
                     <p>Open the circuit when this many failures occur during the evaluation window.</p>
@@ -108,8 +108,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@successRateSetting.Key" class="form-control" type="number" min="0" max="100" step="1"
-                               value="@successRateSetting.DraftValue"
-                               @oninput="@(args => SetSettingValueAsync(successRateSetting, args.Value?.ToString()))" />
+                               @bind:get="successRateSetting.DraftValue"
+                               @bind:set="@(value => SetSettingValueAsync(successRateSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">%</span>
                     </div>
                     <p>Keep monitored backends active when their health-probe success rate reaches this percentage.</p>
@@ -126,8 +126,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@timesliceSetting.Key" class="form-control" type="number" min="1" step="1"
-                               value="@timesliceSetting.DraftValue"
-                               @oninput="@(args => SetSettingValueAsync(timesliceSetting, args.Value?.ToString()))" />
+                               @bind:get="timesliceSetting.DraftValue"
+                               @bind:set="@(value => SetSettingValueAsync(timesliceSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">seconds</span>
                     </div>
                     <p>Time period over which backend failures are counted.</p>

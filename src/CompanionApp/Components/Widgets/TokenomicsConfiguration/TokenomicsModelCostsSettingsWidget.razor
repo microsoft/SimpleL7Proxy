@@ -18,7 +18,7 @@ else
         <span class="bi bi-search" aria-hidden="true"></span>
         <label class="visually-hidden" for="tokenomics-model-search">Search models</label>
         <input id="tokenomics-model-search" class="form-control form-control-sm" type="search"
-               placeholder="Search models" value="@Search" @oninput="OnSearchChanged" />
+               placeholder="Search models" @bind:get="Search" @bind:set="@(value => OnSearchChanged.InvokeAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
     </div>
     <span class="small text-muted text-nowrap" role="status">@ResultSummary</span>
     <label class="tokenomics-page-size">
@@ -64,9 +64,9 @@ else
                     <tr class="@(IsChanged(row) ? "config-row-changed" : string.Empty)" @key="row.Id">
                         <td>
                             <label class="visually-hidden" for="@($"tokenomics-model-{row.Id}")">Model</label>
-                            <input id="@($"tokenomics-model-{row.Id}")" class="form-control form-control-sm" value="@row.Model"
+                            <input id="@($"tokenomics-model-{row.Id}")" class="form-control form-control-sm" @bind:get="row.Model"
                                    aria-invalid="@(row.ModelError is null ? "false" : "true")"
-                                   @onchange="args => OnModelChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                                @bind:set="@(value => OnModelChanged.InvokeAsync((row, value)))" />
                             @if (row.ModelError is not null)
                             {
                                 <span class="small text-danger" role="alert">@row.ModelError</span>
@@ -75,8 +75,8 @@ else
                         <td>
                             <label class="visually-hidden" for="@($"tokenomics-input-cost-{row.Id}")">Input USD per token for @row.Model</label>
                             <input id="@($"tokenomics-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
-                                   value="@row.InputCost" aria-invalid="@(row.InputCostError is null ? "false" : "true")"
-                                   @onchange="args => OnInputChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                                   @bind:get="row.InputCost" aria-invalid="@(row.InputCostError is null ? "false" : "true")"
+                                   @bind:set="@(value => OnInputChanged.InvokeAsync((row, value)))" />
                             @if (row.InputCostError is not null)
                             {
                                 <span class="small text-danger" role="alert">@row.InputCostError</span>
@@ -85,8 +85,8 @@ else
                         <td>
                             <label class="visually-hidden" for="@($"tokenomics-cached-input-cost-{row.Id}")">Cached input USD per token for @row.Model</label>
                             <input id="@($"tokenomics-cached-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
-                                   value="@row.CachedInputCost" aria-invalid="@(row.CachedInputCostError is null ? "false" : "true")"
-                                   @onchange="args => OnCachedInputChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                                   @bind:get="row.CachedInputCost" aria-invalid="@(row.CachedInputCostError is null ? "false" : "true")"
+                                   @bind:set="@(value => OnCachedInputChanged.InvokeAsync((row, value)))" />
                             @if (row.CachedInputCostError is not null)
                             {
                                 <span class="small text-danger" role="alert">@row.CachedInputCostError</span>
@@ -95,8 +95,8 @@ else
                         <td>
                             <label class="visually-hidden" for="@($"tokenomics-output-cost-{row.Id}")">Output USD per token for @row.Model</label>
                             <input id="@($"tokenomics-output-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
-                                   value="@row.OutputCost" aria-invalid="@(row.OutputCostError is null ? "false" : "true")"
-                                   @onchange="args => OnOutputChanged.InvokeAsync((row, args.Value?.ToString()))" />
+                                   @bind:get="row.OutputCost" aria-invalid="@(row.OutputCostError is null ? "false" : "true")"
+                                   @bind:set="@(value => OnOutputChanged.InvokeAsync((row, value)))" />
                             @if (row.OutputCostError is not null)
                             {
                                 <span class="small text-danger" role="alert">@row.OutputCostError</span>

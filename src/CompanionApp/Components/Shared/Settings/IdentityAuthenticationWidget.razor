@@ -62,7 +62,7 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                             <label for="identity-overview-header">API key header name</label>
                         </div>
                         <input id="identity-overview-header" class="form-control" type="text" autocomplete="off"
-                               value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />
+                               @bind:get="AuthenticationHeader" @bind:set="@(value => SetAuthenticationHeaderAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                     </div>
                     @if (UsesApiKey)
                     {
@@ -148,28 +148,28 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                                 </ConfigurationHelp>
                             </div>
                             <input id="identity-overview-oauth-header" class="form-control" type="text" autocomplete="off"
-                                   value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />
+                                   @bind:get="AuthenticationHeader" @bind:set="@(value => SetAuthenticationHeaderAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                         <div class="identity-access-form-row @(AuthenticationConfigSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
                             <label for="identity-overview-oauth-issuer">Issuer URL</label>
                             <input id="identity-overview-oauth-issuer" class="form-control" type="url" autocomplete="off"
-                                   value="@OAuthIssuer" @oninput="SetOAuthIssuerAsync" />
+                                   @bind:get="OAuthIssuer" @bind:set="@(value => SetOAuthIssuerAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                         <div class="identity-access-form-row @(AuthenticationConfigSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
                             <label for="identity-overview-oauth-audience">Audience</label>
                             <input id="identity-overview-oauth-audience" class="form-control" type="text" autocomplete="off"
-                                   value="@OAuthAudience" @oninput="SetOAuthAudienceAsync" />
+                                   @bind:get="OAuthAudience" @bind:set="@(value => SetOAuthAudienceAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                         <div class="identity-access-form-row @(AuthenticationConfigSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
                             <label for="identity-overview-oauth-metadata">Metadata address <span>Optional</span></label>
                             <input id="identity-overview-oauth-metadata" class="form-control" type="url" autocomplete="off"
                                    placeholder="Derived from the issuer URL"
-                                   value="@OAuthMetadataAddress" @oninput="SetOAuthMetadataAddressAsync" />
+                                   @bind:get="OAuthMetadataAddress" @bind:set="@(value => SetOAuthMetadataAddressAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                         <div class="identity-access-form-row @(AuthenticationConfigSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
                             <label for="identity-overview-oauth-skew">Clock skew (minutes)</label>
                             <input id="identity-overview-oauth-skew" class="form-control" type="number" min="0" step="1"
-                                   value="@OAuthClockSkewMinutes" @oninput="SetOAuthClockSkewAsync" />
+                                   @bind:get="OAuthClockSkewMinutes" @bind:set="@(value => SetOAuthClockSkewAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                     }
                 </fieldset>
@@ -197,16 +197,16 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                             <label for="identity-overview-app-header">Application ID header name</label>
                         </div>
                         <input id="identity-overview-app-header" class="form-control" type="text" autocomplete="off"
-                               value="@overviewAppHeaderSetting?.DraftValue" disabled="@(overviewAppHeaderSetting is null)"
-                               @oninput="@(args => SetSettingValueAsync(overviewAppHeaderSetting!, args.Value?.ToString()))" />
+                               @bind:get="overviewAppHeaderSetting?.DraftValue" disabled="@(overviewAppHeaderSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(overviewAppHeaderSetting!, value))" @bind:event="oninput" />
                     </div>
                     <div class="identity-access-form-row">
                         <div class="config-setting-heading">
                             <label for="identity-overview-app-field">Application ID field name</label>
                         </div>
                         <input id="identity-overview-app-field" class="form-control" type="text" autocomplete="off"
-                               value="@overviewAppFieldSetting?.DraftValue" disabled="@(overviewAppFieldSetting is null)"
-                               @oninput="@(args => SetSettingValueAsync(overviewAppFieldSetting!, args.Value?.ToString()))" />
+                               @bind:get="overviewAppFieldSetting?.DraftValue" disabled="@(overviewAppFieldSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(overviewAppFieldSetting!, value))" @bind:event="oninput" />
                     </div>
                 </div>
                 <div class="alert alert-info py-2" role="alert">
@@ -236,16 +236,16 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                             <label for="identity-overview-profile-id">Profile identifier field name</label>
                         </div>
                         <input id="identity-overview-profile-id" class="form-control" type="text" autocomplete="off"
-                               value="@overviewProfileIdSetting?.DraftValue" disabled="@(overviewProfileIdSetting is null)"
-                               @oninput="@(args => SetSettingValueAsync(overviewProfileIdSetting!, args.Value?.ToString()))" />
+                               @bind:get="overviewProfileIdSetting?.DraftValue" disabled="@(overviewProfileIdSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(overviewProfileIdSetting!, value))" @bind:event="oninput" />
                     </div>
                     <div class="identity-access-form-row">
                         <div class="config-setting-heading">
                             <label for="identity-overview-profile-header">Profile header name</label>
                         </div>
                         <input id="identity-overview-profile-header" class="form-control" type="text" autocomplete="off"
-                               value="@overviewProfileHeaderSetting?.DraftValue" disabled="@(overviewProfileHeaderSetting is null)"
-                               @oninput="@(args => SetSettingValueAsync(overviewProfileHeaderSetting!, args.Value?.ToString()))" />
+                               @bind:get="overviewProfileHeaderSetting?.DraftValue" disabled="@(overviewProfileHeaderSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(overviewProfileHeaderSetting!, value))" @bind:event="oninput" />
                     </div>
                 </div>
                 <label class="identity-access-check">

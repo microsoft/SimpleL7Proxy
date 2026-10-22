@@ -128,7 +128,7 @@ else
                             </div>
                             <input id="newHostName" @ref="_newHostNameInput" class="form-control form-control-sm" placeholder="Host_name"
                                    disabled="@(_editingHost is not null)"
-                                   value="@_newHostName" @oninput="args => _newHostName = args.Value?.ToString() ?? string.Empty" />
+                                   @bind="_newHostName" @bind:event="oninput" />
                             <small class="text-muted mt-1">Names without a Host prefix are saved as Host_&lt;name&gt;.</small>
                         </div>
                         @foreach (var field in BasicHostFields)
@@ -143,7 +143,7 @@ else
                                 @if (string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase))
                                 {
                                     <input class="form-control form-control-sm" placeholder="host.address.com[ip]"
-                                           value="@HostCombinedValue()" @oninput="args => SetHostCombined(args.Value?.ToString())" />
+                                           @bind:get="HostCombinedValue()" @bind:set="SetHostCombined" @bind:event="oninput" />
                                 }
                                 else if (string.Equals(field.Name, "via", StringComparison.OrdinalIgnoreCase))
                                 {
@@ -187,8 +187,8 @@ else
                                 }
                                 else
                                 {
-                                    <input class="form-control form-control-sm" placeholder="@field.Default" value="@NewHostValue(field.Name)"
-                                           @oninput="args => SetNewHostValue(field.Name, args.Value?.ToString())" />
+                                     <input class="form-control form-control-sm" placeholder="@field.Default" @bind:get="NewHostValue(field.Name)"
+                                         @bind:set="@(value => SetNewHostValue(field.Name, value))" @bind:event="oninput" />
                                 }
                             </div>
                         }
@@ -241,8 +241,8 @@ else
                                             <label class="form-label">audience</label>
                                         </ConfigurationHelp>
                                     </div>
-                                    <input class="form-control form-control-sm" value='@NewHostValue("audience")' disabled="@(!IsTokenAuth)"
-                                           @oninput='args => SetNewHostValue("audience", args.Value?.ToString())' />
+                                     <input class="form-control form-control-sm" @bind:get='@(NewHostValue("audience"))' disabled="@(!IsTokenAuth)"
+                                         @bind:set='@(value => SetNewHostValue("audience", value))' @bind:event="oninput" />
                                 </div>
                             </div>
                         </div>
@@ -255,8 +255,8 @@ else
                                             <label class="form-label">api-key-header</label>
                                         </ConfigurationHelp>
                                     </div>
-                                    <input class="form-control form-control-sm" placeholder="api-key" value='@NewHostValue("api-key-header")' disabled="@IsTokenAuth"
-                                           @oninput='args => SetNewHostValue("api-key-header", args.Value?.ToString())' />
+                                     <input class="form-control form-control-sm" placeholder="api-key" @bind:get='@(NewHostValue("api-key-header"))' disabled="@IsTokenAuth"
+                                         @bind:set='@(value => SetNewHostValue("api-key-header", value))' @bind:event="oninput" />
                                 </div>
                                 <div class='config-newhost-field @(changedFields.Contains("api-key") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
@@ -264,8 +264,8 @@ else
                                             <label class="form-label">api-key</label>
                                         </ConfigurationHelp>
                                     </div>
-                                    <input class="form-control form-control-sm" value='@NewHostValue("api-key")' disabled="@IsTokenAuth"
-                                           @oninput='args => SetNewHostValue("api-key", args.Value?.ToString())' />
+                                     <input class="form-control form-control-sm" @bind:get='@(NewHostValue("api-key"))' disabled="@IsTokenAuth"
+                                         @bind:set='@(value => SetNewHostValue("api-key", value))' @bind:event="oninput" />
                                 </div>
                             </div>
                         </div>
@@ -323,9 +323,9 @@ else
                                     }
                                     else
                                     {
-                                        <input class="form-control form-control-sm" placeholder="@field.Default" value="@NewHostValue(field.Name)"
+                                             <input class="form-control form-control-sm" placeholder="@field.Default" @bind:get="NewHostValue(field.Name)"
                                                disabled="@(SingleHost is not null && string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase))"
-                                               @oninput="args => SetNewHostValue(field.Name, args.Value?.ToString())" />
+                                                 @bind:set="@(value => SetNewHostValue(field.Name, value))" @bind:event="oninput" />
                                     }
                                     @if (SingleHost is not null && field.Name is "priorityGroup" or "acceptablePriorities")
                                     {

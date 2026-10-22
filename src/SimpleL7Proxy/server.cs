@@ -21,7 +21,6 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Rules;
-using SimpleL7Proxy.Tokenomics;
 
 using Shared.HealthProbe;
 

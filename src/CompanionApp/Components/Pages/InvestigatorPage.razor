@@ -160,7 +160,7 @@
                             <div class="row g-2 mt-1">
                                 <div class="col-12 col-lg-4">
                                     <label class="form-label form-label-sm mb-1" for="visionRequestCount">Number of requests</label>
-                                    <input class="form-control form-control-sm" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
+                                    <input class="form-control form-control-sm" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" @bind:get="NumberOfRequests" @bind:set="@(value => OnNumberOfRequestsChanged(new ChangeEventArgs { Value = value }))" />
                                 </div>
                             </div>
                         </div>

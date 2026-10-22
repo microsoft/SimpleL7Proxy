@@ -62,7 +62,7 @@ else
                             <span class="bi bi-search" aria-hidden="true"></span>
                             <label class="visually-hidden" for="tokenomics-routing-model-search">Search models</label>
                             <input id="tokenomics-routing-model-search" class="form-control form-control-sm" placeholder="Search models..."
-                                   value="@_modelSearch" @oninput="SetModelSearch" />
+                                   @bind:get="_modelSearch" @bind:set="@(value => SetModelSearch(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                         <div class="tokenomics-routing-model-list" role="listbox" aria-label="Models">
                             @if (FilteredModels.Count == 0)
@@ -96,7 +96,7 @@ else
                             <span class="bi bi-search" aria-hidden="true"></span>
                             <label class="visually-hidden" for="tokenomics-routing-api-search">Search hosts</label>
                             <input id="tokenomics-routing-api-search" class="form-control form-control-sm" placeholder="Search hosts..."
-                                   value="@_apiSearch" @oninput="SetApiSearch" />
+                                   @bind:get="_apiSearch" @bind:set="@(value => SetApiSearch(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
                         </div>
                         <label class="d-flex align-items-center gap-2 small mx-3 mb-2">
                             <input class="form-check-input m-0" type="checkbox" @bind="_showDisabledHosts" />
@@ -264,10 +264,10 @@ else
                                             <option value="default">Default API Spec Path</option>
                                             <option value="override">Overridden Path</option>
                                         </select>
-                                        <input class="form-control form-control-sm font-monospace" value="@(apiOptions is null ? string.Empty : PathValue(api, apiOptions))"
+                                             <input class="form-control form-control-sm font-monospace" @bind:get="@(apiOptions is null ? string.Empty : PathValue(api, apiOptions))"
                                                disabled="@(apiOptions is null || pathMode != "override")"
                                                aria-label="Path override for @api.Name on @selectedHostKey"
-                                               @onchange="@(args => SetApiPathAsync(_selectedModel, selectedHostKey, api.Name, args))" />
+                                                 @bind:set="@(value => SetApiPathAsync(_selectedModel, selectedHostKey, api.Name, new ChangeEventArgs { Value = value }))" />
                                     </div>
                                 }
                                 @if (Apis.Count == 0)

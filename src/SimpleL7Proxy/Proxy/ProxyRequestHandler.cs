@@ -425,8 +425,7 @@ public partial class ProxyRequestHandler
 
                     // Populate final event data
                     _eventDataBuilder.PopulateFinalEventData(incomingRequest, lcontext);
-                    if (_options.TokenomicsEnable &&
-                        incomingRequest.TokenomicsSummary != null)
+                    if (_options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
                     {
                         incomingRequest.TokenomicsSummary.PrepForFinalStats(
                             pr.StatusCode,

@@ -32,17 +32,17 @@
         else if (Name == nameof(TokenomicsSettings.ModelHierarchy))
         {
             <textarea id="@($"tokenomics-{Name}")" class="form-control form-control-sm font-monospace" rows="3"
-                      placeholder="prefix: [model1, model2]" value="@Value"
+                      placeholder="prefix: [model1, model2]" @bind:get="Value"
                       aria-invalid="@(Error is null ? "false" : "true")"
-                      aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @onchange="OnChanged"></textarea>
+                      aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @bind:set="@(value => OnChanged.InvokeAsync(new ChangeEventArgs { Value = value }))"></textarea>
         }
         else
         {
             <input id="@($"tokenomics-{Name}")" class="form-control form-control-sm" type="@InputType"
                    placeholder="@(Name == nameof(TokenomicsSettings.DelayDuration) ? "00:10:000" : null)"
-                   step="@(InputType == "number" ? Step : null)" value="@Value" aria-label="@Label"
+                   step="@(InputType == "number" ? Step : null)" @bind:get="Value" aria-label="@Label"
                    aria-invalid="@(Error is null ? "false" : "true")"
-                   aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @onchange="OnChanged" />
+                   aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @bind:set="@(value => OnChanged.InvokeAsync(new ChangeEventArgs { Value = value }))" />
         }
     </div>
     @if (Error is not null)

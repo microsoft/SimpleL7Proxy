@@ -79,8 +79,8 @@
                         </ConfigurationHelp>
                     </div>
                     <input id="@maxAttemptsSetting.Key" class="form-control" type="number" min="0" step="1"
-                           value="@NumericDraft(maxAttemptsSetting)"
-                           @oninput="@(args => SetSettingValueAsync(maxAttemptsSetting, args.Value?.ToString()))" />
+                           @bind:get="NumericDraft(maxAttemptsSetting)"
+                           @bind:set="@(value => SetSettingValueAsync(maxAttemptsSetting, value))" @bind:event="oninput" />
                     <p>Maximum attempts in multiple-pass mode. Set to 0 for no attempt-count limit.</p>
                 </div>
             }
@@ -103,8 +103,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@pollIntervalSetting.Key" class="form-control" type="number" min="0" step="1"
-                               value="@NumericDraft(pollIntervalSetting)"
-                               @oninput="@(args => SetSettingValueAsync(pollIntervalSetting, args.Value?.ToString()))" />
+                               @bind:get="NumericDraft(pollIntervalSetting)"
+                               @bind:set="@(value => SetSettingValueAsync(pollIntervalSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">ms</span>
                     </div>
                     <p>Delay between backend health-poll cycles.</p>
@@ -120,8 +120,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@pollTimeoutSetting.Key" class="form-control" type="number" min="0" step="1"
-                               value="@NumericDraft(pollTimeoutSetting)"
-                               @oninput="@(args => SetSettingValueAsync(pollTimeoutSetting, args.Value?.ToString()))" />
+                               @bind:get="NumericDraft(pollTimeoutSetting)"
+                               @bind:set="@(value => SetSettingValueAsync(pollTimeoutSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">ms</span>
                     </div>
                     <p>Maximum time allowed for one backend health poll.</p>
@@ -137,8 +137,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@sharedIteratorTtlSetting.Key" class="form-control" type="number" min="0" step="1"
-                               value="@NumericDraft(sharedIteratorTtlSetting)"
-                               @oninput="@(args => SetSettingValueAsync(sharedIteratorTtlSetting, args.Value?.ToString()))" />
+                               @bind:get="NumericDraft(sharedIteratorTtlSetting)"
+                               @bind:set="@(value => SetSettingValueAsync(sharedIteratorTtlSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">seconds</span>
                     </div>
                     <p>Idle lifetime of a shared backend iterator.</p>
@@ -154,8 +154,8 @@
                     </div>
                     <div class="input-group">
                         <input id="@cleanupIntervalSetting.Key" class="form-control" type="number" min="0" step="1"
-                               value="@NumericDraft(cleanupIntervalSetting)"
-                               @oninput="@(args => SetSettingValueAsync(cleanupIntervalSetting, args.Value?.ToString()))" />
+                               @bind:get="NumericDraft(cleanupIntervalSetting)"
+                               @bind:set="@(value => SetSettingValueAsync(cleanupIntervalSetting, value))" @bind:event="oninput" />
                         <span class="input-group-text">seconds</span>
                     </div>
                     <p>Frequency for removing stale shared iterators.</p>
@@ -212,6 +212,11 @@
 
     private static string NumericDraft(AppConfigurationScaffoldSetting setting)
     {
+        if (setting.IsChanged)
+        {
+            return setting.DraftValue;
+        }
+
         var value = ConfigParser.ReadEnvironmentVariableOrDefault(
             new Dictionary<string, string> { ["value"] = setting.DraftValue },
             "value",

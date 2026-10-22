@@ -35,7 +35,7 @@ var enabledSetting = FindSetting("Auth:ValidateAppIDEnabled");
             <div class="app-id-editor">
                 <div class="app-id-toolbar">
                     <input class="form-control form-control-sm" type="search" placeholder="Search application IDs..."
-                           value="@_appSearch" @oninput="@(args => _appSearch = args.Value?.ToString() ?? string.Empty)" />
+                           @bind="_appSearch" @bind:event="oninput" />
                     <span class="app-id-count">@VisibleAppEntries.Count() applications</span>
                     <button type="button" class="btn btn-sm btn-outline-danger"
                             disabled="@(_appSelected.Count == 0 || _appBusy)"
