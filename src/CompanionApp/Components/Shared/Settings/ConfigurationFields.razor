@@ -8,8 +8,9 @@
         var multiline = !secret && (setting.LoadedValue.Length > 100 || setting.LoadedValue.IndexOfAny(new[] { ',', '\n', '[', '{' }) >= 0);
         <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
             <div class="config-setting-heading">
-                <label class="form-label" for="@setting.Key" title="@setting.Key">@Label(setting.Name)</label>
-                <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name" />
+                <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name">
+                    <label class="form-label" for="@setting.Key" title="@setting.Key">@Label(setting.Name)</label>
+                </ConfigurationHelp>
             </div>
             <ConfigurationExplanation Section="@setting.Section" Topic="@setting.Name" />
             @if (bool.TryParse(setting.LoadedValue, out _))

@@ -6,8 +6,9 @@
     <div class="config-healthprobe-grid">
         <div class="config-newhost-field @(Enabled != IsEnabled(loadedSetting) ? "config-field-changed" : string.Empty)">
             <div class="config-setting-heading">
-                <label class="form-label">enabled</label>
-                <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe enabled" />
+                <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe enabled">
+                    <label class="form-label">enabled</label>
+                </ConfigurationHelp>
             </div>
             <ConfigurationExplanation Section="HealthProbe" Topic="enabled" />
             <div class="form-check">
@@ -16,8 +17,9 @@
         </div>
         <div class='config-newhost-field @(!string.Equals(Url, Field(loadedSetting, "url"), StringComparison.Ordinal) ? "config-field-changed" : string.Empty)'>
             <div class="config-setting-heading">
-                <label class="form-label">url</label>
-                <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL" />
+                <ConfigurationHelp Section="HealthProbe" Topic="HealthProbe URL">
+                    <label class="form-label">url</label>
+                </ConfigurationHelp>
             </div>
             <ConfigurationExplanation Section="HealthProbe" Topic="url" />
             <input class="form-control form-control-sm" placeholder="http://localhost:9000"

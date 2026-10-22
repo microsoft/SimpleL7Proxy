@@ -5,8 +5,9 @@
     {
         <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
             <div class="config-setting-heading">
-                <label class="form-label">@FieldLabel(setting.Name)</label>
-                <ConfigurationHelp Section="LoadBalancing" Topic="@setting.Name" />
+                <ConfigurationHelp Section="LoadBalancing" Topic="@setting.Name">
+                    <label class="form-label">@FieldLabel(setting.Name)</label>
+                </ConfigurationHelp>
             </div>
             <ConfigurationExplanation Section="LoadBalancing" Topic="@setting.Name" />
             @if (ChoicesFor(setting.Name) is { } choices)

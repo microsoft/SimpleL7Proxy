@@ -70,8 +70,9 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                         {
                             <div class="identity-access-form-row @(overviewPrimaryKeySetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="identity-overview-key1">Key 1</label>
-                                    <ConfigurationHelp Section="Profiles" Topic="@overviewPrimaryKeySetting.Name" />
+                                    <ConfigurationHelp Section="Profiles" Topic="@overviewPrimaryKeySetting.Name">
+                                        <label for="identity-overview-key1">Key 1</label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div>
                                     <div class="input-group">
@@ -102,8 +103,9 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                         {
                             <div class="identity-access-form-row @(overviewSecondaryKeySetting.IsChanged ? "config-field-changed" : string.Empty)">
                                 <div class="config-setting-heading">
-                                    <label for="identity-overview-key2">Key 2 <span>Optional</span></label>
-                                    <ConfigurationHelp Section="Profiles" Topic="@overviewSecondaryKeySetting.Name" />
+                                    <ConfigurationHelp Section="Profiles" Topic="@overviewSecondaryKeySetting.Name">
+                                        <label for="identity-overview-key2">Key 2 <span>Optional</span></label>
+                                    </ConfigurationHelp>
                                 </div>
                                 <div>
                                     <div class="input-group">
@@ -141,8 +143,9 @@ var overviewRequireProfile = bool.TryParse(overviewRequireProfileSetting?.DraftV
                         }
                         <div class="identity-access-form-row @(AuthenticationConfigSetting?.IsChanged == true ? "config-field-changed" : string.Empty)">
                             <div class="config-setting-heading">
+                                <ConfigurationHelp Section="Profiles" Topic="Auth:Config">
                                 <label for="identity-overview-oauth-header">Bearer token header</label>
-                                <ConfigurationHelp Section="Profiles" Topic="Auth:Config" />
+                                </ConfigurationHelp>
                             </div>
                             <input id="identity-overview-oauth-header" class="form-control" type="text" autocomplete="off"
                                    value="@AuthenticationHeader" @oninput="SetAuthenticationHeaderAsync" />

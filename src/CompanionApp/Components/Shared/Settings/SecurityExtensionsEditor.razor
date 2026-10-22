@@ -20,8 +20,9 @@
         {
             <div class="proxy-settings-field proxy-settings-field-wide @(ignoreCertificateSetting.IsChanged ? "config-field-changed" : string.Empty)">
                 <div class="config-setting-heading">
-                    <label for="security-extensions-validate-certificates">Validate backend certificates</label>
-                    <ConfigurationHelp Section="Security" Topic="@ignoreCertificateSetting.Name" />
+                    <ConfigurationHelp Section="Security" Topic="@ignoreCertificateSetting.Name">
+                        <label for="security-extensions-validate-certificates">Validate backend certificates</label>
+                    </ConfigurationHelp>
                 </div>
                 <div class="form-check form-switch proxy-settings-switch">
                     <input id="security-extensions-validate-certificates" class="form-check-input" type="checkbox"
@@ -45,8 +46,9 @@
         {
             <div class="proxy-settings-field proxy-settings-field-wide @(requestPreprocessorSetting.IsChanged ? "config-field-changed" : string.Empty)">
                 <div class="config-setting-heading">
-                    <label for="@requestPreprocessorSetting.Key">Plugin class names</label>
-                    <ConfigurationHelp Section="Server" Topic="@requestPreprocessorSetting.Name" />
+                    <ConfigurationHelp Section="Server" Topic="@requestPreprocessorSetting.Name">
+                        <label for="@requestPreprocessorSetting.Key">Plugin class names</label>
+                    </ConfigurationHelp>
                 </div>
                 <textarea id="@requestPreprocessorSetting.Key" class="form-control font-monospace" rows="4"
                           placeholder="Namespace.PluginClass"

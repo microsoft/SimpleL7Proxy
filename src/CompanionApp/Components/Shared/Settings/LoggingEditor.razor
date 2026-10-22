@@ -11,18 +11,13 @@
             <div class="logging-destination-label config-newhost-field @(loggerSetting?.IsChanged == true && destination.Logger.Length > 0 ? "config-field-changed" : string.Empty)">
                 @if (destination.Logger.Length > 0)
                 {
-                    <label class="d-inline-flex align-items-center gap-2">
+                    <span class="d-inline-flex align-items-center gap-2">
                         <input class="form-check-input m-0 flex-shrink-0" type="checkbox" checked="@enabled"
-                               disabled="@(loggerSetting is null)"
+                               aria-label="@destination.Name" disabled="@(loggerSetting is null)"
                                @onchange="args => ToggleLogger(loggerSetting!, destination.Logger, args.Value is true)" />
-                        <span>@destination.Name</span>
-                    </label>
+                    </span>
                 }
-                else
-                {
-                    <span>@destination.Name</span>
-                }
-                <ConfigurationHelp Section="Logging" Topic="@destination.Name" />
+                <ConfigurationHelp Section="Logging" Topic="@destination.Name">@destination.Name</ConfigurationHelp>
             </div>
             <div class="logging-destination-details" role="group" aria-label="@destination.Name">
                 <ConfigurationExplanation Section="Logging" Topic="@destination.Name" />
@@ -31,8 +26,9 @@
                     {
                         <div class="config-newhost-field @(setting.IsChanged ? "config-field-changed" : string.Empty)" @key="setting.Key">
                             <div class="config-setting-heading">
-                                <label class="form-label" for="@setting.Key">@FieldLabel(setting.Name.StartsWith("EventHub:", StringComparison.OrdinalIgnoreCase) ? setting.Name[9..] : setting.Name)</label>
-                                <ConfigurationHelp Section="Logging" Topic="@setting.Name" />
+                                <ConfigurationHelp Section="Logging" Topic="@setting.Name">
+                                    <label class="form-label" for="@setting.Key">@FieldLabel(setting.Name.StartsWith("EventHub:", StringComparison.OrdinalIgnoreCase) ? setting.Name[9..] : setting.Name)</label>
+                                </ConfigurationHelp>
                             </div>
                             <ConfigurationExplanation Section="Logging" Topic="@setting.Name" />
                             <input id="@setting.Key" class="form-control form-control-sm" autocomplete="off"
@@ -100,17 +96,18 @@
                  <div class='config-newhost-field logging-setting @(setting.IsChanged ? "config-field-changed" : string.Empty) @(group.Key == "Headers" && setting.Name.ToLowerInvariant() is not ("logallrequestheaders" or "logallrequestheadersexcept" or "logallresponseheaders" or "logallresponseheadersexcept") ? "logging-header-wide" : string.Empty)'
                      @key="setting.Key">
                       <div class="config-setting-heading">
-                    <label class="form-label" for="@setting.Key">@(setting.Name.ToLowerInvariant() switch
-                    {
-                        "logallrequestheaders" => "All request headers",
-                        "logallrequestheadersexcept" => "Exclude request headers",
-                        "logallresponseheaders" => "All response headers",
-                        "logallresponseheadersexcept" => "Exclude response headers",
-                        "logheaders" => "Selected response headers",
-                        "eventdata" => "Event data provider",
-                        _ => FieldLabel(setting.Name),
-                    })</label>
-                    <ConfigurationHelp Section="Logging" Topic="@setting.Name" />
+                    <ConfigurationHelp Section="Logging" Topic="@setting.Name">
+                        <label class="form-label" for="@setting.Key">@(setting.Name.ToLowerInvariant() switch
+                        {
+                            "logallrequestheaders" => "All request headers",
+                            "logallrequestheadersexcept" => "Exclude request headers",
+                            "logallresponseheaders" => "All response headers",
+                            "logallresponseheadersexcept" => "Exclude response headers",
+                            "logheaders" => "Selected response headers",
+                            "eventdata" => "Event data provider",
+                            _ => FieldLabel(setting.Name),
+                        })</label>
+                    </ConfigurationHelp>
                     </div>
                     <ConfigurationExplanation Section="Logging" Topic="@setting.Name" />
                     @if (string.Equals(setting.Name, "EventLoggers", StringComparison.OrdinalIgnoreCase))
@@ -119,14 +116,14 @@
                             @foreach (var logger in LoggerChoices(setting))
                             {
                                 <div class="d-inline-flex align-items-center gap-2 text-break">
-                                <label class="d-inline-flex align-items-center gap-2 text-break">
-                                    <input class="form-check-input m-0 flex-shrink-0" type="checkbox"
+                                <input class="form-check-input m-0 flex-shrink-0" type="checkbox"
+                                       aria-label="@(logger switch { "file" => "File", "eventhub" => "Event Hub", "none" => "None", _ => logger })"
                                          disabled="@inactive"
                                            checked="@SelectedLoggers(setting).Contains(logger)"
                                            @onchange="args => ToggleLogger(setting, logger, args.Value is true)" />
-                                    <span>@(logger switch { "file" => "File", "eventhub" => "Event Hub", "none" => "None", _ => logger })</span>
-                                </label>
-                                <ConfigurationHelp Section="Logging" Topic="@logger" />
+                                <ConfigurationHelp Section="Logging" Topic="@logger">
+                                    @(logger switch { "file" => "File", "eventhub" => "Event Hub", "none" => "None", _ => logger })
+                                </ConfigurationHelp>
                                 </div>
                             }
                         </div>
@@ -193,7 +190,7 @@
         <div class="config-modal logging-event-modal" role="dialog" aria-modal="true" aria-label="@FieldLabel(eventSetting.Name)"
              @onclick:stopPropagation="true">
             <div class="config-modal-header">
-                <h2 class="h5 mb-0">@FieldLabel(eventSetting.Name) <ConfigurationHelp Section="Logging" Topic="@eventSetting.Name" /></h2>
+                <h2 class="h5 mb-0"><ConfigurationHelp Section="Logging" Topic="@eventSetting.Name">@FieldLabel(eventSetting.Name)</ConfigurationHelp></h2>
                 <button class="btn-close" type="button" aria-label="Close" data-dialog-cancel @onclick="() => _editingEventTypes = null"></button>
             </div>
             <div class="config-modal-body logging-event-grid">
@@ -203,12 +200,10 @@
                         && !loadedTokens.Contains($"-{eventType.Key}");
                     <div class="config-newhost-field @(EventTypeEnabled(eventType.Key) != loadedEnabled ? "config-field-changed" : string.Empty)">
                     <div class="d-flex align-items-center gap-2">
-                    <label class="d-flex align-items-center gap-2">
-                        <input class="form-check-input m-0" type="checkbox" checked="@EventTypeEnabled(eventType.Key)"
-                               @onchange="args => ToggleEventType(eventType.Key, args.Value is true)" />
-                        <span>@eventType.Label</span>
-                    </label>
-                    <ConfigurationHelp Section="Logging" Topic="@eventType.Label" />
+                    <input class="form-check-input m-0" type="checkbox" aria-label="@eventType.Label"
+                           checked="@EventTypeEnabled(eventType.Key)"
+                           @onchange="args => ToggleEventType(eventType.Key, args.Value is true)" />
+                    <ConfigurationHelp Section="Logging" Topic="@eventType.Label">@eventType.Label</ConfigurationHelp>
                     </div>
                     </div>
                 }

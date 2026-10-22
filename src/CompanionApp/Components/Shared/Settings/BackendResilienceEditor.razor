@@ -20,10 +20,15 @@
     <section class="backend-resilience-section" aria-labelledby="backend-response-status-codes">
         <div class="backend-resilience-section-heading">
             <div class="config-setting-heading">
-                <h3 id="backend-response-status-codes">Accepted backend status codes</h3>
                 @if (acceptableStatusCodesSetting is not null)
                 {
-                    <ConfigurationHelp Section="Response" Topic="@acceptableStatusCodesSetting.Name" />
+                    <ConfigurationHelp Section="Response" Topic="@acceptableStatusCodesSetting.Name">
+                        <h3 id="backend-response-status-codes">Accepted backend status codes</h3>
+                    </ConfigurationHelp>
+                }
+                else
+                {
+                    <h3 id="backend-response-status-codes">Accepted backend status codes</h3>
                 }
             </div>
             <p>Responses with these status codes are considered successful when communicating with backends.</p>
@@ -79,8 +84,9 @@
             {
                 <div class="backend-resilience-field @(errorThresholdSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@errorThresholdSetting.Key">Failure threshold</label>
-                        <ConfigurationHelp Section="CircuitBreaker" Topic="@errorThresholdSetting.Name" />
+                        <ConfigurationHelp Section="CircuitBreaker" Topic="@errorThresholdSetting.Name">
+                            <label for="@errorThresholdSetting.Key">Failure threshold</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@errorThresholdSetting.Key" class="form-control" type="number" min="1" step="1"
@@ -96,8 +102,9 @@
             {
                 <div class="backend-resilience-field @(successRateSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@successRateSetting.Key">Success threshold</label>
-                        <ConfigurationHelp Section="CircuitBreaker" Topic="@successRateSetting.Name" />
+                        <ConfigurationHelp Section="CircuitBreaker" Topic="@successRateSetting.Name">
+                            <label for="@successRateSetting.Key">Success threshold</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@successRateSetting.Key" class="form-control" type="number" min="0" max="100" step="1"
@@ -113,8 +120,9 @@
             {
                 <div class="backend-resilience-field backend-resilience-field-wide @(timesliceSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@timesliceSetting.Key">Evaluation window</label>
-                        <ConfigurationHelp Section="CircuitBreaker" Topic="@timesliceSetting.Name" />
+                        <ConfigurationHelp Section="CircuitBreaker" Topic="@timesliceSetting.Name">
+                            <label for="@timesliceSetting.Key">Evaluation window</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@timesliceSetting.Key" class="form-control" type="number" min="1" step="1"

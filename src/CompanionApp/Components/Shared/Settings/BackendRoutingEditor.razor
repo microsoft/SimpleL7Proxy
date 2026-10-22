@@ -28,8 +28,9 @@
             {
                 <div class="proxy-settings-field @(iterationModeSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@iterationModeSetting.Key">Backend iteration</label>
-                        <ConfigurationHelp Section="LoadBalancing" Topic="@iterationModeSetting.Name" />
+                        <ConfigurationHelp Section="LoadBalancing" Topic="@iterationModeSetting.Name">
+                            <label for="@iterationModeSetting.Key">Backend iteration</label>
+                        </ConfigurationHelp>
                     </div>
                     <select id="@iterationModeSetting.Key" class="form-select"
                             value="@iterationModeSetting.DraftValue"
@@ -50,8 +51,9 @@
             {
                 <div class="proxy-settings-field @(selectionModeSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@selectionModeSetting.Key">Selection strategy</label>
-                        <ConfigurationHelp Section="LoadBalancing" Topic="@selectionModeSetting.Name" />
+                        <ConfigurationHelp Section="LoadBalancing" Topic="@selectionModeSetting.Name">
+                            <label for="@selectionModeSetting.Key">Selection strategy</label>
+                        </ConfigurationHelp>
                     </div>
                     <select id="@selectionModeSetting.Key" class="form-select"
                             value="@selectionModeSetting.DraftValue"
@@ -72,8 +74,9 @@
             {
                 <div class="proxy-settings-field @(maxAttemptsSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@maxAttemptsSetting.Key">Maximum attempts</label>
-                        <ConfigurationHelp Section="LoadBalancing" Topic="@maxAttemptsSetting.Name" />
+                        <ConfigurationHelp Section="LoadBalancing" Topic="@maxAttemptsSetting.Name">
+                            <label for="@maxAttemptsSetting.Key">Maximum attempts</label>
+                        </ConfigurationHelp>
                     </div>
                     <input id="@maxAttemptsSetting.Key" class="form-control" type="number" min="0" step="1"
                            value="@NumericDraft(maxAttemptsSetting)"
@@ -94,8 +97,9 @@
             {
                 <div class="proxy-settings-field @(pollIntervalSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@pollIntervalSetting.Key">Poll interval</label>
-                        <ConfigurationHelp Section="Server" Topic="@pollIntervalSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@pollIntervalSetting.Name">
+                            <label for="@pollIntervalSetting.Key">Poll interval</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@pollIntervalSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -110,8 +114,9 @@
             {
                 <div class="proxy-settings-field @(pollTimeoutSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@pollTimeoutSetting.Key">Poll timeout</label>
-                        <ConfigurationHelp Section="Server" Topic="@pollTimeoutSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@pollTimeoutSetting.Name">
+                            <label for="@pollTimeoutSetting.Key">Poll timeout</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@pollTimeoutSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -126,8 +131,9 @@
             {
                 <div class="proxy-settings-field @(sharedIteratorTtlSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@sharedIteratorTtlSetting.Key">Shared iterator TTL</label>
-                        <ConfigurationHelp Section="Server" Topic="@sharedIteratorTtlSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@sharedIteratorTtlSetting.Name">
+                            <label for="@sharedIteratorTtlSetting.Key">Shared iterator TTL</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@sharedIteratorTtlSetting.Key" class="form-control" type="number" min="0" step="1"
@@ -142,8 +148,9 @@
             {
                 <div class="proxy-settings-field @(cleanupIntervalSetting.IsChanged ? "config-field-changed" : string.Empty)">
                     <div class="config-setting-heading">
-                        <label for="@cleanupIntervalSetting.Key">Cleanup interval</label>
-                        <ConfigurationHelp Section="Server" Topic="@cleanupIntervalSetting.Name" />
+                        <ConfigurationHelp Section="Server" Topic="@cleanupIntervalSetting.Name">
+                            <label for="@cleanupIntervalSetting.Key">Cleanup interval</label>
+                        </ConfigurationHelp>
                     </div>
                     <div class="input-group">
                         <input id="@cleanupIntervalSetting.Key" class="form-control" type="number" min="0" step="1"

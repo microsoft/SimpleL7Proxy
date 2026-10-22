@@ -2,48 +2,45 @@
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
 @{
-    var resolvedTopic = HelpTopic ?? Topic ?? "top";
     var configuredUrl = string.IsNullOrWhiteSpace(Topic)
         ? Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"]
         : Configuration[$"{CompanionAppOptions.UiSectionName}:TopicDocumentation:{Section}:{Topic}"];
-    var description = $"Help for {Topic ?? Section}";
-    var helpEntry = Configuration.GetSection($"{CompanionAppOptions.UiSectionName}:PopupHelp:{Section}:{resolvedTopic}");
-    var helpLines = (helpEntry.Value is { } value
-        ? new[] { value }
-        : helpEntry.GetChildren().Select(line => line.Value ?? string.Empty))
-        .Where(line => !string.IsNullOrWhiteSpace(line))
-        .ToList();
-    var helpText = helpLines.FirstOrDefault(line => !Uri.TryCreate(line.Trim(), UriKind.Absolute, out _));
-    var helpUrl = helpLines.FirstOrDefault(line => Uri.TryCreate(line.Trim(), UriKind.Absolute, out var candidate)
+    var description = $"Open documentation for {Topic ?? Section}";
+    var resolvedTopic = HelpTopic ?? Topic ?? "top";
+    var helpEntryForTopic = Configuration.GetSection($"{CompanionAppOptions.UiSectionName}:PopupHelp:{Section}:{resolvedTopic}");
+    var helpLinesForTopic = (helpEntryForTopic.Value is { } topicValue
+        ? new[] { topicValue }
+        : helpEntryForTopic.GetChildren().Select(line => line.Value ?? string.Empty))
+        .Where(line => !string.IsNullOrWhiteSpace(line));
+    var helpUrl = helpLinesForTopic.FirstOrDefault(line => Uri.TryCreate(line.Trim(), UriKind.Absolute, out var candidate)
         && (candidate.Scheme == Uri.UriSchemeHttps || candidate.Scheme == Uri.UriSchemeHttp));
-    var helpPageUrl = $"/configuration-help?section={Uri.EscapeDataString(Section)}";
-    if (!string.IsNullOrWhiteSpace(Topic))
+    var documentationUrl = "https://github.com/microsoft/SimpleL7Proxy/tree/main/docs";
+    if (Uri.TryCreate(helpUrl ?? configuredUrl, UriKind.Absolute, out var documentationUri)
+        && (documentationUri.Scheme == Uri.UriSchemeHttps || documentationUri.Scheme == Uri.UriSchemeHttp)
+        && documentationUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
     {
-        helpPageUrl += $"&topic={Uri.EscapeDataString(Topic)}";
+        documentationUrl = documentationUri.AbsoluteUri;
     }
-    if (!string.IsNullOrWhiteSpace(HelpTopic))
+    else
     {
-        helpPageUrl += $"&helpTopic={Uri.EscapeDataString(HelpTopic)}";
+        documentationUrl = "https://github.com/microsoft/SimpleL7Proxy/tree/main/docs";
     }
 }
-@if (helpText is not null || helpUrl is not null || Uri.TryCreate(configuredUrl, UriKind.Absolute, out var documentationUrl)
-    && (documentationUrl.Scheme == Uri.UriSchemeHttps || documentationUrl.Scheme == Uri.UriSchemeHttp))
+@if (ChildContent is not null)
 {
-    <span class="config-help">
-        <a class="config-help-link" href="@helpPageUrl" target="_blank" rel="noopener noreferrer"
-           title="@description" aria-label="@description" @onclick:stopPropagation="true">Help</a>
-    </span>
+    <a class="config-help-link" href="@documentationUrl" target="_blank" rel="noopener noreferrer"
+       title="@description" @onclick:stopPropagation="true">@ChildContent</a>
 }
 
 <style>
-    .config-help-link { display: inline-flex; flex-shrink: 0; color: #0b57a4; font-size: .8rem; text-decoration: underline; text-underline-offset: .15em; }
+    .config-help-link { display: inline-flex; flex-shrink: 0; color: #0b57a4; font: inherit; text-decoration: underline; text-underline-offset: .15em; }
     .config-help-link:hover { color: #073b75; }
     .config-help-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-    .config-help { display: inline-flex; flex-shrink: 0; }
 </style>
 
 @code {
     [Parameter] public string Section { get; set; } = string.Empty;
     [Parameter] public string? Topic { get; set; }
     [Parameter] public string? HelpTopic { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
 }
