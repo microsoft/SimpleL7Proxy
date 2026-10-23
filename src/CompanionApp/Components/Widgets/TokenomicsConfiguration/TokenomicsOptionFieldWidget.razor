@@ -1,0 +1,66 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+@using SimpleL7Proxy.Tokenomics
+
+<div class="@(Compact ? "tokenomics-period-cell" : IsAction ? "tokenomics-inline-action" : "config-newhost-field") @(IsChanged ? "config-field-changed" : string.Empty)">
+    <div class="@(Compact ? "visually-hidden" : IsAction ? "tokenomics-inline-action-name" : "config-setting-heading")">
+        @if (!Compact)
+        {
+            <ConfigurationHelp Section="Tokenomics" Topic="@Name">
+                <label class="@(IsAction ? null : "form-label")" for="@($"tokenomics-{Name}")">@Label</label>
+            </ConfigurationHelp>
+        }
+        else
+        {
+            <label class="visually-hidden" for="@($"tokenomics-{Name}")">@Label</label>
+        }
+    </div>
+    @if (!IsAction)
+    {
+        <ConfigurationExplanation Section="Tokenomics" Topic="@Name" />
+    }
+    <div class="@(Compact ? "tokenomics-period-control" : null)">
+        @if (IsAction)
+        {
+            <select id="@($"tokenomics-{Name}")" class="form-select form-select-sm" value="@Value"
+                    aria-label="@Label" @onchange="OnChanged">
+                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                {
+                    <option value="@action">@ActionLabel(action)</option>
+                }
+            </select>
+        }
+        else if (Name == nameof(TokenomicsSettings.ModelHierarchy))
+        {
+            <textarea id="@($"tokenomics-{Name}")" class="form-control form-control-sm font-monospace" rows="3"
+                      placeholder="prefix: [model1, model2]" @bind:get="Value"
+                      aria-invalid="@(Error is null ? "false" : "true")"
+                      aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @bind:set="@(value => OnChanged.InvokeAsync(new ChangeEventArgs { Value = value }))"></textarea>
+        }
+        else
+        {
+            <input id="@($"tokenomics-{Name}")" class="form-control form-control-sm" type="@InputType"
+                   placeholder="@(Name == nameof(TokenomicsSettings.DelayDuration) ? "00:10:000" : null)"
+                   step="@(InputType == "number" ? Step : null)" @bind:get="Value" aria-label="@Label"
+                   aria-invalid="@(Error is null ? "false" : "true")"
+                   aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @bind:set="@(value => OnChanged.InvokeAsync(new ChangeEventArgs { Value = value }))" />
+        }
+    </div>
+    @if (Error is not null)
+    {
+        <span id="@($"tokenomics-{Name}-error")" class="small text-danger" role="alert">@Error</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public string InputType { get; set; } = "number";
+    [Parameter] public string Step { get; set; } = "any";
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public bool IsChanged { get; set; }
+    [Parameter] public bool IsAction { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter, EditorRequired] public Func<TokenActionEnum, string> ActionLabel { get; set; } = default!;
+    [Parameter] public EventCallback<ChangeEventArgs> OnChanged { get; set; }
+}

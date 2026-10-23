@@ -31,6 +31,9 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
 
         InitVars();
 
+        // set the http client timeout ( get low latency)
+        httpClient.Timeout = TimeSpan.FromMilliseconds(400); // Set a low latency timeout
+
         configChangeNotifier.Subscribe(this,
            [options => options.TokenomicsEnable,
             options => options.TokenomicsMetricsServer]);
@@ -128,6 +131,11 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
             _metricsCacheisRunning = false;
         }
 
+    }
+
+    public long GetHourlyTokenBalanceAsync(ResponseMetric pm)
+    {
+        return pm.HourlyInputTokens + pm.HourlyOutputTokens;
     }
 
     public long GetDailyTokenBalanceAsync(ResponseMetric pm)

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CompanionApp.Components.Shared.EventHub;
@@ -35,6 +36,15 @@ public sealed class ProxyMetricsCatalog
     private readonly Dictionary<string, ScopeState> _scopeStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<RetainedRecord> _retainedRecords = new();
     private DateTimeOffset _lastPublishedUtc;
+    private bool _valuesDirty;
+    private DateTimeOffset? _truncatedThroughUtc;
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>Creates the retained metrics accumulator with an optional deterministic clock.</summary>
+    public ProxyMetricsCatalog(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     public MetricGroup Endpoints { get; } = new(
         "Endpoints",
@@ -116,6 +126,7 @@ public sealed class ProxyMetricsCatalog
     {
         lock (_gate)
         {
+            EnsureValuesCurrent();
             var options = new List<ScopeOption>
             {
                 new ScopeOption(AllScopeId, "All proxy instances", string.Empty, string.Empty, true, false),
@@ -159,6 +170,7 @@ public sealed class ProxyMetricsCatalog
 
         lock (_gate)
         {
+            EnsureValuesCurrent();
             return _scopeStates.ContainsKey(scopeId);
         }
     }
@@ -167,7 +179,7 @@ public sealed class ProxyMetricsCatalog
     {
         ArgumentNullException.ThrowIfNull(records);
 
-        var now = DateTimeOffset.UtcNow;
+        var now = _timeProvider.GetUtcNow();
         lock (_gate)
         {
             var cutoff = now - RetainedWindow;
@@ -177,21 +189,26 @@ public sealed class ProxyMetricsCatalog
             {
                 foreach (var record in records)
                 {
-                    _retainedRecords.Add(new RetainedRecord(record, now));
+                    var comparer = record.Data switch
+                    {
+                        Dictionary<string, string> dictionary => dictionary.Comparer,
+                        ImmutableDictionary<string, string> dictionary => dictionary.KeyComparer,
+                        _ => StringComparer.OrdinalIgnoreCase,
+                    };
+                    var frozen = record with { Data = record.Data.ToImmutableDictionary(comparer) };
+                    _retainedRecords.Add(new RetainedRecord(frozen, now));
                 }
 
                 if (_retainedRecords.Count > MaxRetainedRecordsSafetyCap)
                 {
                     var removeCount = _retainedRecords.Count - MaxRetainedRecordsSafetyCap;
+                    _truncatedThroughUtc = _retainedRecords[removeCount - 1].ReceivedUtc;
                     _retainedRecords.RemoveRange(0, removeCount);
                 }
             }
 
-            var retainedParsedRecords = _retainedRecords.Select(record => record.Record).ToArray();
-            var computed = BuildScopeValues(retainedParsedRecords);
-            _activeValues = computed;
             _lastPublishedUtc = now;
-            UpdateScopeStates(retainedParsedRecords, now);
+            _valuesDirty = true;
         }
 
         Changed?.Invoke();
@@ -206,19 +223,59 @@ public sealed class ProxyMetricsCatalog
     {
         lock (_gate)
         {
-            var resolvedValues = ResolveScopeValues(scopeId);
-            return AllGroups
-                .Select(group => new MetricGroupSnapshot(
-                    group.Name,
-                    group.Metrics
-                        .Select(metric => new ActiveMetricDefinition(
-                            metric.Name,
-                            metric.Description,
-                            ResolveActiveValue(metric.Name, resolvedValues)))
-                        .ToArray()))
-                .ToArray();
+            EnsureValuesCurrent();
+            return BuildActiveGroups(scopeId);
         }
     }
+
+    private ImmutableArray<MetricGroupSnapshot> BuildActiveGroups(string? scopeId)
+    {
+        var resolvedValues = ResolveScopeValues(scopeId);
+        return AllGroups.Select(group => new MetricGroupSnapshot(
+            group.Name,
+            group.Metrics.Select(metric => new ActiveMetricDefinition(
+                metric.Name,
+                metric.Description,
+                ResolveActiveValue(metric.Name, resolvedValues))).ToImmutableArray())).ToImmutableArray();
+    }
+
+    // Rebuild once per publication/read, not once for every incoming Event Hub message.
+    private void EnsureValuesCurrent()
+    {
+        var now = _timeProvider.GetUtcNow();
+        var cutoff = now - RetainedWindow;
+        var removed = _retainedRecords.RemoveAll(record => record.ReceivedUtc < cutoff);
+        if (!_valuesDirty && removed == 0)
+        {
+            return;
+        }
+
+        var records = _retainedRecords.Select(record => record.Record).ToArray();
+        _activeValues = BuildScopeValues(records);
+        UpdateScopeStates(records, now);
+        _valuesDirty = false;
+    }
+
+    internal CatalogPublication CapturePublication()
+    {
+        lock (_gate)
+        {
+            var scopes = GetScopeOptions().ToImmutableArray();
+            var groups = scopes.ToImmutableDictionary(
+                scope => scope.Id,
+                scope => BuildActiveGroups(scope.Id),
+                StringComparer.OrdinalIgnoreCase);
+            return new CatalogPublication(
+                scopes, groups, _lastPublishedUtc,
+                _truncatedThroughUtc is { } truncated && truncated >= _timeProvider.GetUtcNow() - RetainedWindow);
+        }
+    }
+
+    internal sealed record CatalogPublication(
+        ImmutableArray<ScopeOption> Scopes,
+        ImmutableDictionary<string, ImmutableArray<MetricGroupSnapshot>> Groups,
+        DateTimeOffset LastDataReceivedUtc,
+        bool RetentionTruncated);
 
     private IReadOnlyDictionary<string, string> ResolveScopeValues(string? scopeId)
     {

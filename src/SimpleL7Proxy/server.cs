@@ -21,7 +21,6 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Rules;
-using SimpleL7Proxy.Tokenomics;
 
 using Shared.HealthProbe;
 
@@ -66,7 +65,12 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     private volatile IterationModeEnum _defaultIterationMode;
 
     // Precomputed validation rules to avoid dictionary iteration and string ops per request
-    private readonly record struct ValidateHeaderRule(string SourceHeader, string AllowedValuesHeader, string DisplayName);
+    private readonly record struct ValidateHeaderRule(
+        string SourceHeader,
+        string? AllowedValuesHeader,
+        string DisplayName,
+        HeaderValidationMatchType MatchType,
+        string[] AllowedValues);
     private ValidateHeaderRule[] _validateHeaderRules = null!;
 
     // Constructor to initialize the server with backend options and telemetry client.
@@ -174,10 +178,12 @@ public class Server : BackgroundService, IConfigChangeSubscriber
             .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);
 
         _validateHeaderRules = _options.ValidateHeaders
-            .Select(kvp => new ValidateHeaderRule(
-                kvp.Key,
-                kvp.Value,
-                kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
+            .Select(rule => new ValidateHeaderRule(
+                rule.HeaderName,
+                rule.AllowedValuesHeader,
+                rule.HeaderName.StartsWith("S7", StringComparison.Ordinal) ? rule.HeaderName[2..] : rule.HeaderName,
+                rule.MatchType,
+                [.. rule.AllowedValues]))
             .ToArray();
 
         var authValidator = new IncomingAuthValidator();
@@ -484,7 +490,8 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Queue is full";
                             logmsg = "Queue is full  => 429:";
                         }
-                        else if (_backends.ActiveHostCount() == 0)
+                        // if loadbalancing is singlepass 
+                        else if (_options.IterationMode == IterationModeEnum.SinglePass && _backends.ActiveHostCount() == 0)
                         {
                             notEnqued = true;
                             notEnquedCode = 429;
@@ -607,24 +614,33 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     foreach (ref readonly var rule in _validateHeaderRules.AsSpan())
                                     {
                                         var lookup = rd.Headers[rule.SourceHeader]!.AsSpan().Trim();
-                                        var allowedSpan = rd.Headers[rule.AllowedValuesHeader]!.AsSpan();
                                         bool matched = false;
 
-                                        foreach (var range in allowedSpan.Split(','))
+                                        foreach (var allowedValue in rule.AllowedValues)
                                         {
-                                            var pattern = allowedSpan[range].Trim();
-                                            if (pattern.Length > 0 && pattern[^1] == '*')
+                                            if (MatchesHeaderValidationValue(
+                                                lookup,
+                                                allowedValue.AsSpan(),
+                                                rule.MatchType))
                                             {
-                                                if (lookup.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase))
+                                                matched = true;
+                                                break;
+                                            }
+                                        }
+
+                                        if (!matched && rule.AllowedValuesHeader is not null)
+                                        {
+                                            var allowedSpan = rd.Headers[rule.AllowedValuesHeader]!.AsSpan();
+                                            foreach (var range in allowedSpan.Split(','))
+                                            {
+                                                if (MatchesHeaderValidationValue(
+                                                    lookup,
+                                                    allowedSpan[range].Trim(),
+                                                    rule.MatchType))
                                                 {
                                                     matched = true;
                                                     break;
                                                 }
-                                            }
-                                            else if (lookup.Equals(pattern, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                matched = true;
-                                                break;
                                             }
                                         }
 
@@ -638,6 +654,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                                 $"Validation check failed for {rule.DisplayName}: {lookup}\n"
                                             );
                                         }
+
                                     }
                                     if (rd.Debug)
                                         _logger.LogInformation("Validation check passed for all headers.");
@@ -807,7 +824,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
                         if (rd.Context is not null)
                         {
-                            ed.Type = EventType.ServerError;
+                            ed.Type = notEnquedCode is 401 or 403 ? EventType.Authentication : EventType.ServerError;
                             ed["ErrorDetail"] = "EnqueueFailed";
                             ed.Status = (HttpStatusCode)notEnquedCode;
                             ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
@@ -892,6 +909,21 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         }
 
         _staticEvent.WriteOutput("[SHUTDOWN] ✓");
+    }
+
+    private static bool MatchesHeaderValidationValue(
+        ReadOnlySpan<char> lookup,
+        ReadOnlySpan<char> pattern,
+        HeaderValidationMatchType matchType)
+    {
+        if (pattern.IsEmpty)
+        {
+            return false;
+        }
+
+        return matchType == HeaderValidationMatchType.PrefixWildcard && pattern[^1] == '*'
+            ? lookup.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase)
+            : lookup.Equals(pattern, StringComparison.OrdinalIgnoreCase);
     }
 
     private static short CalculateS7PHash(HttpListenerRequest request, string? userAgent)

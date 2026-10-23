@@ -42,8 +42,8 @@
 
     @if (ShowPrompt && SimpleMode)
     {
-        <textarea class="form-control" id="modelPanelPrompt" rows="3" value="@Message"
-                  @oninput="OnMessageInput"></textarea>
+        <textarea class="form-control" id="modelPanelPrompt" rows="3" @bind:get="Message"
+              @bind:set="@(value => OnMessageInput(new ChangeEventArgs { Value = value }))" @bind:event="oninput"></textarea>
     }
 </div>
 
@@ -80,14 +80,14 @@
 <div class="row g-3 mb-3">
     <div class="col-12 col-md-4">
         <label class="form-label" for="modelPanelPathPrefix">Prefix</label>
-        <input class="form-control" id="modelPanelPathPrefix" value="@CurrentPathPrefix"
-               @oninput="OnPathPrefixInput" />
+         <input class="form-control" id="modelPanelPathPrefix" @bind:get="CurrentPathPrefix"
+             @bind:set="@(value => OnPathPrefixInput(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
     </div>
 
     <div class="col-12 col-md-8">
         <label class="form-label" for="modelPanelEndpointPath">Path</label>
-        <input class="form-control" id="modelPanelEndpointPath" value="@CurrentEndpointPath"
-               @oninput="OnEndpointPathInput" />
+         <input class="form-control" id="modelPanelEndpointPath" @bind:get="CurrentEndpointPath"
+             @bind:set="@(value => OnEndpointPathInput(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
     </div>
 </div>
 
@@ -134,8 +134,8 @@
                     }
                     else
                     {
-                        <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value"
-                               @oninput="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
+                           <input class="form-control" id="@GetFieldId(field.Key)" @bind:get="field.Value"
+                               @bind:set="@(value => OnFieldChanged(field.Key, value ?? string.Empty))" @bind:event="oninput" />
                     }
                 </div>
             }
@@ -148,7 +148,7 @@
     <div class="mb-3">
         <label class="form-label" for="modelPanelRequestBody">Request JSON</label>
         <textarea class="form-control font-monospace" id="modelPanelRequestBody" rows="@Rows"
-                  @oninput="OnCustomBodyInput">@_customBody</textarea>
+                  @bind:get="_customBody" @bind:set="@(value => OnCustomBodyInput(new ChangeEventArgs { Value = value }))" @bind:event="oninput"></textarea>
     </div>
 }
 

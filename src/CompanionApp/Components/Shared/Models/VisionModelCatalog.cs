@@ -85,6 +85,8 @@ public sealed class VisionModelCatalog
 
     public IReadOnlyList<VisionModelInfo> ListModels() => _models;
 
+    public IReadOnlyList<VisionApiInfo> ListApis() => _apis;
+
     public VisionModelInfo? GetModel(string? id) =>
         _models.FirstOrDefault(model => string.Equals(model.Id, id, StringComparison.OrdinalIgnoreCase));
 

@@ -1,0 +1,188 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+@using SimpleL7Proxy.Tokenomics
+
+@if (IsSummary)
+{
+    <button type="button" id="tokenomics-summary-limits" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
+            aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
+        <span class="tokenomics-summary-heading"><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><span>Limits &amp; Budgets</span></span>
+        <span class="tokenomics-summary-description">Token and spend limits by time period</span>
+        <span class="tokenomics-summary-values">@Summary</span>
+    </button>
+}
+else
+{
+<article class="tokenomics-settings-card tokenomics-card-limits">
+    <header><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><div><h3>Limits &amp; Budgets</h3><p>Set token and budget limits and actions when limits are reached.</p></div></header>
+    <section id="tokenomics-panel-limits" class="tokenomics-tab-panel" aria-label="Limits and budgets settings">
+        <div class="tokenomics-limits-scope" role="note"><span class="bi bi-info-circle-fill" aria-hidden="true"></span>Default limits apply unless a model has its own limits or actions.</div>
+        <div class="tokenomics-limits-workbench">
+            <aside class="tokenomics-routing-models" aria-label="Limit settings navigation">
+                <div class="tokenomics-routing-view-tabs" role="tablist" aria-label="Limits scope">
+                    <button type="button" role="tab" aria-selected="@(!_modelTab)" aria-controls="tokenomics-limits-detail"
+                            class="@(!_modelTab ? "is-selected" : null)" @onclick="@(async () => { _modelTab = false; await OnModelSelected.InvokeAsync(null); })">Default</button>
+                    <button type="button" role="tab" aria-selected="@_modelTab" aria-controls="tokenomics-limits-detail"
+                            class="@(_modelTab ? "is-selected" : null)" @onclick="@(async () => { _modelTab = true; await OnModelSelected.InvokeAsync(Models.Contains(_lastModel, StringComparer.OrdinalIgnoreCase) ? _lastModel : Models.FirstOrDefault()); })">Model Overrides</button>
+                </div>
+                @if (_modelTab)
+                {
+                    <div class="tokenomics-routing-search">
+                        <span class="bi bi-search" aria-hidden="true"></span>
+                        <input class="form-control form-control-sm" aria-label="Search limit models" placeholder="Search models..." @bind="_search" @bind:event="oninput" />
+                    </div>
+                    <div class="tokenomics-routing-model-list" aria-label="Configured routing models">
+                        @foreach (var model in Models.Where(model => model.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)))
+                        {
+                            <button type="button" class="tokenomics-routing-model-row @(string.Equals(model, SelectedModel, StringComparison.OrdinalIgnoreCase) ? "is-selected" : null)"
+                                    aria-pressed="@string.Equals(model, SelectedModel, StringComparison.OrdinalIgnoreCase)"
+                                    @onclick="@(async () => { _lastModel = model; await OnModelSelected.InvokeAsync(model); })" @key="model">
+                                <span>@model</span><span class="tokenomics-routing-model-count" aria-label="@(OverriddenModels.Contains(model) ? "Override configured" : "Uses defaults")">@(OverriddenModels.Contains(model) ? "1" : "0")</span>
+                            </button>
+                        }
+                        @if (!Models.Any(model => model.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)))
+                        {
+                            <div class="tokenomics-routing-empty">@(Models.Count == 0 ? "No models defined in Model & API Routing." : "No matching models.")</div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="tokenomics-routing-models-heading"><h4>Default</h4><p>Hourly, daily, and monthly limits and actions.</p></div>
+                }
+            </aside>
+            <div id="tokenomics-limits-detail" class="tokenomics-limits-detail" role="tabpanel">
+                @if (!_modelTab || SelectedModel is not null)
+                {
+                    <div class="tokenomics-routing-hosts-heading">
+                        <div><h4>@(_modelTab ? $"Model: {SelectedModel}" : "Default limits & budgets")</h4><p>@(_modelTab ? "Limits and actions for this model." : "Limits and actions for models without overrides.")</p></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="OnReset"><span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset to defaults</button>
+                    </div>
+                    @if (_modelTab)
+                    {
+                        <label class="tokenomics-limits-default-toggle"><input type="checkbox" class="form-check-input" checked="@UseDefaults" @onchange="@(args => OnUseDefaultsChanged.InvokeAsync(args.Value is true))" /><span><strong>Use default limits &amp; budget</strong><small>@(UseDefaults ? "Uses the limits and actions configured on the Default tab." : "Override limits and actions for this model.")</small></span></label>
+                    }
+                    <div class="tokenomics-limits-category-tabs" role="tablist" aria-label="Limits and budget options">
+                        <button type="button" id="tokenomics-quota-tab" role="tab"
+                                aria-selected="@(!_budgetTab ? "true" : "false")" aria-controls="tokenomics-limits-category-panel"
+                                class="@(!_budgetTab ? "is-selected" : null)" @onclick="@(() => _budgetTab = false)">
+                            <span class="bi bi-database-fill" aria-hidden="true"></span>Limits
+                        </button>
+                        <button type="button" id="tokenomics-budget-tab" role="tab"
+                                aria-selected="@(_budgetTab ? "true" : "false")" aria-controls="tokenomics-limits-category-panel"
+                                class="@(_budgetTab ? "is-selected" : null)" @onclick="@(() => _budgetTab = true)">
+                            <span class="bi bi-currency-dollar" aria-hidden="true"></span>Budgets
+                        </button>
+                    </div>
+                    @if (HasErrors)
+                    {
+                        <div class="alert alert-warning py-2 mx-3" role="alert">Some fields need correction. Check both Limits and Budgets before saving.</div>
+                    }
+                    <fieldset id="tokenomics-limits-category-panel" class="tokenomics-limits-fields"
+                              role="tabpanel" aria-labelledby="@(_budgetTab ? "tokenomics-budget-tab" : "tokenomics-quota-tab")"
+                              disabled="@(_modelTab && UseDefaults)" @key="SelectedModel">
+                        <section class="tokenomics-limits-section" aria-labelledby="tokenomics-period-limits-heading">
+                            <div class="tokenomics-limits-section-heading">
+                                <span class="bi bi-gear-fill" aria-hidden="true"></span>
+                                <div>
+                                    <h5 id="tokenomics-period-limits-heading">@(_budgetTab ? "Budget limits (USD)" : "Token limits (quota)")</h5>
+                                    <p>@(_budgetTab ? "Set the maximum spend allowed per time period." : "Set the maximum number of tokens allowed per time period.")</p>
+                                </div>
+                            </div>
+                            <div class="tokenomics-period-matrix" role="group" aria-label="@(_budgetTab ? "Budget limits by period" : "Token limits by period")">
+                                <div class="tokenomics-period-matrix-header" aria-hidden="true">
+                                    <span>Limit</span><span>Hourly</span><span>Daily</span><span>Monthly</span>
+                                </div>
+                                @foreach (var row in NumericRows.Where((row, index) => index == (_budgetTab ? 1 : 0)))
+                                {
+                                    <div class="tokenomics-period-matrix-row" @key="row.Label">
+                                        <div class="tokenomics-period-row-label">@row.Label</div>
+                                        @foreach (var name in row.Names)
+                                        {
+                                            @FieldContent(name)
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </section>
+                        <section class="tokenomics-limits-section" aria-labelledby="tokenomics-period-actions-heading">
+                            <div class="tokenomics-limits-section-heading">
+                                <span class="bi bi-gear-fill" aria-hidden="true"></span>
+                                <div>
+                                    <h5 id="tokenomics-period-actions-heading">@(_budgetTab ? "Actions when budgets are reached" : "Actions when token limits are reached")</h5>
+                                    <p>Choose hourly, daily, and monthly actions for each workload type.</p>
+                                </div>
+                            </div>
+                            <div class="tokenomics-limits-action-note" role="note">
+                                Standard actions follow the selected default or model scope. Privileged and premium actions apply globally.
+                            </div>
+                            <div class="tokenomics-period-matrix" role="group" aria-label="@(_budgetTab ? "Budget actions by workload" : "Token limit actions by workload")">
+                                <div class="tokenomics-period-matrix-header" aria-hidden="true">
+                                    <span>Workload type</span><span>Hourly</span><span>Daily</span><span>Monthly</span>
+                                </div>
+                                @foreach (var row in _budgetTab ? ActionRows.Skip(3) : ActionRows.Take(3))
+                                {
+                                    <div class="tokenomics-period-matrix-row tokenomics-workload-action-row" @key="row.Label">
+                                        <div class="tokenomics-period-row-label">
+                                            <strong>@row.Label</strong>
+                                            <small>@(row.Label switch {
+                                                "Standard workload" => "Normal requests without special classifications.",
+                                                "Privileged workload" => "Critical workload actions.",
+                                                _ => "Premium workload actions."
+                                            })</small>
+                                        </div>
+                                        @foreach (var name in row.Names)
+                                        {
+                                            @FieldContent(name)
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </section>
+                    </fieldset>
+                }
+                else
+                {
+                    <div class="tokenomics-routing-empty tokenomics-routing-empty-large">No models defined in Model &amp; API Routing.</div>
+                }
+            </div>
+        </div>
+        <div class="tokenomics-limits-actions"><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="OnCancel">Cancel</button><button type="button" class="btn btn-sm btn-primary" disabled="@HasErrors" @onclick="OnSave"><span class="bi bi-check-lg me-1" aria-hidden="true"></span>Save</button></div>
+    </section>
+</article>
+}
+
+@code {
+    [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
+    [Parameter] public bool IsSummary { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public RenderFragment? Summary { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+    [Parameter] public IReadOnlyList<string> Models { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlySet<string> OverriddenModels { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public string? SelectedModel { get; set; }
+    [Parameter] public bool UseDefaults { get; set; }
+    [Parameter] public bool HasErrors { get; set; }
+    [Parameter] public EventCallback<string?> OnModelSelected { get; set; }
+    [Parameter] public EventCallback<bool> OnUseDefaultsChanged { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    private bool _modelTab;
+    private bool _budgetTab;
+    private string? _lastModel;
+    private string _search = string.Empty;
+
+    private static readonly (string Label, string[] Names)[] NumericRows = {
+        ("Token limit (tokens)", new[] { nameof(TokenomicsLimits.HourlyTokenLimit), nameof(TokenomicsLimits.DailyTokenLimit), nameof(TokenomicsLimits.MonthlyTokenLimit) }),
+        ("Budget (USD)", new[] { nameof(TokenomicsLimits.HourlyBudgetUsd), nameof(TokenomicsLimits.DailyBudgetUsd), nameof(TokenomicsLimits.MonthlyBudgetUsd) })
+    };
+
+    private static readonly (string Label, string[] Names)[] ActionRows = {
+        ("Standard workload", new[] { nameof(TokenomicsLimitActions.HourlyLimitAction), nameof(TokenomicsLimitActions.DailyLimitAction), nameof(TokenomicsLimitActions.MonthlyLimitAction) }),
+        ("Privileged workload", new[] { $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyLimitAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyLimitAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyLimitAction)}" }),
+        ("Premium tenant", new[] { $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyLimitAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyLimitAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyLimitAction)}" }),
+        ("Standard workload", new[] { nameof(TokenomicsLimitActions.HourlyBudgetExceededAction), nameof(TokenomicsLimitActions.DailyBudgetExceededAction), nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) }),
+        ("Privileged workload", new[] { $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction)}" }),
+        ("Premium tenant", new[] { $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction)}" })
+    };
+}

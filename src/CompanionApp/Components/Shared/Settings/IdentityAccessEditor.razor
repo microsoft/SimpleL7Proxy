@@ -1,0 +1,262 @@
+@namespace CompanionApp.Components.Shared
+
+<div class="identity-access-editor">
+    <div class="identity-access-tabs" role="tablist" aria-label="Identity and access settings" aria-orientation="vertical">
+        <button id="identity-tab-overview" type="button" role="tab"
+                class="@(_selectedView == "overview" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "overview" ? "true" : "false")"
+                aria-controls="identity-panel-overview"
+                @onclick='@(() => SelectView("overview"))'>
+            <span class="bi bi-shield-check" aria-hidden="true"></span>
+            <span>Authentication</span>
+        </button>
+        <button id="identity-tab-pr" type="button" role="tab"
+                class="@(_selectedView == "pr" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "pr" ? "true" : "false")"
+                aria-controls="identity-panel-pr"
+                @onclick='@(() => SelectView("pr"))'>
+            <span class="bi bi-arrow-repeat" aria-hidden="true"></span>
+            <span>Profile Reader</span>
+        </button>
+        <button id="identity-tab-applications" type="button" role="tab"
+                class="@(_selectedView == "applications" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "applications" ? "true" : "false")"
+                aria-controls="identity-panel-applications"
+                @onclick='@(() => SelectView("applications"))'>
+            <span class="bi bi-grid-fill" aria-hidden="true"></span>
+            <span>Applications</span>
+        </button>
+        <button id="identity-tab-profile-editor" type="button" role="tab"
+                class="@(_selectedView == "profile-editor" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "profile-editor" ? "true" : "false")"
+                aria-controls="identity-panel-profile-editor"
+                @onclick='@(() => SelectView("profile-editor"))'>
+            <span class="bi bi-person-lines-fill" aria-hidden="true"></span>
+            <span>Profiles</span>
+        </button>
+        <button id="identity-tab-rules" type="button" role="tab"
+                class="@(_selectedView == "rules" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "rules" ? "true" : "false")"
+                aria-controls="identity-panel-rules"
+                @onclick='@(() => SelectView("rules"))'>
+            <span class="bi bi-file-earmark-ruled" aria-hidden="true"></span>
+            <span>Rules</span>
+        </button>
+        <button id="identity-tab-suspended" type="button" role="tab"
+                class="@(_selectedView == "suspended" ? "is-selected" : string.Empty)"
+                aria-selected="@(_selectedView == "suspended" ? "true" : "false")"
+                aria-controls="identity-panel-suspended"
+                @onclick='@(() => SelectView("suspended"))'>
+            <span class="bi bi-slash-circle" aria-hidden="true"></span>
+            <span>Suspended Users</span>
+        </button>
+    </div>
+
+    <div class="identity-access-widget" hidden="@(_selectedView != "overview")">
+        <IdentityAuthenticationWidget Settings="Settings" OnChanged="OnChanged" />
+    </div>
+    <div class="identity-access-widget" hidden="@(_selectedView != "pr")">
+        <ProfileReaderSettingsWidget Settings="Settings" OnChanged="OnChanged" />
+    </div>
+    <div class="identity-access-widget" hidden="@(_selectedView != "applications")">
+        <ApplicationSettingsWidget Settings="Settings" ConfigurationSettings="ConfigurationSettings"
+                                   OnChanged="OnChanged" IsSelected="@(_selectedView == "applications")" />
+    </div>
+    <div class="identity-access-widget" hidden="@(_selectedView != "suspended")">
+        <SuspendedUsersSettingsWidget Settings="Settings" ConfigurationSettings="ConfigurationSettings"
+                                      OnChanged="OnChanged" IsSelected="@(_selectedView == "suspended")" />
+    </div>
+    <div class="identity-access-panel" hidden="@(_selectedView is not ("profile-editor" or "rules"))">
+        <ProfileConfigurationEditor View="@_selectedView" State="ProfileFileState"
+                                    ConfigurationSettings="ConfigurationSettings" OnChanged="OnChanged"
+                                    IdentityField='@(FindSetting("Profiles:User:IDFieldName")?.DraftValue ?? FindSetting("UserIDFieldName")?.DraftValue ?? "userId")' />
+    </div>
+</div>
+
+<style>
+    .identity-access-widget { min-width: 0; }
+    .identity-access-editor { display: grid; grid-template-columns: 12rem minmax(0, 1fr); min-height: 32rem; color: #071c61; }
+    .identity-access-tabs { display: flex; flex-direction: column; gap: 0.35rem; padding-right: 1rem; border-right: 1px solid #dce5f2; }
+    .identity-access-tabs button { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3rem; padding: 0.7rem 0.8rem; border: 0; border-radius: 8px; background: transparent; color: #071c61; text-align: left; }
+    .identity-access-tabs button:hover { background: #f1f6fd; }
+    .identity-access-tabs button.is-selected { background: #e2efff; color: #0066cc; }
+    .identity-access-tabs button:focus-visible { outline: 2px solid #1976f3; outline-offset: 2px; }
+    .identity-access-tabs .bi { width: 1.5rem; flex: 0 0 1.5rem; font-size: 1.2rem; text-align: center; }
+    .identity-access-panel { min-width: 0; padding-left: 1.25rem; }
+    .identity-access-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #dce5f2; }
+    .identity-access-panel-heading h3 { margin: 0; color: #071c61; font-size: 1.25rem; font-weight: 700; }
+    .identity-access-card { margin-top: 1rem; padding: 1rem 1.1rem; border: 1px solid #dce5f2; border-radius: 10px; background: #fff; }
+    .identity-access-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+    .identity-access-card-heading h4 { margin: 0; color: #071c61; font-size: 1.05rem; font-weight: 700; }
+    .identity-access-card-heading p { margin: 0.2rem 0 0; color: #5a6b8c; font-size: 0.9rem; }
+    .identity-access-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; }
+    .identity-access-check { display: flex; align-items: flex-start; gap: 0.6rem; margin-top: 0.75rem; }
+    .identity-access-check small { display: block; color: #5a6b8c; }
+    .identity-access-panel-heading p { margin: 0.3rem 0 0; color: #596c96; font-size: 0.875rem; }
+    .app-id-toolbar, .app-id-actions { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0 0.75rem; }
+    .app-id-toolbar input { max-width: 18rem; }
+    .app-id-count { color: #596c96; font-size: 0.875rem; margin-left: auto; }
+    .app-id-table { width: 100%; border-collapse: collapse; }
+    .app-id-table th { text-align: left; color: #596c96; font-size: 0.8rem; font-weight: 600; padding: 0.4rem 0.5rem; border-bottom: 1px solid #dce5f2; }
+    .app-id-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #eef2f9; vertical-align: middle; }
+    .app-id-select { width: 2.5rem; }
+    .app-id-heading-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .app-id-icon-btn { padding: 0.1rem 0.4rem; line-height: 1; }
+    .app-id-table code { color: #071c61; }
+    .app-id-actions { justify-content: flex-end; }
+    .identity-access-switch { display: inline-flex; align-items: center; gap: 0.65rem; flex: 0 0 auto; margin: 0; white-space: nowrap; }
+    .identity-access-switch .form-check-input { width: 2.5rem; height: 1.35rem; margin: 0; }
+    .identity-access-fieldset { min-width: 0; margin: 0; padding: 1rem 0; border: 0; border-bottom: 1px solid #dce5f2; }
+    .identity-access-fieldset:disabled { opacity: 0.58; }
+    .identity-access-fieldset legend { float: none; width: auto; margin: 0 0 0.75rem; color: #071c61; font-size: 1rem; font-weight: 700; }
+    .identity-access-method { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.4rem 0.55rem; border-radius: 8px; cursor: pointer; }
+    .identity-access-method:hover { background: #f4f8ff; }
+    .identity-access-method .form-check-input { flex: 0 0 auto; margin-top: 0.25rem; }
+    .identity-access-method span { display: flex; flex-direction: column; gap: 0.15rem; }
+    .identity-access-method small { color: #596c96; }
+    .identity-access-method-group { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .identity-access-form-row { display: grid; grid-template-columns: minmax(9rem, 0.45fr) minmax(14rem, 1fr); gap: 1rem; align-items: center; margin: 0 -0.6rem; padding: 0.6rem; border-radius: 8px; }
+    .identity-access-form-row > label, .identity-access-form-row .config-setting-heading > label { margin: 0; color: #071c61; font-size: 0.875rem; font-weight: 500; text-transform: none; letter-spacing: normal; }
+    .identity-access-form-row label > span { margin-left: 0.25rem; color: #596c96; font-size: 0.75rem; font-weight: 400; }
+    .identity-access-form-row .config-setting-heading { align-items: center; }
+    .identity-access-form-row input.form-control:not(:focus)::placeholder { color: transparent; }
+    .identity-access-form-row.config-field-changed { background: rgba(255, 204, 0, 0.12); }
+    .identity-access-change, .identity-access-config-change { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.4rem; color: #596c96; font-size: 0.78rem; }
+    .identity-access-config-change { margin-top: 0.85rem; padding: 0.65rem 0.75rem; border-radius: 8px; background: rgba(255, 204, 0, 0.12); }
+    .identity-access-panel > .configuration-fields-grid, .identity-access-panel > fieldset > .configuration-fields-grid { margin-top: 1rem; }
+
+    @@media (max-width: 767.98px) {
+        .identity-access-editor { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+        .identity-access-tabs { flex-direction: row; overflow-x: auto; margin-bottom: 1rem; padding: 0 0 0.75rem; border-right: 0; border-bottom: 1px solid #dce5f2; }
+        .identity-access-tabs button { width: auto; flex: 0 0 auto; white-space: nowrap; }
+        .identity-access-panel { padding-left: 0; }
+        .identity-access-panel-heading { flex-direction: column; }
+        .identity-access-form-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; }
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> ConfigurationSettings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public ProfileConfigurationEditor.EditorState ProfileFileState { get; set; } = new();
+
+    private string _selectedView = "overview";
+
+    private void SelectView(string view)
+    {
+        if (_selectedView == "profile-editor" && view != "profile-editor"
+            && ProfileFileState.Status?.StartsWith("Loaded profiles from ", StringComparison.Ordinal) == true)
+        {
+            ProfileFileState.Status = null;
+        }
+        _selectedView = view;
+    }
+    private AppConfigurationScaffoldSetting? FindSetting(string name) => FindSetting(Settings, name);
+
+    public static string AuthenticationSummary(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var rawConfig = FindSetting(settings, "Auth:Config")?.DraftValue;
+        if (!bool.TryParse(AuthenticationConfigValue(rawConfig, "enabled"), out var enabled) || !enabled)
+        {
+            return "Disabled";
+        }
+
+        return NormalizeAuthenticationMode(AuthenticationConfigValue(rawConfig, "mode")) switch
+        {
+            "oauth2" => "OAuth token",
+            "mixed" => "Mixed",
+            "none" => "Disabled",
+            _ => "API key",
+        };
+    }
+
+    public static bool ApplicationAccessEnabled(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        bool.TryParse(FindSetting(settings, "Auth:ValidateAppIDEnabled")?.DraftValue, out var enabled) && enabled;
+
+    public static bool UserProfilesEnabled(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        bool.TryParse(FindSetting(settings, "User:UseProfiles")?.DraftValue, out var enabled) && enabled;
+
+    public static string SuspendedUsersSummary(IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        string.IsNullOrWhiteSpace(FindSetting(settings, "SuspendedUser:ConfigUrl")?.DraftValue)
+            ? "Not configured"
+            : "Configured";
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeAuthenticationMode(string? mode) =>
+        mode?.Trim().ToLowerInvariant() switch
+        {
+            "oauth" or "oauth2" => "oauth2",
+            "mixed" => "mixed",
+            "none" => "none",
+            _ => "key",
+        };
+
+    private static List<string> AuthenticationConfigSegments(string? rawConfig)
+    {
+        if (string.IsNullOrWhiteSpace(rawConfig))
+        {
+            return new List<string>();
+        }
+
+        var separator = rawConfig.Contains(';') ? ';' : ',';
+        return rawConfig.Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToList();
+    }
+
+    private static string AuthenticationConfigValue(string? rawConfig, string key, params string[] aliases)
+    {
+        var acceptedKeys = aliases.Prepend(key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var segments = AuthenticationConfigSegments(rawConfig);
+        for (var index = segments.Count - 1; index >= 0; index--)
+        {
+            var separatorIndex = segments[index].IndexOf('=');
+            if (separatorIndex <= 0 || !acceptedKeys.Contains(segments[index][..separatorIndex].Trim()))
+            {
+                continue;
+            }
+
+            return segments[index][(separatorIndex + 1)..].Trim();
+        }
+
+        return string.Empty;
+    }
+
+    private static void SetAuthenticationConfigSegment(List<string> segments, string key, string value)
+    {
+        var acceptedKeys = key.Equals("audience", StringComparison.OrdinalIgnoreCase)
+            ? new HashSet<string>(["audience", "audiences"], StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>([key], StringComparer.OrdinalIgnoreCase);
+        var replacementIndex = -1;
+
+        for (var index = 0; index < segments.Count; index++)
+        {
+            var separatorIndex = segments[index].IndexOf('=');
+            if (separatorIndex <= 0 || !acceptedKeys.Contains(segments[index][..separatorIndex].Trim()))
+            {
+                continue;
+            }
+
+            if (replacementIndex < 0)
+            {
+                replacementIndex = index;
+                segments[index] = $"{key}={value}";
+            }
+            else
+            {
+                segments.RemoveAt(index);
+                index--;
+            }
+        }
+
+        if (replacementIndex < 0)
+        {
+            segments.Add($"{key}={value}");
+        }
+    }
+}

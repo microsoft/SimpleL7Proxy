@@ -45,8 +45,6 @@ public class ProxyWorker : IConfigChangeSubscriber
     private static List<string> s_backendKeys = [];
     private static FrozenSet<string> s_stripRequestHeaders = FrozenSet.Create<string>();
     private static FrozenSet<string> s_stripResponseHeaders = FrozenSet.Create<string>();
-
-    private bool detectModel = false;
     
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     // private readonly string _timeoutHeaderName;
@@ -82,8 +80,6 @@ public class ProxyWorker : IConfigChangeSubscriber
             // options => options.Workers,    COLD
             options => options.AsyncTimeout,
             options => options.AsyncTriggerTimeout,
-            options => options.DependancyHeaders,
-            options => options.DetectModel,
             options => options.IterationMode,
             options => options.LoadBalanceMode,
             options => options.MaxAttempts,
@@ -102,7 +98,6 @@ public class ProxyWorker : IConfigChangeSubscriber
         s_backendKeys = _options.DependancyHeaders;
         s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        detectModel = _options.DetectModel;
     }
 
     /// <summary>
@@ -152,7 +147,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 if (pr.Headers["Request-Queue-Duration"] is { } queueDuration) context.Response.Headers["Request-Queue-Duration"] = queueDuration;
                 if (pr.Headers["Request-Process-Duration"] is { } processDuration) context.Response.Headers["Request-Process-Duration"] = processDuration;
                 if (pr.Headers["Total-Latency"] is { } totalLatency) context.Response.Headers["Total-Latency"] = totalLatency;
-                if (detectModel && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
+                if (_options.TokenomicsEnable && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
                 if (pr.Headers["x-backend-label"] is { } backendLabel) request.EventData["x-backend-label"] = backendLabel;
             }
 
@@ -321,14 +316,13 @@ public class ProxyWorker : IConfigChangeSubscriber
         int intCode = 0;
         bool ttlExpired = false;
 
-        // Read the body stream once and reuse it
-        //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
+        // Get a list of hosts that COULD potentially fullfill the request.  
+        // If tokenomics are enabled, we'll filter by model later
         var (iterator, iterationState, modifiedPath) = CreateHostIterator(request);
 
-        // Use the host count from the already-created iterator (avoids redundant GetActiveHosts call
-        // and fixes a bug where the old code compared stripped path against configured PartialPath)
+        // Use the host count from the already-created iterator 
         var matchingHostCount = iterator.HostCount;
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}",
             request.Guid, matchingHostCount, modifiedPath);
@@ -349,12 +343,104 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
         }
 
+        // Read the body stream once and reuse it
+        //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
+        ReadOnlyMemory<byte> bodyBytes = ReadOnlyMemory<byte>.Empty;
+        if (matchingHostCount > 0)
+        {
+            // Avoid reading and evaluating a request that has already expired.
+            // The per-attempt check below remains necessary while failover is in progress.
+            _lifecycleManager.ValidateRequestNotExpired(request);
+
+            try
+            {
+                bool wasCached = false;
+                try
+                {
+                    bodyBytes = await request.CacheBodyAsync(out wasCached).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for user {UserID}", request.Guid, request.UserID);
+                    throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
+                }
+
+                if (_options.TokenomicsEnable && bodyBytes.Length > 0)
+                {
+                    // Parse and evaluate the request once, then reuse the transformed body for failover attempts.
+                    var parseResult = ModelSwapper.ParseModel(bodyBytes);
+                    request.OriginalAPIName = _wrkCntxt.TokenomicsHandler.ModelApiName(request.Path) ?? request.Path;
+                    request.WordCount = parseResult.WordCount;
+                    request.OriginalModel = parseResult.SourceModel ?? "unknown";
+                    request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
+                    request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
+                    request.IsPremiumWorkload = request.Headers["S7P-Premium-Workload"]?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+                    var PremiumTenant = bool.TryParse(request.Headers[Constants.TokenizerPremiumTenant], out var premiumTenant) && premiumTenant;
+                    var EnterpriseTenant = bool.TryParse(request.Headers[Constants.TokenizerEnterpriseTenant], out var enterpriseTenant) && enterpriseTenant;
+                    request.IsPremiumWorkload = PremiumTenant || EnterpriseTenant || request.IsPremiumWorkload;
+
+                    var AdministratorOverride = bool.TryParse(request.Headers[Constants.TokenizerAdministratorOverride], out var administratorOverride) && administratorOverride;
+                    var ApprovedException = bool.TryParse(request.Headers[Constants.TokenizerApprovedException], out var approvedException) && approvedException;
+                    request.IsOverride = AdministratorOverride || ApprovedException || request.IsOverride;
+
+                    var IncidentResponse = bool.TryParse(request.Headers[Constants.TokenizerIncidentResponse], out var incidentResponse) && incidentResponse;
+                    var AuditInvestigation = bool.TryParse(request.Headers[Constants.TokenizerAuditInvestigation], out var auditInvestigation) && auditInvestigation;
+                    var ComplianceRequired = bool.TryParse(request.Headers[Constants.TokenizerComplianceRequired], out var complianceRequired) && complianceRequired;
+                    request.IsCriticalWorkload = IncidentResponse || AuditInvestigation || ComplianceRequired || request.IsCriticalWorkload;
+
+
+                    request.S7PInputTokens = (int)((double)request.WordCount * .75);
+
+                    // Check what Tokenomics wants to do before selecting a backend.
+                    ModelOverrideEnum actionOverride = await _wrkCntxt.TokenomicsHandler.ProcessRequestAsync(request);
+
+                    if (request.Debug)
+                    {
+                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
+                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
+                    }
+
+                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
+                    request.ModelReplaced = request.Model != request.OriginalModel;
+
+                    if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
+                    }
+                }
+            }
+            catch (OutOfMemoryException oomEx)
+            {
+                _logger.LogCritical(oomEx, "Out of memory caching request body for {Guid}", request.Guid);
+                throw new ProxyErrorException(
+                    ProxyErrorException.ErrorType.ContentTooLarge,
+                    HttpStatusCode.InternalServerError,
+                    $"Request body too large to buffer: {oomEx.Message}");
+            }
+        }
+
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
         BaseHostHealth? host;
         while (iterator.TryGet(iterationState, out host) && host != null)
         {
+            var requestPath = request.Path;
+
+            if (_options.TokenomicsEnable) {
+
+                // move to the next host if it does not support the requested model
+                requestPath = _wrkCntxt.TokenomicsHandler
+                        .SupportedHostPath(request.Model, host.HostKey, request.OriginalAPIName, request.Path);
+                if (requestPath is null)
+                {
+                    continue;
+                }
+                
+                // Update the modified path to reflect the supported host path
+                modifiedPath = requestPath;
+            }
+
             DateTime proxyStartDate = DateTime.UtcNow;
 
             // track the number of attempts
@@ -401,51 +487,6 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 request.Headers.Set("Host", host.Hostname);
                 request.FullURL = host.Config.BuildDestinationUrl(modifiedPath);
-
-                requestState = "Cache Body";
-
-                // Read the body stream once and reuse it
-                ReadOnlyMemory<byte> bodyBytes;
-                bool wasCached = false;
-                try 
-                {
-                    bodyBytes = await request.CacheBodyAsync(out wasCached).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for {FullURL}", request.Guid, request.FullURL);
-                    throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
-                }
-
-                if (_options.TokenomicsEnable && bodyBytes.Length > 0)
-                {
-        
-                    // Parse the request...  [ ignores wasCached fix eventually]
-                    var parseResult = ModelSwapper.ParseModel(bodyBytes);
-                    request.WordCount = parseResult.WordCount;
-                    request.OriginalModel = parseResult.SourceModel ?? "unknown";
-                    request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
-                    request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
-
-                    request.S7PInputTokens = (int)((double)request.WordCount * .75);
-
-                    // Check what Tokenomics wants to do before working on the request.
-                    ModelOverrideEnum actionOverride = await _wrkCntxt.TokenomicsHandler.ProcessRequestAsync(request);
-                    
-                    if (request.Debug)
-                    {
-                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
-                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
-                    }
-
-                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
-
-                    if (request.Headers["S7PDEBUGBODY"] is {} debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
-                    }
-                }
-                
 
                 if (request.runAsync &&
                     !request.AsyncTriggered &&
@@ -1001,11 +1042,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
 
         // Set headers on the HTTP context so WriteResponseAsync finds them already applied
-        if (request.Context != null)
-        {
-            request.Context.Response.StatusCode = (int)lastStatusCode;
-            request.Context.Response.Headers = errorHeaders;
-        }
+        request.Context?.Response.StatusCode = (int)lastStatusCode;
+        request.Context?.Response.Headers = errorHeaders;
 
         return new ProxyData
         {
@@ -1485,17 +1523,21 @@ public class ProxyWorker : IConfigChangeSubscriber
                     if (_options.TokenomicsEnable &&
                         !string.IsNullOrWhiteSpace(request.UserID) && !string.IsNullOrWhiteSpace(request.Model))
                     {
-                        // get model specific usage provider and populate usage stats
-                        var usageProvider = ModelMap.GetUsageProvider(request.Model);
-                        pr.UsageStats = LLMHandler.PopulateUsage(usageProvider,request.EventData);
+                        pr.UsageStats = LLMHandler.PopulateUsage(request.Model, request.EventData);
 
-                        pr.UsageStats.Cost = _wrkCntxt.TokenomicsHandler.RequestCost(
-                            request.Model,
-                            pr.UsageStats.InputTokens,
-                            pr.UsageStats.CachedTokens,
-                            pr.UsageStats.OutputTokens);
+                        if (pr.UsageStats.UsageAvailable)
+                        {
+                            request.EventData["Usage.Prompt_Tokens"] = pr.UsageStats.InputTokens.ToString();
+                            request.EventData["Usage.Completion_Tokens"] = pr.UsageStats.OutputTokens.ToString();
+                            request.EventData["Usage.Total_Tokens"] = pr.UsageStats.TotalTokens.ToString();
+                            request.EventData["Usage.Cached_Tokens"] = pr.UsageStats.CachedTokens.ToString();
 
-                        if ( pr.UsageStats is not null) 
+                            pr.UsageStats.Cost = _wrkCntxt.TokenomicsHandler.RequestCost(
+                                request.Model,
+                                pr.UsageStats.InputTokens,
+                                pr.UsageStats.CachedTokens,
+                                pr.UsageStats.OutputTokens);
+
                             _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
                                 request.UserID,
                                 request.Model,
@@ -1506,6 +1548,15 @@ public class ProxyWorker : IConfigChangeSubscriber
                                 pr.UsageStats.IsContentFiltered,
                                 statusCode: (int)proxyResponse.StatusCode,
                                 latencyMs: (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
+                        }
+                        else
+                        {
+                            _wrkCntxt.TokenomicsHandler.TokenMetricsCache.RecordRequestOutcome(
+                                request.UserID,
+                                request.Model,
+                                (int)proxyResponse.StatusCode,
+                                (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
+                        }
                     }
                 }
                 

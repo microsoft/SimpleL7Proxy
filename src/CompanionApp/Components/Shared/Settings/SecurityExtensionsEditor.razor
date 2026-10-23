@@ -1,0 +1,93 @@
+@namespace CompanionApp.Components.Shared
+
+@{
+    var ignoreCertificateSetting = FindSetting(Settings, "IgnoreSSLCert");
+    var requestPreprocessorSetting = FindSetting(Settings, "RequestPreprocessorPlugins");
+}
+
+<div class="proxy-settings-editor">
+    <div class="proxy-settings-info" role="note">
+        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+        <p>Configure backend connection security and request-processing extensions.</p>
+    </div>
+
+    <section class="proxy-settings-section" aria-labelledby="security-extensions-transport-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="security-extensions-transport-heading">Backend connection security</h3>
+            <p>Control whether HTTPS backend certificates are validated before a connection is accepted.</p>
+        </div>
+        @if (ignoreCertificateSetting is not null)
+        {
+            <div class="proxy-settings-field proxy-settings-field-wide @(ignoreCertificateSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <ConfigurationHelp Section="Security" Topic="@ignoreCertificateSetting.Name">
+                        <label for="security-extensions-validate-certificates">Validate backend certificates</label>
+                    </ConfigurationHelp>
+                </div>
+                <div class="form-check form-switch proxy-settings-switch">
+                    <input id="security-extensions-validate-certificates" class="form-check-input" type="checkbox"
+                           checked="@ValidateBackendCertificates(ignoreCertificateSetting)"
+                           @onchange="@(args => SetCertificateValidationAsync(ignoreCertificateSetting, args))" />
+                    <label class="form-check-label" for="security-extensions-validate-certificates">
+                        @(ValidateBackendCertificates(ignoreCertificateSetting) ? "Enabled" : "Disabled")
+                    </label>
+                </div>
+                <p>Disable validation only for controlled development environments that use untrusted certificates.</p>
+            </div>
+        }
+    </section>
+
+    <section class="proxy-settings-section" aria-labelledby="security-extensions-plugins-heading">
+        <div class="proxy-settings-section-heading">
+            <h3 id="security-extensions-plugins-heading">Request preprocessor plugins</h3>
+            <p>Register plugin classes that can inspect or reject a request before normal proxy validation and enqueue.</p>
+        </div>
+        @if (requestPreprocessorSetting is not null)
+        {
+            <div class="proxy-settings-field proxy-settings-field-wide @(requestPreprocessorSetting.IsChanged ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <ConfigurationHelp Section="Server" Topic="@requestPreprocessorSetting.Name">
+                        <label for="@requestPreprocessorSetting.Key">Plugin class names</label>
+                    </ConfigurationHelp>
+                </div>
+                <textarea id="@requestPreprocessorSetting.Key" class="form-control font-monospace" rows="4"
+                          placeholder="Namespace.PluginClass"
+                          @bind:get="requestPreprocessorSetting.DraftValue"
+                          @bind:set="@(value => SetDraftValue(requestPreprocessorSetting, value))"
+                          @bind:event="oninput"
+                          @onchange="NotifyChangedAsync"></textarea>
+                <p>Enter a comma-separated list of registered request preprocessor plugin classes. Leave empty to use the default allow-all behavior.</p>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    public static bool IsSecurityExtensionsSetting(AppConfigurationScaffoldSetting setting) =>
+        string.Equals(setting.Name, "IgnoreSSLCert", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(setting.Section, "Server", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(setting.Name, "RequestPreprocessorPlugins", StringComparison.OrdinalIgnoreCase);
+
+    public static bool ValidateBackendCertificates(AppConfigurationScaffoldSetting setting) =>
+        !bool.TryParse(setting.DraftValue, out var ignoreCertificate) || !ignoreCertificate;
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private async Task SetCertificateValidationAsync(AppConfigurationScaffoldSetting setting, ChangeEventArgs args)
+    {
+        var validateCertificates = args.Value is bool isChecked && isChecked;
+        setting.DraftValue = (!validateCertificates).ToString().ToLowerInvariant();
+        await OnChanged.InvokeAsync();
+    }
+
+    private static void SetDraftValue(AppConfigurationScaffoldSetting setting, string? value) =>
+        setting.DraftValue = value ?? string.Empty;
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+}

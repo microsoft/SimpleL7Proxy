@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
@@ -87,7 +89,7 @@ public sealed class RuleCondition
     {
         Span<char> computedValueBuffer = stackalloc char[6];
 
-        if (s7PHash.HasValue && string.Equals(Field, Constants.S7PHash, StringComparison.OrdinalIgnoreCase))
+        if (s7PHash.HasValue && string.Equals(Field, "S7PHash", StringComparison.OrdinalIgnoreCase))
         {
             s7PHash.Value.TryFormat(computedValueBuffer, out var charsWritten, provider: CultureInfo.InvariantCulture);
             return EvaluateActual(computedValueBuffer[..charsWritten]);
@@ -97,7 +99,7 @@ public sealed class RuleCondition
         {
             short bucket;
 
-            if (s7PHash.HasValue && string.Equals(hashedField, Constants.S7PHash, StringComparison.OrdinalIgnoreCase))
+            if (s7PHash.HasValue && string.Equals(hashedField, "S7PHash", StringComparison.OrdinalIgnoreCase))
             {
                 s7PHash.Value.TryFormat(computedValueBuffer, out var charsWritten, provider: CultureInfo.InvariantCulture);
                 bucket = RuleHash.CalculateBucket(computedValueBuffer[..charsWritten]);
@@ -287,7 +289,7 @@ public class RuleNode
     [JsonPropertyName("else")]
     public RuleNode? Else { get; set; }
 
-    internal IReadOnlyDictionary<string, string>? Evaluate(
+    public IReadOnlyDictionary<string, string>? Evaluate(
         IReadOnlyDictionary<string, string> context,
         short? s7PHash,
         List<string>? matchedPath)
@@ -404,6 +406,64 @@ public sealed class RuleConfig
         foreach (var rule in Rules)
         {
             rule.Compile();
+        }
+    }
+
+    /// <summary>
+    /// Returns the rule definitions as a JSON array.
+    /// </summary>
+    public override string ToString()
+    {
+        var options = new JsonSerializerOptions(RuleConfigParser.SerializerOptions)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+        var node = JsonNode.Parse(JsonSerializer.Serialize(Rules, options));
+        OmitSerializerDefaults(node);
+        return node?.ToJsonString() ?? "[]";
+    }
+
+    private static void OmitSerializerDefaults(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["elseif"] is JsonArray { Count: 0 })
+            {
+                obj.Remove("elseif");
+            }
+
+            if (obj["ignoreCase"] is JsonValue ignoreCase && ignoreCase.TryGetValue<bool>(out var ignore) && ignore)
+            {
+                obj.Remove("ignoreCase");
+            }
+
+            if (obj["mode"] is JsonValue mode && mode.TryGetValue<string>(out var modeText)
+                && modeText.Equals("inClosedRange", StringComparison.Ordinal))
+            {
+                obj.Remove("mode");
+            }
+
+            if (obj["value"] is JsonValue value && value.TryGetValue<string>(out var text) && text.Length == 0)
+            {
+                obj.Remove("value");
+            }
+
+            if (obj["value2"] is JsonValue upper && upper.TryGetValue<string>(out var upperText) && upperText.Length == 0)
+            {
+                obj.Remove("value2");
+            }
+
+            foreach (var property in obj.ToArray())
+            {
+                OmitSerializerDefaults(property.Value);
+            }
+        }
+        else if (node is JsonArray array)
+        {
+            foreach (var item in array)
+            {
+                OmitSerializerDefaults(item);
+            }
         }
     }
 }

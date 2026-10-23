@@ -391,7 +391,7 @@ public sealed class AppConfigurationScaffoldService
         LastConnectMs = firstItemMs < 0 ? elapsedMs : firstItemMs;
         LastDownloadMs = elapsedMs - LastConnectMs;
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Loaded {SettingCount} published proxy settings across {LabelCount} labels from {Endpoint} in one call",
             settings.Count,
             labels.Count,
@@ -443,6 +443,7 @@ public sealed class AppConfigurationScaffoldService
             null => string.Empty,
             string text => text,
             bool boolean => boolean.ToString().ToLowerInvariant(),
+            IEnumerable<HeaderValidationRule> rules => ConfigParser.SerializeHeaderValidationRules(rules),
             IDictionary dictionary when dictionary.Count == 0 => string.Empty,
             IEnumerable sequence => string.Join(',', sequence.Cast<object?>().Select(FormatProxyDefault)),
             IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,

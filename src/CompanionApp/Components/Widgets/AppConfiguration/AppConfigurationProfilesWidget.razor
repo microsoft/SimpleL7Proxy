@@ -1,0 +1,14 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-sliders" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
+    IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? $"Edit {Section} settings.")' OnSelected="OnSelected">
+    <SummaryContent><span class="config-box-meta">@Settings.Count() settings</span></SummaryContent>
+</AppConfigurationSectionWidget>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Profiles";
+    [Parameter] public IEnumerable<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+}

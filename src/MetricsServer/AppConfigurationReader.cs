@@ -75,6 +75,12 @@ public sealed class AppConfigurationReader : BackgroundService
                             if (parsedSettings.TryParse(value!))
                             {
                                 Volatile.Write(ref _tokenomicsSettings, parsedSettings);
+                                if (parsedSettings.IgnoredFields.Count > 0)
+                                {
+                                    _logger.LogWarning(
+                                        "Ignored Warm:Tokenomics:Options fields with unknown names or invalid values: {Fields}",
+                                        string.Join(", ", parsedSettings.IgnoredFields));
+                                }
                                 if (parsedSettings.ModelCostPerToken.Count == 0)
                                 {
                                     _logger.LogInformation("Tokenomics model cost per token: no models configured");

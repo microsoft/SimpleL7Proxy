@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Frozen;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using System.Net.Http;
@@ -9,9 +10,14 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using SharedParser.Profiles;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Rules;
+using SimpleL7Proxy.Async.BlobStorage;
+using Azure;
+using Azure.Identity;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 
 namespace SimpleL7Proxy.User;
@@ -21,6 +27,11 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.UserProfiles;
     public ReadinessRegistry Readiness { get; }
     private readonly ProxyConfig _options;
+    private readonly BlobWriterFactory _blobWriterFactory;
+    private volatile Dictionary<string, (Uri Endpoint, string Account, string Container, string Blob)> _blobSources = new(StringComparer.Ordinal);
+    private volatile Dictionary<string, string> _blobSourceErrors = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<Uri, Lazy<AzureBlobStore>> _profileBlobReaders = new();
+    private readonly Dictionary<Uri, int> _profileBlobReadFailures = new();
 
     private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private volatile List<string> suspendedUserProfiles = new List<string>();
@@ -48,9 +59,6 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     private const string s_DeletedAtKey = "__DeletedAt";
     private const string s_ExpiresAtKey = "__ExpiresAt";
 
-    // Property name holding a profile's rule definitions (parsed into a RuleConfig)
-    private const string s_RulesKey = "rules";
-
     private readonly ILogger<UserProfile> _logger;
     private volatile Dictionary<string, AsyncClientInfo> _userInformation = new();
 
@@ -66,14 +74,17 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     private PeriodicTimer _timer =null!;   // these are defined in InitVars()
     private PeriodicTimer _ErrorTimer =null!;
     private PeriodicTimer _waitingConfigTimer = null!;
-    public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ReadinessRegistry readiness, ILogger<UserProfile> logger)
+    public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ReadinessRegistry readiness, ILogger<UserProfile> logger,
+        BlobWriterFactory blobWriterFactory)
     {
         ArgumentNullException.ThrowIfNull(options, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(configChangeNotifier, nameof(configChangeNotifier));
         ArgumentNullException.ThrowIfNull(readiness, nameof(readiness));
+        ArgumentNullException.ThrowIfNull(blobWriterFactory);
 
         _options = options;
+        _blobWriterFactory = blobWriterFactory;
         Readiness = readiness;
         _logger = logger;
         _userInformation = CreateDefaultAsyncClientInfoCache();
@@ -117,6 +128,35 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
         _timer = new PeriodicTimer(TimeSpan.FromMilliseconds(NormalDelayMs));
         _ErrorTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(s_ErrorDelayMs));
+
+        var blobSources = new Dictionary<string, (Uri Endpoint, string Account, string Container, string Blob)>(StringComparer.Ordinal);
+        var blobSourceErrors = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var location in new[] { _options.UserConfigUrl, _options.SuspendedUserConfigUrl, _options.ValidateAuthAppIDUrl })
+        {
+            if (string.IsNullOrEmpty(location) || !location.StartsWith("azblob:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var match = Regex.Match(
+                location,
+                @"^(?i:azblob)://(?<account>[a-z0-9]{3,24})/(?<container>[a-z0-9](?:[a-z0-9]|-(?!-)){1,61}[a-z0-9])/(?<blob>[^?#]+)$",
+                RegexOptions.CultureInvariant);
+            var blob = match.Success ? Uri.UnescapeDataString(match.Groups["blob"].Value) : "";
+            if (!match.Success || string.IsNullOrWhiteSpace(blob))
+            {
+                const string message = "Invalid blob source. Use azblob://account/container/blob.json.";
+                _logger.LogError("{Message}", message);
+                blobSourceErrors[location] = message;
+                continue;
+            }
+
+            var account = match.Groups["account"].Value;
+            var endpoint = new Uri($"https://{account}.blob.core.windows.net");
+            blobSources[location] = (endpoint, account, match.Groups["container"].Value, blob);
+            _profileBlobReaders.GetOrAdd(endpoint, CreateProfileBlobReader);
+        }
+
+        _blobSources = blobSources;
+        _blobSourceErrors = blobSourceErrors;
     }
 
     public Task OnConfigChangedAsync(
@@ -278,8 +318,21 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             catch (Exception ex)
             {
                 LogMsg("ConfigReader task failed", ex.Message);
+                _logger.LogError(ex, "ConfigReader task failed");
+                isInitialized = !_configRequired;
+                if (isInitialized)
+                {
+                    this.RegisterReady();
+                }
 
-                Console.Error.WriteLine($"FATAL: ConfigReader task failed: {ex.Message}");
+                try
+                {
+                    await _ErrorTimer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested || _cancellationTokenSource.IsCancellationRequested)
+                {
+                    break;
+                }
             }
         }
     }
@@ -469,6 +522,39 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         return authAppIDsStatus;
     }
 
+    private Lazy<AzureBlobStore> CreateProfileBlobReader(Uri accountUri)
+    {
+        return new Lazy<AzureBlobStore>(() => new AzureBlobStore(
+            _blobWriterFactory.CreateBlobServiceClientWithManagedIdentity(accountUri.AbsoluteUri),
+            _logger)
+        {
+            UsesMI = true
+        }, LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    private void RecordProfileBlobReadFailure(Uri endpoint, Lazy<AzureBlobStore> cachedReader, string account)
+    {
+        if (!_profileBlobReaders.TryGetValue(endpoint, out var currentReader)
+            || !ReferenceEquals(currentReader, cachedReader))
+        {
+            return;
+        }
+
+        _profileBlobReadFailures.TryGetValue(endpoint, out var failures);
+        if (++failures >= 3)
+        {
+            _profileBlobReaders.TryRemove(new KeyValuePair<Uri, Lazy<AzureBlobStore>>(endpoint, cachedReader));
+            _profileBlobReadFailures.Remove(endpoint);
+            _profileBlobReaders.GetOrAdd(endpoint, CreateProfileBlobReader);
+            _logger.LogWarning(
+                "Profile blob reader reset for {Account} after 3 consecutive read failures. A new client was created.",
+                account);
+            return;
+        }
+
+        _profileBlobReadFailures[endpoint] = failures;
+    }
+
     private async Task<CurrentRequestStatus> ReadUserConfigAsync(string config, ParsingMode mode)
     {
         if (string.IsNullOrEmpty(config))
@@ -480,46 +566,114 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         string fileContent = string.Empty;
         string location = config;
 
-        if (location.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            // Location refers to a filepath
-            var file = new FileInfo(location.Substring(5));
-            if (file.Exists && file.Extension.Equals(".json", StringComparison.OrdinalIgnoreCase))
+            if (location.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
             {
-                // Read from file
+                // Location refers to a filepath
+                var file = new FileInfo(location.Substring(5));
+                if (file.Exists && file.Extension.Equals(".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Read from file
+                    try
+                    {
+                        fileContent = await File.ReadAllTextAsync(file.FullName).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new CurrentRequestStatus { Success = false, Message = $"Error reading file: {ex.Message}" };
+                    }
+                }
+                else
+                {
+                    return new CurrentRequestStatus { Success = false, Message = "File not found or not a JSON file" };
+                }
+            }
+            else if (location.StartsWith("azblob:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!_blobSources.TryGetValue(location, out var source))
+                {
+                    return new CurrentRequestStatus
+                    {
+                        Success = false,
+                        Message = _blobSourceErrors.GetValueOrDefault(location) ?? "Invalid blob source."
+                    };
+                }
+
+                var endpoint = source.Endpoint;
+                if (!_profileBlobReaders.TryGetValue(endpoint, out var cachedReader))
+                {
+                    return new CurrentRequestStatus { Success = false, Message = "Blob client is not initialized." };
+                }
                 try
                 {
-                    fileContent = await File.ReadAllTextAsync(file.FullName).ConfigureAwait(false);
+                    var blobReader = cachedReader.Value;
+                    await using var stream = await blobReader.ReadBlobAsStreamAsync(
+                        source.Container, source.Blob, requireInitialization: false).ConfigureAwait(false);
+                    using var reader = new StreamReader(stream);
+                    fileContent = await reader.ReadToEndAsync().ConfigureAwait(false);
+                    lock (_profileBlobReadFailures)
+                    {
+                        if (_profileBlobReaders.TryGetValue(endpoint, out var currentReader)
+                            && ReferenceEquals(currentReader, cachedReader))
+                        {
+                            _profileBlobReadFailures.Remove(endpoint);
+                        }
+                    }
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is BlobWriterException or RequestFailedException or AuthenticationFailedException or IOException or ArgumentException)
                 {
-                    return new CurrentRequestStatus { Success = false, Message = $"Error reading file: {ex.Message}" };
+                    lock (_profileBlobReadFailures)
+                    {
+                        RecordProfileBlobReadFailure(endpoint, cachedReader, source.Account);
+                    }
+                    _logger.LogError(ex, "Unable to read profile blob from account {Account}, container {Container}.",
+                        source.Account, source.Container);
+                    return new CurrentRequestStatus { Success = false, Message = $"Blob read failed: {ex.Message}" };
+                }
+            }
+            else if (location.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                || location.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    fileContent = await httpClient.GetStringAsync(location).ConfigureAwait(false);
+                }
+                catch (HttpRequestException e)
+                {
+                    return new CurrentRequestStatus { Success = false, Message = $"HTTP error: {e.Message}" };
                 }
             }
             else
             {
-                return new CurrentRequestStatus { Success = false, Message = "File not found or not a JSON file" };
+                throw new NotSupportedException($"The profile source scheme is not supported: {location}");
             }
-        }
-        else
-        {
-            // Read from URL
-            try
-            {
-                fileContent = await httpClient.GetStringAsync(location).ConfigureAwait(false);
-            }
-            catch (HttpRequestException e)
-            {
-                return new CurrentRequestStatus { Success = false, Message = $"HTTP error: {e.Message}" };
-            }
-        }
 
-        if (!string.IsNullOrEmpty(fileContent))
-        {
-            return ParseUserConfig(fileContent, mode);
-        }
+            if (!string.IsNullOrEmpty(fileContent))
+            {
+                return ParseUserConfig(fileContent, mode);
+            }
 
-        return new CurrentRequestStatus { Success = false, Message = "Empty file content" };
+            return new CurrentRequestStatus { Success = false, Message = "Empty file content" };
+        }
+        catch (NotSupportedException ex)
+        {
+            if (mode == ParsingMode.ProfileMode)
+            {
+                doUserConfig = false;
+            }
+            else if (mode == ParsingMode.SuspendedUserMode)
+            {
+                doSuspendedUserConfig = false;
+            }
+            else
+            {
+                doAuthAppIDConfig = false;
+            }
+
+            _logger.LogError(ex, "Disabling unsupported profile config {Config}.", config);
+            return new CurrentRequestStatus { Success = false, Message = $"Unsupported config disabled: {ex.Message}" };
+        }
     }
 
 
@@ -534,19 +688,21 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     //     {
     //         "userId": "user2",
     //         "key1": "value1",
-    //         "key2": "value2"
+    //         "S7PRules": [ "shared-rule" ]
+    //     },
+    //     {
+    //         "S7PRules": [ { "name": "shared-rule", "set": { "S7PPriorityKey": "interactive" } } ]
     //     }
     // ]
+    // Profile mode is read by SharedParser.Profiles.UserProfiles.
 
     private CurrentRequestStatus ParseUserConfig(string fileContent, ParsingMode mode)
     {
 
         var response = new CurrentRequestStatus { Success = true, Message = null };
 
-        Dictionary<string, Dictionary<string, string>> localUserProfiles = new Dictionary<string, Dictionary<string, string>>();
         List<string> localSuspendedUserProfiles = new List<string>();
         Dictionary<string, Dictionary<string, string>> localAuthAppIDs = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, RuleConfig> localUserProfileRules = new Dictionary<string, RuleConfig>();
 
         if (string.IsNullOrWhiteSpace(fileContent))
         {
@@ -574,6 +730,43 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             else if (mode == ParsingMode.AuthAppIDMode)
             {
                 lookupFieldName = _options.ValidateAuthAppFieldName;
+            }
+
+            if (mode == ParsingMode.ProfileMode)
+            {
+                var parsed = new UserProfiles();
+                if (!parsed.TryParse(fileContent!, lookupFieldName, _logger))
+                {
+                    response.Success = false;
+                    response.Message = parsed.Error;
+                    return response;
+                }
+
+                foreach (var (entityId, fields) in parsed.Profiles)
+                {
+                    if (fields.Remove(s_DeletedAtKey))
+                    {
+                        _logger.LogWarning($"Profile {entityId} contains reserved key '{s_DeletedAtKey}' - removing key");
+                    }
+
+                    if (fields.Remove(s_ExpiresAtKey))
+                    {
+                        _logger.LogWarning($"Profile {entityId} contains reserved key '{s_ExpiresAtKey}' - removing key");
+                    }
+                }
+
+                var (profileResult, _, _, _) = ApplySoftDeletes(userProfiles, parsed.Profiles, "Profile");
+                var localUserProfileSnapshots = CreateProfileSnapshots(profileResult, parsed.Rules, userProfileSnapshots);
+                if (profileResult.Count == 0)
+                {
+                    response.Success = false;
+                    response.Message = "No valid user profiles found in config.";
+                }
+
+                Interlocked.Exchange(ref userProfiles, profileResult);
+                Interlocked.Exchange(ref userProfileSnapshots, localUserProfileSnapshots);
+                Interlocked.Exchange(ref _userInformation, CreateDefaultAsyncClientInfoCache());
+                return response;
             }
 
             foreach (var profile in userConfig.EnumerateArray())
@@ -615,41 +808,6 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                             }
                             continue;
                         }
-
-                        if (mode == ParsingMode.ProfileMode)
-                        {
-                            Dictionary<string, string> kvPairs = new Dictionary<string, string>();
-
-                            foreach (var property in profile.EnumerateObject())
-                            {
-                                if (!property.Name.Equals(_options.UserIDFieldName, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    if (property.Name == s_DeletedAtKey || property.Name == s_ExpiresAtKey)
-                                    {
-                                        _logger.LogWarning($"Profile {entityId} contains reserved key '{property.Name}' - removing key");
-                                        continue;
-                                    }
-
-                                    if (property.Name.Equals(s_RulesKey, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        // Parse rules into a RuleConfig instead of storing as a raw key-value pair.
-                                        try
-                                        {
-                                            localUserProfileRules[entityId] = RuleConfigParser.ParseRules(property.Value.GetRawText());
-                                        }
-                                        catch (ArgumentException ex)
-                                        {
-                                            _logger.LogWarning($"Profile {entityId} has invalid rules definition - skipping rules: {ex.Message}");
-                                        }
-                                        continue;
-                                    }
-
-                                    kvPairs[property.Name] = property.Value.ToString();
-                                }
-                            }
-
-                            localUserProfiles[entityId] = kvPairs;
-                        }
                     }
                     else
                     {
@@ -678,20 +836,6 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                     response.Message = "No valid auth app IDs found in config.";
                 }
                 Interlocked.Exchange(ref authAppIDs, result);
-            }
-            else if (mode == ParsingMode.ProfileMode)
-            {
-                var (result, _, _, _) = ApplySoftDeletes(userProfiles, localUserProfiles, "Profile");
-                var localUserProfileSnapshots = CreateProfileSnapshots(result, localUserProfileRules, userProfileSnapshots);
-
-                if (result.Count == 0)
-                {
-                    response.Success = false;
-                    response.Message = "No valid user profiles found in config.";
-                }
-                Interlocked.Exchange(ref userProfiles, result);
-                Interlocked.Exchange(ref userProfileSnapshots, localUserProfileSnapshots);
-                Interlocked.Exchange(ref _userInformation, CreateDefaultAsyncClientInfoCache());
             }
         }
         catch (Exception ex)

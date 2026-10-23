@@ -1,0 +1,29 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+@{
+    var defaultStatusCodes = new HashSet<int> { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 };
+    var nonDefaultCount = Settings.Count(setting =>
+    {
+        var values = setting.DraftValue.Trim().Trim('[', ']')
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(value => value.Trim().Trim('"'))
+            .Where(value => value.Length > 0)
+            .ToArray();
+        return setting.Name.Equals("AcceptableStatusCodes", StringComparison.OrdinalIgnoreCase)
+            ? !defaultStatusCodes.SetEquals(values.Select(value => int.TryParse(value, out var statusCode) ? statusCode : -1))
+            : setting.Name.Equals("StripResponseHeaders", StringComparison.OrdinalIgnoreCase) && values.Length > 0;
+    });
+}
+
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-arrow-return-left" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
+    IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? $"Edit {Section} settings.")' OnSelected="OnSelected">
+    <SummaryContent><span class="config-box-meta">@(nonDefaultCount == 0 ? "Defaults" : $"{nonDefaultCount} non-default {(nonDefaultCount == 1 ? "setting" : "settings")}")</span></SummaryContent>
+</AppConfigurationSectionWidget>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Response";
+    [Parameter] public IEnumerable<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+}

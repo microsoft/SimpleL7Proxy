@@ -110,7 +110,7 @@ This document describes the ownership, lifecycle, and disposal responsibilities 
 
 ---
 
-### IBlobWriter (raw) — `AzureBlobWriter` / `S3BlobWriter` / `NullBlobWriter`
+### IBlobWriter (raw) — `AzureBlobStore` / `S3BlobWriter` / `NullBlobWriter`
 
 | Aspect | Details |
 |--------|---------|

@@ -1,8 +1,15 @@
 # Deploy SimpleL7Proxy
 
-The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP included in the repo.  Once deployed, you will have the following resources:
+The quickest way to deploy SimpleL7Proxy is with Azure Cloud Shell and the ZIP included in the repo.  The diagram below shows the deployed architecture:
 
 ![SimpleL7Proxy deployment architecture](arch.png)
+
+The deployment creates a complete SimpleL7Proxy environment inside a single Azure resource group. A dedicated Container Apps environment 
+hosts the Simple L7 Proxy, Companion App, and Metrics Server. The Proxy and Companion App expose public endpoints for application and administrative access.
+
+The deployment also creates a virtual network with private Blob Storage connectivity, keeping storage traffic off the public internet.
+Supporting services include Azure Container Registry for images, Event Hubs for events, Application Insights for observability, and App Configuration for centralized configuration. Microsoft Entra ID provides identity and authentication.
+
 
 ## Before you begin
 
@@ -21,8 +28,16 @@ You need:
 4. Extract the ZIP file and open the extracted directory:
 
 ```bash
+# Make deploy directory
 mkdir simplel7proxy-deployment
+
+# Download the zip
+wget "https://github.com/microsoft/SimpleL7Proxy/raw/refs/heads/main/deployment/deploy.zip"
+
+# extract the contents
 unzip deploy.zip -d simplel7proxy-deployment
+
+# Change directory for deployment
 cd simplel7proxy-deployment
 ```
 
@@ -216,6 +231,7 @@ The deployment:
 - `bootstrap.bicep` creates the selected resource groups and Azure Container Registry.
 - `main.bicep` creates or updates the selected application infrastructure.
 - `modules/*.bicep` contains the Bicep modules used by the entry points.
+- `assets/config.json` and `assets/seed-profiles.py` are the canonical profile seed payload and standard-library-only uploader.
 - `parameters.json` contains the values selected in Deployment Setup.
 - `deploy.sh` validates, previews, and creates the deployment.
 

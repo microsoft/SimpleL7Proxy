@@ -10,6 +10,7 @@ public abstract class BaseHostHealth
   public Guid guid = Guid.NewGuid();
   public HostConfig Config { get; set; }
 
+  public string HostKey => Config.ConfigKey;
   public string Host => Config.Host;
   public string Hostname => Config.Hostname;
   public int Port => Config.Port;

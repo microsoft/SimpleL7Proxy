@@ -17,7 +17,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
     public class BlobWriterFactory : GenericBlobFactory
     {
         private readonly DefaultCredential _defaultCredential;
-        private readonly ILogger<AzureBlobWriter> _logger;
+        private readonly ILogger<AzureBlobStore> _logger;
 
         // Shared BlobServiceClient — owns the HTTP connection pool. Created once on first call
         // so that all IBlobWriter instances (QueuedBlobWriter, BlobWriteQueue, etc.) share the same pool.
@@ -27,7 +27,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         public BlobWriterFactory(
             DefaultCredential defaultCredential,
             IOptionsMonitor<ProxyConfig> optionsMonitor,
-            ILogger<AzureBlobWriter> logger,
+            ILogger<AzureBlobStore> logger,
             ILogger<NullBlobWriter> nullBlobWriterLogger,
             Lazy<BlobWorkerPump> workerPump,
             ILogger<QueuedBlobWriter> queuedLogger)
@@ -89,12 +89,15 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 _sharedBlobServiceClient = clientFactory();
                 _usesMI = useMI;
             }
-            var writer = new AzureBlobWriter(_sharedBlobServiceClient, _logger, _optionsMonitor);
+            var writer = new AzureBlobStore(_sharedBlobServiceClient, _logger, _optionsMonitor);
             writer.UsesMI = _usesMI;
             return writer;
         }
 
-        private BlobServiceClient CreateBlobServiceClientWithManagedIdentity(string storageAccountUri)
+        /// <summary>
+        /// Creates an account-scoped client with the shared managed identity. Does not resolve the worker pump.
+        /// </summary>
+        public BlobServiceClient CreateBlobServiceClientWithManagedIdentity(string storageAccountUri)
         {
             try
             {

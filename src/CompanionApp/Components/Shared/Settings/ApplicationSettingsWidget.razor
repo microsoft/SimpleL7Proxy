@@ -1,0 +1,437 @@
+@namespace CompanionApp.Components.Shared
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+@inject IConfiguration Configuration
+@{
+var enabledSetting = FindSetting("Auth:ValidateAppIDEnabled");
+}
+        <section id="identity-panel-applications" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-applications">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>Applications</h3>
+                    <p>Manage the list of approved application IDs that are allowed to access the proxy.</p>
+                </div>
+                <div class="app-id-heading-actions">
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            @onclick="AddAppId"><span class="bi bi-plus-lg" aria-hidden="true"></span> Add application</button>
+                    <label class="identity-access-switch form-switch">
+                        <input class="form-check-input" type="checkbox" checked="@IdentityAccessEditor.ApplicationAccessEnabled(Settings)"
+                               disabled="@(enabledSetting is null)"
+                               @onchange="@(args => SetBooleanSettingAsync(enabledSetting, args.Value is true))" />
+                        <span>Validate application IDs</span>
+                    </label>
+                </div>
+            </div>
+            <ConfigurationExplanation Section="Identity & Access" Topic="Application Access" />
+            @if (IdentityAccessEditor.ApplicationAccessEnabled(Settings) && !IdentityAccessEditor.UserProfilesEnabled(Settings))
+            {
+                <div class="alert alert-warning py-2" role="alert">
+                    Application ID validation also requires profiles to be enabled in Profile Reader.
+                </div>
+            }
+            <div class="app-id-editor">
+                <div class="app-id-toolbar">
+                    <input class="form-control form-control-sm" type="search" placeholder="Search application IDs..."
+                           @bind="_appSearch" @bind:event="oninput" />
+                    <span class="app-id-count">@VisibleAppEntries.Count() applications</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger"
+                            disabled="@(_appSelected.Count == 0 || _appBusy)"
+                            @onclick="@(() => RemoveAppEntries(_appSelected.ToList()))">Delete selected</button>
+                </div>
+                @if (_appError is not null)
+                {
+                    <div class="alert alert-danger py-2" role="alert">@_appError</div>
+                }
+                <table class="app-id-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="app-id-select"><input type="checkbox" class="form-check-input" aria-label="Select all visible application IDs"
+                                                                         checked="@(VisibleAppEntries.Any() && VisibleAppEntries.All(entry => _appSelected.Contains(entry)))"
+                                                                         @onchange="@(args => { foreach (var entry in VisibleAppEntries.ToList()) { SetAppSelected(entry, args.Value is true); } })" /></th>
+                            <th scope="col">Application ID</th>
+                            <th scope="col">Description (optional)</th>
+                            <th scope="col">DateAdded</th>
+                            <th scope="col" class="app-id-actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in VisibleAppEntries)
+                        {
+                            var current = entry;
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input" checked="@_appSelected.Contains(current)"
+                                           @onchange="@(args => SetAppSelected(current, args.Value is true))" />
+                                </td>
+                                <td>
+                                    @if (ReferenceEquals(_appEditing, current))
+                                    {
+                                        <input class="form-control form-control-sm" @bind="_appEditText" />
+                                    }
+                                    else
+                                    {
+                                        <code>@AppIdOf(current)</code>
+                                    }
+                                </td>
+                                <td>
+                                    @if (ReferenceEquals(_appEditing, current))
+                                    {
+                                        <input class="form-control form-control-sm" @bind="_appEditDescription" />
+                                    }
+                                    else
+                                    {
+                                        <span>@(current["Description"] is JsonValue descriptionValue && descriptionValue.TryGetValue<string>(out var descriptionText) ? descriptionText : string.Empty)</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span>@(current["DateAdded"] is JsonValue addedValue && addedValue.TryGetValue<string>(out var addedText) && DateTimeOffset.TryParse(addedText, out var addedAt) ? addedAt.LocalDateTime.ToString("g") : "—")</span>
+                                </td>
+                                <td class="text-end">
+                                    @if (ReferenceEquals(_appEditing, current))
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="CommitEditAppId">Done</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="@(() => { if (_appEditingIsNew) { _appEntries.Remove(current); } _appEditing = null; _appEditingIsNew = false; _appError = null; })">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-link app-id-icon-btn" aria-label="Edit application ID" title="Edit"
+                                                @onclick="@(() => BeginEditAppId(current))"><span class="bi bi-pencil" aria-hidden="true"></span></button>
+                                        <button type="button" class="btn btn-sm btn-link app-id-icon-btn text-danger" aria-label="Delete application ID" title="Delete"
+                                                @onclick="@(() => RemoveAppEntries(new[] { current }))"><span class="bi bi-trash" aria-hidden="true"></span></button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="app-id-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(!AppIdsDirty || _appBusy)"
+                            @onclick="CancelAppIds">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" disabled="@(!AppIdsDirty || _appBusy)"
+                            @onclick="SaveAppIdsAsync">Save</button>
+                </div>
+            </div>
+            @if (enabledSetting is { IsChanged: true })
+            {
+                <div class="identity-access-config-change">
+                    <span>Application validation has local changes.</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="@(() => RevertAsync(enabledSetting))">Revert validation</button>
+                </div>
+            }
+        </section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> ConfigurationSettings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    private readonly List<JsonObject> _appEntries = new();
+    private readonly HashSet<JsonObject> _appSelected = new(ReferenceEqualityComparer.Instance);
+    private string _appSavedJson = "[]";
+    private string _appSearch = string.Empty;
+    private bool _appEditingIsNew;
+    private string _appEditDescription = string.Empty;
+    private string _appEditText = string.Empty;
+    private JsonObject? _appEditing;
+    private string? _appError;
+    private bool _appBusy;
+    private bool _appLoaded;
+    private AppConfigurationScaffoldSetting? FindSetting(string name) => FindSetting(Settings, name);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+    private AppConfigurationScaffoldSetting? AppConfigUrlSetting => ConfigurationSettings.FirstOrDefault(item =>
+        item.Name.Equals("Auth:ConfigUrl", StringComparison.OrdinalIgnoreCase)
+        || item.Key.EndsWith("Profiles:Auth:ConfigUrl", StringComparison.OrdinalIgnoreCase));
+
+    private string AppIdFieldName =>
+        FindSetting("Auth:ValidateFieldName")?.DraftValue is { Length: > 0 } configuredName ? configuredName : "authAppID";
+
+    private IEnumerable<JsonObject> VisibleAppEntries =>
+        string.IsNullOrWhiteSpace(_appSearch)
+            ? _appEntries
+            : _appEntries.Where(entry => AppIdOf(entry).Contains(_appSearch.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool AppIdsDirty => ExportAppIds() != _appSavedJson;
+
+    private string AppIdOf(JsonObject entry) =>
+        entry[AppIdFieldName] is JsonValue value && value.TryGetValue<string>(out var id) ? id : string.Empty;
+
+    private string ExportAppIds()
+    {
+        var array = new JsonArray();
+        foreach (var entry in _appEntries)
+        {
+            array.Add(entry.DeepClone());
+        }
+        return array.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static List<JsonObject> ParseAppIdsArray(string json)
+    {
+        var array = JsonNode.Parse(json) as JsonArray ?? throw new InvalidDataException("The application list must be a JSON array.");
+        var entries = new List<JsonObject>();
+        foreach (var node in array)
+        {
+            entries.Add(node as JsonObject ?? throw new InvalidDataException("Each application entry must be a JSON object."));
+        }
+        return entries;
+    }
+
+    private static (string Host, string Container, string Blob)? ParseAppIdsBlobUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "azblob")
+        {
+            return null;
+        }
+        var parts = uri.AbsolutePath.Trim('/').Split('/', 2);
+        return parts.Length == 2 ? (uri.Host, parts[0], parts[1]) : null;
+    }
+
+    private async Task LoadAppIdsAsync()
+    {
+        _appLoaded = true;
+        var url = AppConfigUrlSetting?.DraftValue;
+        if (string.IsNullOrWhiteSpace(url) || url == "-")
+        {
+            return;
+        }
+        var target = ParseAppIdsBlobUrl(url);
+        if (target is null)
+        {
+            _appError = $"Application list URL must be azblob://account/container/blob. Found: {url}";
+            return;
+        }
+
+        _appBusy = true;
+        try
+        {
+            var blob = StorageBackend.CreateBlobContainerClient(target.Value.Host, target.Value.Container).GetBlobClient(target.Value.Blob);
+            var entries = ParseAppIdsArray((await blob.DownloadContentAsync()).Value.Content.ToString());
+            _appEntries.Clear();
+            _appEntries.AddRange(entries);
+            _appSavedJson = ExportAppIds();
+        }
+        catch (Azure.RequestFailedException exception) when (exception.Status == 404)
+        {
+            // A missing blob means no application list has been saved yet.
+        }
+        catch (Exception exception) when (exception is Azure.RequestFailedException or JsonException or InvalidDataException or InvalidOperationException)
+        {
+            _appError = $"Application list not loaded from {url}: {exception.Message}";
+        }
+        finally
+        {
+            _appBusy = false;
+        }
+    }
+
+    private async Task SaveAppIdsAsync()
+    {
+        _appError = null;
+        if (_appEditingIsNew)
+        {
+            _appError = "Finish or cancel the new application before saving.";
+            return;
+        }
+        var setting = AppConfigUrlSetting;
+        if (setting is null || string.IsNullOrWhiteSpace(setting.DraftValue) || setting.DraftValue == "-")
+        {
+            var account = Configuration["CompanionApp:Profiles:StorageAccountName"];
+            if (string.IsNullOrWhiteSpace(account))
+            {
+                _appError = "Storage account was not read from CompanionApp:Profiles:StorageAccountName. The application list cannot be created.";
+                return;
+            }
+            var containerName = Configuration["CompanionApp:Profiles:BlobContainerName"];
+            if (string.IsNullOrWhiteSpace(containerName))
+            {
+                containerName = "profiles";
+            }
+            if (setting is null)
+            {
+                if (ConfigurationSettings is not IList<AppConfigurationScaffoldSetting> settings)
+                {
+                    _appError = "The application list URL was not in the loaded settings, and the settings list cannot be updated.";
+                    return;
+                }
+                var sibling = settings.FirstOrDefault(item => item.Key.Contains(":Profiles:", StringComparison.OrdinalIgnoreCase));
+                setting = new AppConfigurationScaffoldSetting(
+                    "Warm:Profiles:Auth:ConfigUrl",
+                    "Warm",
+                    "Profiles",
+                    "Auth:ConfigUrl",
+                    sibling?.Label ?? string.Empty,
+                    string.Empty) {
+                    IsNew = true
+                };
+                settings.Add(setting);
+            }
+            setting.DraftValue = $"azblob://{account}/{containerName}/appids.json";
+        }
+
+        var target = ParseAppIdsBlobUrl(setting.DraftValue);
+        if (target is null)
+        {
+            _appError = $"Application list URL must be azblob://account/container/blob. Found: {setting.DraftValue}";
+            return;
+        }
+
+        _appBusy = true;
+        try
+        {
+            var json = ExportAppIds();
+            var blob = StorageBackend.CreateBlobContainerClient(target.Value.Host, target.Value.Container).GetBlobClient(target.Value.Blob);
+            await blob.UploadAsync(
+                BinaryData.FromString(json),
+                new BlobUploadOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
+                });
+            _appSavedJson = json;
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception exception) when (exception is Azure.RequestFailedException or InvalidOperationException)
+        {
+            _appError = $"Application list not saved: {exception.Message}";
+        }
+        finally
+        {
+            _appBusy = false;
+        }
+    }
+
+    private void CancelAppIds()
+    {
+        _appEntries.Clear();
+        _appEntries.AddRange(ParseAppIdsArray(_appSavedJson));
+        _appSelected.Clear();
+        _appEditing = null;
+        _appEditingIsNew = false;
+        _appError = null;
+    }
+
+    private void AddAppId()
+    {
+        if (_appEditing is not null)
+        {
+            _appError = "Finish editing the current application before adding another.";
+            return;
+        }
+        var entry = new JsonObject { [AppIdFieldName] = string.Empty, ["DateAdded"] = DateTimeOffset.UtcNow.ToString("o") };
+        _appSearch = string.Empty;
+        _appEntries.Insert(0, entry);
+        _appEditing = entry;
+        _appEditingIsNew = true;
+        _appEditText = string.Empty;
+        _appEditDescription = string.Empty;
+        _appError = null;
+    }
+
+    private void BeginEditAppId(JsonObject entry)
+    {
+        if (_appEditingIsNew)
+        {
+            _appError = "Finish or cancel the new application before editing another.";
+            return;
+        }
+        _appEditing = entry;
+        _appEditText = AppIdOf(entry);
+        _appEditDescription = entry["Description"] is JsonValue existing && existing.TryGetValue<string>(out var existingText) ? existingText : string.Empty;
+        _appError = null;
+    }
+
+    private void CommitEditAppId()
+    {
+        var entry = _appEditing;
+        if (entry is null)
+        {
+            return;
+        }
+        var id = _appEditText.Trim();
+        _appError = ValidateAppId(id, entry);
+        if (_appError is not null)
+        {
+            return;
+        }
+        entry[AppIdFieldName] = id;
+        var description = _appEditDescription.Trim();
+        if (description.Length > 0)
+        {
+            entry["Description"] = description;
+        }
+        else
+        {
+            entry.Remove("Description");
+        }
+        _appEditing = null;
+        _appEditingIsNew = false;
+    }
+
+    private void RemoveAppEntries(IReadOnlyCollection<JsonObject> entries)
+    {
+        _appEntries.RemoveAll(entry => entries.Contains(entry));
+        _appSelected.ExceptWith(entries);
+        if (_appEditing is not null && entries.Contains(_appEditing))
+        {
+            _appEditing = null;
+            _appEditingIsNew = false;
+        }
+    }
+
+    private void SetAppSelected(JsonObject entry, bool selected)
+    {
+        if (selected)
+        {
+            _appSelected.Add(entry);
+        }
+        else
+        {
+            _appSelected.Remove(entry);
+        }
+    }
+
+    private string? ValidateAppId(string id, JsonObject? current)
+    {
+        if (id.Length == 0)
+        {
+            return "Enter an application ID.";
+        }
+        return _appEntries.Any(entry => !ReferenceEquals(entry, current) && AppIdOf(entry).Equals(id, StringComparison.OrdinalIgnoreCase))
+            ? $"Application ID '{id}' already exists."
+            : null;
+    }
+
+
+    private async Task SetBooleanSettingAsync(AppConfigurationScaffoldSetting? setting, bool enabled)
+    {
+        if (setting is null)
+        {
+            return;
+        }
+        setting.DraftValue = enabled ? "true" : "false";
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RevertAsync(AppConfigurationScaffoldSetting setting)
+    {
+        setting.RevertDraft();
+        await OnChanged.InvokeAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsSelected && !_appLoaded && !_appBusy)
+        {
+            await LoadAppIdsAsync();
+            StateHasChanged();
+        }
+    }
+}

@@ -145,6 +145,13 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             _lastInvalidPricingValue = null;
         }
 
+        if (_options.FileName is not null && modelPricing.Count == 0) {
+            modelPricing["gpt-4.1"] = new ModelTokenPricing { Input = 0.000002m, CachedInput = 0.0000005m, Output = 0.000008m };
+            modelPricing["gpt-4.1-mini"] = new ModelTokenPricing { Input = 0.0000004m, CachedInput = 0.0000001m, Output = 0.0000016m };
+            modelPricing["gpt-4o"] = new ModelTokenPricing { Input = 0.0000025m, CachedInput = 0.00000125m, Output = 0.00001m };
+            modelPricing["gpt-4o-mini"] = new ModelTokenPricing { Input = 0.00000015m, CachedInput = 0.000000075m, Output = 0.0000006m };
+        }
+
         var periodSnapshots = Enum.GetValues<TokenomicsPeriod>().ToImmutableDictionary(
             period => period,
             period => CreateSnapshot(period, rangeEnd, modelPricing, currentSettings));
@@ -159,13 +166,16 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         var culture = CultureInfo.InvariantCulture;
         var prices = modelPricing ?? ImmutableDictionary<string, ModelTokenPricing>.Empty;
         var hasPriceData = prices.Count > 0;
-        var quotaLimit = period switch {
-            TokenomicsPeriod.Hourly => tokenomicsSettings?.HourlyTokenLimit,
-            TokenomicsPeriod.Daily => tokenomicsSettings?.DailyTokenLimit,
-            TokenomicsPeriod.Monthly => tokenomicsSettings?.MonthlyTokenLimit,
-            _ => null
+        Func<IReadOnlyDictionary<string, string>, int?> quotaLimit = fields => {
+            var limits = tokenomicsSettings?.ModelLimits.TryGetValue(Model(fields), out var modelLimits) == true
+                ? modelLimits : tokenomicsSettings?.DefaultLimits;
+            return period switch {
+                TokenomicsPeriod.Hourly => limits?.HourlyTokenLimit,
+                TokenomicsPeriod.Daily => limits?.DailyTokenLimit,
+                TokenomicsPeriod.Monthly => limits?.MonthlyTokenLimit,
+                _ => null
+            };
         };
-        var hasQuotaData = quotaLimit is > 0;
         var anchor = (rangeEnd ?? _timeProvider.GetUtcNow()).ToUniversalTime();
         DateTimeOffset? windowStart = period switch {
             TokenomicsPeriod.Hourly => new DateTimeOffset(
@@ -219,6 +229,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         };
         var outcomes = summaries.Where(fields => fields["RecordKind"] == "RequestOutcome")
             .GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(group => group.Last()).ToArray();
+        var hasQuotaData = outcomes.Any(fields => quotaLimit(fields) is > 0);
         var outcomesByModel = outcomes.ToLookup(Model, StringComparer.Ordinal);
         var outcomesByUser = outcomes.ToLookup(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Tenant")));
         var decisions = summaries.Where(fields => fields["RecordKind"] == "PolicyDecision")
@@ -350,11 +361,14 @@ public sealed class TokenomicsEventReplay : BackgroundService {
                     Spend: usage.Sum(spend));
             }).OrderByDescending(user => user.Total).ThenBy(user => user.Name, StringComparer.Ordinal).ThenBy(user => user.Tenant, StringComparer.Ordinal)
             .Select((user, index) => {
-                var quotaPercent = hasQuotaData ? user.Total / quotaLimit!.Value * 100 : 0;
+                var usage = outcomesByUser[(user.Name, user.Tenant)].ToArray();
+                var hasUserQuotaData = usage.Any(fields => quotaLimit(fields) is > 0);
+                var quotaPercent = usage.Where(fields => quotaLimit(fields) is > 0)
+                    .Sum(fields => Total(fields) / quotaLimit(fields)!.Value * 100);
                 return (Rank: index + 1, user.Name, user.Tenant, Total: Number(user.Total), Input: Number(user.Input),
                     Output: Number(user.Output), Cached: Number(user.Cached), Spend: hasPriceData ? money(user.Spend) : "Unavailable",
-                    Quota: hasQuotaData ? quotaPercent.ToString("F0", culture) + "%" : "Unavailable",
-                    QuotaColor: hasQuotaData ? quotaPercent >= 75 ? "quota-red" : quotaPercent >= 50 ? "quota-orange" : "quota-green" : "",
+                    Quota: hasUserQuotaData ? quotaPercent.ToString("F0", culture) + "%" : "Unavailable",
+                    QuotaColor: hasUserQuotaData ? quotaPercent >= 75 ? "quota-red" : quotaPercent >= 50 ? "quota-orange" : "quota-green" : "",
                     Color: "user-blue", Sparkline: "");
             }).ToImmutableArray();
         var tenantSpendValues = outcomes
@@ -376,16 +390,19 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             : [];
         var tenantQuotaValues = outcomes
             .GroupBy(fields => Identity(fields, "Tenant"), StringComparer.Ordinal)
-            .Select(group => (Name: group.Key, Tokens: group.Sum(Total)))
+            .Select(group => (Name: group.Key, Tokens: group.Sum(Total),
+                HasQuotaData: group.Any(fields => quotaLimit(fields) is > 0),
+                QuotaPercent: group.Where(fields => quotaLimit(fields) is > 0)
+                    .Sum(fields => Total(fields) / quotaLimit(fields)!.Value * 100)))
             .OrderByDescending(tenant => tenant.Tokens)
             .ThenBy(tenant => tenant.Name, StringComparer.Ordinal)
             .ToArray();
         var quotas = hasQuotaData
             ? tenantQuotaValues.Select(tenant => {
-                var quotaPercent = tenant.Tokens / quotaLimit!.Value * 100;
+                var quotaPercent = tenant.QuotaPercent;
                 return (
                     tenant.Name,
-                    Amount: quotaPercent.ToString("F0", culture) + "%",
+                    Amount: tenant.HasQuotaData ? quotaPercent.ToString("F0", culture) + "%" : "Unavailable",
                     Width: Math.Min(100, quotaPercent).ToString("F0", culture) + "%",
                     Color: quotaPercent >= 75 ? "bar-red" : quotaPercent >= 50 ? "bar-orange" : "bar-green");
             }).ToImmutableArray()
@@ -416,7 +433,8 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             ModelFilters = modelNames.Prepend("All models").ToImmutableArray(),
             Metrics = [
                 ("Total Tokens", Number(total), "", "▤", "blue", ""),
-                ("Total Spend (USD)", hasPriceData ? money(totalSpend) : "Unavailable", "", "$", "blue", ""),
+                (_options.FileName is not null && (tokenomicsSettings is null || tokenomicsSettings.ModelCostPerToken.Count == 0)
+                    ? "Sample Spend (USD)" : "Total Spend (USD)", hasPriceData ? money(totalSpend) : "Unavailable", "", "$", "blue", ""),
                 ("Total Requests", Number(requests), "", "▣", "blue", ""),
                 ("Success Rate", outcomes.Length == 0 ? "Unavailable" : (outcomes.Count(fields => TokenomicsReplayOptions.GetStatus(fields) is >= 200 and < 300) * 100.0 / outcomes.Length).ToString("F1", culture) + "%", "", "✓", "green", ""),
                 ("Policy Actions", Number(policyActions.Length), "", "⬟", "red", ""),

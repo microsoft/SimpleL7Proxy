@@ -4,8 +4,10 @@ import { DeploymentSettings } from '../types.bicep'
 
 param settings DeploymentSettings
 param companionAppPrincipalId string
+param proxyPrincipalId string
 
 var eventHubsDataReceiverRoleId = 'a638d3c7-ab3a-418d-83e6-5f17a39d4fde'
+var eventHubsDataSenderRoleId = '2b629674-e913-4c01-ae53-ef4638d8f975'
 
 resource eventHubNamespace 'Microsoft.EventHub/namespaces@2024-01-01' existing = {
   name: settings.COMPANION_EVENTHUB_NAMESPACE
@@ -22,6 +24,16 @@ resource companionDataReceiver 'Microsoft.Authorization/roleAssignments@2022-04-
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', eventHubsDataReceiverRoleId)
     principalId: companionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource proxyDataSender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(eventHub.id, proxyPrincipalId, eventHubsDataSenderRoleId)
+  scope: eventHub
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', eventHubsDataSenderRoleId)
+    principalId: proxyPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

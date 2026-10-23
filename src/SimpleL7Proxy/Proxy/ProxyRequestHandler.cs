@@ -146,10 +146,14 @@ public partial class ProxyRequestHandler
         catch (Exception writeEx)
         {
             _logger.LogError(writeEx, "Failed to write error response for request {Guid}", requestGuid);
-            eventData["InnerErrorDetail"] = "Network Error sending error response";
-            eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
-            eventData.Type = EventType.Exception;
-            eventData.Exception = writeEx;
+            var st = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
+            if ( !st.Contains("Broken pipe"))
+            {
+                eventData["InnerErrorDetail"] = "Network Error sending error response";
+                eventData["InnerErrorStack"] = st;
+                eventData.Type = EventType.Exception;
+                eventData.Exception = writeEx;
+            }
             return false;
         }
     }
@@ -395,7 +399,7 @@ public partial class ProxyRequestHandler
                         statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
-                        _options.DetectModel ? incomingRequest.Model ?? "N/A" : "-",
+                        _options.TokenomicsEnable ? incomingRequest.Model ?? "N/A" : "-",
                         pr.StreamingProcessor,
                         conlen,
                         incomingRequest.DequeueTime.ToLocalTime(),
@@ -421,8 +425,7 @@ public partial class ProxyRequestHandler
 
                     // Populate final event data
                     _eventDataBuilder.PopulateFinalEventData(incomingRequest, lcontext);
-                    if (_options.TokenomicsEnable &&
-                        incomingRequest.TokenomicsSummary != null)
+                    if (_options.TokenomicsEnable && incomingRequest.TokenomicsSummary != null)
                     {
                         incomingRequest.TokenomicsSummary.PrepForFinalStats(
                             pr.StatusCode,

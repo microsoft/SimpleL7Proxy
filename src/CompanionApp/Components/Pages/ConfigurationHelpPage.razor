@@ -1,0 +1,107 @@
+@page "/configuration-help"
+@namespace CompanionApp.Components.Pages
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+<PageTitle>@(string.IsNullOrWhiteSpace(Topic) || Topic == "top" ? HelpTopic ?? Section : Topic) help</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <h1 class="h4 mb-0">@(string.IsNullOrWhiteSpace(Topic) || Topic == "top" ? HelpTopic ?? Section : Topic) help</h1>
+</SectionContent>
+
+<section class="configuration-help-page" aria-label="Configuration help">
+    <a href="/admin/configuration" class="configuration-help-back">Back to Proxy Configuration</a>
+    @if (string.IsNullOrWhiteSpace(Section))
+    {
+        <p class="text-muted mt-3">Select a help link from a configuration setting to view its details.</p>
+    }
+    else
+    {
+        <p class="text-muted mt-3">@(Section) settings</p>
+        @if (HelpText.Count > 0)
+        {
+            <div class="configuration-help-content">
+                @foreach (var line in HelpText)
+                {
+                    <p>@line</p>
+                }
+            </div>
+        }
+        @if (DocumentationUrl is not null)
+        {
+            <a href="@DocumentationUrl" target="_blank" rel="noopener noreferrer">Open related documentation</a>
+        }
+        @if (HelpText.Count == 0 && DocumentationUrl is null)
+        {
+            <p class="text-muted">No help content is configured for this setting.</p>
+        }
+    }
+</section>
+
+<style>
+    .configuration-help-page { max-width: 52rem; margin: 1rem auto; padding: 1.5rem; border: 1px solid #dce4ef; border-radius: .5rem; background: #fff; }
+    .configuration-help-back { text-decoration: underline; text-underline-offset: .15em; }
+    .configuration-help-content { margin: 1.25rem 0; line-height: 1.6; }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
+    [SupplyParameterFromQuery(Name = "topic")]
+    public string? Topic { get; set; }
+
+    [SupplyParameterFromQuery(Name = "helpTopic")]
+    public string? HelpTopic { get; set; }
+
+    private List<string> HelpText
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Section))
+            {
+                return [];
+            }
+
+            var topic = HelpTopic ?? Topic ?? "top";
+            var helpEntry = Configuration.GetSection($"{CompanionAppOptions.UiSectionName}:PopupHelp:{Section}:{topic}");
+            return (helpEntry.Value is { } value
+                    ? new[] { value }
+                    : helpEntry.GetChildren().Select(line => line.Value ?? string.Empty))
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Where(line => !Uri.TryCreate(line.Trim(), UriKind.Absolute, out var url)
+                    || (!string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+    }
+
+    private string? DocumentationUrl
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Section))
+            {
+                return null;
+            }
+
+            var helpTopic = HelpTopic ?? Topic ?? "top";
+            var helpEntry = Configuration.GetSection($"{CompanionAppOptions.UiSectionName}:PopupHelp:{Section}:{helpTopic}");
+            var helpUrl = helpEntry.Value is { } value
+                ? new[] { value }
+                : helpEntry.GetChildren().Select(line => line.Value ?? string.Empty);
+            var configuredUrl = string.IsNullOrWhiteSpace(Topic) || Topic == "top"
+                ? Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"]
+                : Configuration[$"{CompanionAppOptions.UiSectionName}:TopicDocumentation:{Section}:{Topic}"];
+
+            return helpUrl
+                .Concat(new[] { configuredUrl, Configuration[$"{CompanionAppOptions.UiSectionName}:Documentation:{Section}"] })
+                .FirstOrDefault(line => Uri.TryCreate(line?.Trim(), UriKind.Absolute, out var url)
+                    && string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                    && url.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                    && (url.AbsolutePath.StartsWith("/microsoft/SimpleL7Proxy/blob/main/docs/", StringComparison.OrdinalIgnoreCase)
+                        || url.AbsolutePath.StartsWith("/microsoft/SimpleL7Proxy/tree/main/docs/", StringComparison.OrdinalIgnoreCase)
+                        || url.AbsolutePath.Equals("/microsoft/SimpleL7Proxy/tree/main/docs", StringComparison.OrdinalIgnoreCase)))
+                ?? "https://github.com/microsoft/SimpleL7Proxy/tree/main/docs";
+        }
+    }
+}

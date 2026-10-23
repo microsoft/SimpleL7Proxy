@@ -65,6 +65,9 @@ public abstract class BaseIterator : IHostIterator
 
         while (FetchCandidate(state, out host))
         {
+            if (state.AcceptHost != null && !state.AcceptHost(host!))
+                continue;
+
             var timeToRetry = host!.Config.GetMsToNextRetry();
             if (timeToRetry <= 0)
             {

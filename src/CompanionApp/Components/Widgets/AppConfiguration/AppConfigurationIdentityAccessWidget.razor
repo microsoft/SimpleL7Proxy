@@ -1,0 +1,23 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-shield-check" ChangedCount="@Settings.Count(setting => setting.IsChanged)"
+    IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? $"Edit {Section} settings.")' OnSelected="OnSelected">
+    <SummaryContent>
+        <span class="identity-access-summary">
+            <span class="identity-access-summary-grid">
+                <span>Authentication</span><strong>@IdentityAccessEditor.AuthenticationSummary(Settings)</strong>
+                <span>Application IDs</span><strong>@(IdentityAccessEditor.ApplicationAccessEnabled(Settings) ? "Validation enabled" : "Validation disabled")</strong>
+                <span>Profile reader</span><strong>@(IdentityAccessEditor.UserProfilesEnabled(Settings) ? "Enabled" : "Disabled")</strong>
+                <span>Suspended users</span><strong>@IdentityAccessEditor.SuspendedUsersSummary(Settings)</strong>
+            </span>
+        </span>
+    </SummaryContent>
+</AppConfigurationSectionWidget>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Identity & Access";
+    [Parameter] public IEnumerable<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+}

@@ -1,0 +1,105 @@
+@namespace CompanionApp.Components.Shared
+
+@{
+var refreshIntervalSetting = FindSetting("RefreshIntervalSecs");
+var softDeleteTtlSetting = FindSetting("SoftDeleteTTLMinutes");
+var applicationsUrlSetting = FindSetting("Auth:ConfigUrl");
+var userProfilesUrlSetting = FindSetting("User:UserConfigUrl");
+var suspendedUrlSetting = FindSetting("SuspendedUser:ConfigUrl");
+}
+        <section id="identity-panel-pr" class="identity-access-panel" role="tabpanel"
+                 aria-labelledby="identity-tab-pr">
+            <div class="identity-access-panel-heading">
+                <div>
+                    <h3>Profile Reader</h3>
+                    <p>Configure where identity data is loaded from and how often it is refreshed.</p>
+                </div>
+            </div>
+
+            <div class="identity-access-card">
+                <div class="identity-access-card-heading">
+                    <div>
+                        <h4>Refresh Settings</h4>
+                        <p>Control how often profile data is refreshed and how long to keep soft-deleted entries.</p>
+                    </div>
+                </div>
+                <div class="identity-access-form-grid">
+                    <div class="identity-access-form-row">
+                        <div class="config-setting-heading">
+                            <label for="identity-pr-refresh">Refresh interval (seconds)</label>
+                        </div>
+                        <input id="identity-pr-refresh" class="form-control" type="number" min="1"
+                               @bind:get="refreshIntervalSetting?.DraftValue" disabled="@(refreshIntervalSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(refreshIntervalSetting!, value))" @bind:event="oninput" />
+                    </div>
+                    <div class="identity-access-form-row">
+                        <div class="config-setting-heading">
+                            <label for="identity-pr-soft-delete">Soft delete TTL (minutes)</label>
+                        </div>
+                        <input id="identity-pr-soft-delete" class="form-control" type="number" min="1"
+                               @bind:get="softDeleteTtlSetting?.DraftValue" disabled="@(softDeleteTtlSetting is null)"
+                               @bind:set="@(value => SetSettingValueAsync(softDeleteTtlSetting!, value))" @bind:event="oninput" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="identity-access-card">
+                <div class="identity-access-card-heading">
+                    <div>
+                        <h4>Profile Data Sources</h4>
+                        <p>Specify the configuration sources for applications, user profiles, and suspended users.</p>
+                    </div>
+                </div>
+                <div class="identity-access-form-row">
+                    <div class="config-setting-heading">
+                        <h5>Applications</h5>
+                        <label for="identity-pr-applications-url">Config URL</label>
+                    </div>
+                    <input id="identity-pr-applications-url" class="form-control" type="text" autocomplete="off"
+                           placeholder="azblob://account/container/applications.json"
+                           @bind:get="applicationsUrlSetting?.DraftValue" disabled="@(applicationsUrlSetting is null)"
+                           @bind:set="@(value => SetSettingValueAsync(applicationsUrlSetting!, value))" @bind:event="oninput" />
+                </div>
+                <div class="identity-access-form-row">
+                    <div class="config-setting-heading">
+                        <h5>User Profiles</h5>
+                        <label for="identity-pr-profiles-url">Config URL</label>
+                    </div>
+                    <input id="identity-pr-profiles-url" class="form-control" type="text" autocomplete="off"
+                           placeholder="azblob://account/container/profiles.json"
+                           @bind:get="userProfilesUrlSetting?.DraftValue" disabled="@(userProfilesUrlSetting is null)"
+                           @bind:set="@(value => SetSettingValueAsync(userProfilesUrlSetting!, value))" @bind:event="oninput" />
+                </div>
+                <div class="identity-access-form-row">
+                    <div class="config-setting-heading">
+                        <h5>Suspended Users</h5>
+                        <label for="identity-pr-suspended-url">Config URL</label>
+                    </div>
+                    <input id="identity-pr-suspended-url" class="form-control" type="text" autocomplete="off"
+                           placeholder="azblob://account/container/suspended.json"
+                           @bind:get="suspendedUrlSetting?.DraftValue" disabled="@(suspendedUrlSetting is null)"
+                           @bind:set="@(value => SetSettingValueAsync(suspendedUrlSetting!, value))" @bind:event="oninput" />
+                </div>
+                <div class="alert alert-info py-2 mt-3" role="alert">
+                    These sources are read according to the refresh interval. The data is used by
+                    <strong>Authentication</strong>, <strong>Profiles</strong>, <strong>Applications</strong>, and <strong>Suspended Users</strong>.
+                </div>
+            </div>
+        </section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private AppConfigurationScaffoldSetting? FindSetting(string name) => FindSetting(Settings, name);
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+    private async Task SetSettingValueAsync(AppConfigurationScaffoldSetting setting, string? value)
+    {
+        setting.DraftValue = value ?? string.Empty;
+        await OnChanged.InvokeAsync();
+    }
+}

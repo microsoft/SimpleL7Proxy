@@ -104,6 +104,8 @@ public sealed class EventHubReader : BackgroundService
 
         if (!settings.EventHubEnabled)
         {
+            _logger.LogInformation(
+                "Live Event Hub reading is disabled. Local file import, if configured, is handled separately.");
             return;
         }
 
@@ -120,7 +122,7 @@ public sealed class EventHubReader : BackgroundService
 
         settings = EnsureNamespace(settings);
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Eventhub is configured: {EventHubName} in namespace {EventHubNamespace}.",
             settings.EventHubName,
             settings.EventHubNamespace);
@@ -169,7 +171,7 @@ public sealed class EventHubReader : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Event Hub reader stopped unexpectedly.");
+            _logger.LogError(ex, "Live Event Hub reader stopped unexpectedly. New events will not be read by this reader. Check the exception, Event Hub settings, network access and receive permissions; restart the app after correcting the problem.");
         }
     }
 
@@ -189,7 +191,9 @@ public sealed class EventHubReader : BackgroundService
         if (!File.Exists(localFilePath))
         {
             _store.DisableRequestAging = false;
-            _logger.LogWarning("Configured Event Hub import file was not found: {LocalFilePath}", localFilePath);
+            _logger.LogWarning(
+                "Local event file not found: {LocalFilePath}. Skipping file import.",
+                localFilePath);
             return;
         }
 
@@ -382,14 +386,20 @@ public sealed class EventHubReader : BackgroundService
         var startPosition = ResolveStartPosition(settings.StartPosition);
         var partitionIds = await consumerClient.GetPartitionIdsAsync(stoppingToken).ConfigureAwait(false);
 
-        var connString = string.IsNullOrEmpty(settings.ConnectionString) ? "Not Set" : "Set";
+        var connString = string.IsNullOrEmpty(settings.ConnectionString) ? "Azure identity" : "connection string";
         _logger.LogInformation(
-            "[EVENTHUB] ✓ Event Hub reader started: ConnectionString: {ConnString}, Name: {EventHubName}, Namespace: {EventHubNamespace}, ConsumerGroup: {ConsumerGroup}, PartitionCount: {PartitionCount}",
-            connString,
+            "Event Hub connected: {EventHubName}  NS:{NameSpace}  CG:{ConsumerGroup}.",
+            settings.EventHubName,
+            settings.EventHubNamespace,
+            settings.ConsumerGroup);
+
+        _logger.LogDebug(
+            "Event Hub details: {EventHubName} in {EventHubNamespace}. Consumer group={ConsumerGroup}; partitions={PartitionCount}; authentication={ConnString}.",
             settings.EventHubName,
             settings.EventHubNamespace,
             settings.ConsumerGroup,
-            partitionIds.Length);
+            partitionIds.Length,
+            connString);
 
         var partitionReaders = partitionIds
             .Select(partitionId => ReadPartitionAsync(consumerClient, partitionId, startPosition, stoppingToken))
@@ -402,7 +412,7 @@ public sealed class EventHubReader : BackgroundService
             {
                 var count = Interlocked.Exchange(ref _tokenomicsEventsSinceLastLog, 0);
                 _logger.LogInformation(
-                    "[Tokenomics] Event Hub entries received in the last minute: {EntryCount}",
+                    "Tokenomics: received {EntryCount} entries in the last minute.",
                     count);
             }
         }, stoppingToken);
@@ -463,6 +473,14 @@ public sealed class EventHubReader : BackgroundService
     // Parses each incoming record exactly once, feeds it to the store via ProcessEventData, and
     // publishes the batch (already parsed) to the metrics catalog. No stage re-parses the JSON.
     private (int Processed, int Skipped) RunPipeline(string[] incomingRecords, string source)
+    {
+        lock (_store.IngestionGate)
+        {
+            return RunPipelineCore(incomingRecords, source);
+        }
+    }
+
+    private (int Processed, int Skipped) RunPipelineCore(string[] incomingRecords, string source)
     {
         if (incomingRecords.Length == 0)
         {
@@ -1306,8 +1324,8 @@ public sealed class EventHubReader : BackgroundService
     {
         if (!string.IsNullOrWhiteSpace(settings.ConnectionString))
         {
-            _logger.LogInformation(
-                "[EVENTHUB] Creating consumer client for {EventHubName} using connection string.",
+            _logger.LogDebug(
+                "Connecting to Event Hub {EventHubName} using a connection string.",
                 settings.EventHubName);
             
             return new EventHubConsumerClient(
@@ -1323,8 +1341,8 @@ public sealed class EventHubReader : BackgroundService
                 "Cannot create Event Hub consumer client: DefaultAzureCredential is not available and no connection string was provided.");
         }
 
-        _logger.LogInformation(
-            "[EVENTHUB] Creating consumer client for {EventHubName} in namespace {EventHubNamespace} using DefaultAzureCredential.",
+        _logger.LogDebug(
+            "Connecting to Event Hub {EventHubName} in {EventHubNamespace} using an Azure identity (DefaultAzureCredential).",
             settings.EventHubName,
             settings.EventHubNamespace);
 

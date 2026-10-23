@@ -205,7 +205,7 @@ public static class ConfigFactory
       // If unchanged, skip.
       if (DeepEquals(currentValue, newValue)) continue;
 
-      Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{currentValue}' -> '{newValue}'"); // TODO: remove debug
+      Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{MaskSensitive(descriptor.Attribute, currentValue?.ToString() ?? "")}' -> '{MaskSensitive(descriptor.Attribute, newValue?.ToString() ?? "")}'");
 
       changedProps.Add(field);
       changeList.Add(new ConfigChange
@@ -312,6 +312,12 @@ public static class ConfigFactory
     return (a, b) switch
     {
       (int[] la, int[] lb) => la.SequenceEqual(lb),
+      (IList<HeaderValidationRule> la, IList<HeaderValidationRule> lb) =>
+          la.Count == lb.Count && la.Zip(lb).All(pair =>
+              string.Equals(pair.First.HeaderName, pair.Second.HeaderName, StringComparison.Ordinal)
+              && pair.First.MatchType == pair.Second.MatchType
+              && pair.First.AllowedValues.SequenceEqual(pair.Second.AllowedValues, StringComparer.Ordinal)
+              && string.Equals(pair.First.AllowedValuesHeader, pair.Second.AllowedValuesHeader, StringComparison.Ordinal)),
       (IList<string> la, IList<string> lb) => la.SequenceEqual(lb),
       (IList<int> la, IList<int> lb) => la.SequenceEqual(lb),
       (IDictionary<string, string> da, IDictionary<string, string> db) =>
@@ -324,7 +330,7 @@ public static class ConfigFactory
 
   /// <summary>
   /// Emits a telemetry event with all resolved config values,
-  /// masking sensitive keys (connection strings, secrets, etc.).
+  /// masking options marked as sensitive.
   /// </summary>
   public static void OutputEnvVars(ProxyConfig backendOptions)
   {
@@ -346,7 +352,7 @@ public static class ConfigFactory
 
       var rawValue = prop.GetValue(backendOptions);
       var value = FormatValue(rawValue);
-      var display = MaskSensitive(attr.KeyPath, value);
+      var display = MaskSensitive(attr, value);
 
       var bucket = attr.Mode switch
       {
@@ -363,20 +369,6 @@ public static class ConfigFactory
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-    static string MaskSensitive(string key, string value)
-    {
-      if (string.IsNullOrEmpty(value)) return value;
-
-      var lower = key.ToLowerInvariant();
-      if (lower.Contains("connectionstring") || lower.Contains("password") ||
-          lower.Contains("secret") || lower.Contains("token") ||
-          lower.Contains("apikey") || lower.Contains("sas"))
-      {
-        return value.Length <= 4 ? "****" : $"{value[..2]}***{value[^2..]}";
-      }
-      return value;
-    }
-
     static string FormatValue(object? rawValue)
     {
       if (rawValue == null) return "";
@@ -384,6 +376,7 @@ public static class ConfigFactory
       {
         string s => s,
         int[] arr => string.Join(", ", arr),
+        IEnumerable<HeaderValidationRule> rules => ConfigParser.SerializeHeaderValidationRules(rules),
         IEnumerable<string> list => string.Join(", ", list),
         IEnumerable<int> list => string.Join(", ", list),
         IDictionary<string, string> dict => string.Join(", ", dict.Select(kvp => $"{kvp.Key}={kvp.Value}")),
@@ -391,6 +384,13 @@ public static class ConfigFactory
         _ => rawValue.ToString() ?? ""
       };
     }
+  }
+
+  private static string MaskSensitive(ConfigOptionAttribute option, string value)
+  {
+    if (!option.Sensitive || string.IsNullOrEmpty(value)) return value;
+
+    return value.Length <= 4 ? "****" : $"{value[..2]}***{value[^2..]}";
   }
 
   /// <summary>

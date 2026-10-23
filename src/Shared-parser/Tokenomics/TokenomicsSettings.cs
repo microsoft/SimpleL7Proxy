@@ -1,33 +1,30 @@
 using System.Globalization;
 using System.Reflection;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using SimpleL7Proxy.Extensions;
 
 namespace SimpleL7Proxy.Tokenomics;
 
-/// <summary>Defines USD prices for each token category supported by a model.</summary>
-public sealed class ModelTokenPricing
-{
-    /// <summary>Gets or sets the USD price per non-cached input token.</summary>
-    public decimal Input { get; set; }
-
-    /// <summary>Gets or sets the USD price per cached input token.</summary>
-    public decimal CachedInput { get; set; }
-
-    /// <summary>Gets or sets the USD price per output token.</summary>
-    public decimal Output { get; set; }
-}
 
 public class TokenomicsSettings
 {
-    public int MonthlyTokenLimit { get; set; }=10000;
-    public int DailyTokenLimit { get; set; }=1000;
-    public int HourlyTokenLimit { get; set; }=1000;
+    /// <summary>Gets or sets the default token limits and USD budgets, serialized using their unprefixed property names.</summary>
+    public TokenomicsLimits DefaultLimits { get; set; } = new();
+    /// <summary>Gets or sets default actions, serialized using their unprefixed property names.</summary>
+    public TokenomicsLimitActions DefaultLimitActions { get; set; } = new();
+    /// <summary>Gets or sets premium workload limits, serialized as PremiumWorkloadLimits.Field=value.</summary>
+    public TokenomicsLimits PremiumWorkloadLimits { get; set; } = new();
+    /// <summary>Gets or sets premium workload actions, serialized as PremiumWorkloadLimitActions.Field=value.</summary>
+    public TokenomicsLimitActions PremiumWorkloadLimitActions { get; set; } = new();
+    /// <summary>Gets or sets critical workload limits, serialized as CriticalWorkloadLimits.Field=value.</summary>
+    public TokenomicsLimits CriticalWorkloadLimits { get; set; } = new();
+    /// <summary>Gets or sets critical workload actions, serialized as CriticalWorkloadLimitActions.Field=value.</summary>
+    public TokenomicsLimitActions CriticalWorkloadLimitActions { get; set; } = new();
 
-    public decimal HourlyBudgetUsd { get; set; } = 10m;
-    public decimal DailyBudgetUsd { get; set; } = 50m;
-    public decimal MonthlyBudgetUsd { get; set; }=1000m;
+
+    /// <summary>Gets or sets token limits and USD budgets keyed by model name.</summary>
+    public Dictionary<string, TokenomicsLimits> ModelLimits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, TokenomicsLimitActions> ModelLimitActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Gets or sets the delay duration in milliseconds.</summary>
     public int DelayDuration { get; set; } = (int)TimeSpan.FromSeconds(10).TotalMilliseconds;
 
@@ -45,11 +42,19 @@ public class TokenomicsSettings
 
     /// <summary>Gets or sets the default model name; an empty value leaves it unconfigured.</summary>
     public string DefaultModel { get; set; } = string.Empty;
+    public string DefaultModelAPI { get; set; } = string.Empty;
 
     /// <summary>Gets or sets input, cached-input, and output USD prices per token for each priced model; unlisted models are excluded from spend totals.</summary>
     public Dictionary<string, ModelTokenPricing> ModelCostPerToken { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Gets or sets model lists keyed by hierarchy prefix.</summary>
     public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, TokenomicsHostOptions> HostOptions { get; set; } = new();
+    
+    /// <summary>Gets or sets host assignments, enablement, and API path options keyed by model and host key.</summary>
+    public Dictionary<string, Dictionary<string, TokenomicsHostOptions>> ModelHostOptions { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
 
     /// <summary>Gets or sets the action when abuse is detected.</summary>
     public TokenActionEnum AbuseDetectedAction { get; set; } = TokenActionEnum.Reject;
@@ -57,40 +62,8 @@ public class TokenomicsSettings
     /// <summary>Gets or sets the action for an administrator override or approved exception.</summary>
     public TokenActionEnum AdministratorOverrideAction { get; set; } = TokenActionEnum.Bypass;
 
-    /// <summary>Gets or sets the Hourly-quota action for incident response, audit investigation, or compliance work.</summary>
-    public TokenActionEnum HourlyQuotaGovernanceAction { get; set; } = TokenActionEnum.Bypass;
-    /// <summary>Gets or sets the daily-quota action for incident response, audit investigation, or compliance work.</summary>
-    public TokenActionEnum DailyQuotaGovernanceAction { get; set; } = TokenActionEnum.Bypass;
-    /// <summary>Gets or sets the action for an exceeded monthly quota without an override or approved exception.</summary>
-    public TokenActionEnum MonthlyQuotaGovernanceAction  { get; set; } = TokenActionEnum.Reject;
 
-    /// <summary>Gets or sets the hourly-quota action for other workloads.</summary>
-    public TokenActionEnum HourlyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
-    /// <summary>Gets or sets the daily-quota action for other workloads.</summary>
-    public TokenActionEnum DailyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
-    /// <summary>Gets or sets the monthly-quota action for other workloads.</summary>
-    public TokenActionEnum MonthlyQuotaExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
-
-    /// <summary>Gets or sets the hourly-budget action for other tenants.</summary>
-    public TokenActionEnum HourlyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
-    /// <summary>Gets or sets the daily-budget action for other tenants.</summary>
-    public TokenActionEnum DailyBudgetExceededAction { get; set; } = TokenActionEnum.DecreaseLimit;
-    /// <summary>Gets or sets the monthly-budget action for other tenants.</summary>
-    public TokenActionEnum MonthlyBudgetExceededAction { get; set; } = TokenActionEnum.DowngradeModel;
-
-    /// <summary>Gets or sets the hourly-budget action for premium or enterprise tenants.</summary>
-    public TokenActionEnum HourlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-    /// <summary>Gets or sets the daily-budget action for premium or enterprise tenants.</summary>
-    public TokenActionEnum DailyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-    /// <summary>Gets or sets the monthly-budget action for premium or enterprise tenants.</summary>
-    public TokenActionEnum MonthlyBudgetEntitledTenantAction { get; set; } = TokenActionEnum.DowngradeModel;
-
-
-
-
-
-
-    /// <summary>Gets or sets the capacity-constrained action for critical-priority or incident-response work.</summary>
+    // Critical Workload
     public TokenActionEnum CapacityCriticalWorkloadAction { get; set; } = TokenActionEnum.IncreasePriority;
 
     /// <summary>Gets or sets the capacity-constrained action for other high-priority work.</summary>
@@ -134,23 +107,60 @@ public class TokenomicsSettings
 
 
     
-    private static readonly JsonSerializerOptions _serializerOptions = new() {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) }
-    };
+    private static readonly PropertyInfo[] SettableProperties =
+        typeof(TokenomicsSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property => property.SetMethod?.IsPublic == true)
+            .ToArray();
 
+    private static readonly string ModelCostPrefix = nameof(ModelCostPerToken) + ".";
 
-    /// <summary>Parses comma- or semicolon-separated key=value settings, preserving omitted defaults and returning false for invalid input.</summary>
-    /// <remarks>Hourly, daily, and monthly token limits use invariant integers; budgets use invariant decimals; policy actions use named TokenActionEnum values. DelayDuration accepts integer milliseconds or seconds with an ms or s suffix, or ss:fff and mm:ss:fff clock formats. DefaultModel uses a URI-escaped model name. Model prices use ModelCostPerToken.&lt;model&gt;=Input:&lt;price&gt;|CachedInput:&lt;price&gt;|Output:&lt;price&gt;; the legacy scalar value is treated as output pricing. Model hierarchies use ModelHierarchy=prefix: [model1, model2], prefix2: [model3]. Model names and hierarchy prefixes are URI-escaped.</remarks>
-    public  bool TryParse(string data) {
+    /// <summary>Gets the field names ignored by the last parse because their names or values were invalid.</summary>
+    public IReadOnlyList<string> IgnoredFields { get; private set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Applies recognized comma- or semicolon-separated key=value pairs. Unprefixed limit and action
+    /// keys target defaults; workload keys use their container name, such as
+    /// CriticalWorkloadLimitActions.DailyLimitAction=bypass or PremiumWorkloadLimits.DailyTokenLimit=5000.
+    /// Model overrides retain ModelLimits=model=Field:value and ModelLimitActions=model=Field:value syntax.
+    /// Omitted or invalid fields retain their existing values. Invalid entries are skipped and reported
+    /// in IgnoredFields; a failed compound entry cannot apply partial changes. Returns false only for
+    /// empty input or input that cannot be split into entries.
+    /// </summary>
+    public bool TryParse(string data) {
+        IgnoredFields = Array.Empty<string>();
         if (string.IsNullOrWhiteSpace(data)) {
             return false;
         }
 
-        var parts = new List<string>();
+        if (!TrySplitParts(data, out var parts) || parts.Count == 0) {
+            return false;
+        }
+
+        var pending = CloneForParse();
+        var ignoredFields = new List<string>();
+        var applied = false;
+        foreach (var part in parts) {
+            var candidate = pending.CloneForParse();
+            if (candidate.TryApplyPart(part)) {
+                pending = candidate;
+                applied = true;
+            } else {
+                ignoredFields.Add(TrySplitKeyValue(part, out var key, out _) ? key : "(malformed entry)");
+            }
+        }
+
+        if (applied) {
+            CopyFrom(pending);
+        }
+        IgnoredFields = ignoredFields.Distinct(StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly();
+        return true;
+    }
+
+    /// <summary>
+    /// Splits on <c>;</c> and <c>,</c> except commas within a ModelHierarchy value.
+    /// </summary>
+    private static bool TrySplitParts(string data, out List<string> parts) {
+        parts = [];
         var partStart = 0;
         var hierarchyBracketDepth = 0;
         var isModelHierarchyPart = false;
@@ -159,8 +169,8 @@ public class TokenomicsSettings
             var currentCharacter = data[index];
 
             if (!isModelHierarchyPart && currentCharacter == '=') {
-                isModelHierarchyPart = data[partStart..index].Trim()
-                    .Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase);
+                var partKey = data[partStart..index].Trim();
+                isModelHierarchyPart = partKey.Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase);
             }
 
             if (isModelHierarchyPart) {
@@ -214,25 +224,217 @@ public class TokenomicsSettings
             parts.Add(finalPart);
         }
 
-        if (parts.Count == 0) {
+        return true;
+    }
+
+    private static bool TrySplitKeyValue(string part, out string key, out string value) {
+        var splitIndex = part.IndexOf('=');
+        if (splitIndex <= 0) {
+            key = string.Empty;
+            value = string.Empty;
             return false;
         }
 
-        var modelCostPrefix = nameof(ModelCostPerToken) + ".";
+        key = part[..splitIndex].Trim();
+        value = part[(splitIndex + 1)..].Trim();
+        return key.Length > 0;
+    }
 
-        foreach (var part in parts) {
-            var splitIndex = part.IndexOf('=');
-            if (splitIndex <= 0) {
+    private bool TryApplyPart(string part) {
+        if (!TrySplitKeyValue(part, out var key, out var value)) {
+            return false;
+        }
+
+        if (key.Equals(nameof(HostOptions), StringComparison.OrdinalIgnoreCase)) {
+            return TryParseHostOptions(value);
+        }
+
+        if (key.Equals(nameof(ModelHostOptions), StringComparison.OrdinalIgnoreCase)) {
+            return TryParseModelHostOptions(value);
+        }
+
+        if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)
+            || key.Equals(nameof(ModelLimitActions), StringComparison.OrdinalIgnoreCase)) {
+            if (!TrySplitKeyValue(value, out var encodedModel, out var encodedFields)) {
                 return false;
             }
 
-            var (key, value) = new[] { part }.KVStringPairs().Single();
+            var model = Uri.UnescapeDataString(encodedModel);
+            if (string.IsNullOrWhiteSpace(model)) {
+                return false;
+            }
 
-            if (key.StartsWith(modelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
-                var model = Uri.UnescapeDataString(key[modelCostPrefix.Length..]);
-                if (string.IsNullOrWhiteSpace(model)) {
+            object modelOptions;
+            if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)) {
+                if (!ModelLimits.TryGetValue(model, out var limits)) {
+                    limits = new TokenomicsLimits();
+                    ModelLimits[model] = limits;
+                }
+                modelOptions = limits;
+            } else {
+                if (!ModelLimitActions.TryGetValue(model, out var actions)) {
+                    actions = new TokenomicsLimitActions();
+                    ModelLimitActions[model] = actions;
+                }
+                modelOptions = actions;
+            }
+
+            var fieldNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var field in encodedFields.Split('|', StringSplitOptions.TrimEntries)) {
+                var fieldParts = field.Split(':', 2, StringSplitOptions.TrimEntries);
+                if (fieldParts.Length != 2 || !fieldNames.Add(fieldParts[0])
+                    || !TryParseScalar(fieldParts[0], fieldParts[1], modelOptions)) {
                     return false;
                 }
+            }
+            return true;
+        }
+
+        if (key.StartsWith(ModelCostPrefix, StringComparison.OrdinalIgnoreCase)) {
+            return TryParseModelCost(key[ModelCostPrefix.Length..], value);
+        }
+
+        var dotIndex = key.IndexOf('.');
+        if (dotIndex >= 0) {
+            var scope = SettableProperties.FirstOrDefault(property =>
+                property.Name.Equals(key[..dotIndex], StringComparison.OrdinalIgnoreCase)
+                && (property.Name is nameof(PremiumWorkloadLimits) or nameof(PremiumWorkloadLimitActions)
+                    or nameof(CriticalWorkloadLimits) or nameof(CriticalWorkloadLimitActions)));
+            return scope?.GetValue(this) is { } target
+                && TryParseScalar(key[(dotIndex + 1)..], value, target);
+        }
+
+        if (key.Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase)) {
+            return TryParseHierarchy(value);
+        }
+
+        if (key.Equals(nameof(DelayDuration), StringComparison.OrdinalIgnoreCase)) {
+            if (!TryParseDelayDuration(value, out var milliseconds)) {
+                return false;
+            }
+
+            DelayDuration = milliseconds;
+            return true;
+        }
+
+        return TryParseScalar(key, value);
+    }
+
+    private bool TryParseHostOptions(string value) {
+        if (!TrySplitKeyValue(value, out var encodedHost, out var encodedOptions)) {
+            return false;
+        }
+
+        var host = Uri.UnescapeDataString(encodedHost);
+        if (string.IsNullOrWhiteSpace(host)) {
+            return false;
+        }
+
+        if (!TryParseHostOptionValue(encodedOptions, out var hostOptions)) {
+            return false;
+        }
+
+        HostOptions[host] = hostOptions;
+        return true;
+    }
+
+    private bool TryParseModelHostOptions(string value) {
+        if (!TrySplitKeyValue(value, out var encodedModel, out var encodedHostOptions) ||
+            !TrySplitKeyValue(encodedHostOptions, out var encodedHost, out var encodedOptions)) {
+            return false;
+        }
+
+        var model = Uri.UnescapeDataString(encodedModel);
+        var host = Uri.UnescapeDataString(encodedHost);
+        if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(host) ||
+            !TryParseHostOptionValue(encodedOptions, out var hostOptions)) {
+            return false;
+        }
+
+        if (!ModelHostOptions.TryGetValue(model, out var modelHosts)) {
+            modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+            ModelHostOptions[model] = modelHosts;
+        }
+
+        modelHosts[host] = hostOptions;
+        return true;
+    }
+
+    private static bool TryParseHostOptionValue(string encodedOptions, out TokenomicsHostOptions hostOptions) {
+        hostOptions = null!;
+        bool? enabled = null;
+        var apis = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase);
+        foreach (var optionPart in encodedOptions.Split('|', StringSplitOptions.TrimEntries)) {
+            var optionFields = optionPart.Split(':', 5, StringSplitOptions.None);
+            if (optionFields.Length == 2 &&
+                optionFields[0].Equals(nameof(TokenomicsHostOptions.Enabled), StringComparison.OrdinalIgnoreCase)) {
+                if (enabled.HasValue || !bool.TryParse(optionFields[1], out var parsedEnabled)) {
+                    return false;
+                }
+
+                enabled = parsedEnabled;
+                continue;
+            }
+
+            if (optionFields.Length is >= 3 and <= 5 &&
+                optionFields[0].Equals("Api", StringComparison.OrdinalIgnoreCase)) {
+                var apiName = Uri.UnescapeDataString(optionFields[1]);
+                if (string.IsNullOrWhiteSpace(apiName) ||
+                    !bool.TryParse(optionFields[2], out var firstFlag) ||
+                    apis.ContainsKey(apiName)) {
+                    return false;
+                }
+
+                bool passThrough;
+                bool overridePath;
+                string? path;
+                if (optionFields.Length >= 4 && bool.TryParse(optionFields[3], out var secondFlag)) {
+                    passThrough = firstFlag;
+                    overridePath = secondFlag;
+                    path = optionFields.Length == 5
+                        ? Uri.UnescapeDataString(optionFields[4])
+                        : null;
+                    if ((passThrough && (overridePath || path is not null))
+                        || (overridePath && path is null)
+                        || (!overridePath && path is not null)) {
+                        return false;
+                    }
+                } else {
+                    var legacyPath = optionFields.Length == 4
+                        ? Uri.UnescapeDataString(optionFields[3])
+                        : null;
+                    passThrough = !firstFlag;
+                    overridePath = firstFlag && legacyPath is not null;
+                    path = overridePath ? legacyPath : null;
+                }
+
+                apis.Add(apiName, new TokenomicsApiOptions {
+                    PassThrough = passThrough,
+                    OverridePath = overridePath,
+                    Path = path
+                });
+                continue;
+            }
+
+            return false;
+        }
+
+        if (!enabled.HasValue) {
+            return false;
+        }
+
+        hostOptions = new TokenomicsHostOptions {
+            Enabled = enabled.Value,
+            APIs = apis
+        };
+        return true;
+    }
+
+    private bool TryParseModelCost(string encodedModel, string value) {
+        var model = Uri.UnescapeDataString(encodedModel);
+        if (string.IsNullOrWhiteSpace(model)) {
+            return false;
+        }
 
                 ModelTokenPricing modelPricing;
                 if (decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var legacyOutputCost)) {
@@ -280,20 +482,13 @@ public class TokenomicsSettings
                     };
                 }
 
-                ModelCostPerToken[model] = modelPricing;
-                continue;
-            }
+        ModelCostPerToken[model] = modelPricing;
+        return true;
+    }
 
-            var property = typeof(TokenomicsSettings).GetProperty(key,
-                BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-            if (property?.SetMethod is null) {
-                return false;
-            }
-
-            object parsedValue;
-            if (property.Name == nameof(ModelHierarchy)) {
-                var hierarchy = new Dictionary<string, List<string>>();
-                var hierarchyIndex = 0;
+    private bool TryParseHierarchy(string value) {
+        var hierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var hierarchyIndex = 0;
 
                 while (hierarchyIndex < value.Length) {
                     while (hierarchyIndex < value.Length && char.IsWhiteSpace(value[hierarchyIndex])) {
@@ -358,10 +553,14 @@ public class TokenomicsSettings
                     }
                 }
 
-                parsedValue = hierarchy;
-            } else if (property.Name == nameof(DelayDuration)) {
-                long totalMilliseconds;
-                if (value.EndsWith("ms", StringComparison.OrdinalIgnoreCase)) {
+        ModelHierarchy = hierarchy;
+        return true;
+    }
+
+    private static bool TryParseDelayDuration(string value, out int milliseconds) {
+        milliseconds = 0;
+        long totalMilliseconds;
+        if (value.EndsWith("ms", StringComparison.OrdinalIgnoreCase)) {
                     if (!long.TryParse(value[..^2], NumberStyles.None, CultureInfo.InvariantCulture,
                             out totalMilliseconds) ||
                         totalMilliseconds < 0 ||
@@ -408,9 +607,26 @@ public class TokenomicsSettings
                     }
                 }
 
-                parsedValue = (int)totalMilliseconds;
-            } else if (property.PropertyType == typeof(string)) {
-                parsedValue = Uri.UnescapeDataString(value);
+        milliseconds = (int)totalMilliseconds;
+        return true;
+    }
+
+    private bool TryParseScalar(string key, string value, object? target = null) {
+        var property = target is not null
+            ? target.GetType().GetProperty(key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
+            : typeof(TokenomicsSettings).GetProperty(key,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
+            ?? typeof(TokenomicsLimits).GetProperty(key,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
+            ?? typeof(TokenomicsLimitActions).GetProperty(key,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        if (property?.SetMethod is null) {
+            return false;
+        }
+
+        object parsedValue;
+        if (property.PropertyType == typeof(string)) {
+            parsedValue = Uri.UnescapeDataString(value);
             } else if (property.PropertyType == typeof(int) &&
                 int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue)) {
                 parsedValue = intValue;
@@ -438,56 +654,264 @@ public class TokenomicsSettings
                 return false;
             }
 
-            property.SetValue(this, parsedValue);
-        }
-
+        property.SetValue(target ?? (property.DeclaringType == typeof(TokenomicsLimits) ? (object)DefaultLimits
+            : property.DeclaringType == typeof(TokenomicsLimitActions) ? DefaultLimitActions : this), parsedValue);
         return true;
     }
 
-    /// <summary>Returns semicolon-separated key=value settings with period token limits and budgets, named actions, a clock-formatted delay, URI-escaped model names, model hierarchies, and invariant-culture numbers.</summary>
+    /// <summary>Returns semicolon-separated settings with dotted workload fields, unprefixed defaults, invariant numbers, named actions, URI-escaped names and paths, and model-host assignments.</summary>
     public override string ToString() {
         var parts = new List<string>();
-        foreach (var property in JsonSerializer.SerializeToElement(this, _serializerOptions).EnumerateObject()) {
-            if (property.Name is nameof(DefaultTenant) or nameof(DefaultModel)) {
-                parts.Add($"{property.Name}={Uri.EscapeDataString(property.Value.GetString() ?? string.Empty)}");
-            } else if (property.Name == nameof(DelayDuration)) {
-                if (DelayDuration < 0) {
-                    throw new InvalidOperationException($"{nameof(DelayDuration)} cannot be negative.");
-                }
+        foreach (var property in SettableProperties) {
+            if (property.GetIndexParameters().Length > 0 || property.GetMethod is null) {
+                continue;
+            }
 
-                var totalMinutes = DelayDuration / 60000;
-                var seconds = DelayDuration / 1000 % 60;
-                var milliseconds = DelayDuration % 1000;
-                var formattedDuration = totalMinutes > 0
-                    ? string.Create(CultureInfo.InvariantCulture,
-                        $"{totalMinutes:D2}:{seconds:D2}:{milliseconds:D3}")
-                    : string.Create(CultureInfo.InvariantCulture, $"{seconds:D2}:{milliseconds:D3}");
-                parts.Add($"{property.Name}={formattedDuration}");
-            } else if (property.Name == nameof(ModelCostPerToken)) {
-                foreach (var modelCost in property.Value.EnumerateObject()) {
-                    if (!ModelCostPerToken.TryGetValue(modelCost.Name, out var pricing) ||
-                        pricing.Input < 0 ||
-                        pricing.CachedInput < 0 ||
-                        pricing.Output < 0) {
-                        throw new InvalidOperationException(
-                            $"{nameof(ModelCostPerToken)} values cannot be null or negative.");
+            if (property.Name == nameof(DefaultLimits)) {
+                foreach (var limitProperty in typeof(TokenomicsLimits).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                    parts.Add($"{limitProperty.Name}={FormatScalar(limitProperty.GetValue(DefaultLimits)!)}");
+                }
+            } else if (property.Name == nameof(DefaultLimitActions)) {
+                foreach (var actionProperty in typeof(TokenomicsLimitActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                    parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultLimitActions)!)}");
+                }
+            } else if (property.PropertyType == typeof(TokenomicsLimits)
+                || property.PropertyType == typeof(TokenomicsLimitActions)) {
+                var scope = property.GetValue(this)
+                    ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
+                foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                    parts.Add($"{property.Name}.{field.Name}={FormatScalar(field.GetValue(scope)!)}");
+                }
+            } else if (property.Name is nameof(ModelLimits) or nameof(ModelLimitActions)) {
+                var modelOptions = property.Name == nameof(ModelLimits)
+                    ? ModelLimits.Select(entry => (Model: entry.Key, Value: (object)entry.Value))
+                    : ModelLimitActions.Select(entry => (Model: entry.Key, Value: (object)entry.Value));
+                foreach (var entry in modelOptions) {
+                    if (string.IsNullOrWhiteSpace(entry.Model) || entry.Value is null) {
+                        throw new InvalidOperationException($"{property.Name} model names and values cannot be null or whitespace.");
                     }
-
-                    parts.Add(
-                        $"{property.Name}.{Uri.EscapeDataString(modelCost.Name)}=" +
-                        $"{nameof(ModelTokenPricing.Input)}:{pricing.Input.ToString(CultureInfo.InvariantCulture)}|" +
-                        $"{nameof(ModelTokenPricing.CachedInput)}:{pricing.CachedInput.ToString(CultureInfo.InvariantCulture)}|" +
-                        $"{nameof(ModelTokenPricing.Output)}:{pricing.Output.ToString(CultureInfo.InvariantCulture)}");
+                    var fields = entry.Value.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                        .Select(field => $"{field.Name}:{FormatScalar(field.GetValue(entry.Value)!)}");
+                    parts.Add($"{property.Name}={Uri.EscapeDataString(entry.Model)}={string.Join("|", fields)}");
                 }
+            } else if (property.Name is nameof(DefaultTenant) or nameof(DefaultModel) or nameof(DefaultModelAPI)) {
+                parts.Add($"{property.Name}={Uri.EscapeDataString((string?)property.GetValue(this) ?? string.Empty)}");
+            } else if (property.Name == nameof(DelayDuration)) {
+                parts.Add($"{property.Name}={FormatDelayDuration()}");
+            } else if (property.Name == nameof(ModelCostPerToken)) {
+                FormatModelCosts(parts);
             } else if (property.Name == nameof(ModelHierarchy)) {
-                var hierarchy = string.Join(", ", ModelHierarchy.Select(entry =>
-                    $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
-                parts.Add($"{property.Name}={hierarchy}");
+                parts.Add($"{property.Name}={FormatHierarchy()}");
+            } else if (property.Name == nameof(HostOptions)) {
+                FormatHostOptions(parts);
+            } else if (property.Name == nameof(ModelHostOptions)) {
+                FormatModelHostOptions(parts);
             } else {
-                parts.Add($"{property.Name}={property.Value}");
+                var value = property.GetValue(this);
+                if (value is null) {
+                    continue;
+                }
+
+                parts.Add($"{property.Name}={FormatScalar(value)}");
             }
         }
 
         return string.Join("; ", parts);
+    }
+
+    private string FormatDelayDuration() {
+        if (DelayDuration < 0) {
+            throw new InvalidOperationException($"{nameof(DelayDuration)} cannot be negative.");
+        }
+
+        var totalMinutes = DelayDuration / 60000;
+        var seconds = DelayDuration / 1000 % 60;
+        var milliseconds = DelayDuration % 1000;
+        return totalMinutes > 0
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"{totalMinutes:D2}:{seconds:D2}:{milliseconds:D3}")
+            : string.Create(CultureInfo.InvariantCulture, $"{seconds:D2}:{milliseconds:D3}");
+    }
+
+    private void FormatModelCosts(List<string> parts) {
+        foreach (var (model, pricing) in ModelCostPerToken) {
+            if (pricing is null ||
+                pricing.Input < 0 ||
+                pricing.CachedInput < 0 ||
+                pricing.Output < 0) {
+                throw new InvalidOperationException(
+                    $"{nameof(ModelCostPerToken)} values cannot be null or negative.");
+            }
+
+            parts.Add(
+                $"{nameof(ModelCostPerToken)}.{Uri.EscapeDataString(model)}=" +
+                $"{nameof(ModelTokenPricing.Input)}:{pricing.Input.ToString(CultureInfo.InvariantCulture)}|" +
+                $"{nameof(ModelTokenPricing.CachedInput)}:{pricing.CachedInput.ToString(CultureInfo.InvariantCulture)}|" +
+                $"{nameof(ModelTokenPricing.Output)}:{pricing.Output.ToString(CultureInfo.InvariantCulture)}");
+        }
+    }
+
+    private string FormatHierarchy() {
+        return string.Join(", ", ModelHierarchy.Select(entry =>
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
+    }
+
+    private void FormatHostOptions(List<string> parts) {
+        foreach (var (host, hostOptions) in HostOptions) {
+            if (string.IsNullOrWhiteSpace(host)) {
+                throw new InvalidOperationException(
+                    $"{nameof(HostOptions)} host names cannot be null or whitespace.");
+            }
+
+            parts.Add(
+                $"{nameof(HostOptions)}={Uri.EscapeDataString(host)}=" +
+                FormatHostOptionValue(nameof(HostOptions), hostOptions));
+        }
+    }
+
+    private void FormatModelHostOptions(List<string> parts) {
+        foreach (var (model, modelHosts) in ModelHostOptions) {
+            if (string.IsNullOrWhiteSpace(model) || modelHosts is null) {
+                throw new InvalidOperationException(
+                    $"{nameof(ModelHostOptions)} model names and host maps cannot be null or whitespace.");
+            }
+
+            foreach (var (host, hostOptions) in modelHosts) {
+                if (string.IsNullOrWhiteSpace(host)) {
+                    throw new InvalidOperationException(
+                        $"{nameof(ModelHostOptions)} host names cannot be null or whitespace.");
+                }
+
+                parts.Add(
+                    $"{nameof(ModelHostOptions)}={Uri.EscapeDataString(model)}={Uri.EscapeDataString(host)}=" +
+                    FormatHostOptionValue(nameof(ModelHostOptions), hostOptions));
+            }
+        }
+    }
+
+    private static string FormatHostOptionValue(string settingName, TokenomicsHostOptions hostOptions) {
+        if (hostOptions is null || hostOptions.APIs is null) {
+            throw new InvalidOperationException($"{settingName} option values cannot be null.");
+        }
+
+        var optionParts = new List<string> {
+            $"{nameof(TokenomicsHostOptions.Enabled)}:{hostOptions.Enabled.ToString().ToLowerInvariant()}"
+        };
+        foreach (var (apiName, apiOptions) in hostOptions.APIs) {
+            if (string.IsNullOrWhiteSpace(apiName) || apiOptions is null) {
+                throw new InvalidOperationException(
+                    $"{settingName} API names and option values cannot be null or whitespace.");
+            }
+
+            var passThrough = apiOptions.PassThrough;
+            var overridePath = !passThrough && apiOptions.OverridePath && apiOptions.Path is not null;
+            var apiPart =
+                $"Api:{Uri.EscapeDataString(apiName)}:{passThrough.ToString().ToLowerInvariant()}:{overridePath.ToString().ToLowerInvariant()}";
+            if (overridePath) {
+                apiPart += $":{Uri.EscapeDataString(apiOptions.Path!)}";
+            }
+
+            optionParts.Add(apiPart);
+        }
+
+        return string.Join("|", optionParts);
+    }
+
+    private static string FormatScalar(object value) {
+        if (value is Enum enumValue) {
+            var name = enumValue.ToString();
+            return name.Length == 0
+                ? name
+                : char.ToLowerInvariant(name[0]) + name[1..];
+        }
+
+        return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private TokenomicsSettings CloneForParse() {
+        var clone = (TokenomicsSettings)MemberwiseClone();
+        foreach (var property in SettableProperties.Where(property =>
+            property.PropertyType == typeof(TokenomicsLimits) || property.PropertyType == typeof(TokenomicsLimitActions))) {
+            var source = property.GetValue(this)
+                ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
+            object scope = property.PropertyType == typeof(TokenomicsLimits)
+                ? new TokenomicsLimits() : new TokenomicsLimitActions();
+            foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                field.SetValue(scope, field.GetValue(source));
+            }
+            property.SetValue(clone, scope);
+        }
+        clone.ModelLimits = ModelLimits.ToDictionary(entry => entry.Key, entry => new TokenomicsLimits {
+            MonthlyTokenLimit = entry.Value.MonthlyTokenLimit,
+            DailyTokenLimit = entry.Value.DailyTokenLimit,
+            HourlyTokenLimit = entry.Value.HourlyTokenLimit,
+            HourlyBudgetUsd = entry.Value.HourlyBudgetUsd,
+            DailyBudgetUsd = entry.Value.DailyBudgetUsd,
+            MonthlyBudgetUsd = entry.Value.MonthlyBudgetUsd
+        }, ModelLimits.Comparer);
+        clone.ModelLimitActions = ModelLimitActions.ToDictionary(entry => entry.Key, entry => new TokenomicsLimitActions {
+            HourlyLimitAction = entry.Value.HourlyLimitAction,
+            DailyLimitAction = entry.Value.DailyLimitAction,
+            MonthlyLimitAction = entry.Value.MonthlyLimitAction,
+            HourlyBudgetExceededAction = entry.Value.HourlyBudgetExceededAction,
+            DailyBudgetExceededAction = entry.Value.DailyBudgetExceededAction,
+            MonthlyBudgetExceededAction = entry.Value.MonthlyBudgetExceededAction
+        }, ModelLimitActions.Comparer);
+        clone.ModelCostPerToken = new Dictionary<string, ModelTokenPricing>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in ModelCostPerToken) {
+            clone.ModelCostPerToken[pair.Key] = new ModelTokenPricing {
+                Input = pair.Value.Input,
+                CachedInput = pair.Value.CachedInput,
+                Output = pair.Value.Output
+            };
+        }
+
+        clone.ModelHierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in ModelHierarchy) {
+            clone.ModelHierarchy[pair.Key] = [.. pair.Value];
+        }
+
+        clone.HostOptions = new Dictionary<string, TokenomicsHostOptions>(HostOptions.Comparer);
+        foreach (var (host, hostOptions) in HostOptions) {
+            clone.HostOptions[host] = CloneHostOptions(hostOptions);
+        }
+
+        clone.ModelHostOptions = new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(
+            ModelHostOptions.Comparer);
+        foreach (var (model, modelHosts) in ModelHostOptions) {
+            var clonedHosts = new Dictionary<string, TokenomicsHostOptions>(modelHosts.Comparer);
+            foreach (var (host, hostOptions) in modelHosts) {
+                clonedHosts[host] = CloneHostOptions(hostOptions);
+            }
+            clone.ModelHostOptions[model] = clonedHosts;
+        }
+
+        return clone;
+    }
+
+    private static TokenomicsHostOptions CloneHostOptions(TokenomicsHostOptions hostOptions) {
+        var clonedApis = new Dictionary<string, TokenomicsApiOptions>(hostOptions.APIs.Comparer);
+        foreach (var (apiName, apiOptions) in hostOptions.APIs) {
+            clonedApis[apiName] = new TokenomicsApiOptions {
+                PassThrough = apiOptions.PassThrough,
+                OverridePath = apiOptions.OverridePath,
+                Path = apiOptions.Path
+            };
+        }
+
+        return new TokenomicsHostOptions {
+            Enabled = hostOptions.Enabled,
+            APIs = clonedApis
+        };
+    }
+
+    private void CopyFrom(TokenomicsSettings source) {
+        foreach (var property in SettableProperties) {
+            if (property.SetMethod is null) {
+                continue;
+            }
+
+            property.SetValue(this, property.GetValue(source));
+        }
     }
 }

@@ -6,9 +6,26 @@ using SimpleL7Proxy.Tokenomics;
 
 namespace SimpleL7Proxy.Config;
 
+/// <summary>Defines how configured header validation values are matched.</summary>
+public enum HeaderValidationMatchType
+{
+    Exact,
+    PrefixWildcard
+}
+
+/// <summary>Defines one incoming request header validation rule.</summary>
+public sealed class HeaderValidationRule
+{
+    public string HeaderName { get; set; } = string.Empty;
+    public HeaderValidationMatchType MatchType { get; set; } = HeaderValidationMatchType.Exact;
+    public List<string> AllowedValues { get; set; } = [];
+    public string? AllowedValuesHeader { get; set; }
+}
+
 // Each parameter is available to use as a config setting with the following metadata:
 // ConfigName is only needed when the env var / config key differs from the
 // C# property name.  When omitted, the property name is used as-is.
+// Sensitive (defaults to false) masks the value in configuration diagnostics.
 //
 // Mode (defaults to Warm):
 //   Warm   — hot-reloaded from App Configuration (~30 s), no restart needed.
@@ -44,7 +61,7 @@ public class ProxyConfig
 
     // ── Load Balancing ──
     [ConfigOption("LoadBalancing:IterationMode")]
-    public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
+    public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.MultiPass;
     [ConfigOption("LoadBalancing:Mode")]
     public string LoadBalanceMode { get; set; } = Constants.Latency;
     /// <summary>Maximum backend attempts in MultiPass mode. Set to 0 to disable the attempt-count limit.</summary>
@@ -67,7 +84,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToConsole")]
     public List<string> LogToConsole { get; set; } = ["*", "-custom"];
     [ConfigOption("Logging:LogToEvents")]
-    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
+    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth", "tokenomics"];
 
     // ── Profiles ──
     [ConfigOption("Profiles:Auth:ConfigUrl")]
@@ -81,9 +98,9 @@ public class ProxyConfig
 
     [ConfigOption("Profiles:Auth:Config")]
     public string ValidateAuthConfig { get; set; } = "enabled=false, mode=none, header=S7P-KEY";
-    [ConfigOption("Profiles:Auth:Key1")]
+    [ConfigOption("Profiles:Auth:Key1", Sensitive = true)]
     public string ValidateAuthKey1 { get; set; } = "";
-    [ConfigOption("Profiles:Auth:Key2")]
+    [ConfigOption("Profiles:Auth:Key2", Sensitive = true)]
     public string ValidateAuthKey2 { get; set; } = "";
 
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
@@ -119,7 +136,7 @@ public class ProxyConfig
     [ConfigOption("Request:Headers:UniqueUserHeaders")]
     public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
     [ConfigOption("Request:Headers:ValidateHeaders")]
-    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
+    public List<HeaderValidationRule> ValidateHeaders { get; set; } = [];
     [ConfigOption("Request:Priority:DefaultPriority")]
     public int DefaultPriority { get; set; } = 2;
     [ConfigOption("Request:Priority:GreedyUserThreshold")]
@@ -158,7 +175,7 @@ public class ProxyConfig
     // ════════════════════════════════════════════════════════════════════
 
     // ── Async ──
-    [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold, Sensitive = true)]
     public string AsyncBlobStorageConfig { get; set; } = "";//"uri=https://mystorageaccount.blob.core.windows.net,mi=true";
     [ConfigOption("Async:Storage:Workers", ConfigName = "AsyncBlobWorkerCount", Mode = ConfigMode.Cold)]
     public int AsyncBlobWorkerCount { get; set; } = 2;
@@ -176,7 +193,7 @@ public class ProxyConfig
     public string AsyncClassNames { get; set; } = "";
     [ConfigOption("Async:Enabled", ConfigName = "AsyncModeEnabled", Mode = ConfigMode.Cold)]
     public bool AsyncModeEnabled { get; set;  } = false;
-    [ConfigOption("Async:ServiceBus:Config", ConfigName = "AsyncSBConfig", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:ServiceBus:Config", ConfigName = "AsyncSBConfig", Mode = ConfigMode.Cold, Sensitive = true)]
     public string AsyncSBConfig { get; set; } = "cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false";
     [ConfigOption("Async:Storage:ContainerName", ConfigName = "StorageDbContainerName", Mode = ConfigMode.Cold)]
     public string StorageDbContainerName { get; set; } = "Requests";
@@ -191,11 +208,11 @@ public class ProxyConfig
     public int SuccessRate { get; set; } = 80;
 
     // ── Logging ──
-    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold, Sensitive = true)]
     public string AppInsightsConnectionString { get; set; } = "";
     [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
     public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
-    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold, Sensitive = true)]
     public string EventHubConnectionString { get; set; } = "";
     [ConfigOption("Logging:EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
     public int EventHubMaxReconnectAttempts { get; set; } = 5;
@@ -274,7 +291,7 @@ public class ProxyConfig
 
     // ── Parsed from AsyncBlobStorageConfig ──
     [ParsedConfig("AsyncBlobStorageConfig")]
-    [ConfigOption("Async:BlobStorageConnectionString", Mode = ConfigMode.Hidden)]
+    [ConfigOption("Async:BlobStorageConnectionString", Mode = ConfigMode.Hidden, Sensitive = true)]
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string";
     [ParsedConfig("AsyncBlobStorageConfig")]
     [ConfigOption("Async:BlobStorageUseMI", Mode = ConfigMode.Hidden)]
@@ -285,7 +302,7 @@ public class ProxyConfig
 
     // ── Parsed from AsyncSBConfig ──
     [ParsedConfig("AsyncSBConfig")]
-    [ConfigOption("Async:SBConnectionString", Mode = ConfigMode.Hidden)]
+    [ConfigOption("Async:SBConnectionString", Mode = ConfigMode.Hidden, Sensitive = true)]
     public string AsyncSBConnectionString { get; set; } = "example-sb-connection-string";
     [ParsedConfig("AsyncSBConfig")]
     [ConfigOption("Async:SBQueue", Mode = ConfigMode.Hidden)]
@@ -306,7 +323,7 @@ public class ProxyConfig
     // ── App Config ──
     [ConfigOption("AppConfig:Endpoint", ConfigName = "AZURE_APPCONFIG_ENDPOINT", Mode = ConfigMode.Hidden)]
     public string? AppConfigEndpoint { get; set; }
-    [ConfigOption("AppConfig:ConnectionString", ConfigName = "AZURE_APPCONFIG_CONNECTION_STRING", Mode = ConfigMode.Hidden)]
+    [ConfigOption("AppConfig:ConnectionString", ConfigName = "AZURE_APPCONFIG_CONNECTION_STRING", Mode = ConfigMode.Hidden, Sensitive = true)]
     public string? AppConfigConnectionString { get; set; }
     [ConfigOption("AppConfig:Label", ConfigName = "AZURE_APPCONFIG_LABEL", Mode = ConfigMode.Hidden)]
     public string? AppConfigLabel { get; set; }
@@ -349,6 +366,8 @@ public class ProxyConfig
     public Dictionary<int, int> PriorityWorkerDict { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
     public string CompleteIDstr { get; set; } = "";
+    internal HashSet<string> ValidationRequiredHeaders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    internal HashSet<string> ValidationDisallowedHeaders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Creates a deep copy of this instance. Scalar properties are copied directly;
@@ -375,9 +394,17 @@ public class ProxyConfig
         clone.StripRequestHeaders = new List<string>(StripRequestHeaders);
         clone.StripResponseHeaders = new List<string>(StripResponseHeaders);
         clone.UniqueUserHeaders = new List<string>(UniqueUserHeaders);
-        clone.ValidateHeaders = new Dictionary<string, string>(ValidateHeaders);
+        clone.ValidateHeaders = ValidateHeaders.Select(rule => new HeaderValidationRule
+        {
+            HeaderName = rule.HeaderName,
+            MatchType = rule.MatchType,
+            AllowedValues = new List<string>(rule.AllowedValues),
+            AllowedValuesHeader = rule.AllowedValuesHeader
+        }).ToList();
         clone.PriorityWorkerDict = new Dictionary<int, int>(PriorityWorkerDict);
         clone.Hosts = new List<HostConfig>(Hosts);
+        clone.ValidationRequiredHeaders = new HashSet<string>(ValidationRequiredHeaders, StringComparer.OrdinalIgnoreCase);
+        clone.ValidationDisallowedHeaders = new HashSet<string>(ValidationDisallowedHeaders, StringComparer.OrdinalIgnoreCase);
 
         return clone;
     }
@@ -433,6 +460,12 @@ public class ProxyConfig
                       string.Join(",", ((Dictionary<string, string>)currentValue!).Select(kvp => $"{kvp.Key}={kvp.Value}")))
                      .ToListOfString()
                      .KVStringPairs(),
+            _ when type == typeof(List<HeaderValidationRule>)
+                  => ConfigParser.ParseHeaderValidationRules(
+                      ConfigParser.ReadEnvironmentVariableOrDefault(
+                          incomingSettings,
+                          configKey,
+                          ConfigParser.SerializeHeaderValidationRules((List<HeaderValidationRule>)currentValue!))),
             _ when type.IsEnum
                 => Enum.TryParse(type, ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, currentValue!.ToString()!), true, out var parsed)
                     ? parsed : currentValue,
@@ -440,5 +473,13 @@ public class ProxyConfig
         };
 
         prop.SetValue(this, resolved);
+        if (string.Equals(propertyName, nameof(RequiredHeaders), StringComparison.Ordinal))
+        {
+            ValidationRequiredHeaders.Clear();
+        }
+        else if (string.Equals(propertyName, nameof(DisallowedHeaders), StringComparison.Ordinal))
+        {
+            ValidationDisallowedHeaders.Clear();
+        }
     }
 }

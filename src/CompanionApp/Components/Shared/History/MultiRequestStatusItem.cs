@@ -54,4 +54,7 @@ public sealed class MultiRequestStatusItem
 
     /// <summary>EventHub-only: backend attempts used for the Endpoints card aggregation.</summary>
     public IReadOnlyList<BackendCallRecord> BackendCalls { get; set; } = Array.Empty<BackendCallRecord>();
+
+    /// <summary>Usage normalized by the observability publisher; null identifies an unnormalized row.</summary>
+    public IReadOnlyDictionary<string, long>? ObservedUsageMetrics { get; set; }
 }

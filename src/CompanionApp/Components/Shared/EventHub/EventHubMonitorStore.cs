@@ -3,9 +3,8 @@ namespace CompanionApp.Components.Shared;
 /// <summary>
 /// Server-side singleton that holds live Event Hub monitor state. The Event Hub reader
 /// (added later, top-down) pushes updates in through the <c>Update*</c>/<c>Add*</c> methods.
-/// Blazor circuits subscribe to <see cref="Changed"/> and pull an immutable
-/// <see cref="MonitorSnapshot"/> on their own cadence (typically every few seconds) rather
-/// than re-rendering on every event.
+/// The observability publisher captures this ingestion state on one server-wide cadence.
+/// Blazor circuits subscribe to the publisher rather than this store's per-ingest signals.
 ///
 /// Backend health and fleet info reflect only the latest reported values. Requests are
 /// retained in memory for <see cref="RequestRetention"/> and then purged.
@@ -20,6 +19,10 @@ public sealed class EventHubMonitorStore
 
     private readonly TimeProvider _time;
     private readonly object _gate = new();
+
+    // The reader holds this across lifecycle mutation and catalog ingestion; publication
+    // takes the same gate so one snapshot cannot contain only half of an incoming event.
+    internal object IngestionGate { get; } = new();
 
     // Requests are stored oldest-first so purging removes from the front.
     private readonly LinkedList<TimedRequest> _requests = new();
@@ -320,7 +323,7 @@ public sealed class EventHubMonitorStore
 
     // ── Snapshot API (called by the UI) ──
 
-    /// <summary>Produces an immutable snapshot of the current state, purging expired requests first.</summary>
+    /// <summary>Captures current aggregates and writer-owned request references, purging expired requests first.</summary>
     public MonitorSnapshot GetSnapshot()
     {
         lock (_gate)

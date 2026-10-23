@@ -8,7 +8,10 @@
 @inject NavigationManager Navigation
 @using Azure
 @using Azure.Identity
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
 @using CompanionApp.Components.Shared
+@using CompanionApp.Components.Widgets.AppConfiguration
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.JSInterop
 
@@ -16,7 +19,7 @@
 <HeadContent>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
 </HeadContent>
-<NavigationLock ConfirmExternalNavigation="@HasPendingChanges" OnBeforeInternalNavigation="BeforeNavigationAsync" />
+<NavigationLock ConfirmExternalNavigation="@(HasPendingChanges || _profileFileState.IsDirty)" OnBeforeInternalNavigation="BeforeNavigationAsync" />
 
 <SectionContent SectionName="page-heading">
     <div class="d-flex align-items-center gap-2">
@@ -24,14 +27,39 @@
     </div>
 </SectionContent>
 
+<div class="app-configuration-page">
 <div class="config-admin-shell @(!_editingLabel ? "config-selection-shell" : string.Empty)">
+    @if (IsLoading || HasLoadError)
+    {
+        <div class="config-load-banner" role="status" aria-live="polite" aria-atomic="true">
+            @if (IsLoading)
+            {
+                <span class="spinner-border config-load-spinner" aria-hidden="true"></span>
+                <div>
+                    <strong>@(StatusMessage.StartsWith("Updating", StringComparison.Ordinal) ? "Updating configuration..." : "Loading configuration...")</strong>
+                    <p>@StatusMessage</p>
+                </div>
+            }
+            else
+            {
+                <span class="bi @(HasLoadError ? "bi-exclamation-triangle" : "bi-check-circle") config-load-indicator" aria-hidden="true"></span>
+                <div>
+                    <strong>@(HasLoadError ? "Configuration could not be refreshed" : "Configuration ready")</strong>
+                    <p>@(HasLoadError ? StatusMessage : $"Configure {LabelDisplay(Label)} using the sections below.")</p>
+                </div>
+            }
+        </div>
+    }
+    <div class="config-details-surface @(IsLoading ? "is-loading" : string.Empty)"
+         aria-busy="@(IsLoading ? "true" : "false")" inert="@(IsLoading ? string.Empty : null)">
     @if (_editingLabel)
     {
         <div class="config-label-toolbar">
+            <h2 class="config-details-heading">Configuration Details</h2>
             <button class="btn btn-outline-secondary" type="button" disabled="@IsLoading" @onclick="BackToLabelsAsync">
-                <span class="bi bi-chevron-left me-1" aria-hidden="true"></span>Back to Labels
+                <span class="bi bi-chevron-left me-1" aria-hidden="true"></span>Back to Configurations
             </button>
-            <h2 class="h5 mb-0 text-break">@LabelDisplay(Label)</h2>
+            <span class="config-current-label text-break">@LabelDisplay(Label)</span>
             @if (HasPendingChanges)
             {
                 <span class="badge text-bg-warning">Unsaved Changes</span>
@@ -40,10 +68,29 @@
             {
                 <span class="badge text-bg-secondary">New Label</span>
             }
+            <div class="config-connection-actions ms-auto">
+                <span class="config-connection-caption">App Config:</span>
+                <button class="btn btn-outline-secondary config-icon-button" type="button" title="App Configuration settings" aria-label="App Configuration settings"
+                        aria-expanded="@(_showEndpointSettings ? "true" : "false")" aria-controls="config-connection-form"
+                        disabled="@IsLoading" @onclick="() => _showEndpointSettings = !_showEndpointSettings">
+                    <span class="bi bi-gear" aria-hidden="true"></span>
+                </button>
+                <button class="btn btn-outline-secondary config-icon-button" type="button"
+                        title="@(HasPendingChanges ? "Save or discard local changes before refreshing." : "Refresh the current configuration.")" aria-label="Refresh current configuration"
+                        disabled="@(IsLoading || HasPendingChanges)" @onclick="LoadSettingsAsync">
+                    <span class="bi bi-arrow-clockwise" aria-hidden="true"></span>
+                </button>
+                @if (IsLoading || Settings.Count > 0)
+                {
+                    <button class="btn btn-outline-warning text-nowrap" type="button" disabled="@IsLoading" @onclick="ResetToDefaultsAsync">
+                        <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset to defaults
+                    </button>
+                }
+            </div>
         </div>
     }
     <div class="config-header-bar @(!_editingLabel && LabelsReady && !_showEndpointSettings ? "config-header-collapsed" : string.Empty)">
-        @if (LabelsReady)
+        @if (LabelsReady && !_editingLabel)
         {
             <div class="config-connection-actions">
                 <span class="config-connection-caption">App Config:</span>
@@ -58,12 +105,13 @@
                 </button>
             </div>
         }
-        @if (!LabelsReady || _showEndpointSettings)
+        @if ((!LabelsReady && !_editingLabel) || _showEndpointSettings)
         {
         <div id="config-connection-form" class="config-header-row">
         <div class="config-header-endpoint">
-            <label class="form-label small mb-1" for="config-endpoint">App Configuration URL</label>
-            <ConfigurationHelp Section="General" Topic="App Configuration URL" />
+            <ConfigurationHelp Section="General" Topic="App Configuration URL">
+                <label class="form-label small mb-1" for="config-endpoint">App Configuration URL</label>
+            </ConfigurationHelp>
             <input id="config-endpoint" class="form-control form-control-sm" type="url"
                      disabled="@(_editingLabel || IsLoading)"
                    placeholder="https://&lt;store&gt;.azconfig.io" @bind="Endpoint" @bind:event="oninput" />
@@ -84,14 +132,19 @@
         {
         <div class="config-header-row">
         <span class="small config-header-status @(HasLoadError ? "text-danger" : "text-muted")" role="status">
-            @if (_editingLabel && !IsLoading && !HasLoadError && Settings.Count > 0)
+            @if (_editingLabel && IsLoading)
+            {
+                <text>Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "Loading...")</text>
+            }
+            else if (_editingLabel && !HasLoadError && Settings.Count > 0)
             {
                 @if (!string.IsNullOrEmpty(StatusMessage))
                 {
                     <text>@StatusMessage · </text>
                 }
-                <text>Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "(not found)")</text>
-                <ConfigurationHelp Section="General" Topic="Sentinel" />
+                <ConfigurationHelp Section="General" Topic="Sentinel">
+                    Sentinel: @(Settings.FirstOrDefault(setting => string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))?.LoadedValue ?? "(not found)")
+                </ConfigurationHelp>
             }
             else
             {
@@ -104,16 +157,21 @@
             {
                 <button class="btn btn-outline-secondary" type="button" @onclick='() => SelectSection("Hosts")'><span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Add Host</button>
             }
-            <button class="btn btn-sm btn-outline-warning text-nowrap" type="button" @onclick="ResetToDefaultsAsync">
-                <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset to defaults
-            </button>
+        }
+        @if (_editingLabel && _lastLoadedAtUtc is { } loadedAt)
+        {
+            <span class="config-last-loaded">Last loaded: @loadedAt.ToString("MMM d, yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) UTC</span>
+        }
+        else if (_editingLabel)
+        {
+            <span class="config-last-loaded">Last loaded: --</span>
         }
         @if (_editingLabel && HasPendingChanges)
         {
             <div class="d-flex align-items-center gap-2 ms-auto">
                 <button class="btn btn-sm btn-warning text-nowrap" type="button"
                         disabled="@IsLoading" @onclick='() => SelectSection("Local change review")'>
-                    <span class="bi bi-list-check me-1" aria-hidden="true"></span>@ChangedCount @(ChangedCount == 1 ? "setting changed" : "settings changed")
+                    <span class="bi bi-list-check me-1" aria-hidden="true"></span>@PendingReviewLabel
                 </button>
                 <button class="btn btn-primary btn-sm text-nowrap" type="button" disabled="@IsLoading" @onclick="UpdateSettingsAsync">
                     <span class="bi bi-cloud-upload me-1" aria-hidden="true"></span>Update
@@ -192,98 +250,121 @@
         </section>
     }
 
+    @if (_editingLabel && IsLoading && Settings.Count == 0)
+    {
+        <div class="config-section-grid" aria-label="Configuration sections loading">
+            <AppConfigurationProxyRuntimeWidget IsLoading="true" />
+            <AppConfigurationBackendRoutingWidget IsLoading="true" />
+            @foreach (var section in new[] {
+                (Name: "Async", Icon: "bi-gear-fill"),
+                (Name: "Backend Resilience", Icon: "bi-shield-fill-check"),
+                (Name: "Hosts", Icon: "bi-database-fill"),
+                (Name: "Header Policy", Icon: "bi-file-earmark-text-fill"),
+                (Name: "Identity & Access", Icon: "bi-shield-check"),
+                (Name: "Logging", Icon: "bi-file-earmark-text-fill"),
+                (Name: "Request Processing", Icon: "bi-cpu-fill"), (Name: "Server", Icon: "bi-hdd-stack-fill")
+            })
+            {
+                <AppConfigurationSectionWidget Section="@(section.Name)" Icon="@(section.Icon)" IsLoading="true">
+                    <SummaryContent>
+                        <span class="config-skeleton-line" aria-hidden="true"></span>
+                        <span class="config-skeleton-line config-skeleton-short" aria-hidden="true"></span>
+                    </SummaryContent>
+                </AppConfigurationSectionWidget>
+            }
+        </div>
+        <section class="config-tokenomics-page tokenomics-configuration" aria-labelledby="tokenomics-configuration-heading">
+            <h2 id="tokenomics-configuration-heading" class="h5">Tokenomics</h2>
+            <div class="tokenomics-summary-grid" aria-label="Tokenomics settings loading">
+                @foreach (var name in new[] { "Limits & Budgets", "Request Priority", "Capacity & Queues", "Model Routing", "Model Costs" })
+                {
+                    <button type="button" class="tokenomics-summary-card @(name is "Model Routing" or "Model Costs" ? "tokenomics-summary-wide" : null)" disabled
+                            aria-label="@($"{name} settings loading")">
+                        <span class="tokenomics-summary-heading">@name</span>
+                        <span class="config-skeleton-line" aria-hidden="true"></span>
+                        <span class="config-skeleton-line config-skeleton-short" aria-hidden="true"></span>
+                    </button>
+                }
+            </div>
+        </section>
+    }
     @if (_editingLabel && Settings.Count > 0)
     {
-        <div class="config-section-grid">
-            @foreach (var group in VisibleGroups)
-            {
-                var changedInSection = group.Count(setting => setting.IsChanged);
-                <div class="config-section-tile">
-                <button type="button" class="config-section-box @(changedInSection > 0 ? "is-changed" : string.Empty)"
-                    title='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{group.Key}"] ?? $"Edit {group.Key} settings.")'
-                        @onclick="() => SelectSection(group.Key)">
-                    <span class="config-box-title">@group.Key</span>
-                    @if (string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta">@group.Count() @(group.Count() == 1 ? "host" : "hosts")</span>
-                    }
-                    else if (IsHealthProbeSectionName(group.Key))
-                    {
-                        <span class="config-box-meta">@(group.FirstOrDefault() is { } probe && HealthProbeEditor.IsEnabled(probe) ? "Enabled" : "Disabled")</span>
-                    }
-                    else if (IsTokenomicsSectionName(group.Key))
-                    {
-                        <span class="config-box-meta">@(TokenomicsEditor.IsEnabled(group) ? "Enabled" : "Disabled")</span>
-                    }
-                    else if (IsCircuitBreakerSectionName(group.Key))
-                    {
-                        <span class="config-box-meta">@CircuitBreakerEditor.Summary(group)</span>
-                    }
-                    else if (IsLoadBalancingSectionName(group.Key))
-                    {
-                        <span class="config-box-meta">@LoadBalancingEditor.Summary(group)</span>
-                    }
-                    else if (string.Equals(group.Key, "Logging", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <span class="config-box-meta text-break">@LoggingEditor.Summary(group)</span>
-                    }
-                    else if (string.Equals(group.Key, "Response", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var defaultStatusCodes = new HashSet<int> { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 };
-                        var nonDefaultCount = group.Count(setting =>
-                        {
-                            var values = setting.DraftValue.Trim().Trim('[', ']')
-                                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                .Select(value => value.Trim().Trim('"'))
-                                .Where(value => value.Length > 0)
-                                .ToArray();
-                            return setting.Name.Equals("AcceptableStatusCodes", StringComparison.OrdinalIgnoreCase)
-                                ? !defaultStatusCodes.SetEquals(values.Select(value => int.TryParse(value, out var statusCode) ? statusCode : -1))
-                                : setting.Name.Equals("StripResponseHeaders", StringComparison.OrdinalIgnoreCase) && values.Length > 0;
-                        });
-                        <span class="config-box-meta">@(nonDefaultCount == 0 ? "Defaults" : $"{nonDefaultCount} non-default {(nonDefaultCount == 1 ? "setting" : "settings")}")</span>
-                    }
-                    else
-                    {
-                        <span class="config-box-meta">@group.Count() settings</span>
-                    }
-                    @if (changedInSection > 0)
-                    {
-                        <span class="badge text-bg-warning config-box-badge">@changedInSection changed</span>
-                    }
-                </button>
-                <div class="config-section-help"><ConfigurationHelp Section="@group.Key" /></div>
+        var tokenomicsSettings = Settings.Where(setting => IsTokenomicsSectionName(setting.Section)).ToList();
+        var configuredHosts = Settings
+            .Where(setting => string.Equals(setting.Section, "Hosts", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(setting => setting.DraftName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        <AppConfigurationSectionsWidget Groups="VisibleGroups" IsLoading="IsLoading" OnSelected="SelectSection" />
+
+        <div class="tokenomics-configuration">
+            <section class="config-tokenomics-page tokenomics-configuration" aria-label="Tokenomics configuration" aria-busy="@(IsLoading ? "true" : "false")">
+                <fieldset class="config-tokenomics-fields" disabled="@IsLoading">
+                    <TokenomicsEditor Settings="tokenomicsSettings" Hosts="configuredHosts"
+                        OnChanged="StateHasChanged" @key="Settings" />
+                </fieldset>
+            </section>
+            <div class="config-tokenomics-save-bar">
+                <div class="config-tokenomics-save-status" role="status">
+                    <span class="bi @(HasPendingChanges ? "bi-pencil-square" : "bi-check-circle-fill")" aria-hidden="true"></span>
+                    <span>@PendingChangesText</span>
                 </div>
-            }
-            @if (!VisibleGroups.Any(group => string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase)))
-            {
-                <div class="config-section-tile">
-                <button type="button" class="config-section-box"
-                    title='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:Hosts"] ?? "Edit Hosts settings.")'
-                        @onclick='() => SelectSection("Hosts")'>
-                    <span class="config-box-title">Hosts</span>
-                    <span class="config-box-meta">0 hosts</span>
-                </button>
-                <div class="config-section-help"><ConfigurationHelp Section="Hosts" /></div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" disabled="@(IsLoading || !HasPendingChanges)"
+                            title="Discard all local changes for this configuration" @onclick="ResetAll">Discard</button>
+                    <button type="button" class="btn btn-primary" disabled="@(IsLoading || !HasPendingChanges)" @onclick="UpdateSettingsAsync">Save changes</button>
                 </div>
-            }
+            </div>
         </div>
 
         @if (SelectedSection is not null)
         {
-            <CascadingValue TValue="bool" Name="ShowConfigurationDetails" Value="_showConfigurationDetails">
-            <div class="config-modal-backdrop" @onclick="CloseSection">
-                <div class="config-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@SelectedSection settings">
-                    <div class="config-modal-header">
+            <AppConfigurationSectionWidget Section="@SelectedSection" IsExpanded="true" OnClose="CloseSection">
+                <HeaderContent>
                         <div>
                             <div class="d-flex align-items-center flex-wrap gap-2">
-                                <h2 class="h5 mb-0">@SelectedSection</h2>
+                                @if (IsHeaderPolicySection)
+                                {
+                                    <span class="bi bi-file-earmark-text-fill fs-4 text-primary" aria-hidden="true"></span>
+                                }
+                                else if (IsRequestProcessingSection)
+                                {
+                                    <span class="bi bi-arrow-left-right fs-4 text-primary" aria-hidden="true"></span>
+                                }
+                                else if (IsBackendResilienceSection)
+                                {
+                                    <span class="bi bi-shield-fill-check fs-4 text-primary" aria-hidden="true"></span>
+                                }
+                                else if (IsProxyRuntimeSection)
+                                {
+                                    <span class="bi bi-gear-fill fs-4 text-primary" aria-hidden="true"></span>
+                                }
+                                else if (IsBackendRoutingSection)
+                                {
+                                    <span class="bi bi-diagram-3-fill fs-4 text-primary" aria-hidden="true"></span>
+                                }
                                 @if (SelectedSection != "Local change review")
                                 {
-                                    <ConfigurationHelp Section="@SelectedSection" />
+                                    <ConfigurationHelp Section="@(IsRequestProcessingSection || IsHeaderPolicySection
+                                        ? "Request"
+                                        : IsBackendResilienceSection
+                                            ? "CircuitBreaker"
+                                        : IsProxyRuntimeSection
+                                            ? "Server"
+                                        : IsBackendRoutingSection
+                                            ? "LoadBalancing"
+                                        : SelectedSection)">
+                                        <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
+                                    </ConfigurationHelp>
+                                }
+                                else
+                                {
+                                    <h2 class="h5 mb-0">@(IsHeaderPolicySection && _selectedHeaderPolicySet is not null ? "Edit Header Set" : SelectedSection)</h2>
                                 }
                                 @if (string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase)
-                                    || (SelectedSection.ToLowerInvariant() is "profiles" or "request" or "response" or "server"
+                                    || (SelectedSection.ToLowerInvariant() is "backend resilience" or "backend routing" or "identity & access" or "proxy runtime"
+                                        or "request" or "response" or "server"
                                         && SelectedSettings.Any(setting => RequiresRestart(setting.Mode))))
                                 {
                                     <span class='badge @(SelectedSettings.Any(setting => setting.IsChanged && RequiresRestart(setting.Mode)) ? "text-bg-warning" : "text-bg-light")'
@@ -306,46 +387,65 @@
                             {
                                 <span class="small text-muted">@LoadBalancingEditor.Summary(SelectedSettings)</span>
                             }
-                            else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase) && !IsTokenomicsSection)
+                            else if (IsHeaderPolicySection)
+                            {
+                                @if (_selectedHeaderPolicySet is not null)
+                                {
+                                    <span class="small">
+                                        <strong class="d-block">@HeaderPolicyEditor.HeaderSetTitle(_selectedHeaderPolicySet)</strong>
+                                        <span class="text-muted">@HeaderPolicyEditor.HeaderSetDescription(_selectedHeaderPolicySet)</span>
+                                    </span>
+                                }
+                            }
+                            else if (IsRequestProcessingSection)
+                            {
+                                <span class="small text-muted">Configure timeouts and request prioritization.</span>
+                            }
+                            else if (IsBackendResilienceSection)
+                            {
+                                <span class="small text-muted">Define backend success criteria and protect the proxy from unhealthy dependencies.</span>
+                            }
+                            else if (IsProxyRuntimeSection)
+                            {
+                                <span class="small text-muted">Configure process settings, health reporting, and runtime behavior.</span>
+                            }
+                            else if (IsBackendRoutingSection)
+                            {
+                                <span class="small text-muted">Select, attempt, and communicate with backend targets.</span>
+                            }
+                            else if (!string.Equals(SelectedSection, "Logging", StringComparison.OrdinalIgnoreCase))
                             {
                                 <span class="small text-muted">@SelectedSettings.Count settings</span>
                             }
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            @if (SelectedSection != "Local change review")
-                            {
-                                <label class="d-flex align-items-center gap-2 small text-nowrap">
-                                    <input class="form-check-input m-0" type="checkbox" disabled="@(!_configurationHelpLoaded)"
-                                           @bind="_showConfigurationDetails" @bind:after='async () =>
-                                           {
-                                               try
-                                               {
-                                                   await JS.InvokeVoidAsync("sessionStorage.setItem", "chat-tester.configuration.help", _showConfigurationDetails ? "true" : "false");
-                                               }
-                                               catch (Exception ex) when (ex is JSException or JSDisconnectedException)
-                                               {
-                                                   Console.Error.WriteLine($"Unable to save configuration Help preference: {ex.Message}");
-                                               }
-                                           }' />
-                                    Help
-                                </label>
-                            }
                             @if (SelectedSection == "Local change review")
                             {
                                 <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button" disabled="@(ChangedCount == 0)" @onclick="ResetAll">
                                     <span class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></span>Reset all
                                 </button>
                             }
-                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSection"></button>
+                            <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CloseSectionOrHeaderSet"></button>
                         </div>
-                    </div>
-                    <div class="config-modal-body">
-                        <ConfigurationExplanation Section="@SelectedSection" />
+                </HeaderContent>
+                <EditorContent>
+                        @if (!string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
+                            && !IsRequestProcessingSection
+                            && !IsHeaderPolicySection
+                            && !IsProxyRuntimeSection
+                            && !IsBackendRoutingSection)
+                        {
+                            <ConfigurationExplanation Section="@SelectedSection" />
+                        }
                         @if (SelectedSection == "Local change review")
                         {
+                            @if (HasPendingProfileBlob)
+                            {
+                                <p class="text-warning">A profile blob update is pending. Save changes writes config.json and publishes UserConfigUrl.</p>
+                            }
                             @if (ChangedCount == 0)
                             {
-                                <p class="text-muted mb-0">No local changes.</p>
+                                <p class="text-muted mb-0">@(HasPendingProfileBlob ? "No other local changes." : "No local changes.")</p>
                             }
                             else
                             {
@@ -357,8 +457,7 @@
                                             {
                                                 <tr>
                                                     <td class="font-monospace text-break">
-                                                        @setting.Key
-                                                        <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name" />
+                                                        <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name">@setting.Key</ConfigurationHelp>
                                                     </td>
                                                     <td class="font-monospace text-break">@DisplayLoadedValue(setting.LoadedValue)</td>
                                                     <td class="font-monospace text-break">@DisplayLoadedValue(setting.DraftValue)</td>
@@ -373,6 +472,14 @@
                         {
                             <HostSectionEditor Hosts="SelectedSettings" Settings="Settings" Label="@Label" OnHostCreated="AddCreatedHost" />
                         }
+                        else if (IsProxyRuntimeSection)
+                        {
+                            <ProxyRuntimeEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
+                        else if (IsBackendRoutingSection)
+                        {
+                            <BackendRoutingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
                         else if (IsHealthProbeSection)
                         {
                             @if (HealthProbeSetting is { } probe)
@@ -380,9 +487,9 @@
                                 <HealthProbeEditor Setting="probe" OnChanged="StateHasChanged" />
                             }
                         }
-                        else if (IsTokenomicsSection)
+                        else if (IsBackendResilienceSection)
                         {
-                            <TokenomicsEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                            <BackendResilienceEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (IsCircuitBreakerSection)
                         {
@@ -396,13 +503,22 @@
                         {
                             <LoggingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
-                        else if (string.Equals(SelectedSection, "Profiles", StringComparison.OrdinalIgnoreCase))
+                        else if (string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase))
                         {
-                            <ProfilesEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                            <IdentityAccessEditor Settings="SelectedSettings" ConfigurationSettings="Settings"
+                                                  OnChanged="StateHasChanged" ProfileFileState="_profileFileState" />
+                        }
+                        else if (IsHeaderPolicySection)
+                        {
+                            <HeaderPolicyEditor Settings="SelectedSettings" @bind-SelectedHeaderSet="_selectedHeaderPolicySet" OnChanged="StateHasChanged" />
                         }
                         else if (string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase))
                         {
                             <RequestEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
+                        }
+                        else if (IsRequestProcessingSection)
+                        {
+                            <RequestProcessingEditor Settings="SelectedSettings" OnChanged="StateHasChanged" />
                         }
                         else if (string.Equals(SelectedSection, "Response", StringComparison.OrdinalIgnoreCase))
                         {
@@ -428,7 +544,7 @@
                                 {
                                     <tr class="@(setting.IsChanged ? "config-row-changed" : string.Empty)">
                                         <th scope="row">
-                                            <div class="fw-semibold">@setting.Name <ConfigurationHelp Section="@setting.Section" Topic="@setting.Name" /></div>
+                                            <div class="fw-semibold"><ConfigurationHelp Section="@setting.Section" Topic="@setting.Name">@setting.Name</ConfigurationHelp></div>
                                             <div class="small text-muted font-monospace text-break">@setting.Key</div>
                                             <ConfigurationExplanation Section="@setting.Section" Topic="@setting.Name" />
                                         </th>
@@ -475,12 +591,11 @@
                             </tbody>
                         </table>
                         }
-                    </div>
-                </div>
-            </div>
-            </CascadingValue>
+                </EditorContent>
+            </AppConfigurationSectionWidget>
         }
     }
+    </div>
 </div>
 
 <dialog @ref="_labelDialog" class="config-label-dialog" aria-labelledby="label-dialog-title">
@@ -504,6 +619,14 @@
 <dialog @ref="_leaveDialog" class="config-label-dialog" aria-labelledby="leave-dialog-title">
     <h2 id="leave-dialog-title" class="h5">Save changes to @LabelDisplay(Label)?</h2>
     <p>Your changes have not been saved.</p>
+    @if (_profileFileState.IsDirty)
+    {
+        <p class="text-warning">The profile editor has unstaged edits. Cancel and use Save config.json in Identity &amp; Access before leaving to stage them.</p>
+    }
+    @if (HasPendingProfileBlob)
+    {
+        <p>Save changes writes the staged profile blob and publishes App Configuration.</p>
+    }
     @if (HasLoadError)
     {
         <p class="text-danger small" role="alert">@StatusMessage</p>
@@ -511,846 +634,13 @@
     <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
         <button type="button" class="btn btn-outline-secondary" data-dialog-cancel disabled="@IsLoading" @onclick="CancelLeaveAsync">Cancel</button>
         <button type="button" class="btn btn-outline-danger" disabled="@IsLoading" @onclick="DiscardAndLeaveAsync">Discard Changes</button>
-        <button type="button" class="btn btn-primary" disabled="@IsLoading" @onclick="SaveAndLeaveAsync">@(IsLoading ? "Saving..." : "Save Changes")</button>
+        <button type="button" class="btn btn-primary" disabled="@(IsLoading || _profileFileState.IsDirty)" @onclick="SaveAndLeaveAsync">@(IsLoading ? "Saving..." : "Save Changes")</button>
     </div>
 </dialog>
 
-<style>
-    .config-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 1rem 0; }
-    .config-label-toolbar .btn, .config-label-dialog .btn { min-height: 44px; }
-    .config-admin-shell.config-selection-shell { margin: 0; max-width: 64rem; color: #1d1d1f; }
-    .config-selection-shell .config-header-bar { padding: 0 0 1.5rem; background: transparent; border-bottom-color: #d2d2d7; }
-    .config-selection-shell .config-header-bar.config-header-collapsed { padding: 0; border-bottom: 0; }
-    .config-connection-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
-    .config-connection-caption { font-size: 0.8125rem; color: #6e6e73; margin-right: 0.25rem; }
-    .config-admin-shell .config-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; font-size: 1.125rem; }
-    .config-selection-shell .config-header-endpoint { min-width: 0; }
-    .config-selection-shell .config-header-row { gap: 0.75rem; }
-    .config-selection-shell .config-header-row:has(.config-header-status:empty) { display: none; }
-    .config-selection-shell .btn, .config-selection-shell .form-control, .config-selection-shell .form-select { min-height: 44px; border-radius: 6px; font-size: 0.9375rem; }
-    .config-selection-shell .btn { padding: 0.5rem 1rem; white-space: nowrap; }
-    .config-selection-shell .config-icon-button { padding: 0; }
-    .config-selection-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; }
-    .config-selection-actions .btn .bi { margin-right: 0 !important; }
-    .config-selection-shell .btn-primary { background: #0066cc; border-color: #0066cc; }
-    .config-selection-shell .btn-primary:hover { background: #0055ad; border-color: #0055ad; }
-    .config-selection-shell .btn-outline-secondary { color: #0066cc; border-color: #d2d2d7; background: #f5f5f7; }
-    .config-selection-shell .btn-outline-secondary:hover { background: #e8e8ed; }
-    .config-selection-shell .form-label { color: #515154; font-size: 0.8125rem; margin-bottom: 0.5rem; }
-    .config-selection-shell .form-control, .config-selection-shell .form-select { border-color: #a1a1a6; }
-    .config-selection { padding: 1rem 0 1.5rem; }
-    .config-selection-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
-    .config-selection-heading h2 { font-size: 1.25rem; font-weight: 600; margin: 0; }
-    .config-action-picker { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
-    .config-selection-row { display: flex; align-items: flex-end; gap: 1rem; }
-    .config-selection-field { flex: 1; min-width: 0; }
-    .config-selection-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-    .config-selection-metadata { margin-top: 0.5rem; font-size: 0.8125rem; color: #6e6e73; overflow-wrap: anywhere; }
-    @@media (max-width: 767.98px) {
-        .config-selection-row { flex-direction: column; align-items: stretch; gap: 1rem; }
-        .config-selection-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
-        .config-selection-actions .btn { padding-inline: 0.5rem; white-space: normal; }
-        .config-selection-shell .config-header-endpoint { flex-basis: 100%; }
-    }
-    .config-label-dialog {
-        width: min(30rem, calc(100% - 2rem));
-        max-height: calc(100dvh - 2rem);
-        overflow-y: auto;
-        scrollbar-width: thin;
-        border: 1px solid rgba(255, 255, 255, 0.72);
-        border-radius: 20px;
-        padding: 1.5rem;
-        color: #1d1d1f;
-        background: rgba(250, 250, 252, 0.96);
-        box-shadow:
-            0 28px 80px rgba(0, 0, 0, 0.28),
-            0 2px 10px rgba(0, 0, 0, 0.12),
-            inset 0 1px 0 rgba(255, 255, 255, 0.82);
-        backdrop-filter: saturate(160%) blur(24px);
-        -webkit-backdrop-filter: saturate(160%) blur(24px);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        animation: config-popup-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-    .config-label-dialog::backdrop {
-        background: rgba(28, 28, 30, 0.42);
-        backdrop-filter: saturate(125%) blur(14px);
-        -webkit-backdrop-filter: saturate(125%) blur(14px);
-    }
-    .config-label-dialog h2 { margin-bottom: 1rem; font-weight: 650; letter-spacing: -0.02em; }
-    .config-label-dialog .form-control {
-        min-height: 44px;
-        border: 1px solid rgba(60, 60, 67, 0.2);
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
-    }
-    .config-label-dialog .form-control:focus {
-        border-color: #007aff;
-        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.16);
-    }
-    .config-label-dialog .btn {
-        border-radius: 10px;
-        font-weight: 500;
-        transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
-    }
-    .config-label-dialog .btn:hover:enabled { transform: translateY(-1px); }
-    .config-label-dialog .btn:active:enabled { transform: scale(0.98); }
-    .config-label-dialog .btn-primary { background: #007aff; border-color: #007aff; box-shadow: 0 1px 2px rgba(0, 82, 204, 0.2); }
-    .config-label-dialog .btn-outline-secondary { color: #1d1d1f; border-color: transparent; background: #e9e9ee; }
-    .config-label-dialog .btn-outline-danger { border-color: transparent; background: rgba(255, 59, 48, 0.1); color: #d70015; }
-    .config-label-dialog :focus-visible, .config-selection-shell :focus-visible, .config-label-toolbar :focus-visible { outline: 3px solid #007aff; outline-offset: 3px; }
-    .config-explanation {
-        white-space: pre-line;
-        overflow-wrap: anywhere;
-        line-height: 1.5;
-        margin-bottom: 0.75rem;
-    }
 
-    .config-admin-shell {
-        margin: -0.25rem -0.75rem 0;
-    }
 
-    .config-header-bar {
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-        width: 100%;
-        min-width: 0;
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid #dee2e6;
-        background: #f8f9fa;
-    }
-
-    .config-header-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.6rem;
-        min-width: 0;
-    }
-
-    .config-header-endpoint {
-        flex: 1 1 20rem;
-        min-width: 12rem;
-    }
-
-    .config-header-label {
-        flex: 0 1 12rem;
-        min-width: 8rem;
-        width: auto;
-    }
-
-    .config-header-load {
-        white-space: nowrap;
-    }
-
-    .config-header-status {
-        flex: 1 1 12rem;
-        min-width: 0;
-        overflow-wrap: anywhere;
-    }
-
-    .config-toolbar {
-        position: sticky;
-        top: 0;
-        z-index: 5;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.75rem;
-        border-bottom: 1px solid #dee2e6;
-        background: rgba(255, 255, 255, 0.96);
-        padding: 0.75rem 1rem;
-    }
-
-    .config-filter {
-        flex: 1 1 20rem;
-        max-width: 34rem;
-    }
-
-    .config-section-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-        gap: 0.75rem;
-        padding: 1rem;
-    }
-
-    .config-section-tile {
-        position: relative;
-        display: flex;
-        min-width: 0;
-    }
-
-    .config-section-tile > .config-section-box {
-        flex: 1;
-        min-width: 0;
-        padding-right: 2.75rem;
-    }
-
-    .config-section-help {
-        position: absolute;
-        top: 0.65rem;
-        right: 0.65rem;
-    }
-
-    .config-setting-heading {
-        display: flex;
-        align-items: baseline;
-        gap: 0.35rem;
-        min-width: 0;
-    }
-
-    .config-setting-heading > label {
-        min-width: 0;
-        overflow-wrap: anywhere;
-    }
-
-    .config-section-box {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.25rem;
-        min-height: 5rem;
-        padding: 0.85rem 1rem;
-        border: 1px solid #d7dce1;
-        border-radius: 6px;
-        background: #fff;
-        text-align: left;
-        cursor: pointer;
-        transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    .config-section-box:hover {
-        border-color: #86b7fe;
-        box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
-    }
-
-    .config-section-box.is-changed {
-        border-color: #ffc107;
-        background: #fffdf5;
-    }
-
-    .config-box-title {
-        font-weight: 600;
-    }
-
-    .config-box-meta {
-        font-size: 0.85rem;
-        color: #6c757d;
-    }
-
-    .config-box-badge {
-        margin-top: 0.25rem;
-    }
-
-    html:has(.config-modal-backdrop),
-    body:has(.config-modal-backdrop) {
-        overflow: hidden;
-    }
-
-    .config-modal-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 1050;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: clamp(0.75rem, 3vw, 2rem);
-        background: rgba(28, 28, 30, 0.38);
-        backdrop-filter: saturate(125%) blur(14px);
-        -webkit-backdrop-filter: saturate(125%) blur(14px);
-        overflow: hidden;
-        overscroll-behavior: contain;
-        animation: config-backdrop-enter 160ms ease-out;
-    }
-
-    .config-modal {
-        width: min(60rem, 100%);
-        max-height: calc(100dvh - 1.5rem);
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        border: 1px solid rgba(255, 255, 255, 0.72);
-        border-radius: 22px;
-        background: rgba(250, 250, 252, 0.97);
-        box-shadow:
-            0 32px 90px rgba(0, 0, 0, 0.3),
-            0 4px 16px rgba(0, 0, 0, 0.14),
-            inset 0 1px 0 rgba(255, 255, 255, 0.86);
-        backdrop-filter: saturate(160%) blur(24px);
-        -webkit-backdrop-filter: saturate(160%) blur(24px);
-        overflow: hidden;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        animation: config-popup-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-
-    .config-modal h2 {
-        color: #1d1d1f;
-        font-weight: 650;
-        letter-spacing: -0.02em;
-    }
-
-    .config-modal-header {
-        display: flex;
-        flex-shrink: 0;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 1.1rem 1.35rem;
-        border-bottom: 1px solid rgba(60, 60, 67, 0.1);
-        background: rgba(250, 250, 252, 0.88);
-        backdrop-filter: saturate(160%) blur(20px);
-        -webkit-backdrop-filter: saturate(160%) blur(20px);
-    }
-
-    .config-modal-body {
-        padding: 1rem 1.25rem 1.25rem;
-        min-height: 0;
-        overflow: auto;
-        overscroll-behavior: contain;
-        scrollbar-color: rgba(60, 60, 67, 0.28) transparent;
-        scrollbar-width: thin;
-    }
-
-    .config-modal-body::-webkit-scrollbar,
-    .config-label-dialog::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    .config-modal-body::-webkit-scrollbar-track,
-    .config-label-dialog::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    .config-modal-body::-webkit-scrollbar-thumb,
-    .config-label-dialog::-webkit-scrollbar-thumb {
-        border: 2px solid transparent;
-        border-radius: 999px;
-        background: rgba(60, 60, 67, 0.28);
-        background-clip: padding-box;
-    }
-
-    .config-modal .btn-close {
-        box-sizing: border-box;
-        width: 2rem;
-        height: 2rem;
-        flex: 0 0 2rem;
-        padding: 0.55rem;
-        border-radius: 50%;
-        background-color: rgba(120, 120, 128, 0.12);
-        background-size: 0.7rem;
-        opacity: 0.72;
-        box-shadow: none;
-        transition: background-color 140ms ease, opacity 140ms ease, transform 140ms ease;
-    }
-
-    .config-modal .btn-close:hover {
-        background-color: rgba(120, 120, 128, 0.2);
-        opacity: 1;
-        transform: scale(1.04);
-    }
-
-    .config-modal .btn-close:active {
-        transform: scale(0.94);
-    }
-
-    .config-modal .btn-close:focus {
-        box-shadow: none;
-    }
-
-    .config-modal .btn-close:focus-visible {
-        outline: 3px solid rgba(0, 122, 255, 0.45);
-        outline-offset: 2px;
-        box-shadow: none;
-    }
-
-    .config-modal .form-control,
-    .config-modal .form-select {
-        min-height: 2.4rem;
-        border: 1px solid rgba(60, 60, 67, 0.2);
-        border-radius: 10px;
-        background-color: rgba(255, 255, 255, 0.92);
-        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
-        transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
-    }
-
-    .config-modal .form-control:focus,
-    .config-modal .form-select:focus {
-        border-color: #007aff;
-        background-color: #fff;
-        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.16);
-        outline: none;
-    }
-
-    .config-modal .form-check-input {
-        border-color: rgba(60, 60, 67, 0.28);
-        box-shadow: none;
-    }
-
-    .config-modal .form-check-input:checked {
-        border-color: #007aff;
-        background-color: #007aff;
-    }
-
-    .config-modal .btn {
-        border-radius: 10px;
-        font-weight: 500;
-        transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
-    }
-
-    .config-modal .btn:hover:enabled {
-        transform: translateY(-1px);
-    }
-
-    .config-modal .btn:active:enabled {
-        transform: scale(0.98);
-    }
-
-    .config-modal .btn-primary {
-        border-color: #007aff;
-        background: #007aff;
-        box-shadow: 0 1px 2px rgba(0, 82, 204, 0.2);
-    }
-
-    .config-modal .btn-outline-secondary {
-        border-color: transparent;
-        background: #e9e9ee;
-        color: #1d1d1f;
-    }
-
-    .config-modal .btn-outline-danger {
-        border-color: transparent;
-        background: rgba(255, 59, 48, 0.1);
-        color: #d70015;
-    }
-
-    .config-newhost-body {
-        min-height: 0;
-        overflow: auto;
-        overscroll-behavior: contain;
-    }
-
-    .config-newhost-footer {
-        flex-shrink: 0;
-    }
-
-    .config-host-table th,
-    .config-host-table td {
-        padding: 0.4rem 0.6rem;
-        white-space: nowrap;
-        vertical-align: middle;
-    }
-
-    .config-host-table input.form-control {
-        min-width: 12rem;
-    }
-
-    .config-host-table select.form-select {
-        min-width: 6rem;
-        width: auto;
-    }
-
-    .config-host-row {
-        cursor: pointer;
-    }
-
-    .config-host-row:hover > * {
-        background-color: #f1f6ff;
-    }
-
-    .config-modal-backdrop-top {
-        z-index: 1060;
-    }
-
-    /* Let nested editors use the viewport instead of the parent modal as their containing block. */
-    .config-modal:has(.config-modal-backdrop-top) {
-        overflow: visible;
-        transform: none;
-        animation: none;
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-    }
-
-    .config-newhost-modal {
-        width: min(70rem, 100%);
-    }
-
-    .config-newhost-body {
-        padding: 1.25rem 1.5rem;
-    }
-
-    .config-newhost-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-        gap: 1rem 1.25rem;
-    }
-
-    .config-newhost-field {
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-    }
-
-    .config-modal .config-newhost-field {
-        padding: 0.65rem 0.75rem;
-        border-radius: 12px;
-        background-color: rgba(118, 118, 128, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.04);
-    }
-
-    .config-modal .config-field-changed {
-        background-color: rgba(255, 204, 0, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.18);
-    }
-
-    .config-healthprobe-grid {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: 0.35rem 1rem;
-        align-items: start;
-    }
-
-    .config-newhost-field .form-label {
-        margin-bottom: 0.3rem;
-        font-weight: 500;
-        font-size: 0.72rem;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
-        color: #6e6e73;
-    }
-
-    .config-newhost-divider {
-        grid-column: 1 / -1;
-        margin-top: 0.35rem;
-        padding-top: 0.85rem;
-        border-top: 1px solid #e5e5ea;
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #86868b;
-    }
-
-    .config-auth-section {
-        margin-top: 0.75rem;
-    }
-
-    .config-auth-toggle {
-        margin-top: 0.75rem;
-        max-width: 16rem;
-    }
-
-    .config-auth-columns {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        margin-top: 0.85rem;
-    }
-
-    .config-auth-col {
-        display: flex;
-        flex-direction: column;
-        gap: 0.85rem;
-        padding: 0 1.5rem;
-        transition: opacity 0.15s;
-    }
-
-    .config-auth-col:first-child {
-        padding-left: 0;
-    }
-
-    .config-auth-col:last-child {
-        border-left: 1px solid #e5e5ea;
-    }
-
-    .config-auth-subheading {
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #86868b;
-    }
-
-    .config-auth-fields {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-    }
-
-    .config-auth-heading {
-        margin-top: 0;
-    }
-
-    .config-auth-dim {
-        opacity: 0.4;
-    }
-
-    .config-field-wide {
-        grid-column: 1 / -1;
-    }
-
-    /* Forces the field onto a new grid row so it aligns with the next field. */
-    .config-field-break {
-        grid-column-start: 1;
-    }
-
-    .config-priority-group {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        align-items: center;
-        padding-top: 0.15rem;
-    }
-
-    .config-priority-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        font-size: 0.9rem;
-        margin: 0;
-        cursor: pointer;
-    }
-
-    .config-priority-item .form-check-input {
-        margin: 0;
-    }
-
-    .config-newhost-footer {
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.6rem;
-        padding: 1rem 1.5rem;
-        border-top: 1px solid rgba(60, 60, 67, 0.1);
-        background: rgba(250, 250, 252, 0.9);
-        backdrop-filter: saturate(160%) blur(20px);
-        -webkit-backdrop-filter: saturate(160%) blur(20px);
-    }
-
-    .config-newhost-modal .form-control,
-    .config-newhost-modal .form-select {
-        border: 1px solid rgba(60, 60, 67, 0.2);
-        border-radius: 10px;
-        padding: 0.4rem 0.6rem;
-        font-size: 0.9rem;
-        transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    .config-newhost-modal .form-control:focus,
-    .config-newhost-modal .form-select:focus {
-        border-color: #007aff;
-        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.25);
-        outline: none;
-    }
-
-    .config-newhost-modal .form-control:disabled {
-        background-color: #f5f5f7;
-        color: #86868b;
-    }
-
-    .config-newhost-modal .form-check-input {
-        width: 1.15rem;
-        height: 1.15rem;
-        border-radius: 6px;
-        border: 1px solid #c7c7cc;
-    }
-
-    .config-newhost-modal .form-check-input:checked {
-        background-color: #007aff;
-        border-color: #007aff;
-    }
-
-    .config-newhost-modal .form-label a {
-        color: #b0b0b5;
-        text-decoration: none;
-    }
-
-    .config-newhost-modal .form-label a:hover {
-        color: #007aff;
-    }
-
-    .config-newhost-modal .btn-primary {
-        background-color: #007aff;
-        border: none;
-        border-radius: 10px;
-        padding: 0.45rem 1.2rem;
-        font-weight: 500;
-    }
-
-    .config-newhost-modal .btn-primary:hover:enabled {
-        background-color: #0066d6;
-    }
-
-    .config-newhost-modal .btn-outline-secondary {
-        background-color: #e9e9ee;
-        border: none;
-        color: #1d1d1f;
-        border-radius: 10px;
-        padding: 0.45rem 1.1rem;
-        font-weight: 500;
-    }
-
-    .config-newhost-modal .btn-outline-secondary:hover {
-        background-color: #dedee3;
-        color: #1d1d1f;
-    }
-
-    .config-modal .tokenomics-global-toolbar {
-        padding: 0.1rem 0.25rem 0.9rem;
-    }
-
-    .config-modal .tokenomics-tabs {
-        gap: 0.2rem;
-        margin-bottom: 0.85rem;
-        padding: 0.25rem;
-        border: 0;
-        border-radius: 12px;
-        background: rgba(118, 118, 128, 0.12);
-        scrollbar-width: none;
-    }
-
-    .config-modal .tokenomics-tabs::-webkit-scrollbar {
-        display: none;
-    }
-
-    .config-modal .tokenomics-tab {
-        min-height: 38px;
-        padding: 0.45rem 0.5rem;
-        border: 0;
-        border-radius: 9px;
-        color: #515154;
-        transition: background-color 140ms ease, box-shadow 140ms ease, color 140ms ease;
-    }
-
-    .config-modal .tokenomics-tab:hover {
-        background: rgba(255, 255, 255, 0.52);
-    }
-
-    .config-modal .tokenomics-tab[aria-selected="true"] {
-        border: 0;
-        background: rgba(255, 255, 255, 0.94);
-        color: #1d1d1f;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16), inset 0 0 0 1px rgba(60, 60, 67, 0.04);
-    }
-
-    .config-modal .tokenomics-tab-panel {
-        padding-top: 0.15rem;
-    }
-
-    .config-modal .tokenomics-inline-actions {
-        gap: 0.5rem;
-        border-top-color: rgba(60, 60, 67, 0.1);
-    }
-
-    .config-modal .tokenomics-inline-action {
-        padding: 0.55rem 0.75rem;
-        border-radius: 12px;
-        background: rgba(118, 118, 128, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.04);
-    }
-
-    @@keyframes config-backdrop-enter {
-        from { background-color: rgba(28, 28, 30, 0); backdrop-filter: blur(0); }
-    }
-
-    @@keyframes config-popup-enter {
-        from { opacity: 0; transform: translateY(10px) scale(0.985); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-
-    @@media (prefers-reduced-motion: reduce) {
-        .config-modal-backdrop,
-        .config-modal,
-        .config-label-dialog {
-            animation: none;
-        }
-
-        .config-modal .btn,
-        .config-modal .btn-close,
-        .config-label-dialog .btn {
-            transition: none;
-        }
-    }
-
-    @@media (max-width: 600px) {
-        .config-modal-backdrop {
-            align-items: flex-end;
-            padding: 0.5rem;
-        }
-
-        .config-modal {
-            max-height: calc(100dvh - 1rem);
-            border-radius: 22px 22px 14px 14px;
-        }
-
-        .config-modal-header {
-            padding: 1rem;
-        }
-
-        .config-modal-body {
-            padding: 0.85rem 0.9rem 1rem;
-        }
-
-        .config-label-dialog {
-            width: calc(100% - 1rem);
-            border-radius: 20px;
-            padding: 1.25rem;
-        }
-    }
-
-    .config-section,
-    .config-review {
-        border: 1px solid #d7dce1;
-        border-radius: 6px;
-        background: #fff;
-        overflow: hidden;
-    }
-
-    .config-section-heading {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        border-bottom: 1px solid #dee2e6;
-        background: #f8f9fa;
-        padding: 0.75rem 1rem;
-    }
-
-    .config-table th:first-child {
-        width: 32%;
-    }
-
-    .config-table th:nth-child(2) {
-        width: 6rem;
-    }
-
-    .config-table td,
-    .config-table th {
-        padding: 0.65rem 1rem;
-    }
-
-    .config-row-changed > * {
-        background-color: #fff8db !important;
-    }
-
-    .config-review {
-        margin: 0 1rem 1rem;
-        padding-bottom: 1rem;
-    }
-
-    .config-review > p {
-        padding: 1rem;
-    }
-
-    @@media (max-width: 767.98px) {
-        .config-table th:first-child {
-            min-width: 14rem;
-        }
-
-        .config-table td:nth-child(3) {
-            min-width: 16rem;
-        }
-    }
-</style>
+</div>
 
 @code {
     private string Endpoint { get; set; } = string.Empty;
@@ -1362,9 +652,9 @@
     private List<AppConfigurationScaffoldSetting> Settings { get; set; } = new();
     private List<AppConfigurationScaffoldSetting> _allSettings = new();
     private string? SelectedSection { get; set; }
-    private bool _showConfigurationDetails;
-    private bool _configurationHelpLoaded;
+    private readonly ProfileConfigurationEditor.EditorState _profileFileState = new();
     private DateTime? _dataReadyAtUtc;
+    private DateTime? _lastLoadedAtUtc;
     private System.Timers.Timer? _uiTimer;
     private CancellationTokenSource? _statusClearCancellation;
     private TimeSpan _elapsed;
@@ -1376,6 +666,7 @@
     private string _draftLabelName = string.Empty;
     private string? _duplicateSource;
     private IReadOnlyList<AppConfigurationScaffoldSetting> _selectedSettings = Array.Empty<AppConfigurationScaffoldSetting>();
+    private string? _selectedHeaderPolicySet;
     private ElementReference _labelDialog;
     private ElementReference _leaveDialog;
     private IJSObjectReference? _dialogModule;
@@ -1383,15 +674,42 @@
     private DotNetObjectReference<AdminConfigurationPage>? _pageReference;
     private Func<Task>? _pendingLeave;
     private bool LabelsReady => _dialogModule is not null && string.Equals(_loadedEndpoint, Endpoint.Trim(), StringComparison.OrdinalIgnoreCase);
-    private bool HasPendingChanges => _editingLabel && (_newLabelDraft || ChangedCount > 0);
+    private bool HasPendingProfileBlob => !string.IsNullOrEmpty(_profileFileState.PendingBlobJson);
+    private bool HasPendingChanges => _editingLabel && (_newLabelDraft || ChangedCount > 0 || HasPendingProfileBlob);
+    private string PendingReviewLabel => HasPendingProfileBlob && ChangedCount == 0
+        ? "Profile blob pending"
+        : HasPendingProfileBlob
+            ? $"{ChangedCount} settings changed; blob pending"
+            : $"{ChangedCount} {(ChangedCount == 1 ? "setting changed" : "settings changed")}";
+    private string PendingChangesText => !HasPendingChanges
+        ? "No unsaved configuration changes"
+        : HasPendingProfileBlob && ChangedCount == 0 && !_newLabelDraft
+            ? "Profile blob update is pending"
+            : HasPendingProfileBlob
+                ? $"{ChangedCount} unsaved configuration changes; profile blob update is pending"
+                : $"{ChangedCount} unsaved configuration changes";
     private string? LabelNameError => string.IsNullOrWhiteSpace(_draftLabelName) ? null
         : _draftLabelName.Trim().IndexOfAny(['*', ',', '\\', '\0']) >= 0 ? "Names cannot contain *, comma, backslash, or null characters."
         : AvailableLabels.Contains(_draftLabelName.Trim(), StringComparer.Ordinal) ? "A label with this name already exists."
         : null;
 
     private IEnumerable<IGrouping<string, AppConfigurationScaffoldSetting>> VisibleGroups => Settings
-        .Where(setting => !string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase))
-        .GroupBy(setting => setting.Section, StringComparer.OrdinalIgnoreCase)
+        .Where(setting => !string.Equals(setting.Name, "Sentinel", StringComparison.OrdinalIgnoreCase)
+            && !(string.Equals(setting.Section, "Request", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(setting.Name, "DetectModel", StringComparison.OrdinalIgnoreCase)))
+        .GroupBy(setting => ProxyRuntimeEditor.IsProxyRuntimeSetting(setting)
+            ? "Proxy Runtime"
+            : BackendRoutingEditor.IsBackendRoutingSetting(setting)
+                ? "Backend Routing"
+            : string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)
+            ? "Identity & Access"
+            : HeaderPolicyEditor.IsHeaderPolicySetting(setting)
+                ? "Header Policy"
+            : BackendResilienceEditor.IsBackendResilienceSetting(setting)
+                ? "Backend Resilience"
+            : RequestProcessingEditor.IsRequestProcessingSetting(setting)
+                ? "Request Processing"
+            : setting.Section, StringComparer.OrdinalIgnoreCase)
         .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
 
     private IReadOnlyList<AppConfigurationScaffoldSetting> ChangedSettings => Settings
@@ -1402,17 +720,13 @@
 
     protected override void OnInitialized()
     {
-        Endpoint = AppConfiguration.CachedEndpoint ?? AppConfiguration.DefaultEndpoint;
-        Label = AppConfiguration.CachedLabel ?? AppConfiguration.DefaultLabel;
-        AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
-
-        if (AppConfiguration.CachedSettings != null
-            && string.Equals(AppConfiguration.CachedEndpoint, Endpoint, StringComparison.OrdinalIgnoreCase))
-        {
-            _allSettings = AppConfiguration.CachedSettings.Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false }).ToList();
-            _loadedEndpoint = Endpoint.Trim();
-            StatusMessage = $"{AvailableLabels.Count} labels loaded from cache.";
-        }
+        Endpoint = AppConfiguration.DefaultEndpoint;
+        Label = AppConfiguration.DefaultLabel;
+        _editingLabel = !string.IsNullOrWhiteSpace(Endpoint);
+        IsLoading = _editingLabel;
+        StatusMessage = string.IsNullOrWhiteSpace(Endpoint)
+            ? "Configure an App Configuration endpoint, then refresh to load its configurations."
+            : $"Loading the configured default label {LabelDisplay(Label)}...";
     }
 
     private async Task LoadSettingsAsync()
@@ -1427,7 +741,22 @@
         try
         {
             _allSettings = (await AppConfiguration.LoadAsync(Endpoint.Trim())).ToList();
+            if (_disposed) return;
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
+            _loadedEndpoint = Endpoint.Trim();
+            _lastLoadedAtUtc = DateTime.UtcNow;
+            if (_editingLabel)
+            {
+                if (!AvailableLabels.Contains(Label, StringComparer.Ordinal))
+                {
+                    var missingLabel = Label;
+                    ShowLabels();
+                    HasLoadError = true;
+                    StatusMessage = $"Configuration {LabelDisplay(missingLabel)} was not found. Select an existing configuration or explicitly create a new one.";
+                    return;
+                }
+                OpenLabel(Label);
+            }
             if (!AvailableLabels.Contains(Label, StringComparer.Ordinal))
             {
                 Label = AvailableLabels.Contains(AppConfiguration.DefaultLabel, StringComparer.Ordinal)
@@ -1436,7 +765,7 @@
             }
             _loadedEndpoint = Endpoint.Trim();
             _showEndpointSettings = false;
-            Settings.Clear();
+            if (!_editingLabel) Settings.Clear();
 
             var totalMs = stopwatch.ElapsedMilliseconds;
             var source = AppConfiguration.LastLoadFromDisk ? "disk cache · " : string.Empty;
@@ -1463,6 +792,10 @@
         }
         finally
         {
+            if (HasLoadError && _lastLoadedAtUtc is null)
+            {
+                _editingLabel = false;
+            }
             stopwatch.Stop();
             _elapsed = stopwatch.Elapsed;
             IsLoading = false;
@@ -1473,21 +806,45 @@
     private async Task UpdateSettingsAsync()
     {
         CancelStatusClear();
+        if (_profileFileState.IsDirty)
+        {
+            HasLoadError = true;
+            StatusMessage = "Profile editor has unstaged edits. Save config.json in Identity & Access before saving App Configuration.";
+            return;
+        }
+
         IsLoading = true;
         HasLoadError = false;
-        StatusMessage = $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
+        StatusMessage = HasPendingProfileBlob
+            ? "Writing the profile blob..."
+            : $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         StartTimer(stopwatch);
+        var wroteProfileBlob = false;
         try
         {
+            if (HasPendingProfileBlob)
+            {
+                await WritePendingProfileBlobAsync(_profileFileState.PendingBlobJson!);
+                wroteProfileBlob = true;
+                StatusMessage = $"Updating {ChangedCount} setting(s) and Warm:Sentinel...";
+            }
             var result = await AppConfiguration.UpdateAsync(Endpoint.Trim(), Label, Settings, createLabel: _newLabelDraft);
             _allSettings = result.Settings.ToList();
+            _lastLoadedAtUtc = DateTime.UtcNow;
             _newLabelDraft = false;
             AvailableLabels = AppConfiguration.CachedLabels?.ToList() ?? new List<string>();
             ApplyLabelFilter();
+            if (wroteProfileBlob)
+            {
+                _profileFileState.PendingBlobJson = null;
+                _profileFileState.Status = "Profile blob and App Configuration were updated.";
+            }
 
-            StatusMessage = $"Updated and verified {result.UpdatedCount} setting(s); Warm:Sentinel {result.PreviousSentinel} → {result.NewSentinel}; re-downloaded {_allSettings.Count} settings in {stopwatch.ElapsedMilliseconds} ms.";
+            StatusMessage = wroteProfileBlob
+                ? $"Wrote the profile blob. Updated and verified {result.UpdatedCount} setting(s); Warm:Sentinel {result.PreviousSentinel} → {result.NewSentinel}; re-downloaded {_allSettings.Count} settings in {stopwatch.ElapsedMilliseconds} ms."
+                : $"Updated and verified {result.UpdatedCount} setting(s); Warm:Sentinel {result.PreviousSentinel} → {result.NewSentinel}; re-downloaded {_allSettings.Count} settings in {stopwatch.ElapsedMilliseconds} ms.";
             _dataReadyAtUtc = DateTime.UtcNow;
             StateHasChanged();
         }
@@ -1499,7 +856,9 @@
         catch (RequestFailedException ex)
         {
             HasLoadError = true;
-            StatusMessage = $"App Configuration returned {ex.Status}: {ex.Message}";
+            StatusMessage = wroteProfileBlob
+                ? $"App Configuration returned {ex.Status}: {ex.Message}"
+                : $"Profile blob write returned {ex.Status}: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -1508,9 +867,9 @@
         }
         finally
         {
-            if (HasLoadError)
+            if (HasLoadError && wroteProfileBlob)
             {
-                StatusMessage += " Some writes may have completed. Reload the label list to inspect saved values before retrying.";
+                StatusMessage += " The profile blob was written, but App Configuration may not have been published. Reload the label list before retrying.";
             }
             stopwatch.Stop();
             _elapsed = stopwatch.Elapsed;
@@ -1598,11 +957,24 @@
     private void SelectSection(string section)
     {
         SelectedSection = section;
+        _selectedHeaderPolicySet = null;
         RefreshSelectedSettings();
+    }
+
+    private void CloseSectionOrHeaderSet()
+    {
+        if (IsHeaderPolicySection && _selectedHeaderPolicySet is not null)
+        {
+            _selectedHeaderPolicySet = null;
+            return;
+        }
+
+        CloseSection();
     }
 
     private void CloseSection()
     {
+        _selectedHeaderPolicySet = null;
         SelectedSection = null;
         _selectedSettings = Array.Empty<AppConfigurationScaffoldSetting>();
     }
@@ -1619,10 +991,43 @@
     {
         _selectedSettings = SelectedSection is null
             ? Array.Empty<AppConfigurationScaffoldSetting>()
-            : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)).ToList();
+            : IsProxyRuntimeSection
+                ? Settings.Where(ProxyRuntimeEditor.IsProxyRuntimeSetting).ToList()
+            : IsBackendRoutingSection
+                ? Settings.Where(BackendRoutingEditor.IsBackendRoutingSetting).ToList()
+            : string.Equals(SelectedSection, "Identity & Access", StringComparison.OrdinalIgnoreCase)
+                ? Settings.Where(setting => string.Equals(setting.Section, "Profiles", StringComparison.OrdinalIgnoreCase)).ToList()
+                : IsHeaderPolicySection
+                    ? Settings.Where(HeaderPolicyEditor.IsHeaderPolicySetting).ToList()
+                    : IsBackendResilienceSection
+                        ? Settings.Where(BackendResilienceEditor.IsBackendResilienceSetting).ToList()
+                    : IsRequestProcessingSection
+                        ? Settings.Where(RequestProcessingEditor.IsRequestProcessingSetting).ToList()
+                        : Settings.Where(setting => string.Equals(setting.Section, SelectedSection, StringComparison.OrdinalIgnoreCase)
+                            && !HeaderPolicyEditor.IsHeaderPolicySetting(setting)
+                            && !BackendResilienceEditor.IsBackendResilienceSetting(setting)
+                            && !ProxyRuntimeEditor.IsProxyRuntimeSetting(setting)
+                            && !BackendRoutingEditor.IsBackendRoutingSetting(setting)
+                            && (!string.Equals(SelectedSection, "Request", StringComparison.OrdinalIgnoreCase)
+                                || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
     }
 
     private bool IsHostSection => string.Equals(SelectedSection, "Hosts", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsRequestProcessingSection =>
+        string.Equals(SelectedSection, "Request Processing", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsHeaderPolicySection =>
+        string.Equals(SelectedSection, "Header Policy", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsBackendResilienceSection =>
+        string.Equals(SelectedSection, "Backend Resilience", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsProxyRuntimeSection =>
+        string.Equals(SelectedSection, "Proxy Runtime", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsBackendRoutingSection =>
+        string.Equals(SelectedSection, "Backend Routing", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsHealthProbeSectionName(string section) =>
         string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);
@@ -1631,8 +1036,6 @@
 
     private static bool IsTokenomicsSectionName(string section) =>
         string.Equals(section, "Tokenomics", StringComparison.OrdinalIgnoreCase);
-
-    private bool IsTokenomicsSection => IsTokenomicsSectionName(SelectedSection ?? string.Empty);
 
     private static bool IsCircuitBreakerSectionName(string section) =>
         string.Equals(section, "CircuitBreaker", StringComparison.OrdinalIgnoreCase);
@@ -1759,7 +1162,7 @@
 
     private async Task BeforeNavigationAsync(LocationChangingContext context)
     {
-        if (!HasPendingChanges && !IsLoading) return;
+        if (!HasPendingChanges && !_profileFileState.IsDirty && !IsLoading) return;
         context.PreventNavigation();
         await RequestLeaveAsync(context.TargetLocation);
     }
@@ -1789,6 +1192,10 @@
     {
         var leave = _pendingLeave;
         await CancelLeaveAsync();
+        if (_profileFileState.IsDirty && leave is not null)
+        {
+            _profileFileState.RestoreSaved();
+        }
         if (leave is not null) await leave();
     }
 
@@ -1810,20 +1217,23 @@
                 return;
             }
             _pageReference = DotNetObjectReference.Create(this);
-            try
-            {
-                var savedHelp = await JS.InvokeAsync<string?>("sessionStorage.getItem", "chat-tester.configuration.help");
-                _showConfigurationDetails = bool.TryParse(savedHelp, out var helpEnabled) && helpEnabled;
-            }
-            catch (Exception ex) when (ex is JSException or JSDisconnectedException)
-            {
-                Console.Error.WriteLine($"Unable to restore configuration Help preference: {ex.Message}");
-            }
-            if (_disposed) return;
-            _configurationHelpLoaded = true;
-            if (_loadedEndpoint is null && !string.IsNullOrWhiteSpace(Endpoint))
+            if (!string.IsNullOrWhiteSpace(Endpoint))
             {
                 await LoadSettingsAsync();
+                if (_disposed) return;
+                if (!HasLoadError)
+                {
+                    if (AvailableLabels.Contains(AppConfiguration.DefaultLabel, StringComparer.Ordinal))
+                    {
+                        OpenLabel(AppConfiguration.DefaultLabel);
+                    }
+                    else
+                    {
+                        HasLoadError = true;
+                        _dataReadyAtUtc = null;
+                        StatusMessage = $"Configured default label {LabelDisplay(AppConfiguration.DefaultLabel)} was not found. Select an existing configuration or explicitly create a new one.";
+                    }
+                }
             }
             if (_disposed) return;
             StateHasChanged();
@@ -1831,7 +1241,7 @@
 
         if (_dialogModule is not null)
         {
-            await _dialogModule.InvokeVoidAsync("setNavigationGuard", _pageReference, HasPendingChanges, IsLoading);
+            await _dialogModule.InvokeVoidAsync("setNavigationGuard", _pageReference, HasPendingChanges || _profileFileState.IsDirty, IsLoading);
         }
 
         if (_disposed) return;
@@ -1865,7 +1275,45 @@
         {
             Reset(setting);
         }
+        _profileFileState.PendingBlobJson = null;
+        _profileFileState.Status = "Discarded the pending profile blob update.";
+        // Recreate persistent editors to discard buffered invalid input as well as saved drafts.
+        Settings = Settings.ToList();
     }
+
+    private async Task WritePendingProfileBlobAsync(string json)
+    {
+        var configuredAccount = Configuration["CompanionApp:Profiles:StorageAccountName"];
+        var environmentAccount = Environment.GetEnvironmentVariable("CompanionApp__Profiles__StorageAccountName");
+        var account = FirstNonEmpty(configuredAccount, environmentAccount);
+        var containerName = FirstNonEmpty(
+            Configuration["CompanionApp:Profiles:BlobContainerName"],
+            Environment.GetEnvironmentVariable("CompanionApp__Profiles__BlobContainerName")) ?? "profiles";
+        if (string.IsNullOrWhiteSpace(account))
+        {
+            throw new InvalidOperationException($"Profile storage account was not read. Configuration='{configuredAccount ?? ""}'; Environment='{environmentAccount ?? ""}'. The profile blob was not written.");
+        }
+
+        var setting = Settings.FirstOrDefault(item =>
+            item.Name.Equals("User:UserConfigUrl", StringComparison.OrdinalIgnoreCase)
+            || item.Key.EndsWith(":User:UserConfigUrl", StringComparison.OrdinalIgnoreCase));
+        if (setting is null)
+        {
+            throw new InvalidOperationException("User:UserConfigUrl is not in this label. The profile blob was not written.");
+        }
+        setting.DraftValue = $"azblob://{account}/{containerName}/config.json";
+
+        var container = StorageBackend.CreateBlobContainerClient(account, containerName);
+        await container.GetBlobClient("config.json").UploadAsync(
+            BinaryData.FromString(json),
+            new BlobUploadOptions
+            {
+                HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" }
+            });
+    }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.Select(value => value?.Trim()).FirstOrDefault(value => !string.IsNullOrEmpty(value));
 
     private Task ResetToDefaultsAsync()
     {

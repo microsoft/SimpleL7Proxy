@@ -1,0 +1,540 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+@using CompanionApp.Components.Shared
+@using SimpleL7Proxy.Tokenomics
+
+@if (IsSummary)
+{
+    <button type="button" id="tokenomics-summary-routing" class="tokenomics-summary-card tokenomics-summary-wide @(IsSelected ? "is-selected" : null)"
+            aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
+        <span class="tokenomics-summary-heading"><span class="bi bi-box-fill" aria-hidden="true"></span><span>Model &amp; API Routing</span></span>
+        <span class="tokenomics-summary-description">Model selection, hierarchy, and fallback behavior</span>
+        <span class="tokenomics-summary-values">@Summary</span>
+    </button>
+}
+else
+{
+<article class="tokenomics-settings-card tokenomics-card-routing">
+    <header><span class="bi bi-box-fill" aria-hidden="true"></span><div><h3>Model &amp; API Routing</h3><p>Manage model and API host assignments, and per-host path handling.</p></div></header>
+    <section id="tokenomics-panel-routing" class="tokenomics-tab-panel" aria-label="Model routing settings">
+        <div class="tokenomics-routing-pane">
+            <div class="tokenomics-routing-settings-grid">
+                <section class="tokenomics-routing-settings-panel" aria-labelledby="tokenomics-routing-general-heading">
+                    <h4 id="tokenomics-routing-general-heading">General Settings</h4>
+                    <div class="tokenomics-routing-field-grid">
+                        @foreach (var name in NumericNames)
+                        {
+                            @if (name == nameof(TokenomicsSettings.DefaultModel))
+                            {
+                                <div class="d-grid gap-2 align-content-start">
+                                    @FieldContent(name)
+                                    @FieldContent(nameof(TokenomicsSettings.DefaultModelAPI))
+                                </div>
+                            }
+                            else
+                            {
+                                @FieldContent(name)
+                            }
+                        }
+                    </div>
+                </section>
+                <section class="tokenomics-routing-settings-panel" aria-labelledby="tokenomics-routing-fallback-heading">
+                    <h4 id="tokenomics-routing-fallback-heading">Fallback Behavior</h4>
+                    <div class="tokenomics-routing-field-grid">
+                        @foreach (var name in ActionNames)
+                        {
+                            @FieldContent(name)
+                        }
+                    </div>
+                </section>
+            </div>
+
+            <section class="tokenomics-routing-workbench" aria-label="Models and allowed hosts">
+                <aside class="tokenomics-routing-models">
+                    <div class="tokenomics-routing-view-tabs" role="tablist" aria-label="Routing view">
+                        <button type="button" role="tab" aria-selected="@(_selectedView == "models" ? "true" : "false")"
+                                class="@(_selectedView == "models" ? "is-selected" : null)" @onclick='@(() => SelectView("models"))'>Models</button>
+                        <button type="button" role="tab" aria-selected="@(_selectedView == "apis" ? "true" : "false")"
+                            class="@(_selectedView == "apis" ? "is-selected" : null)" @onclick='@(() => SelectView("apis"))'>API Mapping</button>
+                    </div>
+                    @if (_selectedView == "models")
+                    {
+                        <div class="tokenomics-routing-search">
+                            <span class="bi bi-search" aria-hidden="true"></span>
+                            <label class="visually-hidden" for="tokenomics-routing-model-search">Search models</label>
+                            <input id="tokenomics-routing-model-search" class="form-control form-control-sm" placeholder="Search models..."
+                                   @bind:get="_modelSearch" @bind:set="@(value => SetModelSearch(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
+                        </div>
+                        <div class="tokenomics-routing-model-list" role="listbox" aria-label="Models">
+                            @if (FilteredModels.Count == 0)
+                            {
+                                <div class="tokenomics-routing-empty">No matching models.</div>
+                            }
+                            @foreach (var model in FilteredModels)
+                            {
+                                var selectedHosts = HostsForModel(model);
+                                <button type="button" role="option" aria-selected="@(IsSelectedModel(model) ? "true" : "false")"
+                                        class="tokenomics-routing-model-row @(IsSelectedModel(model) ? "is-selected" : null)"
+                                        @onclick="@(() => SelectModel(model))">
+                                    <span>@model</span>
+                                    <span class="tokenomics-routing-model-count">@selectedHosts.Count</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        var visibleHosts = HostSettings
+                            .Where(host => _showDisabledHosts
+                                || !ParseHostFields(host.DraftValue).TryGetValue("enabled", out var value)
+                                || !bool.TryParse(value, out var enabled)
+                                || enabled)
+                            .Where(host => string.IsNullOrWhiteSpace(_apiSearch)
+                                || host.DraftName.Contains(_apiSearch.Trim(), StringComparison.OrdinalIgnoreCase))
+                            .OrderBy(host => host.DraftName, StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+                        <div class="tokenomics-routing-search">
+                            <span class="bi bi-search" aria-hidden="true"></span>
+                            <label class="visually-hidden" for="tokenomics-routing-api-search">Search hosts</label>
+                            <input id="tokenomics-routing-api-search" class="form-control form-control-sm" placeholder="Search hosts..."
+                                   @bind:get="_apiSearch" @bind:set="@(value => SetApiSearch(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
+                        </div>
+                        <label class="d-flex align-items-center gap-2 small mx-3 mb-2">
+                            <input class="form-check-input m-0" type="checkbox" @bind="_showDisabledHosts" />
+                            Show disabled hosts
+                        </label>
+                        <div class="tokenomics-routing-model-list" role="listbox" aria-label="Hosts">
+                            @if (visibleHosts.Count == 0)
+                            {
+                                <div class="tokenomics-routing-empty">No matching hosts.</div>
+                            }
+                            @foreach (var host in visibleHosts)
+                            {
+                                var hostKey = host.DraftName;
+                                var mappedApiCount = _selectedModel is null
+                                    ? 0
+                                    : OptionsForModelHost(_selectedModel, hostKey)?.APIs.Count ?? 0;
+                                <button type="button" role="option" aria-selected="@(string.Equals(_selectedApi, hostKey, StringComparison.OrdinalIgnoreCase) ? "true" : "false")"
+                                        class="tokenomics-routing-model-row @(string.Equals(_selectedApi, hostKey, StringComparison.OrdinalIgnoreCase) ? "is-selected" : null)"
+                                        @onclick="@(() => SelectApi(hostKey))">
+                                    <span>@hostKey</span>
+                                    <span class="tokenomics-routing-model-count">@mappedApiCount</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                </aside>
+
+                <div class="tokenomics-routing-hosts">
+                    @if (_selectedView == "models")
+                    {
+                    @if (SelectedModel is null)
+                    {
+                        <div class="tokenomics-routing-empty tokenomics-routing-empty-large">
+                            Configure a default model, model hierarchy, or model price before assigning hosts.
+                        </div>
+                    }
+                    else
+                    {
+                        var visibleModelHosts = HostSettings
+                            .Where(host => _showDisabledHosts
+                                || !ParseHostFields(host.DraftValue).TryGetValue("enabled", out var value)
+                                || !bool.TryParse(value, out var enabled)
+                                || enabled)
+                            .OrderBy(host => host.DraftName, StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+                        <div class="tokenomics-routing-hosts-heading">
+                            <div>
+                                <h4>Model: @SelectedModel</h4>
+                                <p>Select which hosts can serve this model. Configure API path handling on the API Mapping tab.</p>
+                            </div>
+                        </div>
+                        <div class="tokenomics-routing-info" role="note">
+                            <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                            <span><strong>APIs are enabled automatically when a host is selected.</strong> Switch to the API Mapping tab to override path handling.</span>
+                        </div>
+                        <label class="d-flex align-items-center gap-2 small mx-3 mb-2">
+                            <input class="form-check-input m-0" type="checkbox" @bind="_showDisabledHosts" />
+                            Show disabled hosts
+                        </label>
+                        @if (visibleModelHosts.Count == 0)
+                        {
+                            <div class="tokenomics-routing-empty tokenomics-routing-empty-large">@(HostSettings.Count == 0 ? "No hosts configured." : "No enabled hosts.")</div>
+                        }
+                        else
+                        {
+                            <div class="tokenomics-routing-host-list">
+                                @foreach (var host in visibleModelHosts)
+                                {
+                                    var hostKey = host.DraftName;
+                                    var allowed = HostsForModel(SelectedModel).Contains(hostKey);
+                                    var modelHostOptions = OptionsForModelHost(SelectedModel, hostKey);
+                                    var modelApis = modelHostOptions?.APIs
+                                        ?? OptionsForHost(hostKey)?.APIs
+                                        ?? new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase);
+                                    var changed = IsHostSelectionChanged(SelectedModel, hostKey, allowed);
+                                    <section class="tokenomics-routing-host-row @(allowed ? "is-allowed" : null) @(changed ? "config-field-changed" : null)" @key="host.Key">
+                                        <div class="tokenomics-routing-host-row-main">
+                                            <input class="form-check-input" type="checkbox" aria-label="Allow @hostKey for @SelectedModel"
+                                                   checked="@allowed" @onchange="@(args => SetHostAllowedAsync(hostKey, args))" />
+                                            <strong>@hostKey</strong>
+                                            <span class="badge tokenomics-routing-mode-badge">@HostMode(host)</span>
+                                            <span class="tokenomics-routing-host-url" title="@HostUrl(host)">@HostUrl(host)</span>
+                                            <span class="tokenomics-routing-api-label">Enabled APIs</span>
+                                            <div class="tokenomics-routing-api-badges">
+                                                @if (modelApis.Count > 0)
+                                                {
+                                                    @foreach (var api in modelApis.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                                    {
+                                                        <span class="badge tokenomics-routing-api-badge">@ApiBadge(api.Key)</span>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">—</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </section>
+                                }
+                            </div>
+                        }
+                    }
+                    }
+                    else if (_selectedApi is { } selectedHostKey
+                        && HostSettings.FirstOrDefault(host => string.Equals(host.DraftName, selectedHostKey, StringComparison.OrdinalIgnoreCase)) is { } selectedHost)
+                    {
+                        <div class="tokenomics-routing-hosts-heading">
+                            <div>
+                                <h4>Host: @selectedHostKey</h4>
+                                <p><span class="badge tokenomics-routing-mode-badge">@HostMode(selectedHost)</span> <span title="@HostUrl(selectedHost)">@HostUrl(selectedHost)</span></p>
+                            </div>
+                        </div>
+                        <div class="tokenomics-routing-info" role="note">
+                            <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                            <span>API mappings apply to <strong>@(_selectedModel ?? "the selected model")</strong> on this host. Select model hosts on the Models tab.</span>
+                        </div>
+                        @if (_selectedModel is null)
+                        {
+                            <div class="tokenomics-routing-empty tokenomics-routing-empty-large">Select a model on the Models tab before mapping APIs.</div>
+                        }
+                        else
+                        {
+                            var modelHostOptions = OptionsForModelHost(_selectedModel, selectedHostKey);
+                            var hostAssigned = HostsForModel(_selectedModel).Contains(selectedHostKey);
+                            @if (!hostAssigned)
+                            {
+                                <div class="tokenomics-routing-info" role="note">
+                                    <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                                    <span>Assign @selectedHostKey to @_selectedModel on the Models tab to edit its API mappings.</span>
+                                </div>
+                            }
+                            <div class="tokenomics-routing-info" role="note">
+                                <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                                <div>
+                                    <p class="mb-1"><strong>PassThru:</strong> Keeps the incoming path unchanged.</p>
+                                    <p class="mb-1"><strong>Default API Spec Path:</strong> Uses the API's standard path. Any <code>{model}</code> placeholder is replaced with the selected model's URL-encoded name; paths without it remain unchanged. For example, <code class="text-break">/v1beta/models/{model}:generateContent</code> becomes <code class="text-break">/v1beta/models/gemini-2.5-pro:generateContent</code> for <code>gemini-2.5-pro</code>.</p>
+                                    <p class="mb-0"><strong>Overridden Path:</strong> Uses the entered path exactly. The <code>{model}</code> placeholder is not substituted.</p>
+                                </div>
+                            </div>
+                            <div class="tokenomics-routing-host-api-details">
+                                <div class="tokenomics-routing-host-api-header">
+                                    <span>Enabled</span>
+                                    <span>API</span>
+                                    <span>Path handling</span>
+                                    <span>Path override</span>
+                                </div>
+                                @foreach (var api in Apis)
+                                {
+                                    var apiOptions = modelHostOptions?.APIs.TryGetValue(api.Name, out var configuredApi) == true
+                                        ? configuredApi
+                                        : null;
+                                    var pathMode = apiOptions is null ? "default" : PathMode(api, apiOptions);
+                                    <div class="tokenomics-routing-host-api-row" @key="api.Name">
+                                        <input class="form-check-input" type="checkbox" checked="@(apiOptions is not null)" disabled="@(!hostAssigned)"
+                                               aria-label="Enable @api.Name for @selectedHostKey"
+                                               @onchange="@(args => SetHostApiAsync(selectedHostKey, api, args))" />
+                                        <span class="tokenomics-routing-api-name">
+                                            <strong>@api.Name</strong>
+                                            <span title="@api.DefaultPath">@api.DefaultPath</span>
+                                        </span>
+                                        <select class="form-select form-select-sm" value="@pathMode" disabled="@(apiOptions is null)"
+                                                aria-label="Path handling for @api.Name on @selectedHostKey"
+                                                @onchange="@(args => SetApiPathModeAsync(_selectedModel, selectedHostKey, api, apiOptions!, args))">
+                                            <option value="passthrough">PassThru</option>
+                                            <option value="default">Default API Spec Path</option>
+                                            <option value="override">Overridden Path</option>
+                                        </select>
+                                             <input class="form-control form-control-sm font-monospace" @bind:get="@(apiOptions is null ? string.Empty : PathValue(api, apiOptions))"
+                                               disabled="@(apiOptions is null || pathMode != "override")"
+                                               aria-label="Path override for @api.Name on @selectedHostKey"
+                                                 @bind:set="@(value => SetApiPathAsync(_selectedModel, selectedHostKey, api.Name, new ChangeEventArgs { Value = value }))" />
+                                    </div>
+                                }
+                                @if (Apis.Count == 0)
+                                {
+                                    <div class="tokenomics-routing-empty">No APIs are configured.</div>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="tokenomics-routing-empty tokenomics-routing-empty-large">No hosts configured.</div>
+                    }
+                </div>
+            </section>
+            @if (!string.IsNullOrWhiteSpace(Error))
+            {
+                <div class="text-danger small mt-2" role="alert">@Error</div>
+            }
+        </div>
+    </section>
+</article>
+}
+
+@code {
+    [Parameter] public IEnumerable<string> NumericNames { get; set; } = Array.Empty<string>();
+    [Parameter] public IEnumerable<string> ActionNames { get; set; } = Array.Empty<string>();
+    [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
+    [Parameter] public IReadOnlyList<string> Models { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyList<AppConfigurationScaffoldSetting> HostSettings { get; set; } =
+        Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public IReadOnlyDictionary<string, TokenomicsHostOptions> HostOptions { get; set; } =
+        new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public IReadOnlyDictionary<string, Dictionary<string, TokenomicsHostOptions>> ModelHostOptions { get; set; } =
+        new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public IReadOnlyList<ApiDefinition> ApiDefinitions { get; set; } = Array.Empty<ApiDefinition>();
+    [Parameter] public IReadOnlyDictionary<string, HashSet<string>> LoadedAllowedHosts { get; set; } =
+        new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback<(string Model, ChangeEventArgs Args)> OnHostsChanged { get; set; }
+    [Parameter] public EventCallback<(string? Model, string Host, string Api, TokenomicsApiOptions? Options)> OnHostApiChanged { get; set; }
+    [Parameter] public EventCallback<(string Model, string Host, string Api, TokenomicsApiOptions Options)> OnModelHostApiChanged { get; set; }
+    [Parameter] public bool IsSummary { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public RenderFragment? Summary { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+
+    private readonly HashSet<string> _expandedHosts = new(StringComparer.OrdinalIgnoreCase);
+    private string _selectedView = "models";
+    private string? _selectedModel;
+    private string? _selectedApi;
+    private string _modelSearch = string.Empty;
+    private string _apiSearch = string.Empty;
+    private bool _showDisabledHosts;
+
+    public sealed record ApiDefinition(string Name, string DefaultPath);
+
+    private IReadOnlyList<string> FilteredModels => Models
+        .Where(model => string.IsNullOrWhiteSpace(_modelSearch)
+            || model.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase))
+        .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private IReadOnlyList<ApiDefinition> Apis => ApiDefinitions
+        .Concat(ModelHostOptions.Values
+            .SelectMany(hosts => hosts.Values)
+            .SelectMany(options => options.APIs.Keys)
+            .Where(apiName => !ApiDefinitions.Any(api => string.Equals(api.Name, apiName, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(apiName => apiName, StringComparer.OrdinalIgnoreCase)
+            .Select(apiName => new ApiDefinition(apiName, string.Empty)))
+        .ToList();
+
+    private IReadOnlyList<ApiDefinition> FilteredApis => Apis
+        .Where(api => string.IsNullOrWhiteSpace(_apiSearch)
+            || api.Name.Contains(_apiSearch.Trim(), StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    private string? SelectedModel => _selectedModel;
+
+    protected override void OnParametersSet()
+    {
+        if (_selectedModel is null || !Models.Contains(_selectedModel, StringComparer.OrdinalIgnoreCase))
+        {
+            _selectedModel = Models.FirstOrDefault();
+        }
+
+        if (_selectedApi is null || !HostSettings.Any(host => string.Equals(host.DraftName, _selectedApi, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedApi = HostSettings
+                .Where(host => _showDisabledHosts
+                    || !ParseHostFields(host.DraftValue).TryGetValue("enabled", out var value)
+                    || !bool.TryParse(value, out var enabled)
+                    || enabled)
+                .OrderBy(host => host.DraftName, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault()?.DraftName;
+        }
+    }
+
+    private HashSet<string> HostsForModel(string model) =>
+        ModelHostOptions.TryGetValue(model, out var hosts)
+            ? hosts.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private bool IsSelectedModel(string model) =>
+        string.Equals(_selectedModel, model, StringComparison.OrdinalIgnoreCase);
+
+    private void SelectModel(string model) => _selectedModel = model;
+
+    private void SetModelSearch(ChangeEventArgs args) =>
+        _modelSearch = args.Value?.ToString() ?? string.Empty;
+
+    private void SelectView(string view) => _selectedView = view;
+
+    private void SelectApi(string api) => _selectedApi = api;
+
+    private void SetApiSearch(ChangeEventArgs args) =>
+        _apiSearch = args.Value?.ToString() ?? string.Empty;
+
+    private int HostCountForApi(string api) => HostOptions.Values.Count(options => options.APIs.ContainsKey(api));
+
+    private bool HostSupportsApi(string host, string api) =>
+        OptionsForHost(host)?.APIs.ContainsKey(api) == true;
+
+    private async Task SetHostApiAsync(string host, ApiDefinition api, ChangeEventArgs args)
+    {
+        var options = args.Value is bool enabled && enabled
+            ? new TokenomicsApiOptions { PassThrough = false, OverridePath = false, Path = null }
+            : null;
+        await OnHostApiChanged.InvokeAsync((_selectedModel, host, api.Name, options));
+    }
+
+    private async Task SetHostAllowedAsync(string host, ChangeEventArgs args)
+    {
+        if (SelectedModel is null)
+        {
+            return;
+        }
+
+        var hosts = new HashSet<string>(HostsForModel(SelectedModel), StringComparer.OrdinalIgnoreCase);
+        if (args.Value is bool allowed && allowed)
+        {
+            hosts.Add(host);
+        }
+        else
+        {
+            hosts.Remove(host);
+        }
+
+        await OnHostsChanged.InvokeAsync((SelectedModel, new ChangeEventArgs
+        {
+            Value = hosts.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()
+        }));
+    }
+
+    private bool IsHostSelectionChanged(string model, string host, bool selected)
+    {
+        var loaded = LoadedAllowedHosts.TryGetValue(model, out var loadedHosts) && loadedHosts.Contains(host);
+        return loaded != selected;
+    }
+
+    private TokenomicsHostOptions? OptionsForHost(string host) =>
+        HostOptions.TryGetValue(host, out var options) ? options : null;
+
+    private TokenomicsHostOptions? OptionsForModelHost(string model, string host) =>
+        ModelHostOptions.TryGetValue(model, out var modelHosts) && modelHosts.TryGetValue(host, out var options)
+            ? options
+            : null;
+
+    private void ToggleHost(string host)
+    {
+        if (!_expandedHosts.Add(host))
+        {
+            _expandedHosts.Remove(host);
+        }
+    }
+
+    private void ExpandAllHosts()
+    {
+        foreach (var host in HostSettings.Where(host => OptionsForHost(host.DraftName)?.APIs.Count > 0))
+        {
+            _expandedHosts.Add(host.DraftName);
+        }
+    }
+
+    private void CollapseAllHosts() => _expandedHosts.Clear();
+
+    private static string HostMode(AppConfigurationScaffoldSetting host)
+    {
+        var fields = ParseHostFields(host.DraftValue);
+        return fields.TryGetValue("mode", out var mode) && mode.Length > 0 ? mode : "apim";
+    }
+
+    private static string HostUrl(AppConfigurationScaffoldSetting host)
+    {
+        var fields = ParseHostFields(host.DraftValue);
+        return fields.TryGetValue("host", out var url)
+            ? url
+            : host.DraftValue.Contains('=') ? string.Empty : host.DraftValue.Trim();
+    }
+
+    private static Dictionary<string, string> ParseHostFields(string value)
+    {
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = part.IndexOf('=');
+            if (separator > 0)
+            {
+                fields[part[..separator].Trim()] = part[(separator + 1)..].Trim();
+            }
+        }
+        return fields;
+    }
+
+    private string ApiBadge(string apiName) => ApiDefinitionFor(apiName).Name;
+
+    private ApiDefinition ApiDefinitionFor(string apiName) =>
+        Apis.FirstOrDefault(api => string.Equals(api.Name, apiName, StringComparison.OrdinalIgnoreCase))
+        ?? new ApiDefinition(apiName, string.Empty);
+
+    private static string PathMode(ApiDefinition definition, TokenomicsApiOptions options)
+    {
+        if (options.PassThrough)
+        {
+            return "passthrough";
+        }
+
+        return options.OverridePath ? "override" : "default";
+    }
+
+    private static string PathValue(ApiDefinition definition, TokenomicsApiOptions options) =>
+        PathMode(definition, options) == "default" ? string.Empty : options.Path ?? string.Empty;
+
+    private async Task SetApiPathModeAsync(
+        string model,
+        string host,
+        ApiDefinition api,
+        TokenomicsApiOptions current,
+        ChangeEventArgs args)
+    {
+        var options = args.Value?.ToString() switch
+        {
+            "passthrough" => new TokenomicsApiOptions { PassThrough = true, OverridePath = false, Path = null },
+            "override" => new TokenomicsApiOptions {
+                PassThrough = false,
+                OverridePath = true,
+                Path = PathMode(api, current) == "override" ? current.Path : string.Empty
+            },
+            _ => new TokenomicsApiOptions { PassThrough = false, OverridePath = false, Path = null }
+        };
+        await OnModelHostApiChanged.InvokeAsync((model, host, api.Name, options));
+    }
+
+    private async Task SetApiPathAsync(string model, string host, string api, ChangeEventArgs args)
+    {
+        await OnModelHostApiChanged.InvokeAsync((model, host, api, new TokenomicsApiOptions {
+            PassThrough = false,
+            OverridePath = true,
+            Path = args.Value?.ToString() ?? string.Empty
+        }));
+    }
+
+    private static string PathHandling(TokenomicsApiOptions options) =>
+        options.PassThrough ? "PassThru" : options.OverridePath ? "Overridden path" : "Default API spec path";
+
+    private static string EffectivePath(TokenomicsApiOptions options) =>
+        options.PassThrough ? "Incoming request path" : options.OverridePath ? options.Path ?? string.Empty : "API default";
+
+}

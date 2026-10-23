@@ -1,4 +1,5 @@
 @namespace CompanionApp.Components.Shared
+@using SimpleL7Proxy.Tokenomics
 @inject AppConfigurationScaffoldService AppConfiguration
 @inject IJSRuntime JS
 
@@ -22,13 +23,20 @@ else
             <th scope="col">Host</th>
             @foreach (var column in HostColumns)
             {
-                <th scope="col">@column <ConfigurationHelp Section="Hosts" Topic="@column" /></th>
+                <th scope="col"><ConfigurationHelp Section="Hosts" Topic="@column">@column</ConfigurationHelp></th>
+            }
+            @if (TokenomicsEnabled)
+            {
+                <th scope="col">APIs</th>
+                <th scope="col">Models</th>
+                <th scope="col">Tokenomics</th>
             }
         </tr>
     </thead>
     <tbody>
         @foreach (var setting in Hosts)
         {
+            var tokenomicsHostOptions = TokenomicsEnabled ? HostTokenomicsOptions(setting) : null;
             <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting.Key"
                 @onclick="() => EditHost(setting)">
                 <th scope="row">
@@ -49,6 +57,34 @@ else
                         }
                     </td>
                 }
+                @if (TokenomicsEnabled)
+                {
+                    <td>
+                        <div class="config-tokenomics-api-badges">
+                            @if (_tokenomicsOptionsError is not null)
+                            {
+                                <span class="text-danger small">Unavailable</span>
+                            }
+                            else if (tokenomicsHostOptions?.APIs.Count > 0)
+                            {
+                                @foreach (var api in tokenomicsHostOptions.APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    <span class="badge config-tokenomics-api-badge">@TokenomicsApiBadge(api.Key)</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="text-muted">—</span>
+                            }
+                        </div>
+                    </td>
+                    <td>@HostModelCount(setting)</td>
+                    <td>
+                        <span class="badge @TokenomicsHostStatusClass(tokenomicsHostOptions)">
+                            @TokenomicsHostStatus(tokenomicsHostOptions)
+                        </span>
+                    </td>
+                }
             </tr>
         }
     </tbody>
@@ -67,6 +103,7 @@ else
         }
         return !string.Equals(NewHostValue(field.Name), loadedValue, StringComparison.Ordinal);
     }).Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var dialogTokenomicsHostOptions = TokenomicsEnabled ? HostTokenomicsOptions(_editingHost) : null;
     RenderFragment hostDialog = @<div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
         <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
@@ -80,102 +117,96 @@ else
                 <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelNewHost"></button>
             </div>
             <div class="config-newhost-body">
-                <div class="config-newhost-grid">
-                    <div class="config-newhost-field @(!string.Equals(_newHostName, _editingHost?.Name ?? string.Empty, StringComparison.Ordinal) ? "config-field-changed" : string.Empty)">
-                        <div class="config-setting-heading">
-                            <label class="form-label" for="newHostName">Name</label>
-                            <ConfigurationHelp Section="Hosts" Topic="Host name" HelpTopic="Name" />
-                        </div>
-                        <input id="newHostName" @ref="_newHostNameInput" class="form-control form-control-sm" placeholder="Host_name"
-                               disabled="@(_editingHost is not null)"
-                               value="@_newHostName" @oninput="args => _newHostName = args.Value?.ToString() ?? string.Empty" />
-                        <small class="text-muted mt-1">Names without a Host prefix are saved as Host_&lt;name&gt;.</small>
-                    </div>
-                    @foreach (var field in DialogHostFields)
-                    {
-                        <div class='config-newhost-field @((changedFields.Contains(field.Name) || (field.Name == "host" && changedFields.Contains("ipaddress"))) ? "config-field-changed" : string.Empty) @(string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase) ? "config-field-break" : string.Empty)'>
+                <section class="config-host-editor-section config-host-editor-basic" aria-labelledby="host-basic-settings-heading">
+                    <h3 id="host-basic-settings-heading" class="config-host-editor-static-heading">Basic Settings</h3>
+                    <div class="config-newhost-grid">
+                        <div class="config-newhost-field @(!string.Equals(_newHostName, _editingHost?.Name ?? string.Empty, StringComparison.Ordinal) ? "config-field-changed" : string.Empty)">
                             <div class="config-setting-heading">
-                                <label class="form-label" title="@field.Description">@HostLabel(field)</label>
-                                <ConfigurationHelp Section="Hosts" Topic="@field.Name"
-                                                   HelpTopic='@(string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase) ? "Hostname" : field.Name)' />
+                                <ConfigurationHelp Section="Hosts" Topic="Host name" HelpTopic="Name">
+                                    <label class="form-label" for="newHostName">Name</label>
+                                </ConfigurationHelp>
                             </div>
-                            @if (string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase))
-                            {
-                                <div class="config-priority-group">
-                                    @foreach (var priority in PriorityValueChoices)
-                                    {
-                                        <label class="config-priority-item">
-                                            <input type="checkbox" class="form-check-input" checked="@IsPriorityChecked(priority)"
-                                                  disabled="@(SingleHost is not null)"
-                                                   @onchange="args => TogglePriority(priority, args)" />
-                                            <span>@priority</span>
-                                        </label>
-                                    }
+                            <input id="newHostName" @ref="_newHostNameInput" class="form-control form-control-sm" placeholder="Host_name"
+                                   disabled="@(_editingHost is not null)"
+                                   @bind="_newHostName" @bind:event="oninput" />
+                            <small class="text-muted mt-1">Names without a Host prefix are saved as Host_&lt;name&gt;.</small>
+                        </div>
+                        @foreach (var field in BasicHostFields)
+                        {
+                            <div class='config-newhost-field @((changedFields.Contains(field.Name) || (field.Name == "host" && changedFields.Contains("ipaddress"))) ? "config-field-changed" : string.Empty)'>
+                                <div class="config-setting-heading">
+                                    <ConfigurationHelp Section="Hosts" Topic="@field.Name"
+                                                       HelpTopic='@(string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase) ? "Hostname" : field.Name)'>
+                                        <label class="form-label" title="@field.Description">@HostLabel(field)</label>
+                                    </ConfigurationHelp>
                                 </div>
-                            }
-                            else if (string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase))
-                            {
-                                <input class="form-control form-control-sm" placeholder="host.address.com[ip]"
-                                       value="@HostCombinedValue()" @oninput="args => SetHostCombined(args.Value?.ToString())" />
-                            }
-                            else if (string.Equals(field.Name, "via", StringComparison.OrdinalIgnoreCase))
-                            {
-                                @if (string.Equals(NewHostValue("mode"), "indirect", StringComparison.OrdinalIgnoreCase))
+                                @if (string.Equals(field.Name, "host", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    <select class="form-select form-select-sm" value="@NewHostValue(field.Name)"
+                                    <input class="form-control form-control-sm" placeholder="host.address.com[ip]"
+                                           @bind:get="HostCombinedValue()" @bind:set="SetHostCombined" @bind:event="oninput" />
+                                }
+                                else if (string.Equals(field.Name, "via", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    @if (string.Equals(NewHostValue("mode"), "indirect", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <select class="form-select form-select-sm" value="@NewHostValue(field.Name)"
+                                                @onchange="args => SetNewHostValue(field.Name, args.Value?.ToString())">
+                                            <option value=""></option>
+                                            @if (!string.IsNullOrEmpty(NewHostValue(field.Name)) && !OtherHostNames.Contains(NewHostValue(field.Name), StringComparer.OrdinalIgnoreCase))
+                                            {
+                                                <option value="@NewHostValue(field.Name)">@NewHostValue(field.Name)</option>
+                                            }
+                                            @foreach (var otherName in OtherHostNames)
+                                            {
+                                                <option value="@otherName">@otherName</option>
+                                            }
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <input class="form-control form-control-sm" disabled />
+                                    }
+                                }
+                                else if (field.Kind == "bool")
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" checked="@(NewHostValue(field.Name) == "true")"
+                                               @onchange="args => SetNewHostBool(field.Name, args)" />
+                                    </div>
+                                }
+                                else if (HostChoices(field.Name) is { } choices)
+                                {
+                                    <select class="form-select form-select-sm" value="@NewHostValue(field.Name)" disabled="@IsFieldDisabled(field.Name)"
                                             @onchange="args => SetNewHostValue(field.Name, args.Value?.ToString())">
                                         <option value=""></option>
-                                        @if (!string.IsNullOrEmpty(NewHostValue(field.Name)) && !OtherHostNames.Contains(NewHostValue(field.Name), StringComparer.OrdinalIgnoreCase))
+                                        @foreach (var choice in choices)
                                         {
-                                            <option value="@NewHostValue(field.Name)">@NewHostValue(field.Name)</option>
-                                        }
-                                        @foreach (var otherName in OtherHostNames)
-                                        {
-                                            <option value="@otherName">@otherName</option>
+                                            <option value="@choice">@choice</option>
                                         }
                                     </select>
                                 }
                                 else
                                 {
-                                    <input class="form-control form-control-sm" disabled />
+                                     <input class="form-control form-control-sm" placeholder="@field.Default" @bind:get="NewHostValue(field.Name)"
+                                         @bind:set="@(value => SetNewHostValue(field.Name, value))" @bind:event="oninput" />
                                 }
-                            }
-                            else if (field.Kind == "bool")
-                            {
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" checked="@(NewHostValue(field.Name) == "true")"
-                                           @onchange="args => SetNewHostBool(field.Name, args)" />
-                                </div>
-                            }
-                            else if (HostChoices(field.Name) is { } choices)
-                            {
-                                <select class="form-select form-select-sm" value="@NewHostValue(field.Name)" disabled="@IsFieldDisabled(field.Name)"
-                                        @onchange="args => SetNewHostValue(field.Name, args.Value?.ToString())">
-                                    <option value=""></option>
-                                    @foreach (var choice in choices)
-                                    {
-                                        <option value="@choice">@choice</option>
-                                    }
-                                </select>
-                            }
-                            else
-                            {
-                                <input class="form-control form-control-sm" placeholder="@field.Default" value="@NewHostValue(field.Name)"
-                                        disabled="@(SingleHost is not null && string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase))"
-                                       @oninput="args => SetNewHostValue(field.Name, args.Value?.ToString())" />
-                            }
-                            @if (SingleHost is not null && field.Name is "priorityGroup" or "acceptablePriorities")
-                            {
-                                <small class="text-muted mt-auto pt-1">Only available with App Config mode.</small>
-                            }
-                        </div>
-                    }
-                </div>
-                <div class="config-auth-section">
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <details class="config-host-editor-section config-host-editor-collapsible">
+                    <summary class="config-host-editor-summary">
+                        <span>Authentication &amp; Headers</span>
+                        <span class="bi bi-chevron-down" aria-hidden="true"></span>
+                    </summary>
+                    <div class="config-host-editor-section-body">
+                        <div class="config-auth-section">
                     <div class='config-newhost-field config-auth-toggle @(changedFields.Contains("usemi") ? "config-field-changed" : string.Empty)'>
                         <div class="config-setting-heading">
-                            <label class="form-label">use token auth</label>
-                            <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication" />
+                            <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication">
+                                <label class="form-label">use token auth</label>
+                            </ConfigurationHelp>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" checked="@IsTokenAuth" @onchange="SetTokenAuth" />
@@ -187,8 +218,9 @@ else
                             <div class="config-auth-fields">
                                 <div class='config-newhost-field @(changedFields.Contains("authprovider") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">auth provider</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="authprovider" />
+                                        <ConfigurationHelp Section="Hosts" Topic="authprovider">
+                                            <label class="form-label">auth provider</label>
+                                        </ConfigurationHelp>
                                     </div>
                                     <select class="form-select form-select-sm" value='@NewHostValue("authprovider")' disabled="@(!IsTokenAuth)"
                                             @onchange='args => SetNewHostValue("authprovider", args.Value?.ToString())'>
@@ -205,11 +237,12 @@ else
                                 </div>
                                 <div class='config-newhost-field @(changedFields.Contains("audience") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">audience</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="audience" />
+                                        <ConfigurationHelp Section="Hosts" Topic="audience">
+                                            <label class="form-label">audience</label>
+                                        </ConfigurationHelp>
                                     </div>
-                                    <input class="form-control form-control-sm" value='@NewHostValue("audience")' disabled="@(!IsTokenAuth)"
-                                           @oninput='args => SetNewHostValue("audience", args.Value?.ToString())' />
+                                     <input class="form-control form-control-sm" @bind:get='@(NewHostValue("audience"))' disabled="@(!IsTokenAuth)"
+                                         @bind:set='@(value => SetNewHostValue("audience", value))' @bind:event="oninput" />
                                 </div>
                             </div>
                         </div>
@@ -218,24 +251,154 @@ else
                             <div class="config-auth-fields">
                                 <div class='config-newhost-field @(changedFields.Contains("api-key-header") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">api-key-header</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="api-key-header" />
+                                        <ConfigurationHelp Section="Hosts" Topic="api-key-header">
+                                            <label class="form-label">api-key-header</label>
+                                        </ConfigurationHelp>
                                     </div>
-                                    <input class="form-control form-control-sm" placeholder="api-key" value='@NewHostValue("api-key-header")' disabled="@IsTokenAuth"
-                                           @oninput='args => SetNewHostValue("api-key-header", args.Value?.ToString())' />
+                                     <input class="form-control form-control-sm" placeholder="api-key" @bind:get='@(NewHostValue("api-key-header"))' disabled="@IsTokenAuth"
+                                         @bind:set='@(value => SetNewHostValue("api-key-header", value))' @bind:event="oninput" />
                                 </div>
                                 <div class='config-newhost-field @(changedFields.Contains("api-key") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
-                                        <label class="form-label">api-key</label>
-                                        <ConfigurationHelp Section="Hosts" Topic="api-key" />
+                                        <ConfigurationHelp Section="Hosts" Topic="api-key">
+                                            <label class="form-label">api-key</label>
+                                        </ConfigurationHelp>
                                     </div>
-                                    <input class="form-control form-control-sm" value='@NewHostValue("api-key")' disabled="@IsTokenAuth"
-                                           @oninput='args => SetNewHostValue("api-key", args.Value?.ToString())' />
+                                     <input class="form-control form-control-sm" @bind:get='@(NewHostValue("api-key"))' disabled="@IsTokenAuth"
+                                         @bind:set='@(value => SetNewHostValue("api-key", value))' @bind:event="oninput" />
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="config-host-editor-section config-host-editor-collapsible">
+                    <summary class="config-host-editor-summary">
+                        <span>Priorities</span>
+                        <span class="bi bi-chevron-down" aria-hidden="true"></span>
+                    </summary>
+                    <div class="config-host-editor-section-body">
+                        <div class="config-newhost-grid config-priorities-grid">
+                            @foreach (var field in PriorityHostFields)
+                            {
+                                <div class='config-newhost-field @(changedFields.Contains(field.Name) ? "config-field-changed" : string.Empty) @(string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase) ? "config-priority-field-wide" : string.Empty)'>
+                                    <div class="config-setting-heading">
+                                        <ConfigurationHelp Section="Hosts" Topic="@field.Name" HelpTopic="@field.Name">
+                                            <label class="form-label" title="@field.Description">@HostLabel(field)</label>
+                                        </ConfigurationHelp>
+                                    </div>
+                                    @if (string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="config-priority-group">
+                                            @foreach (var priority in PriorityValueChoices)
+                                            {
+                                                <label class="config-priority-item">
+                                                    <input type="checkbox" class="form-check-input" checked="@IsPriorityChecked(priority)"
+                                                           disabled="@(SingleHost is not null)"
+                                                           @onchange="args => TogglePriority(priority, args)" />
+                                                    <span>@priority</span>
+                                                </label>
+                                            }
+                                        </div>
+                                    }
+                                    else if (field.Kind == "bool")
+                                    {
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" checked="@(NewHostValue(field.Name) == "true")"
+                                                   @onchange="args => SetNewHostBool(field.Name, args)" />
+                                        </div>
+                                    }
+                                    else if (HostChoices(field.Name) is { } choices)
+                                    {
+                                        <select class="form-select form-select-sm" value="@NewHostValue(field.Name)" disabled="@IsFieldDisabled(field.Name)"
+                                                @onchange="args => SetNewHostValue(field.Name, args.Value?.ToString())">
+                                            <option value=""></option>
+                                            @foreach (var choice in choices)
+                                            {
+                                                <option value="@choice">@choice</option>
+                                            }
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                             <input class="form-control form-control-sm" placeholder="@field.Default" @bind:get="NewHostValue(field.Name)"
+                                               disabled="@(SingleHost is not null && string.Equals(field.Name, "priorityGroup", StringComparison.OrdinalIgnoreCase))"
+                                                 @bind:set="@(value => SetNewHostValue(field.Name, value))" @bind:event="oninput" />
+                                    }
+                                    @if (SingleHost is not null && field.Name is "priorityGroup" or "acceptablePriorities")
+                                    {
+                                        <small class="text-muted mt-auto pt-1">Only available with App Config mode.</small>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </details>
+
+                @if (TokenomicsEnabled)
+                {
+                    <section class="config-tokenomics-host-summary" aria-labelledby="tokenomics-host-summary-heading">
+                        <div class="config-tokenomics-host-summary-heading">
+                            <div>
+                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Tokenomics</h3>
+                                <span class="small text-muted">Tokenomics host settings</span>
+                            </div>
+                        </div>
+
+                        @if (_tokenomicsOptionsError is not null)
+                        {
+                            <div class="alert alert-warning py-2 mb-0" role="status">@_tokenomicsOptionsError</div>
+                        }
+                        else if (_editingHost is null || dialogTokenomicsHostOptions is null)
+                        {
+                            <div class="config-tokenomics-host-empty">No Tokenomics host settings configured.</div>
+                        }
+                        else
+                        {
+                            <div class="config-tokenomics-host-facts">
+                                <span><strong>Models</strong> @HostModelCount(_editingHost)</span>
+                                <span><strong>APIs</strong> @dialogTokenomicsHostOptions.APIs.Count</span>
+                            </div>
+                            @if (dialogTokenomicsHostOptions.APIs.Count > 0)
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle config-tokenomics-host-api-table mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Model</th>
+                                                <th scope="col">API</th>
+                                                <th scope="col">Path handling</th>
+                                                <th scope="col">Effective path</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var model in _tokenomicsOptions.ModelHostOptions
+                                                .Where(model => model.Value.ContainsKey(_editingHost.DraftName))
+                                                .OrderBy(model => model.Key, StringComparer.OrdinalIgnoreCase))
+                                            {
+                                                @foreach (var api in model.Value[_editingHost.DraftName].APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                                {
+                                                var definition = TokenomicsApiDefinitionFor(api.Key);
+                                                <tr>
+                                                    <td>@model.Key</td>
+                                                    <td>
+                                                        <span class="badge config-tokenomics-api-badge me-2">@definition.Badge</span>
+                                                        <span>@api.Key</span>
+                                                    </td>
+                                                    <td>@TokenomicsPathModeLabel(definition, api.Value)</td>
+                                                    <td class="font-monospace text-break">@TokenomicsEffectivePath(definition, api.Value)</td>
+                                                </tr>
+                                                }
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        }
+                    </section>
+                }
             </div>
             <div class="config-newhost-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelNewHost">Cancel</button>
@@ -283,7 +446,8 @@ else
     .config-single-host-dialog .config-priority-group { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding-top: .15rem; }
     .config-single-host-dialog .config-priority-item { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: .9rem; cursor: pointer; }
     .config-single-host-dialog .config-priority-item .form-check-input { margin: 0; }
-    .config-single-host-dialog .config-auth-section, .config-single-host-dialog .config-auth-toggle { margin-top: .75rem; }
+    .config-single-host-dialog .config-auth-section { margin-top: 0; }
+    .config-single-host-dialog .config-auth-toggle { margin-top: .75rem; }
     .config-single-host-dialog .config-auth-toggle { max-width: 16rem; }
     .config-single-host-dialog .config-auth-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: .85rem; }
     .config-single-host-dialog .config-auth-col { display: flex; flex-direction: column; gap: .85rem; padding: 0 1.5rem; transition: opacity .15s; }
@@ -329,10 +493,40 @@ else
     private readonly Dictionary<string, string> _newHostFields = new(StringComparer.OrdinalIgnoreCase);
     private ElementReference _newHostNameInput;
     private bool _focusNewHostName;
+    private TokenomicsSettings _tokenomicsOptions = new();
+    private string? _observedTokenomicsDraft;
+    private string? _tokenomicsOptionsError;
 
     private string HostDocsUrl => AppConfiguration.HostFieldsDocUrl;
 
     private sealed record HostFieldDef(string Name, string Kind, string Default, string Description);
+
+    private sealed record TokenomicsApiDefinition(string Name, string Badge, string DefaultPath);
+
+    private static readonly TokenomicsApiDefinition[] TokenomicsApiCatalog =
+    {
+        new("OpenAI Chat Completions", "Chat", "/v1/chat/completions"),
+        new("OpenAI Responses", "Responses", "/openai/responses"),
+        new("OpenAI Chat Completions (vision)", "Vision", "/v1/chat/completions"),
+        new("OpenAI Responses (vision)", "Vision", "/v1/responses"),
+        new("Anthropic Messages", "Anthropic", "/v1/messages"),
+        new("Google Gemini", "Gemini", "/v1beta/models/{model}:generateContent")
+    };
+
+    private AppConfigurationScaffoldSetting? TokenomicsEnableSetting => Settings.FirstOrDefault(setting =>
+        string.Equals(setting.Name, "Enable", StringComparison.OrdinalIgnoreCase)
+        && IsTokenomicsSetting(setting));
+
+    private AppConfigurationScaffoldSetting? TokenomicsOptionsSetting => Settings.FirstOrDefault(setting =>
+        string.Equals(setting.Name, "Options", StringComparison.OrdinalIgnoreCase)
+        && IsTokenomicsSetting(setting));
+
+    private bool TokenomicsEnabled =>
+        bool.TryParse(TokenomicsEnableSetting?.DraftValue, out var enabled) && enabled;
+
+    private static bool IsTokenomicsSetting(AppConfigurationScaffoldSetting setting) =>
+        setting.Section.Contains("Tokenomics", StringComparison.OrdinalIgnoreCase)
+        || setting.Key.Contains(":Tokenomics:", StringComparison.OrdinalIgnoreCase);
 
     // Canonical backend host schema (see docs/reference/backend-hosts.md).
     private static readonly HostFieldDef[] HostFieldSchema =
@@ -361,11 +555,23 @@ else
     private static readonly HashSet<string> AuthFields =
         new(StringComparer.OrdinalIgnoreCase) { "usemi", "audience", "authprovider", "api-key", "api-key-header" };
 
+    private static readonly HashSet<string> PrioritySectionFields =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "processor", "priorityGroup", "acceptablePriorities"
+        };
+
     private static IEnumerable<HostFieldDef> DialogHostFields =>
         HostFieldSchema.Where(item =>
             !string.Equals(item.Name, "enabled", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(item.Name, "ipaddress", StringComparison.OrdinalIgnoreCase)
             && !AuthFields.Contains(item.Name));
+
+    private static IEnumerable<HostFieldDef> BasicHostFields =>
+        DialogHostFields.Where(item => !PrioritySectionFields.Contains(item.Name));
+
+    private static IEnumerable<HostFieldDef> PriorityHostFields =>
+        DialogHostFields.Where(item => PrioritySectionFields.Contains(item.Name));
 
     // Display labels differ from the connection-string keys for a couple of fields.
     private static string HostLabel(HostFieldDef field) => field.Name.ToLowerInvariant() switch
@@ -383,6 +589,7 @@ else
 
     private void AddHost()
     {
+        LoadTokenomicsOptions();
         _editingHost = null;
         _newHostName = string.Empty;
         _newHostFields.Clear();
@@ -397,6 +604,7 @@ else
 
     private void EditHost(AppConfigurationScaffoldSetting setting)
     {
+        LoadTokenomicsOptions();
         _editingHost = setting;
         _newHostName = setting.DraftName;
         _newHostFields.Clear();
@@ -407,7 +615,6 @@ else
                 ? field.Default
                 : current;
         }
-
         _showNewHostDialog = true;
         _focusNewHostName = true;
     }
@@ -643,6 +850,118 @@ else
         }
 
         await CancelNewHost();
+    }
+
+    private void LoadTokenomicsOptions()
+    {
+        if (TokenomicsOptionsSetting is null)
+        {
+            _tokenomicsOptions = new TokenomicsSettings();
+            _observedTokenomicsDraft = null;
+            _tokenomicsOptionsError = TokenomicsEnabled
+                ? "Tokenomics:Options is unavailable for this configuration."
+                : null;
+            return;
+        }
+
+        var raw = TokenomicsOptionsSetting?.DraftValue ?? string.Empty;
+        if (string.Equals(raw, _observedTokenomicsDraft, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _observedTokenomicsDraft = raw;
+        var options = new TokenomicsSettings();
+        if (string.IsNullOrWhiteSpace(raw) || options.TryParse(raw))
+        {
+            _tokenomicsOptions = options;
+            _tokenomicsOptionsError = null;
+            return;
+        }
+
+        _tokenomicsOptions = new TokenomicsSettings();
+        _tokenomicsOptionsError = "Tokenomics:Options could not be parsed.";
+    }
+
+    private static string ApiPathMode(TokenomicsApiDefinition definition, TokenomicsApiOptions options)
+    {
+        if (options.PassThrough)
+        {
+            return "preserve";
+        }
+
+        return options.OverridePath ? "override" : "default";
+    }
+
+    private TokenomicsHostOptions? HostTokenomicsOptions(AppConfigurationScaffoldSetting? setting)
+    {
+        if (setting is null || _tokenomicsOptionsError is not null)
+        {
+            return null;
+        }
+
+        var modelHosts = _tokenomicsOptions.ModelHostOptions.Values
+            .Where(hosts => hosts.ContainsKey(setting.DraftName))
+            .Select(hosts => hosts[setting.DraftName])
+            .ToList();
+        return modelHosts.Count == 0 ? null : new TokenomicsHostOptions {
+            Enabled = modelHosts.Any(options => options.Enabled),
+            APIs = modelHosts.SelectMany(options => options.APIs)
+                .GroupBy(api => api.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private int HostModelCount(AppConfigurationScaffoldSetting setting)
+    {
+        return _tokenomicsOptions.ModelHostOptions.Count(entry =>
+            entry.Value.ContainsKey(setting.DraftName));
+    }
+
+    private static TokenomicsApiDefinition TokenomicsApiDefinitionFor(string apiName) =>
+        TokenomicsApiCatalog.FirstOrDefault(definition =>
+            string.Equals(definition.Name, apiName, StringComparison.OrdinalIgnoreCase))
+        ?? new TokenomicsApiDefinition(apiName, "Custom", string.Empty);
+
+    private static string TokenomicsApiBadge(string apiName) =>
+        TokenomicsApiDefinitionFor(apiName).Badge;
+
+    private string TokenomicsHostStatus(TokenomicsHostOptions? options) =>
+        _tokenomicsOptionsError is not null
+            ? "Unavailable"
+            : options is null
+                ? "Not configured"
+                : options.Enabled ? "Enabled" : "Disabled";
+
+    private string TokenomicsHostStatusClass(TokenomicsHostOptions? options) =>
+        _tokenomicsOptionsError is not null || options is null
+            ? "text-bg-light border"
+            : options.Enabled ? "text-bg-success" : "text-bg-secondary";
+
+    private static string TokenomicsPathModeLabel(
+        TokenomicsApiDefinition definition,
+        TokenomicsApiOptions options) => ApiPathMode(definition, options) switch
+    {
+        "preserve" => "PassThru",
+        "default" => "Default API Spec Path",
+        _ => "Overridden Path"
+    };
+
+    private static string TokenomicsEffectivePath(
+        TokenomicsApiDefinition definition,
+        TokenomicsApiOptions options)
+    {
+        if (options.PassThrough)
+        {
+            return "Incoming request path";
+        }
+
+        return options.OverridePath ? options.Path ?? string.Empty : definition.DefaultPath;
+    }
+
+    protected override void OnParametersSet()
+    {
+        LoadTokenomicsOptions();
     }
 
     private static readonly string[] HostColumnOrder =

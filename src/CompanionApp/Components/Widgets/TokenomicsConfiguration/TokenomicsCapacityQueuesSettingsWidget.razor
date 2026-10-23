@@ -1,0 +1,44 @@
+@namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
+
+@if (IsSummary)
+{
+    <button type="button" id="tokenomics-summary-capacity" class="tokenomics-summary-card @(IsSelected ? "is-selected" : null)"
+            aria-pressed="@(IsSelected ? "true" : "false")" aria-controls="tokenomics-expanded-panel" @onclick="OnSelected">
+        <span class="tokenomics-summary-heading"><span class="bi bi-diagram-3-fill" aria-hidden="true"></span><span>Capacity &amp; Queues</span></span>
+        <span class="tokenomics-summary-description">Capacity, queue, delay, and large-context handling</span>
+        <span class="tokenomics-summary-values">@Summary</span>
+    </button>
+}
+else
+{
+<article class="tokenomics-settings-card tokenomics-card-capacity">
+    <header><span class="bi bi-diagram-3-fill" aria-hidden="true"></span><div><h3>Capacity &amp; Queues</h3><p>Configure capacity, queue and large-context thresholds.</p></div></header>
+    <section id="tokenomics-panel-capacity" class="tokenomics-tab-panel" aria-label="Capacity settings">
+        <div class="config-newhost-grid">
+            @foreach (var name in NumericNames)
+            {
+                @FieldContent(name)
+            }
+        </div>
+        <details class="tokenomics-action-group" open>
+            <summary>Capacity and queue actions</summary>
+            <div class="tokenomics-inline-actions" aria-label="Policy actions">
+                @foreach (var name in ActionNames)
+                {
+                    @FieldContent(name)
+                }
+            </div>
+        </details>
+    </section>
+</article>
+}
+
+@code {
+    [Parameter] public IEnumerable<string> NumericNames { get; set; } = Array.Empty<string>();
+    [Parameter] public IEnumerable<string> ActionNames { get; set; } = Array.Empty<string>();
+    [Parameter] public RenderFragment<string> FieldContent { get; set; } = default!;
+    [Parameter] public bool IsSummary { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public RenderFragment? Summary { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+}

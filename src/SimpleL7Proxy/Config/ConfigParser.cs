@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Events;
 using System.Reflection;
@@ -13,6 +15,11 @@ public static class ConfigParser
 {
     private static readonly ProxyConfig s_defaults = new();
     private static readonly System.Data.DataTable s_mathTable = new();
+    private static readonly JsonSerializerOptions s_headerValidationJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
 
     private static readonly (string envVar, string property)[] SimpleFields =
     [
@@ -33,7 +40,6 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("DependancyHeaders", "DependancyHeaders"),
-        ("DetectModel", "DetectModel"),
         ("DisallowedHeaders", "DisallowedHeaders"),
         ("EnvPluginClass", "EnvPluginClass"),
         ("HealthProbeSidecar", "HealthProbeSidecar"),
@@ -142,6 +148,152 @@ public static class ConfigParser
         defaults.Revision = plugin?.ConfigInstanceID?.Trim() ?? "N/A";
    }
 
+    /// <summary>Parses JSON validation rules or the legacy SourceHeader=AllowlistHeader format.</summary>
+    public static List<HeaderValidationRule> ParseHeaderValidationRules(string? rawValue)
+    {
+        var value = rawValue?.Trim();
+        if (string.IsNullOrEmpty(value) || value == ConfigMetadata.DefaultPlaceholder)
+        {
+            return [];
+        }
+
+        List<HeaderValidationRule> rules;
+        if (value.StartsWith('['))
+        {
+            try
+            {
+                rules = JsonSerializer.Deserialize<List<HeaderValidationRule>>(value, s_headerValidationJsonOptions)
+                    ?? throw new FormatException("Header validation rules must be a JSON array.");
+            }
+            catch (JsonException ex)
+            {
+                throw new FormatException("Header validation rules contain invalid JSON.", ex);
+            }
+        }
+        else
+        {
+            rules = [];
+            foreach (var item in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var separatorIndex = item.IndexOf('=');
+                if (separatorIndex < 0)
+                {
+                    separatorIndex = item.IndexOf(':');
+                }
+
+                if (separatorIndex <= 0 || separatorIndex == item.Length - 1)
+                {
+                    throw new FormatException(
+                        $"Header validation mapping '{item}' must use SourceHeader=AllowlistHeader.");
+                }
+
+                rules.Add(new HeaderValidationRule
+                {
+                    HeaderName = item[..separatorIndex],
+                    MatchType = HeaderValidationMatchType.PrefixWildcard,
+                    AllowedValuesHeader = item[(separatorIndex + 1)..]
+                });
+            }
+        }
+
+        return NormalizeHeaderValidationRules(rules);
+    }
+
+    /// <summary>Serializes header validation rules into the canonical JSON configuration format.</summary>
+    public static string SerializeHeaderValidationRules(IEnumerable<HeaderValidationRule> rules)
+    {
+        var normalizedRules = NormalizeHeaderValidationRules(rules);
+        return JsonSerializer.Serialize(normalizedRules, s_headerValidationJsonOptions);
+    }
+
+    /// <summary>Returns whether a value is a valid HTTP header name.</summary>
+    public static bool IsValidHeaderName(string? value)
+    {
+        const string punctuation = "!#$%&'*+-.^_`|~";
+        return !string.IsNullOrEmpty(value)
+            && value.All(character => char.IsAsciiLetterOrDigit(character) || punctuation.Contains(character));
+    }
+
+    private static List<HeaderValidationRule> NormalizeHeaderValidationRules(
+        IEnumerable<HeaderValidationRule> rules)
+    {
+        var normalizedRules = new List<HeaderValidationRule>();
+        var headerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rule in rules)
+        {
+            var headerName = rule.HeaderName?.Trim() ?? string.Empty;
+            if (!IsValidHeaderName(headerName))
+            {
+                throw new FormatException(
+                    $"Header validation rule '{headerName}' must use a valid HTTP header name.");
+            }
+
+            if (!headerNames.Add(headerName))
+            {
+                throw new FormatException(
+                    $"Header validation header '{headerName}' is configured more than once.");
+            }
+
+            if (!Enum.IsDefined(rule.MatchType))
+            {
+                throw new FormatException(
+                    $"Header validation rule '{headerName}' has an unsupported match type.");
+            }
+
+            var allowedValues = (rule.AllowedValues ?? [])
+                .Select(allowedValue => allowedValue.Trim())
+                .Where(allowedValue => allowedValue.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (rule.MatchType == HeaderValidationMatchType.PrefixWildcard)
+            {
+                var invalidWildcard = allowedValues.FirstOrDefault(allowedValue =>
+                {
+                    var firstWildcard = allowedValue.IndexOf('*');
+                    return firstWildcard >= 0
+                        && (firstWildcard != allowedValue.Length - 1
+                            || allowedValue.LastIndexOf('*') != firstWildcard);
+                });
+                if (invalidWildcard is not null)
+                {
+                    throw new FormatException(
+                        $"Allowed value '{invalidWildcard}' may use one wildcard only at the end.");
+                }
+            }
+
+            var allowedValuesHeader = string.IsNullOrWhiteSpace(rule.AllowedValuesHeader)
+                ? null
+                : rule.AllowedValuesHeader.Trim();
+            if (allowedValuesHeader is not null && !IsValidHeaderName(allowedValuesHeader))
+            {
+                throw new FormatException(
+                    $"Allowlist header '{allowedValuesHeader}' must use a valid HTTP header name.");
+            }
+            if (string.Equals(headerName, allowedValuesHeader, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new FormatException(
+                    $"Header validation rule '{headerName}' cannot use itself as its allowlist header.");
+            }
+            if (allowedValues.Count == 0 && allowedValuesHeader is null)
+            {
+                throw new FormatException(
+                    $"Header validation rule '{headerName}' must define allowed values or an allowlist header.");
+            }
+
+            normalizedRules.Add(new HeaderValidationRule
+            {
+                HeaderName = headerName,
+                MatchType = rule.MatchType,
+                AllowedValues = allowedValues,
+                AllowedValuesHeader = allowedValuesHeader
+            });
+        }
+
+        return normalizedRules;
+    }
+
 
     // public static void NonAzureOverrides(string ifExistsEnvVar, string propertyName)
     // {
@@ -182,10 +334,9 @@ public static class ConfigParser
             .ToListOfString()
             .KVIntPairs();
 
-        var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-        opts.ValidateHeaders = ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders)
-            .ToListOfString()
-            .KVStringPairs();
+        var defaultValidateHeaders = SerializeHeaderValidationRules(defaults.ValidateHeaders);
+        opts.ValidateHeaders = ParseHeaderValidationRules(
+            ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders));
 
         ApplyAsyncServiceBusOverrides(incoming, opts, defaults);
         ApplyAsyncBlobStorageOverrides(incoming, opts, defaults);
@@ -231,6 +382,7 @@ public static class ConfigParser
             StringComparer.OrdinalIgnoreCase);
 
         bool shouldValidatePrioritySettings = false;
+        bool shouldValidateHeaderSettings = false;
 
         foreach (var changedPropertyName in changedPropertyNames)
         {
@@ -247,7 +399,9 @@ public static class ConfigParser
                     shouldValidatePrioritySettings = true;
                     break;
                 case nameof(ProxyConfig.ValidateHeaders):
-                    ValidateHeaderSettings(backendOptions);
+                case nameof(ProxyConfig.RequiredHeaders):
+                case nameof(ProxyConfig.DisallowedHeaders):
+                    shouldValidateHeaderSettings = true;
                     break;
                     //case nameof(ProxyConfig.ValidateAuthConfig):
                     //    ValidateAuthSettings(backendOptions);
@@ -258,6 +412,10 @@ public static class ConfigParser
         if (shouldValidatePrioritySettings)
         {
             ValidatePrioritySettings(backendOptions, s_defaults);
+        }
+        if (shouldValidateHeaderSettings)
+        {
+            ValidateHeaderSettings(backendOptions);
         }
 
     }
@@ -442,22 +600,35 @@ public static class ConfigParser
 
     private static void ValidateHeaderSettings(ProxyConfig backendOptions)
     {
-        if (backendOptions.ValidateHeaders.Count > 0)
+        backendOptions.RequiredHeaders.RemoveAll(header =>
+            backendOptions.ValidationRequiredHeaders.Contains(header));
+        backendOptions.DisallowedHeaders.RemoveAll(header =>
+            backendOptions.ValidationDisallowedHeaders.Contains(header));
+        backendOptions.ValidationRequiredHeaders.Clear();
+        backendOptions.ValidationDisallowedHeaders.Clear();
+
+        foreach (var rule in backendOptions.ValidateHeaders)
         {
-            foreach (var (key, value) in backendOptions.ValidateHeaders)
+            if (!backendOptions.RequiredHeaders.Contains(rule.HeaderName, StringComparer.OrdinalIgnoreCase))
             {
-                if (!backendOptions.RequiredHeaders.Contains(key))
-                {
-                    backendOptions.RequiredHeaders.Add(key);
-                }
-                if (!backendOptions.RequiredHeaders.Contains(value))
-                {
-                    backendOptions.RequiredHeaders.Add(value);
-                }
-                if (!backendOptions.DisallowedHeaders.Contains(value))
-                {
-                    backendOptions.DisallowedHeaders.Add(value);
-                }
+                backendOptions.RequiredHeaders.Add(rule.HeaderName);
+                backendOptions.ValidationRequiredHeaders.Add(rule.HeaderName);
+            }
+
+            if (rule.AllowedValuesHeader is null)
+            {
+                continue;
+            }
+
+            if (!backendOptions.RequiredHeaders.Contains(rule.AllowedValuesHeader, StringComparer.OrdinalIgnoreCase))
+            {
+                backendOptions.RequiredHeaders.Add(rule.AllowedValuesHeader);
+                backendOptions.ValidationRequiredHeaders.Add(rule.AllowedValuesHeader);
+            }
+            if (!backendOptions.DisallowedHeaders.Contains(rule.AllowedValuesHeader, StringComparer.OrdinalIgnoreCase))
+            {
+                backendOptions.DisallowedHeaders.Add(rule.AllowedValuesHeader);
+                backendOptions.ValidationDisallowedHeaders.Add(rule.AllowedValuesHeader);
             }
         }
     }

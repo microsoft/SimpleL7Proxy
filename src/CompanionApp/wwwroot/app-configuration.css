@@ -1,0 +1,1411 @@
+.app-configuration-page { min-width: 0; }
+
+:where(.app-configuration-page) .config-tokenomics-fields {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+:where(.app-configuration-page) .config-tokenomics-page {
+    border: 1px solid #cbdcf1;
+    border-radius: 6px;
+    background: #edf4fc;
+}
+
+:where(.app-configuration-page) .tokenomics-summary-card:disabled {
+    cursor: default;
+}
+
+:where(.app-configuration-page) .config-section-grid[hidden] { display: none; }
+:where(.app-configuration-page) .config-load-banner { display: flex; align-items: center; gap: 1rem; min-height: 5rem; margin: 1rem; padding: 1rem 1.25rem; border-radius: 6px; background: #e0edff; color: #071c61; }
+:where(.app-configuration-page) .config-load-banner strong { font-size: 1rem; }
+:where(.app-configuration-page) .config-load-banner p { margin: 0.3rem 0 0; color: #596c96; font-size: 0.85rem; overflow-wrap: anywhere; }
+:where(.app-configuration-page) .config-load-spinner { flex-shrink: 0; width: 2.25rem; height: 2.25rem; color: #1976f3; }
+:where(.app-configuration-page) .config-load-indicator { flex-shrink: 0; width: 2.25rem; font-size: 2rem; color: #1976f3; }
+:where(.app-configuration-page) .config-details-surface { transition: filter 0.2s ease, opacity 0.2s ease; }
+:where(.app-configuration-page) .config-details-surface.is-loading { filter: grayscale(1); opacity: 0.55; pointer-events: none; }
+:where(.app-configuration-page) .config-skeleton-line { display: block; width: 80%; height: 0.55rem; margin-top: 0.15rem; border-radius: 2px; background: #b9c1ce; }
+:where(.app-configuration-page) .config-skeleton-short { width: 55%; }
+@media (prefers-reduced-motion: reduce) {
+    :where(.app-configuration-page) .config-details-surface { transition: none; }
+    :where(.app-configuration-page) .config-load-spinner { animation: none; }
+}
+:where(.app-configuration-page) .config-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 0.85rem 1rem; }
+:where(.app-configuration-page) .config-details-heading { margin: 0; padding-left: 0.65rem; border-left: 4px solid #1976f3; color: #071c61; font-size: 1.3rem; font-weight: 750; }
+:where(.app-configuration-page) .config-current-label { color: #071c61; font-size: 1.2rem; font-weight: 650; }
+:where(.app-configuration-page) .config-last-loaded { margin-left: auto; color: #596c96; font-size: 0.75rem; }
+:where(.app-configuration-page) .config-label-toolbar .btn-outline-secondary { color: #38558b; border-color: #dce5f2; background: #ffffff80; }
+:where(.app-configuration-page) .config-label-toolbar .btn,
+:where(.app-configuration-page) .config-label-dialog .btn { min-height: 44px; }
+:where(.app-configuration-page) .config-admin-shell.config-selection-shell { margin: 0; max-width: 64rem; color: #1d1d1f; }
+:where(.app-configuration-page) .config-selection-shell .config-header-bar { padding: 0 0 1.5rem; background: transparent; border-bottom-color: #d2d2d7; }
+:where(.app-configuration-page) .config-selection-shell .config-header-bar.config-header-collapsed { padding: 0; border-bottom: 0; }
+:where(.app-configuration-page) .config-connection-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+:where(.app-configuration-page) .config-connection-caption { font-size: 0.8125rem; color: #6e6e73; margin-right: 0.25rem; }
+:where(.app-configuration-page) .config-admin-shell .config-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; font-size: 1.125rem; }
+:where(.app-configuration-page) .config-selection-shell .config-header-endpoint { min-width: 0; }
+:where(.app-configuration-page) .config-selection-shell .config-header-row { gap: 0.75rem; }
+:where(.app-configuration-page) .config-selection-shell .config-header-row:has(.config-header-status:empty) { display: none; }
+:where(.app-configuration-page) .config-selection-shell .btn,
+:where(.app-configuration-page) .config-selection-shell .form-control,
+:where(.app-configuration-page) .config-selection-shell .form-select { min-height: 44px; border-radius: 6px; font-size: 0.9375rem; }
+:where(.app-configuration-page) .config-selection-shell .btn { padding: 0.5rem 1rem; white-space: nowrap; }
+:where(.app-configuration-page) .config-selection-shell .config-icon-button { padding: 0; }
+:where(.app-configuration-page) .config-selection-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; }
+:where(.app-configuration-page) .config-selection-actions .btn .bi { margin-right: 0 !important; }
+:where(.app-configuration-page) .config-selection-shell .btn-primary { background: #0066cc; border-color: #0066cc; }
+:where(.app-configuration-page) .config-selection-shell .btn-primary:hover { background: #0055ad; border-color: #0055ad; }
+:where(.app-configuration-page) .config-selection-shell .btn-outline-secondary { color: #0066cc; border-color: #d2d2d7; background: #f5f5f7; }
+:where(.app-configuration-page) .config-selection-shell .btn-outline-secondary:hover { background: #e8e8ed; }
+:where(.app-configuration-page) .config-selection-shell .form-label { color: #515154; font-size: 0.8125rem; margin-bottom: 0.5rem; }
+:where(.app-configuration-page) .config-selection-shell .form-control,
+:where(.app-configuration-page) .config-selection-shell .form-select { border-color: #a1a1a6; }
+:where(.app-configuration-page) .config-selection { padding: 1rem 0 1.5rem; }
+:where(.app-configuration-page) .config-selection-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+:where(.app-configuration-page) .config-selection-heading h2 { font-size: 1.25rem; font-weight: 600; margin: 0; }
+:where(.app-configuration-page) .config-action-picker { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+:where(.app-configuration-page) .config-selection-row { display: flex; align-items: flex-end; gap: 1rem; }
+:where(.app-configuration-page) .config-selection-field { flex: 1; min-width: 0; }
+:where(.app-configuration-page) .config-selection-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+:where(.app-configuration-page) .config-selection-metadata { margin-top: 0.5rem; font-size: 0.8125rem; color: #6e6e73; overflow-wrap: anywhere; }
+@media (max-width: 767.98px) {
+    :where(.app-configuration-page) .config-selection-row { flex-direction: column; align-items: stretch; gap: 1rem; }
+    :where(.app-configuration-page) .config-selection-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+    :where(.app-configuration-page) .config-selection-actions .btn { padding-inline: 0.5rem; white-space: normal; }
+    :where(.app-configuration-page) .config-selection-shell .config-header-endpoint { flex-basis: 100%; }
+}
+:where(.app-configuration-page) .config-label-dialog {
+    width: min(30rem, calc(100% - 2rem));
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 20px;
+    padding: 1.5rem;
+    color: #1d1d1f;
+    background: rgba(250, 250, 252, 0.96);
+    box-shadow:
+        0 28px 80px rgba(0, 0, 0, 0.28),
+        0 2px 10px rgba(0, 0, 0, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    backdrop-filter: saturate(160%) blur(24px);
+    -webkit-backdrop-filter: saturate(160%) blur(24px);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    animation: config-popup-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:where(.app-configuration-page) .config-label-dialog::backdrop {
+    background: rgba(28, 28, 30, 0.42);
+    backdrop-filter: saturate(125%) blur(14px);
+    -webkit-backdrop-filter: saturate(125%) blur(14px);
+}
+:where(.app-configuration-page) .config-label-dialog h2 { margin-bottom: 1rem; font-weight: 650; letter-spacing: -0.02em; }
+:where(.app-configuration-page) .config-label-dialog .form-control {
+    min-height: 44px;
+    border: 1px solid rgba(60, 60, 67, 0.2);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+:where(.app-configuration-page) .config-label-dialog .form-control:focus {
+    border-color: #007aff;
+    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.16);
+}
+:where(.app-configuration-page) .config-label-dialog .btn {
+    border-radius: 10px;
+    font-weight: 500;
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+:where(.app-configuration-page) .config-label-dialog .btn:hover:enabled { transform: translateY(-1px); }
+:where(.app-configuration-page) .config-label-dialog .btn:active:enabled { transform: scale(0.98); }
+:where(.app-configuration-page) .config-label-dialog .btn-primary { background: #007aff; border-color: #007aff; box-shadow: 0 1px 2px rgba(0, 82, 204, 0.2); }
+:where(.app-configuration-page) .config-label-dialog .btn-outline-secondary { color: #1d1d1f; border-color: transparent; background: #e9e9ee; }
+:where(.app-configuration-page) .config-label-dialog .btn-outline-danger { border-color: transparent; background: rgba(255, 59, 48, 0.1); color: #d70015; }
+:where(.app-configuration-page) .config-label-dialog :focus-visible,
+:where(.app-configuration-page) .config-selection-shell :focus-visible,
+:where(.app-configuration-page) .config-label-toolbar :focus-visible { outline: 3px solid #007aff; outline-offset: 3px; }
+:where(.app-configuration-page) .config-explanation {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+}
+
+:where(.app-configuration-page) .config-admin-shell {
+    margin: -0.25rem -0.75rem 0;
+    background: #f4f7fb;
+    color: #071c61;
+}
+
+:where(.app-configuration-page) .config-header-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #dce5f2;
+    background: #edf3fb;
+}
+
+:where(.app-configuration-page) .config-header-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+:where(.app-configuration-page) .config-header-endpoint {
+    flex: 1 1 20rem;
+    min-width: 12rem;
+}
+
+:where(.app-configuration-page) .config-header-label {
+    flex: 0 1 12rem;
+    min-width: 8rem;
+    width: auto;
+}
+
+:where(.app-configuration-page) .config-header-load {
+    white-space: nowrap;
+}
+
+:where(.app-configuration-page) .config-header-status {
+    flex: 1 1 12rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+:where(.app-configuration-page) .config-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    border-bottom: 1px solid #dee2e6;
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0.75rem 1rem;
+}
+
+:where(.app-configuration-page) .config-filter {
+    flex: 1 1 20rem;
+    max-width: 34rem;
+}
+
+:where(.app-configuration-page) .config-section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+}
+
+:where(.app-configuration-page) .config-section-tile {
+    position: relative;
+    display: flex;
+    min-width: 0;
+}
+
+:where(.app-configuration-page) .config-section-tile > .config-section-box {
+    flex: 1;
+    min-width: 0;
+    padding-right: 2.75rem;
+    padding-left: 4rem;
+}
+
+:where(.app-configuration-page) .config-section-help {
+    position: absolute;
+    bottom: 0.35rem;
+    right: 0.5rem;
+}
+
+:where(.app-configuration-page) .config-setting-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+:where(.app-configuration-page) .config-setting-heading > label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+:where(.app-configuration-page) .config-section-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    justify-content: flex-start;
+    min-height: 6rem;
+    padding: 1rem;
+    border: 1px solid #dce5f2;
+    border-radius: 6px;
+    background: linear-gradient(115deg, #fff, #f7faff);
+    color: #071c61;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+:where(.app-configuration-page) .config-section-box:hover {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+}
+:where(.app-configuration-page) .config-box-icon { position: absolute; left: 1.1rem; top: 1rem; color: #1976f3; font-size: 1.8rem; }
+:where(.app-configuration-page) .config-box-chevron { position: absolute; right: 1.15rem; top: 1.25rem; color: #1976f3; font-size: 1rem; }
+:where(.app-configuration-page) .config-section-box:focus-visible { outline: 3px solid #1976f3; outline-offset: 2px; }
+:where(.app-configuration-page) .config-section-box:disabled { opacity: 0.65; cursor: wait; }
+@media (min-width: 1200px) {
+    :where(.app-configuration-page) .config-section-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+:where(.app-configuration-page) .config-section-box.is-changed {
+    border-color: #ffc107;
+    background: #fffdf5;
+}
+
+:where(.app-configuration-page) .config-box-title {
+    font-weight: 600;
+}
+
+:where(.app-configuration-page) .config-box-meta {
+    font-size: 0.85rem;
+    color: #596c96;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) 1rem;
+    align-content: start;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 13rem;
+    padding: 1rem 1rem 2rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-icon,
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-title,
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-chevron {
+    position: static;
+    grid-row: 1;
+    transform: none;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-icon {
+    grid-column: 1;
+    font-size: 1.25rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-title {
+    grid-column: 2;
+    font-size: 1rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-chevron {
+    grid-column: 3;
+}
+
+:where(.app-configuration-page) .identity-access-summary {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    color: #071c61;
+}
+
+:where(.app-configuration-page) .identity-access-summary-grid {
+    display: grid;
+    grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+    gap: 0.35rem 1rem;
+    font-size: 0.85rem;
+}
+
+:where(.app-configuration-page) .identity-access-summary-grid strong {
+    min-width: 0;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.identity-access-summary) .config-box-badge {
+    grid-column: 1 / -1;
+    grid-row: 3;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) {
+    display: grid;
+    grid-template-columns: 2.75rem minmax(0, 1fr) 1rem;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    align-content: start;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 13rem;
+    padding: 1rem 1rem 1.25rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-icon,
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-title,
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-chevron {
+    position: static;
+    grid-row: 1;
+    transform: none;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-icon {
+    display: grid;
+    grid-column: 1;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 8px;
+    background: #e7f0ff;
+    font-size: 1.4rem;
+    place-items: center;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-title {
+    grid-column: 2;
+    font-size: 1rem;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-chevron {
+    grid-column: 3;
+}
+
+:where(.app-configuration-page) .proxy-configuration-summary {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    align-self: stretch;
+    flex-direction: column;
+    min-width: 0;
+    width: 100%;
+    color: #071c61;
+}
+
+:where(.app-configuration-page) .proxy-configuration-description {
+    min-height: 2.25rem;
+    margin-bottom: 0.65rem;
+    color: #38558b;
+    font-size: 0.82rem;
+    font-style: italic;
+    line-height: 1.45;
+}
+
+:where(.app-configuration-page) .proxy-configuration-summary-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    color: #1d2f5f;
+    font-size: 0.88rem;
+    font-weight: 500;
+    line-height: 1.45;
+}
+
+:where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) .config-box-badge {
+    grid-column: 1 / -1;
+    grid-row: 3;
+}
+
+:where(.app-configuration-page) .config-box-badge {
+    margin-top: 0.25rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-editor {
+    color: #071c61;
+}
+
+:where(.app-configuration-page) .proxy-settings-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid #86b7fe;
+    border-radius: 6px;
+    background: #e8f2ff;
+    color: #38558b;
+}
+
+:where(.app-configuration-page) .proxy-settings-info > .bi {
+    flex: 0 0 auto;
+    margin-top: 0.1rem;
+    color: #0d6efd;
+    font-size: 1.35rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-info p {
+    margin: 0;
+}
+
+:where(.app-configuration-page) .proxy-settings-section {
+    padding: 0.25rem 0 1rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-section + .proxy-settings-section {
+    padding-top: 1rem;
+    border-top: 1px solid #dce5f2;
+}
+
+:where(.app-configuration-page) .proxy-settings-section-heading {
+    margin-bottom: 0.75rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-section-heading h3,
+:where(.app-configuration-page) .proxy-settings-section-heading h4 {
+    margin: 0;
+    color: #071c61;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+:where(.app-configuration-page) .proxy-settings-section-heading p {
+    margin: 0.2rem 0 0;
+    color: #596c96;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-field {
+    min-width: 0;
+    padding: 0.75rem;
+    border-radius: 6px;
+    background: #f5f7fb;
+    box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.05);
+}
+
+:where(.app-configuration-page) .proxy-settings-field-wide {
+    grid-column: 1 / -1;
+}
+
+:where(.app-configuration-page) .proxy-settings-field .config-setting-heading {
+    justify-content: flex-start;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-field .config-setting-heading label {
+    margin: 0;
+    color: #38558b;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+:where(.app-configuration-page) .proxy-settings-field .input-group-text {
+    min-width: 4.75rem;
+    justify-content: center;
+    color: #38558b;
+    font-size: 0.78rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-field > p {
+    margin: 0.4rem 0 0;
+    color: #596c96;
+    font-size: 0.75rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-field.config-field-changed {
+    background: rgba(255, 204, 0, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.18);
+}
+
+:where(.app-configuration-page) .proxy-settings-switch {
+    min-height: 2.4rem;
+    padding-top: 0.35rem;
+    padding-left: 3rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-section {
+    padding-bottom: 0;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-panel {
+    overflow: hidden;
+    border: 1px solid #dce5f2;
+    border-radius: 8px;
+    background: #f5f7fb;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-panel.is-expanded {
+    border-color: #b8d4ff;
+    background: #edf3fc;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.08);
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #071c61;
+    text-align: left;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible:hover {
+    background: rgba(255, 255, 255, 0.45);
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible:focus-visible {
+    outline: 3px solid rgba(13, 110, 253, 0.25);
+    outline-offset: -3px;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-panel.is-expanded .proxy-settings-collapsible {
+    border-bottom: 1px solid #d5e2f3;
+    border-radius: 7px 7px 0 0;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible strong,
+:where(.app-configuration-page) .proxy-settings-collapsible small {
+    display: block;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible strong {
+    font-size: 1.05rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible small {
+    margin-top: 0.2rem;
+    color: #596c96;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible > .bi {
+    flex: 0 0 auto;
+    color: #0d6efd;
+    transition: transform 160ms ease;
+}
+
+:where(.app-configuration-page) .proxy-settings-collapsible > .bi.is-expanded {
+    transform: rotate(180deg);
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+:where(.app-configuration-page) .proxy-settings-advanced-group + .proxy-settings-advanced-group {
+    padding-top: 1rem;
+    border-top: 1px solid #dce5f2;
+}
+
+@media (max-width: 767.98px) {
+    :where(.app-configuration-page) .proxy-settings-field-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    :where(.app-configuration-page) .config-section-box:has(.proxy-configuration-summary) {
+        min-height: 0;
+    }
+
+    :where(.app-configuration-page) .proxy-settings-field-wide {
+        grid-column: auto;
+    }
+}
+
+html:has(.app-configuration-page .config-modal-backdrop),
+body:has(.app-configuration-page .config-modal-backdrop) {
+    overflow: hidden;
+}
+
+:where(.app-configuration-page) .config-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(0.75rem, 3vw, 2rem);
+    background: rgba(28, 28, 30, 0.38);
+    backdrop-filter: saturate(125%) blur(14px);
+    -webkit-backdrop-filter: saturate(125%) blur(14px);
+    overflow: hidden;
+    overscroll-behavior: contain;
+    animation: config-backdrop-enter 160ms ease-out;
+}
+
+:where(.app-configuration-page) .config-modal {
+    width: min(60rem, 100%);
+    max-height: calc(100dvh - 1.5rem);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 22px;
+    background: rgba(250, 250, 252, 0.97);
+    box-shadow:
+        0 32px 90px rgba(0, 0, 0, 0.3),
+        0 4px 16px rgba(0, 0, 0, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.86);
+    backdrop-filter: saturate(160%) blur(24px);
+    -webkit-backdrop-filter: saturate(160%) blur(24px);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    animation: config-popup-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:where(.app-configuration-page) .config-modal:has(.identity-access-editor) {
+    width: min(96rem, 100%);
+    height: min(52rem, calc(100dvh - 1.5rem));
+}
+
+:where(.app-configuration-page) .config-modal:has(.identity-access-editor) > .config-modal-body {
+    flex: 1 1 auto;
+}
+
+:where(.app-configuration-page) .config-modal h2 {
+    color: #1d1d1f;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+}
+
+:where(.app-configuration-page) .config-modal-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.1rem 1.35rem;
+    border-bottom: 1px solid rgba(60, 60, 67, 0.1);
+    background: rgba(250, 250, 252, 0.88);
+    backdrop-filter: saturate(160%) blur(20px);
+    -webkit-backdrop-filter: saturate(160%) blur(20px);
+}
+
+:where(.app-configuration-page) .config-modal-body {
+    padding: 1rem 1.25rem 1.25rem;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: rgba(60, 60, 67, 0.28) transparent;
+    scrollbar-width: thin;
+}
+
+@media (min-width: 601px) {
+    :where(.app-configuration-page) .config-modal-backdrop:has(.header-set-editor, .header-validation-editor) {
+        --header-editor-top: clamp(1.5rem, 6dvh, 4rem);
+        align-items: flex-start;
+        padding-top: var(--header-editor-top);
+    }
+
+    :where(.app-configuration-page) .config-modal-backdrop:has(.header-set-editor, .header-validation-editor) > .config-modal {
+        max-height: calc(100dvh - var(--header-editor-top) - clamp(0.75rem, 3vw, 2rem));
+    }
+
+    :where(.app-configuration-page) .config-modal-backdrop:has(.header-set-editor .header-set-form) > .config-modal {
+        height: min(44rem, calc(100dvh - var(--header-editor-top) - clamp(0.75rem, 3vw, 2rem)));
+    }
+
+    :where(.app-configuration-page) .config-modal:has(.header-set-editor .header-set-form) > .config-modal-body {
+        flex: 1 1 auto;
+    }
+}
+
+:where(.app-configuration-page) .config-modal:has(.header-set-editor) > .config-modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+:where(.app-configuration-page) .config-modal-body::-webkit-scrollbar,
+:where(.app-configuration-page) .config-label-dialog::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+:where(.app-configuration-page) .config-modal-body::-webkit-scrollbar-track,
+:where(.app-configuration-page) .config-label-dialog::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+:where(.app-configuration-page) .config-modal-body::-webkit-scrollbar-thumb,
+:where(.app-configuration-page) .config-label-dialog::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(60, 60, 67, 0.28);
+    background-clip: padding-box;
+}
+
+:where(.app-configuration-page) .config-modal .btn-close {
+    box-sizing: border-box;
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 2rem;
+    padding: 0.55rem;
+    border-radius: 50%;
+    background-color: rgba(120, 120, 128, 0.12);
+    background-size: 0.7rem;
+    opacity: 0.72;
+    box-shadow: none;
+    transition: background-color 140ms ease, opacity 140ms ease, transform 140ms ease;
+}
+
+:where(.app-configuration-page) .config-modal .btn-close:hover {
+    background-color: rgba(120, 120, 128, 0.2);
+    opacity: 1;
+    transform: scale(1.04);
+}
+
+:where(.app-configuration-page) .config-modal .btn-close:active {
+    transform: scale(0.94);
+}
+
+:where(.app-configuration-page) .config-modal .btn-close:focus {
+    box-shadow: none;
+}
+
+:where(.app-configuration-page) .config-modal .btn-close:focus-visible {
+    outline: 3px solid rgba(0, 122, 255, 0.45);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+:where(.app-configuration-page) .config-modal .form-control,
+:where(.app-configuration-page) .config-modal .form-select {
+    min-height: 2.4rem;
+    border: 1px solid rgba(60, 60, 67, 0.2);
+    border-radius: 10px;
+    background-color: rgba(255, 255, 255, 0.92);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+:where(.app-configuration-page) .config-modal .form-control:focus,
+:where(.app-configuration-page) .config-modal .form-select:focus {
+    border-color: #007aff;
+    background-color: #fff;
+    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.16);
+    outline: none;
+}
+
+:where(.app-configuration-page) .config-modal .form-check-input {
+    border-color: rgba(60, 60, 67, 0.28);
+    box-shadow: none;
+}
+
+:where(.app-configuration-page) .config-modal .form-check-input:checked {
+    border-color: #007aff;
+    background-color: #007aff;
+}
+
+:where(.app-configuration-page) .config-modal .btn {
+    border-radius: 10px;
+    font-weight: 500;
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+:where(.app-configuration-page) .config-modal .btn:hover:enabled {
+    transform: translateY(-1px);
+}
+
+:where(.app-configuration-page) .config-modal .btn:active:enabled {
+    transform: scale(0.98);
+}
+
+:where(.app-configuration-page) .config-modal .btn-primary {
+    border-color: #007aff;
+    background: #007aff;
+    box-shadow: 0 1px 2px rgba(0, 82, 204, 0.2);
+}
+
+:where(.app-configuration-page) .config-modal .btn-outline-secondary {
+    border-color: transparent;
+    background: #e9e9ee;
+    color: #1d1d1f;
+}
+
+:where(.app-configuration-page) .config-modal .btn-outline-danger {
+    border-color: transparent;
+    background: rgba(255, 59, 48, 0.1);
+    color: #d70015;
+}
+
+:where(.app-configuration-page) .config-newhost-body {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+:where(.app-configuration-page) .config-newhost-footer {
+    flex-shrink: 0;
+}
+
+:where(.app-configuration-page) .config-host-table th,
+:where(.app-configuration-page) .config-host-table td {
+    padding: 0.4rem 0.6rem;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+:where(.app-configuration-page) .config-host-table input.form-control {
+    min-width: 12rem;
+}
+
+:where(.app-configuration-page) .config-host-table select.form-select {
+    min-width: 6rem;
+    width: auto;
+}
+
+:where(.app-configuration-page) .config-tokenomics-api-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    max-width: 20rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-api-badge {
+    border: 1px solid #b8d7ff;
+    background: #eaf3ff;
+    color: #084a9d;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-summary {
+    margin-top: 1rem;
+    padding: 0.85rem;
+    border: 1px solid #a9ccff;
+    border-radius: 6px;
+    background: #fbfdff;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-summary-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.65rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-summary-heading h3 {
+    color: #071c61;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-bottom: 0.75rem;
+    color: #38558b;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-empty {
+    padding: 0.8rem;
+    border: 1px dashed #c7d8ee;
+    color: #596c96;
+    background: #f7faff;
+    font-size: 0.82rem;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-api-table th {
+    color: #596c96;
+    background: #f3f7fc;
+    font-size: 0.72rem;
+    font-weight: 650;
+    text-transform: uppercase;
+}
+
+:where(.app-configuration-page) .config-tokenomics-host-api-table th,
+:where(.app-configuration-page) .config-tokenomics-host-api-table td {
+    padding: 0.45rem 0.55rem;
+}
+
+:where(.app-configuration-page) .config-host-row {
+    cursor: pointer;
+}
+
+:where(.app-configuration-page) .config-host-row:hover > * {
+    background-color: #f1f6ff;
+}
+
+:where(.app-configuration-page) .config-modal-backdrop-top {
+    z-index: 1060;
+}
+
+/* Let nested editors use the viewport instead of the parent modal as their containing block. */
+:where(.app-configuration-page) .config-modal:has(.config-modal-backdrop-top) {
+    overflow: visible;
+    transform: none;
+    animation: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+:where(.app-configuration-page) .config-newhost-modal {
+    width: min(70rem, 100%);
+}
+
+:where(.app-configuration-page) .config-newhost-body {
+    padding: 1.25rem 1.5rem;
+}
+
+:where(.app-configuration-page) .config-host-editor-section {
+    margin-bottom: 0.65rem;
+    border: 1px solid #d6e0ee;
+    border-radius: 6px;
+    background: #f8faff;
+    overflow: hidden;
+}
+
+:where(.app-configuration-page) .config-host-editor-basic {
+    padding: 0.8rem;
+}
+
+:where(.app-configuration-page) .config-host-editor-static-heading {
+    margin: 0 0 0.75rem;
+    color: #071c61;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+:where(.app-configuration-page) .config-host-editor-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 2.55rem;
+    padding: 0.65rem 0.8rem;
+    color: #071c61;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+}
+
+:where(.app-configuration-page) .config-host-editor-summary::-webkit-details-marker {
+    display: none;
+}
+
+:where(.app-configuration-page) .config-host-editor-summary .bi {
+    color: #5274a8;
+    transition: transform 0.15s ease;
+}
+
+:where(.app-configuration-page) .config-host-editor-collapsible[open] .config-host-editor-summary .bi {
+    transform: rotate(180deg);
+}
+
+:where(.app-configuration-page) .config-host-editor-section-body {
+    padding: 0.8rem;
+    border-top: 1px solid #d6e0ee;
+    background: #fff;
+}
+
+:where(.app-configuration-page) .config-host-editor-section-body > .config-auth-section {
+    margin-top: 0;
+}
+
+:where(.app-configuration-page) .config-priorities-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+:where(.app-configuration-page) .config-priority-field-wide {
+    grid-column: 1 / -1;
+}
+
+:where(.app-configuration-page) .config-newhost-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1rem 1.25rem;
+}
+
+:where(.app-configuration-page) .config-newhost-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+:where(.app-configuration-page) .config-modal .config-newhost-field {
+    padding: 0.65rem 0.75rem;
+    border-radius: 12px;
+    background-color: rgba(118, 118, 128, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.04);
+}
+
+:where(.app-configuration-page) .config-modal .config-field-changed {
+    background-color: rgba(255, 204, 0, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.18);
+}
+
+:where(.app-configuration-page) .config-healthprobe-grid {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.35rem 1rem;
+    align-items: start;
+}
+
+:where(.app-configuration-page) .config-newhost-field .form-label {
+    margin-bottom: 0.3rem;
+    font-weight: 500;
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #6e6e73;
+}
+
+:where(.app-configuration-page) .config-newhost-divider {
+    grid-column: 1 / -1;
+    margin-top: 0.35rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid #e5e5ea;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #86868b;
+}
+
+:where(.app-configuration-page) .config-auth-section {
+    margin-top: 0.75rem;
+}
+
+:where(.app-configuration-page) .config-auth-toggle {
+    margin-top: 0.75rem;
+    max-width: 16rem;
+}
+
+:where(.app-configuration-page) .config-auth-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 0.85rem;
+}
+
+:where(.app-configuration-page) .config-auth-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    padding: 0 1.5rem;
+    transition: opacity 0.15s;
+}
+
+:where(.app-configuration-page) .config-auth-col:first-child {
+    padding-left: 0;
+}
+
+:where(.app-configuration-page) .config-auth-col:last-child {
+    border-left: 1px solid #e5e5ea;
+}
+
+:where(.app-configuration-page) .config-auth-subheading {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #86868b;
+}
+
+:where(.app-configuration-page) .config-auth-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+:where(.app-configuration-page) .config-auth-heading {
+    margin-top: 0;
+}
+
+:where(.app-configuration-page) .config-auth-dim {
+    opacity: 0.4;
+}
+
+:where(.app-configuration-page) .config-field-wide {
+    grid-column: 1 / -1;
+}
+
+/* Forces the field onto a new grid row so it aligns with the next field. */
+:where(.app-configuration-page) .config-field-break {
+    grid-column-start: 1;
+}
+
+:where(.app-configuration-page) .config-priority-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    padding-top: 0.15rem;
+}
+
+:where(.app-configuration-page) .config-priority-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.9rem;
+    margin: 0;
+    cursor: pointer;
+}
+
+:where(.app-configuration-page) .config-priority-item .form-check-input {
+    margin: 0;
+}
+
+:where(.app-configuration-page) .config-newhost-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(60, 60, 67, 0.1);
+    background: rgba(250, 250, 252, 0.9);
+    backdrop-filter: saturate(160%) blur(20px);
+    -webkit-backdrop-filter: saturate(160%) blur(20px);
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-control,
+:where(.app-configuration-page) .config-newhost-modal .form-select {
+    border: 1px solid rgba(60, 60, 67, 0.2);
+    border-radius: 10px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-control:focus,
+:where(.app-configuration-page) .config-newhost-modal .form-select:focus {
+    border-color: #007aff;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.25);
+    outline: none;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-control:disabled {
+    background-color: #f5f5f7;
+    color: #86868b;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-check-input {
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 6px;
+    border: 1px solid #c7c7cc;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-check-input:checked {
+    background-color: #007aff;
+    border-color: #007aff;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-label a {
+    color: #b0b0b5;
+    text-decoration: none;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .form-label a:hover {
+    color: #007aff;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .btn-primary {
+    background-color: #007aff;
+    border: none;
+    border-radius: 10px;
+    padding: 0.45rem 1.2rem;
+    font-weight: 500;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .btn-primary:hover:enabled {
+    background-color: #0066d6;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .btn-outline-secondary {
+    background-color: #e9e9ee;
+    border: none;
+    color: #1d1d1f;
+    border-radius: 10px;
+    padding: 0.45rem 1.1rem;
+    font-weight: 500;
+}
+
+:where(.app-configuration-page) .config-newhost-modal .btn-outline-secondary:hover {
+    background-color: #dedee3;
+    color: #1d1d1f;
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-global-toolbar {
+    padding: 0.1rem 0.25rem 0.9rem;
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-tabs {
+    gap: 0.2rem;
+    margin-bottom: 0.85rem;
+    padding: 0.25rem;
+    border: 0;
+    border-radius: 12px;
+    background: rgba(118, 118, 128, 0.12);
+    scrollbar-width: none;
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-tab {
+    min-height: 38px;
+    padding: 0.45rem 0.5rem;
+    border: 0;
+    border-radius: 9px;
+    color: #515154;
+    transition: background-color 140ms ease, box-shadow 140ms ease, color 140ms ease;
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-tab:hover {
+    background: rgba(255, 255, 255, 0.52);
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-tab[aria-selected="true"] {
+    border: 0;
+    background: rgba(255, 255, 255, 0.94);
+    color: #1d1d1f;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16), inset 0 0 0 1px rgba(60, 60, 67, 0.04);
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-tab-panel {
+    padding-top: 0.15rem;
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-inline-actions {
+    gap: 0.5rem;
+    border-top-color: rgba(60, 60, 67, 0.1);
+}
+
+:where(.app-configuration-page) .config-modal .tokenomics-inline-action {
+    padding: 0.55rem 0.75rem;
+    border-radius: 12px;
+    background: rgba(118, 118, 128, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(60, 60, 67, 0.04);
+}
+
+@keyframes config-backdrop-enter {
+    from { background-color: rgba(28, 28, 30, 0); backdrop-filter: blur(0); }
+}
+
+@keyframes config-popup-enter {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :where(.app-configuration-page) .config-modal-backdrop,
+    :where(.app-configuration-page) .config-modal,
+    :where(.app-configuration-page) .config-label-dialog {
+        animation: none;
+    }
+
+    :where(.app-configuration-page) .config-modal .btn,
+:where(.app-configuration-page) .config-modal .btn-close,
+:where(.app-configuration-page) .config-label-dialog .btn {
+        transition: none;
+    }
+}
+
+@media (max-width: 600px) {
+    :where(.app-configuration-page) .config-modal-backdrop {
+        align-items: flex-end;
+        padding: 0.5rem;
+    }
+
+    :where(.app-configuration-page) .config-modal {
+        max-height: calc(100dvh - 1rem);
+        border-radius: 22px 22px 14px 14px;
+    }
+
+    :where(.app-configuration-page) .config-modal-header {
+        padding: 1rem;
+    }
+
+    :where(.app-configuration-page) .config-modal-body {
+        padding: 0.85rem 0.9rem 1rem;
+    }
+
+    :where(.app-configuration-page) .config-auth-columns,
+    :where(.app-configuration-page) .config-auth-fields,
+    :where(.app-configuration-page) .config-priorities-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    :where(.app-configuration-page) .config-auth-col {
+        padding: 0;
+    }
+
+    :where(.app-configuration-page) .config-auth-col:last-child {
+        margin-top: 1rem;
+        border-left: 0;
+    }
+
+    :where(.app-configuration-page) .config-label-dialog {
+        width: calc(100% - 1rem);
+        border-radius: 20px;
+        padding: 1.25rem;
+    }
+}
+
+:where(.app-configuration-page) .config-section,
+:where(.app-configuration-page) .config-review {
+    border: 1px solid #d7dce1;
+    border-radius: 6px;
+    background: #fff;
+    overflow: hidden;
+}
+
+:where(.app-configuration-page) .config-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+    padding: 0.75rem 1rem;
+}
+
+:where(.app-configuration-page) .config-table th:first-child {
+    width: 32%;
+}
+
+:where(.app-configuration-page) .config-table th:nth-child(2) {
+    width: 6rem;
+}
+
+:where(.app-configuration-page) .config-table td,
+:where(.app-configuration-page) .config-table th {
+    padding: 0.65rem 1rem;
+}
+
+:where(.app-configuration-page) .config-row-changed > * {
+    background-color: #fff8db !important;
+}
+
+:where(.app-configuration-page) .config-review {
+    margin: 0 1rem 1rem;
+    padding-bottom: 1rem;
+}
+
+:where(.app-configuration-page) .config-review > p {
+    padding: 1rem;
+}
+
+@media (max-width: 767.98px) {
+    :where(.app-configuration-page) .config-table th:first-child {
+        min-width: 14rem;
+    }
+
+    :where(.app-configuration-page) .config-table td:nth-child(3) {
+        min-width: 16rem;
+    }
+}

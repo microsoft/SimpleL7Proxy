@@ -22,7 +22,7 @@ internal sealed class CustomConsoleFormatter : ConsoleFormatter
         TextWriter textWriter)
     {
         var message = logEntry.Formatter(logEntry.State, logEntry.Exception);
-        if (message is null)
+        if (message is null && logEntry.Exception is null)
         {
             return;
         }
@@ -34,6 +34,48 @@ internal sealed class CustomConsoleFormatter : ConsoleFormatter
             textWriter.Write(buffer);
         }
 
+        if (logEntry.LogLevel is LogLevel.Warning or LogLevel.Error or LogLevel.Critical)
+        {
+            textWriter.Write(logEntry.LogLevel.ToString().ToUpperInvariant());
+            textWriter.Write(": ");
+        }
+
+        if (logEntry.LogLevel is LogLevel.Debug or LogLevel.Trace)
+        {
+            textWriter.Write(logEntry.Category);
+            textWriter.Write(" | ");
+            var replica = Environment.GetEnvironmentVariable("CONTAINER_APP_REPLICA_NAME")
+                ?? Environment.GetEnvironmentVariable("HOSTNAME");
+            var revision = Environment.GetEnvironmentVariable("CONTAINER_APP_REVISION");
+            if (!string.IsNullOrWhiteSpace(replica))
+            {
+                textWriter.Write("Instance=");
+                textWriter.Write(replica);
+                textWriter.Write(" | ");
+            }
+            if (!string.IsNullOrWhiteSpace(revision))
+            {
+                textWriter.Write("Revision=");
+                textWriter.Write(revision);
+                textWriter.Write(" | ");
+            }
+        }
         textWriter.WriteLine(message);
+        if (logEntry.Exception is not null)
+        {
+            if (logEntry.LogLevel is LogLevel.Debug or LogLevel.Trace
+                || string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_DETAILEDERRORS"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                textWriter.WriteLine(logEntry.Exception);
+            }
+            else
+            {
+                textWriter.WriteLine(logEntry.Exception.Message);
+                if (logEntry.Exception.InnerException is not null)
+                {
+                    textWriter.WriteLine(logEntry.Exception.GetBaseException().Message);
+                }
+            }
+        }
     }
 }

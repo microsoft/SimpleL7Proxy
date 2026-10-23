@@ -16,7 +16,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     supportsHttpsTrafficOnly: true
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: (settings.?DEPLOY_STORAGE_NETWORK ?? false) ? 'Disabled' : 'Enabled'
   }
 }
 
@@ -25,7 +25,9 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   parent: storageAccount
 }
 
-resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = [for containerName in settings.BLOB_CONTAINERS: if (settings.CREATE_CONTAINERS) {
+var containerNames = union(settings.CREATE_CONTAINERS ? settings.BLOB_CONTAINERS : [], ((settings.?DEPLOY_STORAGE_NETWORK ?? false) || (settings.ASYNC_DEPLOYMENT && settings.DEPLOY_COMPANION_APP)) ? ['profiles'] : [])
+
+resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = [for containerName in containerNames: {
   name: containerName
   parent: blobService
   properties: {

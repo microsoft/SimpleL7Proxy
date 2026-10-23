@@ -1,0 +1,43 @@
+[
+    {
+        "userId": "123456",
+        "S7PPriorityKey": "high",
+        "S7PRules": []
+    },
+    {
+        "userId": "123455",
+        "S7PPriorityKey": "12345",
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "async-config": "enabled=true, containername=user123455, topic=status-12355"
+    },
+    {
+        "userId": "1234567",
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "async-config": "enabled=false",
+        "AllowedPaths": "/echo*, /file/*"
+    },
+    { "userId": "alex", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "sam", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "max", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "userId": "leo", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "kai", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "mira", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "userId": "nina", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "lina", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "aria", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "userId": "milo", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "ravi", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "tara", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "userId": "omar", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "zara", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "eli", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "userId": "ivan", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "amir", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "sara", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "userId": "ryan", "S7PPriorityKey": "high", "S7PRules": [] },
+    { "userId": "juno", "S7PPriorityKey": "medium", "S7PRules": [] },
+    { "userId": "raj", "S7PPriorityKey": "low", "S7PRules": [] },
+    { "S7PRules": [] }
+]

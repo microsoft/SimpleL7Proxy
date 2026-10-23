@@ -70,6 +70,68 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         return 0m;
     }
 
+    /// <summary>
+    /// Determines if the specified host supports the given model and API.
+    /// </summary>
+    /// <param name="model">The model to check.</param>
+    /// <param name="hostKey">The host key to check.</param>
+    /// <param name="apiName">The API name to check.</param>
+    /// <returns>True if the host supports the model and API; otherwise, false.</returns>
+    public string? SupportedHostPath(string model, string hostKey, string apiName, string originalPath)
+    {
+        // nothing defined for this model, return the original path
+        if (!Settings.ModelHostOptions.TryGetValue(model, out var supportingHosts)) 
+        {
+            return originalPath;
+        }
+
+        // Check if the host supports the API for this model
+        if (supportingHosts is null
+            || !supportingHosts.TryGetValue(hostKey, out var hostOptions)
+            || !hostOptions.Enabled
+            || !hostOptions.APIs.TryGetValue(apiName, out var apiOptions))
+        {
+            return null;
+        }
+
+        // At this point, update the path
+        if (apiOptions.PassThrough)
+        {
+            return originalPath;
+        }
+
+        if (apiOptions.OverridePath)
+        {
+            return apiOptions.Path;
+        }
+
+        if (!TokenomicsApiPaths.PartialUrls.TryGetValue(apiName, out var defaultPath))
+        {
+            return null;
+        }
+
+        // if the path contains a model placeholder, replace it with the actual model
+        return defaultPath.Contains("{model}", StringComparison.Ordinal)
+            ? defaultPath.Replace(
+                "{model}", Uri.EscapeDataString(model), StringComparison.Ordinal)
+            : defaultPath;
+    }
+
+
+    public string? ModelApiName(string path) => TokenomicsApiPaths.GetApiName(path);
+
+    public string? UpdateModelPath(string model, string originalPath)
+    {
+        if (Settings.ModelHostOptions.TryGetValue(model, out var hostSettings) && originalPath is not null)
+        {
+            if ( hostSettings is not null)
+            return ModelApiName(originalPath);
+
+        }
+
+        return string.Empty;
+    }
+
     public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
     {
         TokenomicsCondition c = await new TokenomicsCondition().CreateAsync(data, Settings, LiveMetrics, Queue);
@@ -167,44 +229,21 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
     public async Task<(string, TokenActionEnum)> EvaluateAsync(RequestData data, TokenomicsCondition c)
     {
-        if (!doTokenomics)
-            return ("TokenomicsDisabled", TokenActionEnum.None);
+        if (!doTokenomics)              return ("TokenomicsDisabled", TokenActionEnum.None);
+        if (c.AbuseDetected)            return ("AbuseDetected", Settings.AbuseDetectedAction);
+        if (data.IsOverride)            return ("Administrator Override", Settings.AdministratorOverrideAction);
 
+        var (actionType, actions) = data.IsCriticalWorkload ? ("Critical ", Settings.CriticalWorkloadLimitActions)
+            : data.IsPremiumWorkload ? ("Premium ", Settings.PremiumWorkloadLimitActions)
+            : data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
+                ? ("Model ", modelActions) : ("", Settings.DefaultLimitActions);
 
-        if (c.AbuseDetected)
-            return ("AbuseDetected", Settings.AbuseDetectedAction);
-
-        if (c.MonthlyQuotaExceeded && !c.AdministratorOverride && !c.ApprovedException)
-            return ("MonthlyQuotaExceeded", Settings.MonthlyQuotaExceededAction);
-
-        if (c.AdministratorOverride || c.ApprovedException)
-            return ("AdministratorOverride", Settings.AdministratorOverrideAction);
-
-        if (c.DailyQuotaExceeded)
-        {
-            Console.WriteLine("Daily quota exceeded for user: " + data.UserID);
-
-            if (c.IncidentResponse || c.AuditInvestigation || c.ComplianceRequired)
-                return ("DailyQuotaGovernance", Settings.DailyQuotaGovernanceAction);
-
-            return ("DailyQuotaExceeded", Settings.DailyQuotaExceededAction);
-        }
-
-        if (c.MonthlyBudgetExceeded)
-        {
-            if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("MonthlyBudgetEntitledTenant", Settings.MonthlyBudgetEntitledTenantAction);
-
-            return ("MonthlyBudgetExceeded", Settings.MonthlyBudgetExceededAction);
-        }
-
-        if (c.DailyBudgetExceeded)
-        {
-            if (c.PremiumTenant || c.EnterpriseTenant)
-                return ("DailyBudgetEntitledTenant", Settings.DailyBudgetEntitledTenantAction);
-
-            return ("DailyBudgetExceeded", Settings.DailyBudgetExceededAction);
-        }
+        if (c.HourlyQuotaExceeded )     return ($"{actionType}Hourly Quota Exceeded", actions.DailyBudgetExceededAction);
+        if (c.DailyQuotaExceeded)       return ($"{actionType}Daily Quota Exceeded", actions.DailyBudgetExceededAction);
+        if (c.MonthlyQuotaExceeded)     return ($"{actionType}Monthly Quota Exceeded", actions.MonthlyLimitAction);
+        if (c.HourlyBudgetExceeded)     return ($"{actionType}Hourly Budget Exceeded", actions.HourlyBudgetExceededAction);
+        if (c.DailyBudgetExceeded)      return ($"{actionType}Daily Budget Exceeded", actions.DailyBudgetExceededAction);
+        if (c.MonthlyBudgetExceeded)    return ($"{actionType}Monthly Budget Exceeded", actions.MonthlyBudgetExceededAction);
 
         if (c.CapacityConstrained)
         {

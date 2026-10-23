@@ -53,10 +53,10 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = if (!setti
         }
       }
     } : {},
-    settings.PRIVATE_NETWORK_DEPLOYMENT ? {
+    (settings.PRIVATE_NETWORK_DEPLOYMENT || (settings.?DEPLOY_STORAGE_NETWORK ?? false)) ? {
       vnetConfiguration: {
         infrastructureSubnetId: acaSubnetId
-        internal: true
+        internal: settings.PRIVATE_NETWORK_DEPLOYMENT
       }
     } : {}
   )

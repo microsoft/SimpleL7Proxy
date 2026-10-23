@@ -99,10 +99,8 @@ public class EventDataBuilder
                 ? proxyData.CalculatedHostLatency.ToString("F3") + " ms" 
                 : "N/A";
             
-            if (proxyData.Headers != null)
-            {
-                proxyData.Headers["x-Attempts"] = request.BackendAttempts.ToString();
-            }
+            proxyData.Headers?["x-Attempts"] = request.BackendAttempts.ToString();
+
         }
 
         _logger.LogTrace("Populated proxy event data for request {Guid}", request.Guid);

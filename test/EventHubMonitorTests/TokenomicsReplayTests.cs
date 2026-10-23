@@ -51,34 +51,355 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_NewPeriodFields_RoundTripThroughStringFormat() {
         var source = new TokenomicsSettings {
-            HourlyTokenLimit = 321,
-            HourlyBudgetUsd = 12.345m,
-            HourlyQuotaGovernanceAction = TokenActionEnum.IncreaseLimit,
-            MonthlyQuotaGovernanceAction = TokenActionEnum.Cap,
-            HourlyQuotaExceededAction = TokenActionEnum.Throttle,
-            HourlyBudgetExceededAction = TokenActionEnum.Reject,
-            HourlyBudgetEntitledTenantAction = TokenActionEnum.UpgradeModel
+            DefaultModelAPI = "OpenAI Chat Completions",
+            DefaultLimits = new TokenomicsLimits {
+                HourlyTokenLimit = 321,
+                HourlyBudgetUsd = 12.345m
+            },
+            CriticalWorkloadLimitActions = new TokenomicsLimitActions {
+                HourlyLimitAction = TokenActionEnum.IncreaseLimit,
+                DailyLimitAction = TokenActionEnum.Bypass,
+                MonthlyLimitAction = TokenActionEnum.Cap,
+                HourlyBudgetExceededAction = TokenActionEnum.UpgradeModel
+            },
+            DefaultLimitActions = new TokenomicsLimitActions {
+                HourlyLimitAction = TokenActionEnum.Throttle,
+                HourlyBudgetExceededAction = TokenActionEnum.Reject
+            },
+            ModelHostOptions = new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(StringComparer.OrdinalIgnoreCase) {
+                ["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
+                    ["Host_apim"] = new TokenomicsHostOptions {
+                        APIs = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase) {
+                            ["OpenAI Chat Completions"] = new TokenomicsApiOptions {
+                                OverridePath = true,
+                                Path = "/custom/chat"
+                            },
+                            ["OpenAI Responses"] = new TokenomicsApiOptions {
+                                PassThrough = true
+                            },
+                            ["Anthropic Messages"] = new TokenomicsApiOptions()
+                        }
+                    },
+                    ["Host_disabled"] = new TokenomicsHostOptions { Enabled = false }
+                }
+            }
         };
 
         var serialized = source.ToString();
 
+        StringAssert.Contains(serialized, "DefaultModelAPI=OpenAI%20Chat%20Completions");
         StringAssert.Contains(serialized, "HourlyTokenLimit=321");
         StringAssert.Contains(serialized, "HourlyBudgetUsd=12.345");
-        StringAssert.Contains(serialized, "HourlyQuotaGovernanceAction=increaseLimit");
-        StringAssert.Contains(serialized, "MonthlyQuotaGovernanceAction=cap");
-        StringAssert.Contains(serialized, "HourlyQuotaExceededAction=throttle");
+        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.HourlyLimitAction=increaseLimit");
+        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.DailyLimitAction=bypass");
+        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.MonthlyLimitAction=cap");
+        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.HourlyBudgetExceededAction=upgradeModel");
+        StringAssert.Contains(serialized, "HourlyLimitAction=throttle");
         StringAssert.Contains(serialized, "HourlyBudgetExceededAction=reject");
-        StringAssert.Contains(serialized, "HourlyBudgetEntitledTenantAction=upgradeModel");
+        StringAssert.Contains(serialized, "ModelHostOptions=gpt-4o=Host_apim=Enabled:true");
+        StringAssert.Contains(serialized, "ModelHostOptions=gpt-4o=Host_disabled=Enabled:false");
+        StringAssert.Contains(serialized, "Api:OpenAI%20Chat%20Completions:false:true:%2Fcustom%2Fchat");
+        StringAssert.Contains(serialized, "Api:OpenAI%20Responses:true:false");
+        StringAssert.Contains(serialized, "Api:Anthropic%20Messages:false:false");
 
         var parsed = new TokenomicsSettings();
         Assert.IsTrue(parsed.TryParse(serialized));
-        Assert.AreEqual(source.HourlyTokenLimit, parsed.HourlyTokenLimit);
-        Assert.AreEqual(source.HourlyBudgetUsd, parsed.HourlyBudgetUsd);
-        Assert.AreEqual(source.HourlyQuotaGovernanceAction, parsed.HourlyQuotaGovernanceAction);
-        Assert.AreEqual(source.MonthlyQuotaGovernanceAction, parsed.MonthlyQuotaGovernanceAction);
-        Assert.AreEqual(source.HourlyQuotaExceededAction, parsed.HourlyQuotaExceededAction);
-        Assert.AreEqual(source.HourlyBudgetExceededAction, parsed.HourlyBudgetExceededAction);
-        Assert.AreEqual(source.HourlyBudgetEntitledTenantAction, parsed.HourlyBudgetEntitledTenantAction);
+        Assert.AreEqual(source.DefaultModelAPI, parsed.DefaultModelAPI);
+        Assert.AreEqual(source.DefaultLimits.HourlyTokenLimit, parsed.DefaultLimits.HourlyTokenLimit);
+        Assert.AreEqual(source.DefaultLimits.HourlyBudgetUsd, parsed.DefaultLimits.HourlyBudgetUsd);
+        Assert.AreEqual(source.CriticalWorkloadLimitActions.HourlyLimitAction, parsed.CriticalWorkloadLimitActions.HourlyLimitAction);
+        Assert.AreEqual(source.CriticalWorkloadLimitActions.DailyLimitAction, parsed.CriticalWorkloadLimitActions.DailyLimitAction);
+        Assert.AreEqual(source.CriticalWorkloadLimitActions.MonthlyLimitAction, parsed.CriticalWorkloadLimitActions.MonthlyLimitAction);
+        Assert.AreEqual(source.DefaultLimitActions.HourlyLimitAction, parsed.DefaultLimitActions.HourlyLimitAction);
+        Assert.AreEqual(source.DefaultLimitActions.HourlyBudgetExceededAction, parsed.DefaultLimitActions.HourlyBudgetExceededAction);
+        Assert.AreEqual(source.CriticalWorkloadLimitActions.HourlyBudgetExceededAction, parsed.CriticalWorkloadLimitActions.HourlyBudgetExceededAction);
+        CollectionAssert.AreEquivalent(
+            source.ModelHostOptions["gpt-4o"].Keys.ToArray(),
+            parsed.ModelHostOptions["gpt-4o"].Keys.ToArray());
+        Assert.IsFalse(parsed.ModelHostOptions["gpt-4o"]["Host_disabled"].Enabled);
+        var parsedApis = parsed.ModelHostOptions["gpt-4o"]["Host_apim"].APIs;
+        Assert.IsFalse(parsedApis["OpenAI Chat Completions"].PassThrough);
+        Assert.IsTrue(parsedApis["OpenAI Chat Completions"].OverridePath);
+        Assert.AreEqual("/custom/chat", parsedApis["OpenAI Chat Completions"].Path);
+        Assert.IsTrue(parsedApis["OpenAI Responses"].PassThrough);
+        Assert.IsFalse(parsedApis["OpenAI Responses"].OverridePath);
+        Assert.IsFalse(parsedApis["Anthropic Messages"].PassThrough);
+        Assert.IsFalse(parsedApis["Anthropic Messages"].OverridePath);
+        Assert.IsNull(parsedApis["Anthropic Messages"].Path);
+
+        var semicolonSeparated = new TokenomicsSettings();
+        Assert.IsTrue(semicolonSeparated.TryParse(
+            "ModelHostOptions=my-aunt-jane=Host_apim-a=Enabled:true;ModelHostOptions=my-aunt-jane=Host_apim-b=Enabled:false;DailyTokenLimit=25"));
+        CollectionAssert.AreEquivalent(
+            new[] { "Host_apim-a", "Host_apim-b" },
+            semicolonSeparated.ModelHostOptions["my-aunt-jane"].Keys.ToArray());
+        Assert.AreEqual(25, semicolonSeparated.DefaultLimits.DailyTokenLimit);
+        Assert.IsTrue(semicolonSeparated.TryParse("AllowedHosts=my-aunt-jane=apim-a,apim-b"));
+        CollectionAssert.Contains(semicolonSeparated.IgnoredFields.ToArray(), "AllowedHosts");
+    }
+
+    [TestMethod]
+    public void Settings_InvalidPart_IsReportedWhileValidPartsApply() {
+        var settings = new TokenomicsSettings {
+            DefaultLimits = new TokenomicsLimits { DailyTokenLimit = 25 }
+        };
+        settings.ModelHostOptions["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
+            ["Host_apim"] = new TokenomicsHostOptions { Enabled = false }
+        };
+
+        Assert.IsTrue(settings.TryParse("DailyTokenLimit=50;ModelHostOptions=gpt-4o=Host_apim=Enabled:true;NotARealProperty=1"));
+        Assert.AreEqual(50, settings.DefaultLimits.DailyTokenLimit);
+        CollectionAssert.AreEqual(new[] { "NotARealProperty" }, settings.IgnoredFields.ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { "Host_apim" },
+            settings.ModelHostOptions["gpt-4o"].Keys.ToArray());
+        Assert.IsTrue(settings.ModelHostOptions["gpt-4o"]["Host_apim"].Enabled);
+    }
+
+    /// <summary>Every workload field retains its own scope and canonical value through serialization.</summary>
+    [TestMethod]
+    public void Settings_WorkloadFields_RoundTripThroughDottedKeys() {
+        var source = new TokenomicsSettings();
+        var scopeNames = new[] {
+            nameof(TokenomicsSettings.PremiumWorkloadLimits),
+            nameof(TokenomicsSettings.PremiumWorkloadLimitActions),
+            nameof(TokenomicsSettings.CriticalWorkloadLimits),
+            nameof(TokenomicsSettings.CriticalWorkloadLimitActions)
+        };
+        var actions = new[] {
+            TokenActionEnum.Bypass, TokenActionEnum.Reject, TokenActionEnum.Delay,
+            TokenActionEnum.Requeue, TokenActionEnum.Throttle, TokenActionEnum.IncreaseLimit
+        };
+        for (var scopeIndex = 0; scopeIndex < scopeNames.Length; scopeIndex++) {
+            var scope = typeof(TokenomicsSettings).GetProperty(scopeNames[scopeIndex])!.GetValue(source)!;
+            var fields = scope.GetType().GetProperties();
+            for (var fieldIndex = 0; fieldIndex < fields.Length; fieldIndex++) {
+                object value = fields[fieldIndex].PropertyType == typeof(int)
+                    ? (object)(2000 + scopeIndex * 100 + fieldIndex)
+                    : fields[fieldIndex].PropertyType == typeof(decimal)
+                        ? 20.125m + scopeIndex + fieldIndex
+                        : actions[(scopeIndex + fieldIndex) % actions.Length];
+                fields[fieldIndex].SetValue(scope, value);
+            }
+        }
+
+        var previousCulture = CultureInfo.CurrentCulture;
+        try {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            var serialized = source.ToString();
+            var parts = serialized.Split("; ", StringSplitOptions.None);
+            var parsed = new TokenomicsSettings();
+            Assert.IsTrue(parsed.TryParse(serialized));
+            Assert.AreEqual(serialized, parsed.ToString());
+            foreach (var scopeName in scopeNames) {
+                var property = typeof(TokenomicsSettings).GetProperty(scopeName)!;
+                var originalScope = property.GetValue(source)!;
+                var parsedScope = property.GetValue(parsed)!;
+                Assert.AreNotSame(originalScope, parsedScope);
+                foreach (var field in originalScope.GetType().GetProperties()) {
+                    var expected = field.GetValue(originalScope)!;
+                    Assert.AreEqual(expected, field.GetValue(parsedScope), $"{scopeName}.{field.Name}");
+                    Assert.AreEqual(1, parts.Count(part => part.StartsWith($"{scopeName}.{field.Name}=", StringComparison.Ordinal)));
+                }
+            }
+            Assert.AreEqual(new TokenomicsLimits().HourlyTokenLimit, parsed.DefaultLimits.HourlyTokenLimit);
+            Assert.AreEqual(new TokenomicsLimitActions().HourlyLimitAction, parsed.DefaultLimitActions.HourlyLimitAction);
+        }
+        finally {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    /// <summary>Partial workload updates preserve omitted fields, defaults, and model override syntax.</summary>
+    [TestMethod]
+    public void Settings_WorkloadUpdates_PreserveIndependentScopesAndOmittedFields() {
+        var settings = new TokenomicsSettings();
+        Assert.IsTrue(settings.TryParse(
+            "PremiumWorkloadLimits.HourlyTokenLimit=2100;PremiumWorkloadLimits.DailyTokenLimit=2200;" +
+            "CriticalWorkloadLimits.HourlyTokenLimit=3100;CriticalWorkloadLimits.DailyTokenLimit=3200;" +
+            "PremiumWorkloadLimitActions.DailyLimitAction=reject;" +
+            "CriticalWorkloadLimitActions.DailyLimitAction=bypass"));
+        var premiumLimits = settings.PremiumWorkloadLimits;
+        var criticalLimits = settings.CriticalWorkloadLimits;
+        var premiumActions = settings.PremiumWorkloadLimitActions;
+        var criticalActions = settings.CriticalWorkloadLimitActions;
+
+        Assert.IsTrue(settings.TryParse(
+            "premiumworkloadlimits.hourlytokenlimit=2300,CRITICALWORKLOADLIMITACTIONS.HOURLYLIMITACTION=THROTTLE," +
+            "DailyTokenLimit=42,DailyLimitAction=delay," +
+            "ModelLimits=model%3Bone=DailyTokenLimit:77|DailyBudgetUsd:1.25," +
+            "ModelLimitActions=model%3Bone=DailyLimitAction:requeue"));
+        Assert.AreEqual(2300, settings.PremiumWorkloadLimits.HourlyTokenLimit);
+        Assert.AreEqual(2200, settings.PremiumWorkloadLimits.DailyTokenLimit);
+        Assert.AreEqual(3100, settings.CriticalWorkloadLimits.HourlyTokenLimit);
+        Assert.AreEqual(3200, settings.CriticalWorkloadLimits.DailyTokenLimit);
+        Assert.AreEqual(TokenActionEnum.Throttle, settings.CriticalWorkloadLimitActions.HourlyLimitAction);
+        Assert.AreEqual(TokenActionEnum.Bypass, settings.CriticalWorkloadLimitActions.DailyLimitAction);
+        Assert.AreEqual(TokenActionEnum.Reject, settings.PremiumWorkloadLimitActions.DailyLimitAction);
+        Assert.AreEqual(42, settings.DefaultLimits.DailyTokenLimit);
+        Assert.AreEqual(TokenActionEnum.Delay, settings.DefaultLimitActions.DailyLimitAction);
+        Assert.AreEqual(77, settings.ModelLimits["model;one"].DailyTokenLimit);
+        Assert.AreEqual(1.25m, settings.ModelLimits["model;one"].DailyBudgetUsd);
+        Assert.AreEqual(TokenActionEnum.Requeue, settings.ModelLimitActions["model;one"].DailyLimitAction);
+        Assert.AreEqual(2100, premiumLimits.HourlyTokenLimit);
+        Assert.AreEqual(3100, criticalLimits.HourlyTokenLimit);
+        Assert.AreEqual(TokenActionEnum.Reject, premiumActions.DailyLimitAction);
+        Assert.AreEqual(new TokenomicsLimitActions().HourlyLimitAction, criticalActions.HourlyLimitAction);
+        Assert.AreNotSame(premiumLimits, settings.PremiumWorkloadLimits);
+        Assert.AreNotSame(criticalLimits, settings.CriticalWorkloadLimits);
+        Assert.AreNotSame(premiumActions, settings.PremiumWorkloadLimitActions);
+        Assert.AreNotSame(criticalActions, settings.CriticalWorkloadLimitActions);
+        var roundTrip = new TokenomicsSettings();
+        Assert.IsTrue(roundTrip.TryParse(settings.ToString()));
+        Assert.AreEqual(settings.ToString(), roundTrip.ToString());
+    }
+
+    /// <summary>A rejected part cannot leak mutations from any workload container.</summary>
+    [DataTestMethod]
+    [DataRow("UnknownWorkloadLimits.HourlyTokenLimit=1")]
+    [DataRow("PremiumWorkloadLimits.NotAField=1")]
+    [DataRow("CriticalWorkloadLimits.HourlyTokenLimit=1.5")]
+    [DataRow("PremiumWorkloadLimits.HourlyBudgetUsd=NaN")]
+    [DataRow("CriticalWorkloadLimitActions.DailyLimitAction=notAnAction")]
+    [DataRow("PremiumWorkloadLimitActions.DailyLimitAction=999")]
+    [DataRow("PremiumWorkloadLimitActions.DailyLimitAction=1")]
+    [DataRow("CriticalWorkloadLimitActions.HourlyTokenLimit=1")]
+    [DataRow("CriticalWorkloadLimits.DailyLimitAction=bypass")]
+    [DataRow("CriticalWorkloadLimitActions.=bypass")]
+    [DataRow("CriticalWorkloadLimitActions.Nested.DailyLimitAction=bypass")]
+    [DataRow("CriticalWorkloadLimitActions=bypass")]
+    [DataRow("HourlyQuotaGovernanceAction=bypass")]
+    [DataRow("DailyBudgetEntitledTenantAction=bypass")]
+    public void Settings_InvalidWorkloadPart_DoesNotMutateSettings(string invalidPart) {
+        var settings = new TokenomicsSettings();
+        Assert.IsTrue(settings.TryParse(
+            "DailyTokenLimit=99;PremiumWorkloadLimits.DailyTokenLimit=1100;" +
+            "CriticalWorkloadLimits.DailyTokenLimit=2200;" +
+            "PremiumWorkloadLimitActions.DailyLimitAction=reject;" +
+            "CriticalWorkloadLimitActions.DailyLimitAction=bypass"));
+        var before = settings.ToString();
+        var premiumLimits = settings.PremiumWorkloadLimits;
+        var criticalLimits = settings.CriticalWorkloadLimits;
+        var premiumActions = settings.PremiumWorkloadLimitActions;
+        var criticalActions = settings.CriticalWorkloadLimitActions;
+        Assert.IsTrue(settings.TryParse(invalidPart));
+        CollectionAssert.AreEqual(new[] { invalidPart.Split('=', 2)[0] }, settings.IgnoredFields.ToArray());
+        Assert.AreEqual(before, settings.ToString());
+        Assert.AreSame(premiumLimits, settings.PremiumWorkloadLimits);
+        Assert.AreSame(criticalLimits, settings.CriticalWorkloadLimits);
+        Assert.AreSame(premiumActions, settings.PremiumWorkloadLimitActions);
+        Assert.AreSame(criticalActions, settings.CriticalWorkloadLimitActions);
+    }
+
+    /// <summary>Existing flat settings load recognized values without restoring retired properties.</summary>
+    [TestMethod]
+    public void Settings_ExistingFlatOptions_LoadWithIgnoredFieldWarnings() {
+        const string raw = """
+            MonthlyTokenLimit=10000; DailyTokenLimit=1000; HourlyTokenLimit=100; HourlyBudgetUsd=10; DailyBudgetUsd=50; MonthlyBudgetUsd=1000; HourlyQuotaGovernanceAction=bypass; DailyQuotaGovernanceAction=increaseLimit; MonthlyQuotaGovernanceAction=reject; HourlyQuotaExceededAction=downgradeModel; DailyQuotaExceededAction=downgradeModel; MonthlyQuotaExceededAction=reject; HourlyBudgetExceededAction=downgradeModel; DailyBudgetExceededAction=downgradeModel; MonthlyBudgetExceededAction=downgradeModel; HourlyBudgetEntitledTenantAction=bypass; DailyBudgetEntitledTenantAction=bypass; MonthlyBudgetEntitledTenantAction=downgradeModel; DelayDuration=10:000; CurrentCapacityUtilizationPercent=0; CapacityConstraintThresholdPercent=80; HighQueueDepthThreshold=0.9; LargeContextThreshold=2048; CriticalPriority=1; HighPriority=2; DefaultTenant=Contoso; DefaultModel=gpt-4o; DefaultModelAPI=; ModelCostPerToken.gpt-4o=Input:0.23|CachedInput:0.23|Output:0.23; ModelCostPerToken.gpt-4.1=Input:0.23|CachedInput:0.23|Output:0.23; ModelCostPerToken.gpt-6-sol=Input:0.46|CachedInput:0.46|Output:0.46; ModelHierarchy=gpt: [gpt-6-sol, gpt-4o, gpt-4.1]; ModelHostOptions=gpt-4o=Host_apim=Enabled:true|Api:OpenAI%20Chat%20Completions:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6.1-sol=Host_6sol=Enabled:true|Api:OpenAI%20Chat%20Completions:false:false|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6-sol=Host_6sol=Enabled:true|Api:OpenAI%20Chat%20Completions:false:false|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6-sol=Host_apim=Enabled:true|Api:OpenAI%20Chat%20Completions:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions|Api:OpenAI%20Responses:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions; AbuseDetectedAction=reject; AdministratorOverrideAction=bypass; CapacityCriticalWorkloadAction=increasePriority; CapacityHighPriorityAction=requeue; CapacityConstrainedAction=delay; QueueCriticalPriorityAction=increasePriority; QueueDepthHighAction=requeue; PreferredModelReplacementAction=none; PreferredModelUnavailableAction=reject; LargeContextCapacityAvailableAction=upgradeModel; LargeContextRequestAction=changeModel; CriticalPriorityAction=increasePriority; HighPriorityEntitledTenantAction=increasePriority; TenantEntitlementAction=increaseLimit; GovernanceWorkloadAction=bypass; DefaultAction=none
+            """;
+        var settings = new TokenomicsSettings();
+        Assert.IsTrue(settings.TryParse(raw));
+        CollectionAssert.AreEqual(new[] {
+            "HourlyQuotaGovernanceAction", "DailyQuotaGovernanceAction", "MonthlyQuotaGovernanceAction",
+            "HourlyQuotaExceededAction", "DailyQuotaExceededAction", "MonthlyQuotaExceededAction",
+            "HourlyBudgetEntitledTenantAction", "DailyBudgetEntitledTenantAction", "MonthlyBudgetEntitledTenantAction"
+        }, settings.IgnoredFields.ToArray());
+        Assert.AreEqual(100, settings.DefaultLimits.HourlyTokenLimit);
+        Assert.AreEqual(1000, settings.DefaultLimits.DailyTokenLimit);
+        Assert.AreEqual(10000, settings.DefaultLimits.MonthlyTokenLimit);
+        Assert.AreEqual(50m, settings.DefaultLimits.DailyBudgetUsd);
+        Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.DefaultLimitActions.HourlyBudgetExceededAction);
+        Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.CriticalWorkloadLimitActions.HourlyLimitAction);
+        Assert.AreEqual(10000, settings.DelayDuration);
+        Assert.AreEqual("Contoso", settings.DefaultTenant);
+        Assert.AreEqual("gpt-4o", settings.DefaultModel);
+        Assert.AreEqual(string.Empty, settings.DefaultModelAPI);
+        Assert.AreEqual(3, settings.ModelCostPerToken.Count);
+        Assert.AreEqual(0.46m, settings.ModelCostPerToken["gpt-6-sol"].Output);
+        CollectionAssert.AreEqual(new[] { "gpt-6-sol", "gpt-4o", "gpt-4.1" }, settings.ModelHierarchy["gpt"]);
+        Assert.AreEqual(3, settings.ModelHostOptions.Count);
+        Assert.AreEqual(4, settings.ModelHostOptions.Values.Sum(hosts => hosts.Count));
+        Assert.AreEqual("/cl/openai/v1/chat/completions",
+            settings.ModelHostOptions["gpt-6-sol"]["Host_apim"].APIs["OpenAI Responses"].Path);
+        Assert.AreEqual(TokenActionEnum.None, settings.DefaultAction);
+        var canonical = settings.ToString();
+        Assert.IsFalse(canonical.Contains("IgnoredFields", StringComparison.Ordinal));
+        Assert.IsFalse(canonical.Contains("QuotaGovernanceAction", StringComparison.Ordinal));
+        var roundTrip = new TokenomicsSettings();
+        Assert.IsTrue(roundTrip.TryParse(canonical));
+        Assert.AreEqual(0, roundTrip.IgnoredFields.Count);
+        Assert.AreEqual(canonical, roundTrip.ToString());
+    }
+
+    /// <summary>Invalid compound entries roll back only themselves and warnings clear after a clean parse.</summary>
+    [TestMethod]
+    public void Settings_IgnoredEntries_DoNotLeakPartialChangesOrSerializeDiagnostics() {
+        var settings = new TokenomicsSettings();
+        settings.ModelLimits["one"] = new TokenomicsLimits { DailyTokenLimit = 77 };
+        Assert.IsTrue(settings.TryParse(
+            "ModelLimits=one=DailyTokenLimit:99|NotAField:1;" +
+            "ModelLimits=two=DailyTokenLimit:99|NotAField:1;" +
+            "DailyTokenLimit=not-a-number;InvalidValue=secret-value;broken-entry;" +
+            "dailyTokenLimit=still-invalid;DefaultModel=kept"));
+        Assert.AreEqual(77, settings.ModelLimits["one"].DailyTokenLimit);
+        Assert.IsFalse(settings.ModelLimits.ContainsKey("two"));
+        Assert.AreEqual(new TokenomicsLimits().DailyTokenLimit, settings.DefaultLimits.DailyTokenLimit);
+        Assert.AreEqual("kept", settings.DefaultModel);
+        CollectionAssert.AreEqual(new[] {
+            "ModelLimits", "DailyTokenLimit", "InvalidValue", "(malformed entry)"
+        }, settings.IgnoredFields.ToArray());
+        Assert.IsFalse(string.Join(", ", settings.IgnoredFields).Contains("secret-value", StringComparison.Ordinal));
+        Assert.IsFalse(settings.ToString().Contains("IgnoredFields", StringComparison.Ordinal));
+        Assert.IsTrue(settings.TryParse("DailyTokenLimit=250"));
+        Assert.AreEqual(250, settings.DefaultLimits.DailyTokenLimit);
+        Assert.AreEqual(0, settings.IgnoredFields.Count);
+    }
+
+    [TestMethod]
+    public void Settings_NestedFormats_RoundTrip() {
+        var source = new TokenomicsSettings {
+            DelayDuration = 1250,
+            ModelCostPerToken = {
+                ["gpt-4o"] = new ModelTokenPricing { Input = 1.1m, CachedInput = 0.2m, Output = 3.3m }
+            },
+            ModelHierarchy = {
+                ["gpt"] = ["gpt-4o", "gpt-4o-mini"]
+            }
+        };
+
+        var parsed = new TokenomicsSettings();
+        Assert.IsTrue(parsed.TryParse(source.ToString()));
+        Assert.AreEqual(1250, parsed.DelayDuration);
+        Assert.AreEqual(1.1m, parsed.ModelCostPerToken["gpt-4o"].Input);
+        Assert.AreEqual(0.2m, parsed.ModelCostPerToken["gpt-4o"].CachedInput);
+        Assert.AreEqual(3.3m, parsed.ModelCostPerToken["gpt-4o"].Output);
+        CollectionAssert.AreEqual(
+            new[] { "gpt-4o", "gpt-4o-mini" },
+            parsed.ModelHierarchy["gpt"]);
+    }
+
+    [TestMethod]
+    public void Settings_DelayDuration_ParsesSuffixesAndClock() {
+        var milliseconds = new TokenomicsSettings();
+        Assert.IsTrue(milliseconds.TryParse("DelayDuration=1500ms"));
+        Assert.AreEqual(1500, milliseconds.DelayDuration);
+
+        var seconds = new TokenomicsSettings();
+        Assert.IsTrue(seconds.TryParse("DelayDuration=2s"));
+        Assert.AreEqual(2000, seconds.DelayDuration);
+
+        var clock = new TokenomicsSettings();
+        Assert.IsTrue(clock.TryParse("DelayDuration=01:02:003"));
+        Assert.AreEqual(62003, clock.DelayDuration);
+    }
+
+    [TestMethod]
+    public void Settings_LegacyModelCost_TreatsScalarAsOutputPrice() {
+        var parsed = new TokenomicsSettings();
+        Assert.IsTrue(parsed.TryParse("ModelCostPerToken.gpt-4o=5"));
+        Assert.AreEqual(0m, parsed.ModelCostPerToken["gpt-4o"].Input);
+        Assert.AreEqual(0m, parsed.ModelCostPerToken["gpt-4o"].CachedInput);
+        Assert.AreEqual(5m, parsed.ModelCostPerToken["gpt-4o"].Output);
     }
 
     [TestMethod]

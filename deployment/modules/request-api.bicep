@@ -188,7 +188,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         }
       }
     },
-    settings.PRIVATE_NETWORK_DEPLOYMENT ? {
+    (settings.PRIVATE_NETWORK_DEPLOYMENT || (settings.?DEPLOY_STORAGE_NETWORK ?? false)) ? {
       virtualNetworkSubnetId: functionsSubnetId
     } : {}
   )

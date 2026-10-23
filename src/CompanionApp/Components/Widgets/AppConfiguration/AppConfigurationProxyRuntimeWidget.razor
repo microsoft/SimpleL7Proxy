@@ -1,0 +1,93 @@
+@namespace CompanionApp.Components.Widgets.AppConfiguration
+@using System.Globalization
+@using SimpleL7Proxy.Config
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+@{
+    var settings = Settings.ToList();
+}
+
+<AppConfigurationSectionWidget Section="@Section" Icon="bi-gear-fill" ChangedCount="@settings.Count(setting => setting.IsChanged)"
+    IsLoading="IsLoading" Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{Section}"] ?? "Edit proxy runtime settings.")' OnSelected="OnSelected">
+    <SummaryContent>
+        <span class="proxy-configuration-summary">
+            <span class="proxy-configuration-description">Process capacity and health reporting.</span>
+            <span class="proxy-configuration-summary-lines">
+                <span>Port @DisplayNumber(settings, "Port") · @DisplayWorkers(settings)</span>
+                <span>Queue @DisplayCompactNumber(settings, "MaxQueueLength")</span>
+            </span>
+        </span>
+    </SummaryContent>
+</AppConfigurationSectionWidget>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Proxy Runtime";
+    [Parameter] public IEnumerable<AppConfigurationScaffoldSetting> Settings { get; set; } = Array.Empty<AppConfigurationScaffoldSetting>();
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+
+    private static AppConfigurationScaffoldSetting? FindSetting(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name) =>
+        settings.FirstOrDefault(setting => string.Equals(setting.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string DisplayNumber(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name,
+        string? unit = null)
+    {
+        var setting = FindSetting(settings, name);
+        if (setting is null)
+        {
+            return "—";
+        }
+
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue
+            ? setting.DraftValue
+            : $"{value.ToString("N0", CultureInfo.InvariantCulture)}{(unit is null ? string.Empty : $" {unit}")}";
+    }
+
+    private static string DisplayWorkers(IEnumerable<AppConfigurationScaffoldSetting> settings)
+    {
+        var workerCount = ReadNumber(settings, "Workers");
+        return workerCount is null
+            ? "— workers"
+            : $"{workerCount.Value.ToString("N0", CultureInfo.InvariantCulture)} {(workerCount == 1 ? "worker" : "workers")}";
+    }
+
+    private static string DisplayCompactNumber(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name)
+    {
+        var value = ReadNumber(settings, name);
+        if (value is null)
+        {
+            return "—";
+        }
+
+        return Math.Abs(value.Value) >= 1000
+            ? $"{(value.Value / 1000m).ToString("0.#", CultureInfo.InvariantCulture)}K"
+            : value.Value.ToString("N0", CultureInfo.InvariantCulture);
+    }
+
+    private static int? ReadNumber(
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        string name)
+    {
+        var setting = FindSetting(settings, name);
+        if (setting is null)
+        {
+            return null;
+        }
+
+        var value = ConfigParser.ReadEnvironmentVariableOrDefault(
+            new Dictionary<string, string> { ["value"] = setting.DraftValue },
+            "value",
+            int.MinValue);
+        return value == int.MinValue ? null : value;
+    }
+}

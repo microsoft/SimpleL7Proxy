@@ -5,17 +5,32 @@ using SimpleL7Proxy.Queue;
 public sealed class TokenomicsCondition
 {
     public bool AbuseDetected { get; set; }
-    public bool MonthlyQuotaExceeded { get; set; }
-    public bool AdministratorOverride { get; set; }
-    public bool ApprovedException { get; set; }
+
+    // Standard work
+    public bool HourlyQuotaExceeded { get; set; }
     public bool DailyQuotaExceeded { get; set; }
+    public bool MonthlyQuotaExceeded { get; set; }
+    public bool HourlyBudgetExceeded { get; set; }
+    public bool DailyBudgetExceeded { get; set; }
+    public bool MonthlyBudgetExceeded { get; set; }
+
+    // Premium Workload
+    public bool PremiumHourlyQuotaExceeded { get; set; }
+    public bool PremiumDailyQuotaExceeded { get; set; }
+    public bool PremiumMonthlyQuotaExceeded { get; set; }
+    public bool PremiumHourlyBudgetExceeded { get; set; }
+    public bool PremiumDailyBudgetExceeded { get; set; }
+    public bool PremiumMonthlyBudgetExceeded { get; set; }
+    public bool PremiumTenant { get; set; }
+    public bool EnterpriseTenant { get; set; }
+
+    // Critical Workload
     public bool IncidentResponse { get; set; }
     public bool AuditInvestigation { get; set; }
     public bool ComplianceRequired { get; set; }
-    public bool MonthlyBudgetExceeded { get; set; }
-    public bool PremiumTenant { get; set; }
-    public bool EnterpriseTenant { get; set; }
-    public bool DailyBudgetExceeded { get; set; }
+   
+    public bool AdministratorOverride { get; set; }
+    public bool ApprovedException { get; set; }
     public bool CapacityConstrained { get; set; }
     public bool CriticalPriority { get; set; }
     public bool HighPriority { get; set; }
@@ -40,8 +55,15 @@ public sealed class TokenomicsCondition
         AbuseDetected = data.IsAbusive;
         Metric = await lm.GetMetric(data.UserID, data.Model);
 
-        DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= settings.DailyTokenLimit;
-        MonthlyQuotaExceeded = lm.GetMonthlyTokenBalanceAsync(Metric) >= settings.MonthlyTokenLimit;
+        // lookup the appropriate limit:  Critical => Premium => Model-specific => Default
+        var limits = data.IsCriticalWorkload ? settings.CriticalWorkloadLimits
+            : data.IsPremiumWorkload ? settings.PremiumWorkloadLimits
+            : data.Model is not null && settings.ModelLimits.TryGetValue(data.Model, out var modelLimits)
+                ? modelLimits : settings.DefaultLimits;
+
+        HourlyQuotaExceeded = lm.GetHourlyTokenBalanceAsync(Metric) >= limits.HourlyTokenLimit;
+        DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= limits.DailyTokenLimit;
+        MonthlyQuotaExceeded = lm.GetMonthlyTokenBalanceAsync(Metric) >= limits.MonthlyTokenLimit;
 
         //MonthlyBudgetExceeded = await lm.GetMonthlyBudgetUsageAsync(data.UserID, data.Model) >= settings.MonthlyBudgetUsd;
         //DailyBudgetExceeded = await lm.GetDailyBudgetUsageAsync(data.UserID, data.Model) >= settings.DailyBudgetUsd;
@@ -59,15 +81,10 @@ public sealed class TokenomicsCondition
         CriticalPriority = data.Priority <= settings.CriticalPriority;
         HighPriority = data.Priority <= settings.HighPriority;
 
-        AdministratorOverride = bool.TryParse(data.Headers[Constants.TokenizerAdministratorOverride], out var administratorOverride) && administratorOverride;
-        ApprovedException = bool.TryParse(data.Headers[Constants.TokenizerApprovedException], out var approvedException) && approvedException;
 
-        PremiumTenant = bool.TryParse(data.Headers[Constants.TokenizerPremiumTenant], out var premiumTenant) && premiumTenant;
-        EnterpriseTenant = bool.TryParse(data.Headers[Constants.TokenizerEnterpriseTenant], out var enterpriseTenant) && enterpriseTenant;
-
-        IncidentResponse = bool.TryParse(data.Headers[Constants.TokenizerIncidentResponse], out var incidentResponse) && incidentResponse;
-        AuditInvestigation = bool.TryParse(data.Headers[Constants.TokenizerAuditInvestigation], out var auditInvestigation) && auditInvestigation;
-        ComplianceRequired = bool.TryParse(data.Headers[Constants.TokenizerComplianceRequired], out var complianceRequired) && complianceRequired;
+        //IncidentResponse = bool.TryParse(data.Headers[Constants.TokenizerIncidentResponse], out var incidentResponse) && incidentResponse;
+        //AuditInvestigation = bool.TryParse(data.Headers[Constants.TokenizerAuditInvestigation], out var auditInvestigation) && auditInvestigation;
+        //ComplianceRequired = bool.TryParse(data.Headers[Constants.TokenizerComplianceRequired], out var complianceRequired) && complianceRequired;
 
         return this;
     }
