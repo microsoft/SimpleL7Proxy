@@ -125,6 +125,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
 
   public List<BaseHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
+  public int EnabledHostCount() => _backendHosts.Count;
   public List<BaseHostHealth> GetHosts() => _backendHosts;
 
   public List<BaseHostHealth> GetSpecificPathHosts()

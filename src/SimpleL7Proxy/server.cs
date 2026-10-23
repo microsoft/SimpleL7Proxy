@@ -490,7 +490,8 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Queue is full";
                             logmsg = "Queue is full  => 429:";
                         }
-                        else if (_backends.ActiveHostCount() == 0)
+                        // if loadbalancing is singlepass 
+                        else if (_options.IterationMode == IterationModeEnum.SinglePass && _backends.ActiveHostCount() == 0)
                         {
                             notEnqued = true;
                             notEnquedCode = 429;

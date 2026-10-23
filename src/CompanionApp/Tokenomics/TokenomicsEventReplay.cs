@@ -145,6 +145,13 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             _lastInvalidPricingValue = null;
         }
 
+        if (_options.FileName is not null && modelPricing.Count == 0) {
+            modelPricing["gpt-4.1"] = new ModelTokenPricing { Input = 0.000002m, CachedInput = 0.0000005m, Output = 0.000008m };
+            modelPricing["gpt-4.1-mini"] = new ModelTokenPricing { Input = 0.0000004m, CachedInput = 0.0000001m, Output = 0.0000016m };
+            modelPricing["gpt-4o"] = new ModelTokenPricing { Input = 0.0000025m, CachedInput = 0.00000125m, Output = 0.00001m };
+            modelPricing["gpt-4o-mini"] = new ModelTokenPricing { Input = 0.00000015m, CachedInput = 0.000000075m, Output = 0.0000006m };
+        }
+
         var periodSnapshots = Enum.GetValues<TokenomicsPeriod>().ToImmutableDictionary(
             period => period,
             period => CreateSnapshot(period, rangeEnd, modelPricing, currentSettings));
@@ -426,7 +433,8 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             ModelFilters = modelNames.Prepend("All models").ToImmutableArray(),
             Metrics = [
                 ("Total Tokens", Number(total), "", "▤", "blue", ""),
-                ("Total Spend (USD)", hasPriceData ? money(totalSpend) : "Unavailable", "", "$", "blue", ""),
+                (_options.FileName is not null && (tokenomicsSettings is null || tokenomicsSettings.ModelCostPerToken.Count == 0)
+                    ? "Sample Spend (USD)" : "Total Spend (USD)", hasPriceData ? money(totalSpend) : "Unavailable", "", "$", "blue", ""),
                 ("Total Requests", Number(requests), "", "▣", "blue", ""),
                 ("Success Rate", outcomes.Length == 0 ? "Unavailable" : (outcomes.Count(fields => TokenomicsReplayOptions.GetStatus(fields) is >= 200 and < 300) * 100.0 / outcomes.Length).ToString("F1", culture) + "%", "", "✓", "green", ""),
                 ("Policy Actions", Number(policyActions.Length), "", "⬟", "red", ""),

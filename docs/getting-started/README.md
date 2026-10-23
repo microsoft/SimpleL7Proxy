@@ -30,76 +30,95 @@ Use .NET 10 or Docker.
 
 ## 2. Connect a Backend
 
-**Configure one backend before checking readiness.**
+The proxy is now installed and needs to be configured.  The quickest way is to navigate to the CompanionApp and then configure it.  The URL can be found in the **Azure portal** but was also provided after the completion of the **deploy.sh** script.
 
-<table>
-<tr>
-<td width="33%" valign="top">
+<table><tr><td width="50%">
 
-### [LLM Endpoint](connect-endpoint.md)
+1. Nagivate to the configuration screen and selects hosts to configure it.
 
-Use an Azure OpenAI or Azure AI Foundry endpoint.
+![alt text](configure.png)
 
-</td>
-<td width="33%" valign="top">
+</td></tr>
+<tr><td width="30%">
 
-### [API Management](connect-apim.md)
+2. Select add host to add a new backend host.
 
-Use an APIM gateway with the priority-and-retry policy.
+![alt text](hosts.png)
+</td></tr>
+<tr><td width="30%">
 
-</td>
-<td width="33%" valign="top">
+3. Enter a hostname, endpoint, mode=direct and then configure either token or key based access to the host 
 
-### [LLM Simulator](connect-llm-simulator.md)
+![alt text](host-access.png)
 
-Run the included simulator without a real model endpoint.
+</td></tr>
+<tr><td width="30%">
 
-</td>
-</tr>
+1. Configure model and routing to tell the proxy which endpoints support the different models. The host you added in the previous step will appear in the list.
+
+![alt text](routing.png)
+
+</td></tr>
+<tr><td>
+
+5. Map your endpoint to a model
+ 
+![alt text](model-map.png)
+
+</td></tr>
+<tr><td>
+
+6. Enter the costs for your model. Make sure the model name matches the model name for your host.
+ 
+![alt text](costs.png)
+
+</td></tr>
+
+<tr><td>
+
+7. Make sure to save your changes by clicking on **Update**.
+   
+![alt text](update.png)
+ 
 </table>
 
-> [!WARNING]
-> `/liveness` can succeed before a backend is eligible. Do not send test traffic until `/readiness` returns `200 OK`.
 
-## 4. Verify the Proxy
-
-**Check health first, then send a request through the proxy.**
-
-```bash
-curl -i http://localhost:8000/liveness
-curl -i http://localhost:8000/readiness
-curl -i http://localhost:8000/your/path
-```
-
-A successful proxied response normally includes these proxy-generated headers:
-
-| Header | Meaning |
-|--------|---------|
-| `BackendHost` | Backend that handled the request |
-| `Request-Queue-Duration` | Time spent in the priority queue |
-| `Request-Process-Duration` | Time spent processing after dequeue |
-| `Total-Latency` | Total time from enqueue to response |
-| `Attempts` | Backend attempts in the current dispatch cycle |
-| `Lifetime-Attempts` | Backend attempts across requeue cycles |
-
-Exhausted-host error responses use a different set of diagnostic headers, including `x-Request-Queue-Duration` and `x-Total-Latency`. See [Headers and Status Codes](../reference/headers-and-status-codes.md) for the response-specific contract.
-
-### Use CompanionApp
+## 4. Try it out
 
 **Use CompanionApp for an interactive request and telemetry view.**
 
-```bash
-cd src/CompanionApp
-dotnet run
-```
 
-Open the URL printed by CompanionApp, then configure the server as `http://localhost:8000` or use the HTTPS URL assigned to your Container App.
+Navigate to **Explore / Ingestigator** and then try out a request by selecting a model and a prompt.  If you configured client authentication, you will need to enter the matching authentication on the server tab. 
 
-![CompanionApp request](chat-test.png)
 
-If Event Hub is configured, connect it in CompanionApp to inspect proxy activity. Select a thumbnail to open the full-size image.
+You can view live telemetry from the tokenomics reports page.
 
 <table>
+<tr><td width="60%" align="center">
+
+![alt text](tokenomics-util.png)
+</td></tr>
+<tr><td width="60%" align="center">
+
+![alt text](tokenomics-policy.png)
+</td></tr>
+<tr><td width="60%" align="center">
+
+![alt text](tokenomics-routing.png)
+</td></tr>
+<tr><td width="60%" align="center">
+
+![alt text](tokenomics-errors.png)
+</td></tr>
+<tr><td width="60%" align="center">
+
+![alt text](tokenomics-governance.png)
+</td></tr>
+<tr><td width="60%" align="center">
+
+![alt text](tokenomics-abuse.png)
+</td></tr>
+
 <tr>
 <td width="33%" align="center"><a href="chat-requests.png"><img src="chat-requests.png" alt="Event Hub request view" width="100%"></a></td>
 <td width="33%" align="center"><a href="chat-monitor.png"><img src="chat-monitor.png" alt="Event Hub monitor view" width="100%"></a></td>
