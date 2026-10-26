@@ -108,7 +108,15 @@ else
     var hostModelSelectionChanged = TokenomicsEnabled
         && _tokenomicsOptionsError is null
         && HostModelSelectionChanged(_editingHost?.DraftName ?? string.Empty);
-    var visibleModelGroups = FilteredHostModelGroups.ToList();
+    var hostModelChoices = HostModelChoices;
+    var availableModelGroups = hostModelChoices
+        .Where(model => !_selectedHostModels.Contains(model.Id))
+        .GroupBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    var selectedHostModelChoices = hostModelChoices
+        .Where(model => _selectedHostModels.Contains(model.Id))
+        .ToList();
     RenderFragment hostDialog = @<div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
         <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
@@ -348,7 +356,7 @@ else
                         <div class="config-tokenomics-host-summary-heading">
                             <div>
                                 <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Supported models</h3>
-                                <span class="small text-muted">Pick the models this host can serve. Newly selected models accept their standard APIs.</span>
+                                <span class="small text-muted">Add a model from the list. Newly selected models accept their standard APIs.</span>
                             </div>
                             <span class="small text-muted">@_selectedHostModels.Count selected</span>
                         </div>
@@ -359,57 +367,59 @@ else
                         }
                         else
                         {
-                            <div class="config-host-model-search">
-                                <span class="bi bi-search" aria-hidden="true"></span>
-                                <label class="visually-hidden" for="host-model-search">Search models</label>
-                                <input id="host-model-search" class="form-control form-control-sm" placeholder="Search models..."
-                                       @bind:get="_modelSearch" @bind:set="@(value => _modelSearch = value ?? string.Empty)" @bind:event="oninput" />
+                            <div class="config-host-model-add">
+                                <label class="visually-hidden" for="host-model-add">Add a supported model</label>
+                                <select id="host-model-add" @key="_modelPickerVersion" class="form-select form-select-sm" value=""
+                                        disabled="@(availableModelGroups.Count == 0)" @onchange="AddHostModel">
+                                    <option value="">@(availableModelGroups.Count == 0 ? "All models selected" : "Add a model...")</option>
+                                    @foreach (var group in availableModelGroups)
+                                    {
+                                        <optgroup label="@group.Key">
+                                            @foreach (var model in group)
+                                            {
+                                                <option value="@model.Id">@HostModelOptionLabel(model)</option>
+                                            }
+                                        </optgroup>
+                                    }
+                                </select>
                             </div>
-                            <div class="config-host-model-list" role="group" aria-label="Supported models">
-                                @if (visibleModelGroups.Count == 0)
-                                {
-                                    <div class="config-tokenomics-host-empty">No matching models.</div>
-                                }
-                                @foreach (var group in visibleModelGroups)
-                                {
-                                    <div class="config-host-model-group">
-                                        <div class="config-host-model-provider">@group.Key</div>
-                                        @foreach (var model in group)
-                                        {
-                                            var selected = _selectedHostModels.Contains(model.Id);
-                                            var previewApis = selected ? PreviewApisForModel(model.Id) : Array.Empty<string>();
-                                            <label class="config-host-model-row @(selected ? "is-selected" : null)">
-                                                <input class="form-check-input" type="checkbox" checked="@selected"
-                                                       aria-label="Allow @model.DisplayName on this host"
-                                                       @onchange="args => ToggleHostModel(model.Id, args)" />
-                                                <span class="config-host-model-name">
-                                                    <strong>@model.DisplayName</strong>
-                                                    @if (!string.Equals(model.DisplayName, model.Id, StringComparison.OrdinalIgnoreCase))
-                                                    {
-                                                        <span class="text-muted">@model.Id</span>
-                                                    }
-                                                </span>
-                                                @if (selected)
+                            @if (selectedHostModelChoices.Count == 0)
+                            {
+                                <div class="config-tokenomics-host-empty">No models selected.</div>
+                            }
+                            else
+                            {
+                                <ul class="config-host-model-selected" aria-label="Selected models">
+                                    @foreach (var model in selectedHostModelChoices)
+                                    {
+                                        var modelId = model.Id;
+                                        var previewApis = PreviewApisForModel(modelId);
+                                        <li>
+                                            <span class="config-host-model-name">
+                                                <strong>@model.DisplayName</strong>
+                                                @if (!string.Equals(model.DisplayName, modelId, StringComparison.OrdinalIgnoreCase))
                                                 {
-                                                    <span class="config-tokenomics-api-badges">
-                                                        @if (previewApis.Count == 0)
-                                                        {
-                                                            <span class="text-muted">No standard APIs</span>
-                                                        }
-                                                        else
-                                                        {
-                                                            @foreach (var api in previewApis)
-                                                            {
-                                                                <span class="badge config-tokenomics-api-badge">@api</span>
-                                                            }
-                                                        }
-                                                    </span>
+                                                    <span class="text-muted">@modelId</span>
                                                 }
-                                            </label>
-                                        }
-                                    </div>
-                                }
-                            </div>
+                                            </span>
+                                            <span class="config-tokenomics-api-badges">
+                                                @if (previewApis.Count == 0)
+                                                {
+                                                    <span class="text-muted">No standard APIs</span>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var api in previewApis)
+                                                    {
+                                                        <span class="badge config-tokenomics-api-badge">@api</span>
+                                                    }
+                                                }
+                                            </span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" aria-label="Remove @model.DisplayName" @onclick="() => RemoveHostModel(modelId)">Remove</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
                             <p class="config-host-model-note mb-0">Existing assignments keep their current API settings. Change path handling on Model &amp; API Routing.</p>
                         }
                     </section>
@@ -484,44 +494,31 @@ else
         justify-content: flex-end;
         margin-bottom: 0.5rem;
     }
-    .config-host-model-search {
+    .config-host-model-add { margin-bottom: 0.65rem; }
+    .config-host-model-add .form-select { width: 100%; }
+    .config-host-model-selected {
         display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        margin-bottom: 0.55rem;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
     }
-    .config-host-model-search .form-control { min-width: 0; }
-    .config-host-model-list {
-        max-height: 16rem;
-        overflow: auto;
-        border: 1px solid #d6e4f5;
-        border-radius: 6px;
-        background: #fff;
-    }
-    .config-host-model-provider {
-        position: sticky;
-        top: 0;
-        padding: 0.35rem 0.7rem;
-        background: #f3f7fc;
-        color: #596c96;
-        font-size: 0.72rem;
-        font-weight: 650;
-        text-transform: uppercase;
-    }
-    .config-host-model-row {
+    .config-host-model-selected li {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 0.45rem 0.7rem;
         margin: 0;
-        padding: 0.45rem 0.7rem;
-        border-top: 1px solid #eef3f9;
-        cursor: pointer;
+        padding: 0.45rem 0.65rem;
+        border: 1px solid #d6e4f5;
+        border-radius: 6px;
+        background: #fff;
     }
-    .config-host-model-row.is-selected { background: #f7fbff; }
-    .config-host-model-name { display: flex; flex: 1 1 12rem; flex-direction: column; min-width: 0; }
-    .config-host-model-row .config-tokenomics-api-badges { flex: 1 1 16rem; max-width: none; }
+    .config-host-model-name { display: flex; flex: 1 1 10rem; flex-direction: column; min-width: 0; }
+    .config-host-model-selected .config-tokenomics-api-badges { flex: 1 1 12rem; max-width: none; }
     .config-host-model-name span { overflow-wrap: anywhere; }
+    .config-host-model-selected .btn { flex: 0 0 auto; margin-left: auto; }
     .config-host-model-note { margin-top: 0.55rem; color: #596c96; font-size: 0.78rem; }
 </style>
 
@@ -554,7 +551,7 @@ else
     private string? _tokenomicsOptionsError;
     private readonly HashSet<string> _selectedHostModels = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _loadedHostModels = new(StringComparer.OrdinalIgnoreCase);
-    private string _modelSearch = string.Empty;
+    private int _modelPickerVersion;
 
     private string HostDocsUrl => AppConfiguration.HostFieldsDocUrl;
 
@@ -689,7 +686,6 @@ else
         }
         _showNewHostDialog = false;
         _editingHost = null;
-        _modelSearch = string.Empty;
     }
 
     private string NewHostValue(string name) =>
@@ -920,7 +916,7 @@ else
     {
         _selectedHostModels.Clear();
         _loadedHostModels.Clear();
-        _modelSearch = string.Empty;
+        _modelPickerVersion = 0;
         if (string.IsNullOrWhiteSpace(hostName) || _tokenomicsOptionsError is not null)
         {
             return;
@@ -936,14 +932,10 @@ else
         }
     }
 
-    private IEnumerable<IGrouping<string, ModelInfo>> FilteredHostModelGroups =>
-        HostModelChoices
-            .Where(model => string.IsNullOrWhiteSpace(_modelSearch)
-                || model.DisplayName.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase)
-                || model.Id.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase)
-                || model.Provider.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase))
-            .GroupBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
+    private static string HostModelOptionLabel(ModelInfo model) =>
+        string.Equals(model.DisplayName, model.Id, StringComparison.OrdinalIgnoreCase)
+            ? model.DisplayName
+            : $"{model.DisplayName} ({model.Id})";
 
     private IReadOnlyList<ModelInfo> HostModelChoices
     {
@@ -1002,17 +994,18 @@ else
             .Where(model => model.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase);
 
-    private void ToggleHostModel(string modelId, ChangeEventArgs args)
+    private void AddHostModel(ChangeEventArgs args)
     {
-        if (args.Value is bool selected && selected)
+        var modelId = args.Value?.ToString()?.Trim() ?? string.Empty;
+        if (modelId.Length == 0 || !_selectedHostModels.Add(modelId))
         {
-            _selectedHostModels.Add(modelId);
+            return;
         }
-        else
-        {
-            _selectedHostModels.Remove(modelId);
-        }
+
+        _modelPickerVersion++;
     }
+
+    private void RemoveHostModel(string modelId) => _selectedHostModels.Remove(modelId);
 
     private bool HostModelSelectionChanged(string hostName)
     {
