@@ -80,7 +80,28 @@ else
                             }
                         </div>
                     </td>
-                    <td>@HostModelCount(setting)</td>
+                    <td class="config-host-models-cell">
+                        @{
+                            var hostModels = ModelsForHost(setting);
+                        }
+                        @if (_tokenomicsOptionsError is not null)
+                        {
+                            <span class="text-danger small">Unavailable</span>
+                        }
+                        else if (hostModels.Count == 0)
+                        {
+                            <span class="text-muted">—</span>
+                        }
+                        else
+                        {
+                            <div class="config-tokenomics-api-badges">
+                                @foreach (var modelId in hostModels)
+                                {
+                                    <span class="badge config-tokenomics-api-badge">@modelId</span>
+                                }
+                            </div>
+                        }
+                    </td>
                     <td>
                         <span class="badge @TokenomicsHostStatusClass(tokenomicsHostOptions)">
                             @TokenomicsHostStatus(tokenomicsHostOptions)
@@ -117,6 +138,20 @@ else
     var selectedHostModelChoices = hostModelChoices
         .Where(model => _selectedHostModels.Contains(model.Id))
         .ToList();
+    foreach (var modelId in _selectedHostModels.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+    {
+        if (selectedHostModelChoices.Any(model => string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase)))
+        {
+            continue;
+        }
+
+        selectedHostModelChoices.Add(new ModelInfo
+        {
+            Id = modelId,
+            Provider = "Configured",
+            DisplayName = modelId
+        });
+    }
     RenderFragment hostDialog = @<div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
         <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
@@ -207,6 +242,81 @@ else
                         }
                     </div>
                 </section>
+
+                @if (TokenomicsEnabled)
+                {
+                    <section class="config-tokenomics-host-summary @(hostModelSelectionChanged ? "config-field-changed" : string.Empty)" aria-labelledby="tokenomics-host-summary-heading">
+                        <div class="config-tokenomics-host-summary-heading">
+                            <div>
+                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Supported models</h3>
+                                <span class="small text-muted">Models already assigned to this host are listed here. Newly selected models accept their standard APIs.</span>
+                            </div>
+                            <span class="small text-muted">@_selectedHostModels.Count selected</span>
+                        </div>
+
+                        @if (_tokenomicsOptionsError is not null)
+                        {
+                            <div class="alert alert-warning py-2 mb-0" role="status">@_tokenomicsOptionsError</div>
+                        }
+                        else
+                        {
+                            <div class="config-host-model-add">
+                                <label class="visually-hidden" for="host-model-add">Add a supported model</label>
+                                <select id="host-model-add" @key="_modelPickerVersion" class="form-select form-select-sm" value=""
+                                        disabled="@(availableModelGroups.Count == 0)" @onchange="AddHostModel">
+                                    <option value="">@(availableModelGroups.Count == 0 ? "All models selected" : "Add a model...")</option>
+                                    @foreach (var group in availableModelGroups)
+                                    {
+                                        <optgroup label="@group.Key">
+                                            @foreach (var model in group)
+                                            {
+                                                <option value="@model.Id">@HostModelOptionLabel(model)</option>
+                                            }
+                                        </optgroup>
+                                    }
+                                </select>
+                            </div>
+                            @if (selectedHostModelChoices.Count == 0)
+                            {
+                                <div class="config-tokenomics-host-empty">No models selected.</div>
+                            }
+                            else
+                            {
+                                <ul class="config-host-model-selected" aria-label="Selected models">
+                                    @foreach (var model in selectedHostModelChoices)
+                                    {
+                                        var modelId = model.Id;
+                                        var previewApis = PreviewApisForModel(modelId);
+                                        <li>
+                                            <span class="config-host-model-name">
+                                                <strong>@model.DisplayName</strong>
+                                                @if (!string.Equals(model.DisplayName, modelId, StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <span class="text-muted">@modelId</span>
+                                                }
+                                            </span>
+                                            <span class="config-tokenomics-api-badges">
+                                                @if (previewApis.Count == 0)
+                                                {
+                                                    <span class="text-muted">No standard APIs</span>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var api in previewApis)
+                                                    {
+                                                        <span class="badge config-tokenomics-api-badge">@api</span>
+                                                    }
+                                                }
+                                            </span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" aria-label="Remove @model.DisplayName" @onclick="() => RemoveHostModel(modelId)">Remove</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            <p class="config-host-model-note mb-0">Existing assignments keep their current API settings. Change path handling on Model &amp; API Routing.</p>
+                        }
+                    </section>
+                }
 
                 <details class="config-host-editor-section config-host-editor-collapsible">
                     <summary class="config-host-editor-summary">
@@ -349,81 +459,6 @@ else
                         </div>
                     </div>
                 </details>
-
-                @if (TokenomicsEnabled)
-                {
-                    <section class="config-tokenomics-host-summary @(hostModelSelectionChanged ? "config-field-changed" : string.Empty)" aria-labelledby="tokenomics-host-summary-heading">
-                        <div class="config-tokenomics-host-summary-heading">
-                            <div>
-                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Supported models</h3>
-                                <span class="small text-muted">Add a model from the list. Newly selected models accept their standard APIs.</span>
-                            </div>
-                            <span class="small text-muted">@_selectedHostModels.Count selected</span>
-                        </div>
-
-                        @if (_tokenomicsOptionsError is not null)
-                        {
-                            <div class="alert alert-warning py-2 mb-0" role="status">@_tokenomicsOptionsError</div>
-                        }
-                        else
-                        {
-                            <div class="config-host-model-add">
-                                <label class="visually-hidden" for="host-model-add">Add a supported model</label>
-                                <select id="host-model-add" @key="_modelPickerVersion" class="form-select form-select-sm" value=""
-                                        disabled="@(availableModelGroups.Count == 0)" @onchange="AddHostModel">
-                                    <option value="">@(availableModelGroups.Count == 0 ? "All models selected" : "Add a model...")</option>
-                                    @foreach (var group in availableModelGroups)
-                                    {
-                                        <optgroup label="@group.Key">
-                                            @foreach (var model in group)
-                                            {
-                                                <option value="@model.Id">@HostModelOptionLabel(model)</option>
-                                            }
-                                        </optgroup>
-                                    }
-                                </select>
-                            </div>
-                            @if (selectedHostModelChoices.Count == 0)
-                            {
-                                <div class="config-tokenomics-host-empty">No models selected.</div>
-                            }
-                            else
-                            {
-                                <ul class="config-host-model-selected" aria-label="Selected models">
-                                    @foreach (var model in selectedHostModelChoices)
-                                    {
-                                        var modelId = model.Id;
-                                        var previewApis = PreviewApisForModel(modelId);
-                                        <li>
-                                            <span class="config-host-model-name">
-                                                <strong>@model.DisplayName</strong>
-                                                @if (!string.Equals(model.DisplayName, modelId, StringComparison.OrdinalIgnoreCase))
-                                                {
-                                                    <span class="text-muted">@modelId</span>
-                                                }
-                                            </span>
-                                            <span class="config-tokenomics-api-badges">
-                                                @if (previewApis.Count == 0)
-                                                {
-                                                    <span class="text-muted">No standard APIs</span>
-                                                }
-                                                else
-                                                {
-                                                    @foreach (var api in previewApis)
-                                                    {
-                                                        <span class="badge config-tokenomics-api-badge">@api</span>
-                                                    }
-                                                }
-                                            </span>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" aria-label="Remove @model.DisplayName" @onclick="() => RemoveHostModel(modelId)">Remove</button>
-                                        </li>
-                                    }
-                                </ul>
-                            }
-                            <p class="config-host-model-note mb-0">Existing assignments keep their current API settings. Change path handling on Model &amp; API Routing.</p>
-                        }
-                    </section>
-                }
             </div>
             <div class="config-newhost-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelNewHost">Cancel</button>
@@ -917,14 +952,15 @@ else
         _selectedHostModels.Clear();
         _loadedHostModels.Clear();
         _modelPickerVersion = 0;
-        if (string.IsNullOrWhiteSpace(hostName) || _tokenomicsOptionsError is not null)
+        if (string.IsNullOrWhiteSpace(hostName) || _editingHost is null || _tokenomicsOptionsError is not null)
         {
             return;
         }
 
+        var aliases = HostAliases(_editingHost);
         foreach (var (model, hosts) in _tokenomicsOptions.ModelHostOptions)
         {
-            if (hosts.ContainsKey(hostName))
+            if (hosts.Keys.Any(key => aliases.Contains(key)))
             {
                 _selectedHostModels.Add(model);
                 _loadedHostModels.Add(model);
@@ -1009,12 +1045,7 @@ else
 
     private bool HostModelSelectionChanged(string hostName)
     {
-        var assigned = string.IsNullOrWhiteSpace(hostName)
-            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            : _tokenomicsOptions.ModelHostOptions
-                .Where(entry => entry.Value.ContainsKey(hostName))
-                .Select(entry => entry.Key)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var assigned = AssignedModelsForEditingHost();
         return assigned.Count != _selectedHostModels.Count
             || assigned.Any(model => !_selectedHostModels.Contains(model));
     }
@@ -1023,12 +1054,16 @@ else
     {
         if (_loadedHostModels.Contains(modelId)
             && _editingHost is not null
-            && _tokenomicsOptions.ModelHostOptions.TryGetValue(modelId, out var hosts)
-            && hosts.TryGetValue(_editingHost.DraftName, out var options))
+            && _tokenomicsOptions.ModelHostOptions.TryGetValue(modelId, out var hosts))
         {
-            return options.APIs.Keys
-                .OrderBy(api => api, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var aliases = HostAliases(_editingHost);
+            var match = hosts.FirstOrDefault(entry => aliases.Contains(entry.Key));
+            if (!string.IsNullOrEmpty(match.Key) && match.Value.APIs.Count > 0)
+            {
+                return match.Value.APIs.Keys
+                    .OrderBy(api => api, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
         }
 
         return StandardApisForModel(modelId);
@@ -1053,19 +1088,31 @@ else
             return;
         }
 
+        var aliases = _editingHost is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { hostName }
+            : HostAliases(_editingHost);
+        aliases.Add(hostName);
+
         foreach (var model in _tokenomicsOptions.ModelHostOptions.Keys.ToList())
         {
-            var hosts = _tokenomicsOptions.ModelHostOptions[model];
-            if (hosts.ContainsKey(hostName) && !_selectedHostModels.Contains(model))
+            if (_selectedHostModels.Contains(model))
             {
-                hosts.Remove(hostName);
-                if (hosts.Count == 0)
-                {
-                    _tokenomicsOptions.ModelHostOptions.Remove(model);
-                }
+                continue;
+            }
+
+            var hosts = _tokenomicsOptions.ModelHostOptions[model];
+            foreach (var key in hosts.Keys.Where(key => aliases.Contains(key)).ToList())
+            {
+                hosts.Remove(key);
+            }
+
+            if (hosts.Count == 0)
+            {
+                _tokenomicsOptions.ModelHostOptions.Remove(model);
             }
         }
 
+        var writeKey = PreferredHostKey(hostName);
         foreach (var model in _selectedHostModels)
         {
             if (!_tokenomicsOptions.ModelHostOptions.TryGetValue(model, out var hosts))
@@ -1074,25 +1121,110 @@ else
                 _tokenomicsOptions.ModelHostOptions[model] = hosts;
             }
 
-            if (!hosts.ContainsKey(hostName))
+            if (hosts.Keys.Any(key => aliases.Contains(key)))
             {
-                var hostOptions = new TokenomicsHostOptions();
-                foreach (var apiName in StandardApisForModel(model))
-                {
-                    hostOptions.APIs[apiName] = new TokenomicsApiOptions
-                    {
-                        PassThrough = false,
-                        OverridePath = false,
-                        Path = null
-                    };
-                }
-
-                hosts[hostName] = hostOptions;
+                continue;
             }
+
+            var hostOptions = new TokenomicsHostOptions();
+            foreach (var apiName in StandardApisForModel(model))
+            {
+                hostOptions.APIs[apiName] = new TokenomicsApiOptions
+                {
+                    PassThrough = false,
+                    OverridePath = false,
+                    Path = null
+                };
+            }
+
+            hosts[writeKey] = hostOptions;
         }
 
         setting.DraftValue = _tokenomicsOptions.ToString();
         _observedTokenomicsDraft = setting.DraftValue;
+    }
+
+    private HashSet<string> HostAliases(AppConfigurationScaffoldSetting setting)
+    {
+        var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddHostAlias(aliases, setting.DraftName);
+        AddHostAlias(aliases, setting.Name);
+        var colon = setting.Key.LastIndexOf(':');
+        if (colon >= 0 && colon < setting.Key.Length - 1)
+        {
+            AddHostAlias(aliases, setting.Key[(colon + 1)..]);
+        }
+
+        AddHostAlias(aliases, HostFieldValue(setting, "host"));
+        return aliases;
+    }
+
+    private static void AddHostAlias(HashSet<string> aliases, string? value)
+    {
+        var alias = value?.Trim() ?? string.Empty;
+        if (alias.Length == 0)
+        {
+            return;
+        }
+
+        aliases.Add(alias);
+        if (alias.StartsWith("Host_", StringComparison.OrdinalIgnoreCase) && alias.Length > 5)
+        {
+            aliases.Add(alias[5..]);
+        }
+        else if (alias.StartsWith("Host-", StringComparison.OrdinalIgnoreCase) && alias.Length > 5)
+        {
+            aliases.Add(alias[5..]);
+        }
+        else if (!alias.StartsWith("Host", StringComparison.OrdinalIgnoreCase))
+        {
+            aliases.Add($"Host_{alias}");
+        }
+    }
+
+    private HashSet<string> AssignedModelsForEditingHost()
+    {
+        if (_editingHost is null)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ModelsForHost(_editingHost).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string PreferredHostKey(string fallback)
+    {
+        if (_editingHost is not null)
+        {
+            var aliases = HostAliases(_editingHost);
+            foreach (var hosts in _tokenomicsOptions.ModelHostOptions.Values)
+            {
+                foreach (var key in hosts.Keys)
+                {
+                    if (aliases.Contains(key))
+                    {
+                        return key;
+                    }
+                }
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(fallback) ? _editingHost?.DraftName ?? string.Empty : fallback;
+    }
+
+    private IReadOnlyList<string> ModelsForHost(AppConfigurationScaffoldSetting setting)
+    {
+        if (_tokenomicsOptionsError is not null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var aliases = HostAliases(setting);
+        return _tokenomicsOptions.ModelHostOptions
+            .Where(entry => entry.Value.Keys.Any(key => aliases.Contains(key)))
+            .Select(entry => entry.Key)
+            .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void LoadTokenomicsOptions()
@@ -1133,9 +1265,10 @@ else
             return null;
         }
 
+        var aliases = HostAliases(setting);
         var modelHosts = _tokenomicsOptions.ModelHostOptions.Values
-            .Where(hosts => hosts.ContainsKey(setting.DraftName))
-            .Select(hosts => hosts[setting.DraftName])
+            .SelectMany(hosts => hosts.Where(entry => aliases.Contains(entry.Key)))
+            .Select(entry => entry.Value)
             .ToList();
         return modelHosts.Count == 0 ? null : new TokenomicsHostOptions {
             Enabled = modelHosts.Any(options => options.Enabled),
@@ -1143,12 +1276,6 @@ else
                 .GroupBy(api => api.Key, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase)
         };
-    }
-
-    private int HostModelCount(AppConfigurationScaffoldSetting setting)
-    {
-        return _tokenomicsOptions.ModelHostOptions.Count(entry =>
-            entry.Value.ContainsKey(setting.DraftName));
     }
 
     private static TokenomicsApiDefinition TokenomicsApiDefinitionFor(string apiName) =>

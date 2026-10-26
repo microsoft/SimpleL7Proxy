@@ -838,9 +838,15 @@ body:has(.app-configuration-page .config-modal-backdrop) {
 }
 
 :where(.app-configuration-page) .config-newhost-body {
+    flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
+}
+
+:where(.app-configuration-page) .config-host-table td.config-host-models-cell {
+    white-space: normal;
+    min-width: 8rem;
 }
 
 :where(.app-configuration-page) .config-newhost-footer {

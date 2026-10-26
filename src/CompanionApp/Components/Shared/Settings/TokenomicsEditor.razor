@@ -81,7 +81,7 @@
                 </Summary>
             </TokenomicsModelRoutingSettingsWidget>
             <TokenomicsModelCostsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "costs")"
-                OnSelected="@(() => _expandedWidget = "costs")">
+                OnSelected="@(() => { SyncAssignedModelCostRows(); _expandedWidget = "costs"; })">
                 <Summary>
                     @if (_options.ModelCostPerToken.Count == 0)
                     {
@@ -204,6 +204,7 @@
                     <TokenomicsModelCostsSettingsWidget Search="@_modelSearch" Page="_modelPage" PageSize="_modelPageSize"
                         PageCount="ModelPageCount" TotalCount="_modelCosts.Count" FilteredCount="FilteredModelCostCount"
                         ResultSummary="@ModelResultSummary" Rows="VisibleModelCosts" IsChanged="IsModelCostChanged"
+                        CostsPerMillion="_costsPerMillion" OnCostsPerMillionChanged="SetCostsPerMillion"
                         OnSearchChanged="SetModelSearch" OnPageSizeChanged="SetModelPageSize" OnPageChanged="SetModelPage"
                         OnAdd="AddModelCost" OnClearSearch="ClearModelSearch" OnRemove="RemoveModelCostAsync"
                         OnModelChanged="@(change => SetModelCostAsync(change.Row, change.Value, null, null, null))"
@@ -255,6 +256,8 @@
 
     private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
     private readonly List<ModelCostRow> _modelCosts = new();
+    private bool _costsPerMillion = true;
+    private const decimal TokensPerMillion = 1_000_000m;
     private string? _expandedWidget;
     private string? _limitsModel;
     private string? _limitsSnapshot;
@@ -459,9 +462,9 @@
         foreach (var modelCost in _options.ModelCostPerToken) {
             _modelCosts.Add(new ModelCostRow(
                 modelCost.Key,
-                modelCost.Value.Input.ToString(CultureInfo.InvariantCulture),
-                modelCost.Value.CachedInput.ToString(CultureInfo.InvariantCulture),
-                modelCost.Value.Output.ToString(CultureInfo.InvariantCulture)));
+                FormatStoredCost(modelCost.Value.Input),
+                FormatStoredCost(modelCost.Value.CachedInput),
+                FormatStoredCost(modelCost.Value.Output)));
         }
 
         var configuredModels = _modelCosts
@@ -475,6 +478,8 @@
                 _modelCosts.Add(new ModelCostRow(model, string.Empty, string.Empty, string.Empty));
             }
         }
+
+        SyncAssignedModelCostRows();
     }
 
     private static TokenomicsSettings? ParseOptions(string? value) {
@@ -852,30 +857,26 @@
                 valid = false;
             }
 
-            var isHierarchyPlaceholder = row.ModelError is null
+            var isUnpricedPlaceholder = row.ModelError is null
                 && string.IsNullOrWhiteSpace(row.InputCost)
                 && string.IsNullOrWhiteSpace(row.CachedInputCost)
                 && string.IsNullOrWhiteSpace(row.OutputCost)
-                && hierarchyModels.Contains(model);
-            if (isHierarchyPlaceholder) {
+                && (hierarchyModels.Contains(model) || _options.ModelHostOptions.ContainsKey(model));
+            if (isUnpricedPlaceholder) {
                 continue;
             }
 
-            if (!decimal.TryParse(row.InputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var inputCost)
-                || inputCost < 0) {
+            if (!TryParseEditorCost(row.InputCost, out var inputCost)) {
                 row.InputCostError = "Enter a non-negative input cost.";
                 valid = false;
             }
 
-            if (!decimal.TryParse(row.CachedInputCost, NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out var cachedInputCost)
-                || cachedInputCost < 0) {
+            if (!TryParseEditorCost(row.CachedInputCost, out var cachedInputCost)) {
                 row.CachedInputCostError = "Enter a non-negative cached input cost.";
                 valid = false;
             }
 
-            if (!decimal.TryParse(row.OutputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var outputCost)
-                || outputCost < 0) {
+            if (!TryParseEditorCost(row.OutputCost, out var outputCost)) {
                 row.OutputCostError = "Enter a non-negative output cost.";
                 valid = false;
             }
@@ -957,9 +958,7 @@
         if (string.IsNullOrWhiteSpace(row.InputCost)
             && string.IsNullOrWhiteSpace(row.CachedInputCost)
             && string.IsNullOrWhiteSpace(row.OutputCost)
-            && _options.ModelHierarchy.Values
-                .SelectMany(models => models)
-                .Any(hierarchyModel => string.Equals(hierarchyModel.Trim(), model, StringComparison.Ordinal))) {
+            && IsUnpricedModelPlaceholder(model)) {
             return _loadedOptions.ModelCostPerToken.ContainsKey(model);
         }
 
@@ -967,13 +966,70 @@
             return true;
         }
 
-        return !decimal.TryParse(row.InputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var inputCost)
-            || !decimal.TryParse(row.CachedInputCost, NumberStyles.Float, CultureInfo.InvariantCulture,
-                out var cachedInputCost)
-            || !decimal.TryParse(row.OutputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var outputCost)
-            || inputCost != loadedPricing.Input
-            || cachedInputCost != loadedPricing.CachedInput
-            || outputCost != loadedPricing.Output;
+        return !string.Equals(row.InputCost.Trim(), FormatStoredCost(loadedPricing.Input), StringComparison.Ordinal)
+            || !string.Equals(row.CachedInputCost.Trim(), FormatStoredCost(loadedPricing.CachedInput), StringComparison.Ordinal)
+            || !string.Equals(row.OutputCost.Trim(), FormatStoredCost(loadedPricing.Output), StringComparison.Ordinal);
+    }
+
+    private bool IsUnpricedModelPlaceholder(string model) =>
+        _options.ModelHierarchy.Values
+            .SelectMany(models => models)
+            .Any(hierarchyModel => string.Equals(hierarchyModel.Trim(), model, StringComparison.Ordinal))
+        || _options.ModelHostOptions.ContainsKey(model);
+
+    private void SyncAssignedModelCostRows() {
+        var configuredModels = new HashSet<string>(
+            _modelCosts.Select(row => row.Model.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var model in _options.ModelHostOptions.Keys) {
+            var trimmed = model.Trim();
+            if (trimmed.Length == 0 || !configuredModels.Add(trimmed)) {
+                continue;
+            }
+
+            _modelCosts.Add(new ModelCostRow(trimmed, string.Empty, string.Empty, string.Empty));
+        }
+    }
+
+    private void SetCostsPerMillion(ChangeEventArgs args) {
+        var next = args.Value is bool isChecked && isChecked;
+        if (next == _costsPerMillion) {
+            return;
+        }
+
+        foreach (var row in _modelCosts) {
+            row.InputCost = RescaleCostText(row.InputCost, next);
+            row.CachedInputCost = RescaleCostText(row.CachedInputCost, next);
+            row.OutputCost = RescaleCostText(row.OutputCost, next);
+        }
+
+        _costsPerMillion = next;
+    }
+
+    private string RescaleCostText(string text, bool toPerMillion) {
+        if (string.IsNullOrWhiteSpace(text)
+            || !decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) {
+            return text;
+        }
+
+        var scaled = toPerMillion ? value * TokensPerMillion : value / TokensPerMillion;
+        return FormatCost(scaled);
+    }
+
+    private string FormatStoredCost(decimal perToken) =>
+        FormatCost(_costsPerMillion ? perToken * TokensPerMillion : perToken);
+
+    private static string FormatCost(decimal value) =>
+        value.ToString("0.#############################", CultureInfo.InvariantCulture);
+
+    private bool TryParseEditorCost(string text, out decimal perToken) {
+        perToken = 0;
+        if (!decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var entered) || entered < 0) {
+            return false;
+        }
+
+        perToken = _costsPerMillion ? entered / TokensPerMillion : entered;
+        return true;
     }
 
     private static string InputStep(Type type) => type == typeof(int) ? "1" : "any";

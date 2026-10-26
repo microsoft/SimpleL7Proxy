@@ -11,7 +11,7 @@
 else
 {
 <article class="tokenomics-settings-card tokenomics-card-costs">
-    <header><span class="bi bi-currency-dollar" aria-hidden="true"></span><div><h3>Model Costs</h3><p>Define input, cached input, and output costs for each model.</p></div></header>
+    <header><span class="bi bi-currency-dollar" aria-hidden="true"></span><div><h3>Model Costs</h3><p>Define input, cached input, and output costs. Host-assigned models are listed even when they have no price yet.</p></div></header>
     <section id="tokenomics-panel-costs" class="tokenomics-tab-panel" aria-label="Model costs settings">
 <div class="tokenomics-model-toolbar">
     <div class="tokenomics-model-search">
@@ -21,6 +21,10 @@ else
                placeholder="Search models" @bind:get="Search" @bind:set="@(value => OnSearchChanged.InvokeAsync(new ChangeEventArgs { Value = value }))" @bind:event="oninput" />
     </div>
     <span class="small text-muted text-nowrap" role="status">@ResultSummary</span>
+    <label class="tokenomics-per-million">
+        <input class="form-check-input" type="checkbox" checked="@CostsPerMillion" @onchange="OnCostsPerMillionChanged" />
+        <span>per million tokens</span>
+    </label>
     <label class="tokenomics-page-size">
         <span>Rows</span>
         <select class="form-select form-select-sm" value="@PageSize" @onchange="OnPageSizeChanged">
@@ -52,9 +56,9 @@ else
             <thead>
                 <tr>
                     <th scope="col">Model</th>
-                    <th scope="col">Input USD/token</th>
-                    <th scope="col">Cached input USD/token</th>
-                    <th scope="col">Output USD/token</th>
+                    <th scope="col">@(CostsPerMillion ? "Input USD/million" : "Input USD/token")</th>
+                    <th scope="col">@(CostsPerMillion ? "Cached input USD/million" : "Cached input USD/token")</th>
+                    <th scope="col">@(CostsPerMillion ? "Output USD/million" : "Output USD/token")</th>
                     <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
@@ -73,7 +77,7 @@ else
                             }
                         </td>
                         <td>
-                            <label class="visually-hidden" for="@($"tokenomics-input-cost-{row.Id}")">Input USD per token for @row.Model</label>
+                            <label class="visually-hidden" for="@($"tokenomics-input-cost-{row.Id}")">@(CostsPerMillion ? "Input USD per million tokens" : "Input USD per token") for @row.Model</label>
                             <input id="@($"tokenomics-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
                                    @bind:get="row.InputCost" aria-invalid="@(row.InputCostError is null ? "false" : "true")"
                                    @bind:set="@(value => OnInputChanged.InvokeAsync((row, value)))" />
@@ -83,7 +87,7 @@ else
                             }
                         </td>
                         <td>
-                            <label class="visually-hidden" for="@($"tokenomics-cached-input-cost-{row.Id}")">Cached input USD per token for @row.Model</label>
+                            <label class="visually-hidden" for="@($"tokenomics-cached-input-cost-{row.Id}")">@(CostsPerMillion ? "Cached input USD per million tokens" : "Cached input USD per token") for @row.Model</label>
                             <input id="@($"tokenomics-cached-input-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
                                    @bind:get="row.CachedInputCost" aria-invalid="@(row.CachedInputCostError is null ? "false" : "true")"
                                    @bind:set="@(value => OnCachedInputChanged.InvokeAsync((row, value)))" />
@@ -93,7 +97,7 @@ else
                             }
                         </td>
                         <td>
-                            <label class="visually-hidden" for="@($"tokenomics-output-cost-{row.Id}")">Output USD per token for @row.Model</label>
+                            <label class="visually-hidden" for="@($"tokenomics-output-cost-{row.Id}")">@(CostsPerMillion ? "Output USD per million tokens" : "Output USD per token") for @row.Model</label>
                             <input id="@($"tokenomics-output-cost-{row.Id}")" class="form-control form-control-sm" type="number" min="0" step="any"
                                    @bind:get="row.OutputCost" aria-invalid="@(row.OutputCostError is null ? "false" : "true")"
                                    @bind:set="@(value => OnOutputChanged.InvokeAsync((row, value)))" />
@@ -154,6 +158,8 @@ else
     [Parameter] public string ResultSummary { get; set; } = string.Empty;
     [Parameter] public IEnumerable<TokenomicsEditor.ModelCostRow> Rows { get; set; } = Array.Empty<TokenomicsEditor.ModelCostRow>();
     [Parameter] public Func<TokenomicsEditor.ModelCostRow, bool> IsChanged { get; set; } = default!;
+    [Parameter] public bool CostsPerMillion { get; set; } = true;
+    [Parameter] public EventCallback<ChangeEventArgs> OnCostsPerMillionChanged { get; set; }
     [Parameter] public EventCallback<ChangeEventArgs> OnSearchChanged { get; set; }
     [Parameter] public EventCallback<ChangeEventArgs> OnPageSizeChanged { get; set; }
     [Parameter] public EventCallback<int> OnPageChanged { get; set; }
