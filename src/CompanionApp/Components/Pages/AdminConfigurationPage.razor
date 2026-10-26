@@ -1012,38 +1012,38 @@
                                 || !RequestProcessingEditor.IsRequestProcessingSetting(setting))).ToList();
     }
 
-    private bool IsHostSection => string.Equals(SelectedSection, "Hosts", StringComparison.OrdinalIgnoreCase);
+    private bool IsHostSection => AppConfigurationEditorCatalog.IsSection(SelectedSection, "Hosts");
 
     private bool IsRequestProcessingSection =>
-        string.Equals(SelectedSection, "Request Processing", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(SelectedSection, "Request Processing");
 
     private bool IsHeaderPolicySection =>
-        string.Equals(SelectedSection, "Header Policy", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(SelectedSection, "Header Policy");
 
     private bool IsBackendResilienceSection =>
-        string.Equals(SelectedSection, "Backend Resilience", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(SelectedSection, "Backend Resilience");
 
     private bool IsProxyRuntimeSection =>
-        string.Equals(SelectedSection, "Proxy Runtime", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(SelectedSection, "Proxy Runtime");
 
     private bool IsBackendRoutingSection =>
-        string.Equals(SelectedSection, "Backend Routing", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(SelectedSection, "Backend Routing");
 
     private static bool IsHealthProbeSectionName(string section) =>
-        string.Equals(section, "HealthProbe", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(section, "HealthProbe");
 
     private bool IsHealthProbeSection => IsHealthProbeSectionName(SelectedSection ?? string.Empty);
 
     private static bool IsTokenomicsSectionName(string section) =>
-        string.Equals(section, "Tokenomics", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(section, "Tokenomics");
 
     private static bool IsCircuitBreakerSectionName(string section) =>
-        string.Equals(section, "CircuitBreaker", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(section, "CircuitBreaker");
 
     private bool IsCircuitBreakerSection => IsCircuitBreakerSectionName(SelectedSection ?? string.Empty);
 
     private static bool IsLoadBalancingSectionName(string section) =>
-        string.Equals(section, "LoadBalancing", StringComparison.OrdinalIgnoreCase);
+        AppConfigurationEditorCatalog.IsSection(section, "LoadBalancing");
 
     private bool IsLoadBalancingSection => IsLoadBalancingSectionName(SelectedSection ?? string.Empty);
 
