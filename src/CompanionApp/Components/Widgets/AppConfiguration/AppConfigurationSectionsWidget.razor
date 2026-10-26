@@ -106,13 +106,13 @@
         var summary = descriptor.Summarize(settings);
         if (keyed)
         {
-            return @<AppConfigurationSectionWidget Section="@section" Icon="@descriptor.Icon" ChangedCount="@changedCount"
+            return @<AppConfigurationSectionWidget Section="@(section)" Icon="@descriptor.Icon" ChangedCount="@changedCount"
                 IsLoading="IsLoading" Tooltip="@tooltip" OnSelected="@(() => OnSelected.InvokeAsync(section))" @key="section">
                 <SummaryContent><span class="@descriptor.SummaryClass">@summary</span></SummaryContent>
             </AppConfigurationSectionWidget>;
         }
 
-        return @<AppConfigurationSectionWidget Section="@section" Icon="@descriptor.Icon" ChangedCount="@changedCount"
+        return @<AppConfigurationSectionWidget Section="@(section)" Icon="@descriptor.Icon" ChangedCount="@changedCount"
             IsLoading="IsLoading" Tooltip="@tooltip" OnSelected="@(() => OnSelected.InvokeAsync(section))">
             <SummaryContent><span class="@descriptor.SummaryClass">@summary</span></SummaryContent>
         </AppConfigurationSectionWidget>;
