@@ -2,6 +2,8 @@
 @using SimpleL7Proxy.Tokenomics
 @inject AppConfigurationScaffoldService AppConfiguration
 @inject IJSRuntime JS
+@inject ModelDefaults ChatCatalog
+@inject VisionModelCatalog VisionCatalog
 
 @if (SingleHost is { } singleHost)
 {
@@ -103,7 +105,10 @@ else
         }
         return !string.Equals(NewHostValue(field.Name), loadedValue, StringComparison.Ordinal);
     }).Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-    var dialogTokenomicsHostOptions = TokenomicsEnabled ? HostTokenomicsOptions(_editingHost) : null;
+    var hostModelSelectionChanged = TokenomicsEnabled
+        && _tokenomicsOptionsError is null
+        && HostModelSelectionChanged(_editingHost?.DraftName ?? string.Empty);
+    var visibleModelGroups = FilteredHostModelGroups.ToList();
     RenderFragment hostDialog = @<div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
         <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
@@ -339,63 +344,73 @@ else
 
                 @if (TokenomicsEnabled)
                 {
-                    <section class="config-tokenomics-host-summary" aria-labelledby="tokenomics-host-summary-heading">
+                    <section class="config-tokenomics-host-summary @(hostModelSelectionChanged ? "config-field-changed" : string.Empty)" aria-labelledby="tokenomics-host-summary-heading">
                         <div class="config-tokenomics-host-summary-heading">
                             <div>
-                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Tokenomics</h3>
-                                <span class="small text-muted">Tokenomics host settings</span>
+                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Supported models</h3>
+                                <span class="small text-muted">Pick the models this host can serve. Newly selected models accept their standard APIs.</span>
                             </div>
+                            <span class="small text-muted">@_selectedHostModels.Count selected</span>
                         </div>
 
                         @if (_tokenomicsOptionsError is not null)
                         {
                             <div class="alert alert-warning py-2 mb-0" role="status">@_tokenomicsOptionsError</div>
                         }
-                        else if (_editingHost is null || dialogTokenomicsHostOptions is null)
-                        {
-                            <div class="config-tokenomics-host-empty">No Tokenomics host settings configured.</div>
-                        }
                         else
                         {
-                            <div class="config-tokenomics-host-facts">
-                                <span><strong>Models</strong> @HostModelCount(_editingHost)</span>
-                                <span><strong>APIs</strong> @dialogTokenomicsHostOptions.APIs.Count</span>
+                            <div class="config-host-model-search">
+                                <span class="bi bi-search" aria-hidden="true"></span>
+                                <label class="visually-hidden" for="host-model-search">Search models</label>
+                                <input id="host-model-search" class="form-control form-control-sm" placeholder="Search models..."
+                                       @bind:get="_modelSearch" @bind:set="@(value => _modelSearch = value ?? string.Empty)" @bind:event="oninput" />
                             </div>
-                            @if (dialogTokenomicsHostOptions.APIs.Count > 0)
-                            {
-                                <div class="table-responsive">
-                                    <table class="table table-sm align-middle config-tokenomics-host-api-table mb-0">
-                                        <thead>
-                                            <tr>
-                                                <th scope="col">Model</th>
-                                                <th scope="col">API</th>
-                                                <th scope="col">Path handling</th>
-                                                <th scope="col">Effective path</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var model in _tokenomicsOptions.ModelHostOptions
-                                                .Where(model => model.Value.ContainsKey(_editingHost.DraftName))
-                                                .OrderBy(model => model.Key, StringComparer.OrdinalIgnoreCase))
-                                            {
-                                                @foreach (var api in model.Value[_editingHost.DraftName].APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                            <div class="config-host-model-list" role="group" aria-label="Supported models">
+                                @if (visibleModelGroups.Count == 0)
+                                {
+                                    <div class="config-tokenomics-host-empty">No matching models.</div>
+                                }
+                                @foreach (var group in visibleModelGroups)
+                                {
+                                    <div class="config-host-model-group">
+                                        <div class="config-host-model-provider">@group.Key</div>
+                                        @foreach (var model in group)
+                                        {
+                                            var selected = _selectedHostModels.Contains(model.Id);
+                                            var previewApis = selected ? PreviewApisForModel(model.Id) : Array.Empty<string>();
+                                            <label class="config-host-model-row @(selected ? "is-selected" : null)">
+                                                <input class="form-check-input" type="checkbox" checked="@selected"
+                                                       aria-label="Allow @model.DisplayName on this host"
+                                                       @onchange="args => ToggleHostModel(model.Id, args)" />
+                                                <span class="config-host-model-name">
+                                                    <strong>@model.DisplayName</strong>
+                                                    @if (!string.Equals(model.DisplayName, model.Id, StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        <span class="text-muted">@model.Id</span>
+                                                    }
+                                                </span>
+                                                @if (selected)
                                                 {
-                                                var definition = TokenomicsApiDefinitionFor(api.Key);
-                                                <tr>
-                                                    <td>@model.Key</td>
-                                                    <td>
-                                                        <span class="badge config-tokenomics-api-badge me-2">@definition.Badge</span>
-                                                        <span>@api.Key</span>
-                                                    </td>
-                                                    <td>@TokenomicsPathModeLabel(definition, api.Value)</td>
-                                                    <td class="font-monospace text-break">@TokenomicsEffectivePath(definition, api.Value)</td>
-                                                </tr>
+                                                    <span class="config-tokenomics-api-badges">
+                                                        @if (previewApis.Count == 0)
+                                                        {
+                                                            <span class="text-muted">No standard APIs</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @foreach (var api in previewApis)
+                                                            {
+                                                                <span class="badge config-tokenomics-api-badge">@api</span>
+                                                            }
+                                                        }
+                                                    </span>
                                                 }
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
-                            }
+                                            </label>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <p class="config-host-model-note mb-0">Existing assignments keep their current API settings. Change path handling on Model &amp; API Routing.</p>
                         }
                     </section>
                 }
@@ -469,6 +484,45 @@ else
         justify-content: flex-end;
         margin-bottom: 0.5rem;
     }
+    .config-host-model-search {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-bottom: 0.55rem;
+    }
+    .config-host-model-search .form-control { min-width: 0; }
+    .config-host-model-list {
+        max-height: 16rem;
+        overflow: auto;
+        border: 1px solid #d6e4f5;
+        border-radius: 6px;
+        background: #fff;
+    }
+    .config-host-model-provider {
+        position: sticky;
+        top: 0;
+        padding: 0.35rem 0.7rem;
+        background: #f3f7fc;
+        color: #596c96;
+        font-size: 0.72rem;
+        font-weight: 650;
+        text-transform: uppercase;
+    }
+    .config-host-model-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem 0.7rem;
+        margin: 0;
+        padding: 0.45rem 0.7rem;
+        border-top: 1px solid #eef3f9;
+        cursor: pointer;
+    }
+    .config-host-model-row.is-selected { background: #f7fbff; }
+    .config-host-model-name { display: flex; flex: 1 1 12rem; flex-direction: column; min-width: 0; }
+    .config-host-model-row .config-tokenomics-api-badges { flex: 1 1 16rem; max-width: none; }
+    .config-host-model-name span { overflow-wrap: anywhere; }
+    .config-host-model-note { margin-top: 0.55rem; color: #596c96; font-size: 0.78rem; }
 </style>
 
 @code {
@@ -485,6 +539,8 @@ else
 
     [Parameter] public EventCallback<string> OnHostSaved { get; set; }
 
+    [Parameter] public EventCallback OnChanged { get; set; }
+
     private ElementReference _singleHostDialog;
 
     private bool _showNewHostDialog;
@@ -496,6 +552,9 @@ else
     private TokenomicsSettings _tokenomicsOptions = new();
     private string? _observedTokenomicsDraft;
     private string? _tokenomicsOptionsError;
+    private readonly HashSet<string> _selectedHostModels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _loadedHostModels = new(StringComparer.OrdinalIgnoreCase);
+    private string _modelSearch = string.Empty;
 
     private string HostDocsUrl => AppConfiguration.HostFieldsDocUrl;
 
@@ -598,6 +657,7 @@ else
             _newHostFields[field.Name] = field.Kind == "bool" ? field.Default : string.Empty;
         }
 
+        LoadSelectedHostModels(null);
         _showNewHostDialog = true;
         _focusNewHostName = true;
     }
@@ -615,6 +675,7 @@ else
                 ? field.Default
                 : current;
         }
+        LoadSelectedHostModels(setting.DraftName);
         _showNewHostDialog = true;
         _focusNewHostName = true;
     }
@@ -628,6 +689,7 @@ else
         }
         _showNewHostDialog = false;
         _editingHost = null;
+        _modelSearch = string.Empty;
     }
 
     private string NewHostValue(string name) =>
@@ -849,7 +911,195 @@ else
             await OnHostCreated.InvokeAsync(host);
         }
 
+        ApplyHostModels(_editingHost?.DraftName ?? name);
+        await OnChanged.InvokeAsync();
         await CancelNewHost();
+    }
+
+    private void LoadSelectedHostModels(string? hostName)
+    {
+        _selectedHostModels.Clear();
+        _loadedHostModels.Clear();
+        _modelSearch = string.Empty;
+        if (string.IsNullOrWhiteSpace(hostName) || _tokenomicsOptionsError is not null)
+        {
+            return;
+        }
+
+        foreach (var (model, hosts) in _tokenomicsOptions.ModelHostOptions)
+        {
+            if (hosts.ContainsKey(hostName))
+            {
+                _selectedHostModels.Add(model);
+                _loadedHostModels.Add(model);
+            }
+        }
+    }
+
+    private IEnumerable<IGrouping<string, ModelInfo>> FilteredHostModelGroups =>
+        HostModelChoices
+            .Where(model => string.IsNullOrWhiteSpace(_modelSearch)
+                || model.DisplayName.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+                || model.Id.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+                || model.Provider.Contains(_modelSearch.Trim(), StringComparison.OrdinalIgnoreCase))
+            .GroupBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<ModelInfo> HostModelChoices
+    {
+        get
+        {
+            var choices = new Dictionary<string, ModelInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var model in ChatCatalog.ListModels())
+            {
+                if (!string.IsNullOrWhiteSpace(model.Id))
+                {
+                    choices[model.Id] = model;
+                }
+            }
+
+            foreach (var model in VisionCatalog.ListModels())
+            {
+                if (!string.IsNullOrWhiteSpace(model.Id) && !choices.ContainsKey(model.Id))
+                {
+                    choices[model.Id] = new ModelInfo
+                    {
+                        Id = model.Id,
+                        Provider = model.Provider,
+                        DisplayName = model.DisplayName
+                    };
+                }
+            }
+
+            foreach (var modelId in TokenomicsModelIds())
+            {
+                if (!choices.ContainsKey(modelId))
+                {
+                    choices[modelId] = new ModelInfo
+                    {
+                        Id = modelId,
+                        Provider = "Configured",
+                        DisplayName = modelId
+                    };
+                }
+            }
+
+            return choices.Values
+                .OrderBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(model => model.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(model => model.Id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private IEnumerable<string> TokenomicsModelIds() =>
+        _tokenomicsOptions.ModelHierarchy.Values
+            .SelectMany(models => models)
+            .Concat([_tokenomicsOptions.DefaultModel])
+            .Concat(_tokenomicsOptions.ModelCostPerToken.Keys)
+            .Concat(_tokenomicsOptions.ModelHostOptions.Keys)
+            .Select(model => model.Trim())
+            .Where(model => model.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleHostModel(string modelId, ChangeEventArgs args)
+    {
+        if (args.Value is bool selected && selected)
+        {
+            _selectedHostModels.Add(modelId);
+        }
+        else
+        {
+            _selectedHostModels.Remove(modelId);
+        }
+    }
+
+    private bool HostModelSelectionChanged(string hostName)
+    {
+        var assigned = string.IsNullOrWhiteSpace(hostName)
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : _tokenomicsOptions.ModelHostOptions
+                .Where(entry => entry.Value.ContainsKey(hostName))
+                .Select(entry => entry.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return assigned.Count != _selectedHostModels.Count
+            || assigned.Any(model => !_selectedHostModels.Contains(model));
+    }
+
+    private IReadOnlyList<string> PreviewApisForModel(string modelId)
+    {
+        if (_loadedHostModels.Contains(modelId)
+            && _editingHost is not null
+            && _tokenomicsOptions.ModelHostOptions.TryGetValue(modelId, out var hosts)
+            && hosts.TryGetValue(_editingHost.DraftName, out var options))
+        {
+            return options.APIs.Keys
+                .OrderBy(api => api, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return StandardApisForModel(modelId);
+    }
+
+    private List<string> StandardApisForModel(string model) =>
+        ChatCatalog.ApisForModel(model)
+            .Select(api => api.DisplayName)
+            .Concat(VisionCatalog.ApisForModel(model).Select(api => api.DisplayName))
+            .Where(api => !string.IsNullOrWhiteSpace(api))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private void ApplyHostModels(string hostName)
+    {
+        if (!TokenomicsEnabled
+            || _tokenomicsOptionsError is not null
+            || TokenomicsOptionsSetting is not { } setting
+            || string.IsNullOrWhiteSpace(hostName)
+            || !HostModelSelectionChanged(hostName))
+        {
+            return;
+        }
+
+        foreach (var model in _tokenomicsOptions.ModelHostOptions.Keys.ToList())
+        {
+            var hosts = _tokenomicsOptions.ModelHostOptions[model];
+            if (hosts.ContainsKey(hostName) && !_selectedHostModels.Contains(model))
+            {
+                hosts.Remove(hostName);
+                if (hosts.Count == 0)
+                {
+                    _tokenomicsOptions.ModelHostOptions.Remove(model);
+                }
+            }
+        }
+
+        foreach (var model in _selectedHostModels)
+        {
+            if (!_tokenomicsOptions.ModelHostOptions.TryGetValue(model, out var hosts))
+            {
+                hosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+                _tokenomicsOptions.ModelHostOptions[model] = hosts;
+            }
+
+            if (!hosts.ContainsKey(hostName))
+            {
+                var hostOptions = new TokenomicsHostOptions();
+                foreach (var apiName in StandardApisForModel(model))
+                {
+                    hostOptions.APIs[apiName] = new TokenomicsApiOptions
+                    {
+                        PassThrough = false,
+                        OverridePath = false,
+                        Path = null
+                    };
+                }
+
+                hosts[hostName] = hostOptions;
+            }
+        }
+
+        setting.DraftValue = _tokenomicsOptions.ToString();
+        _observedTokenomicsDraft = setting.DraftValue;
     }
 
     private void LoadTokenomicsOptions()
@@ -881,16 +1131,6 @@ else
 
         _tokenomicsOptions = new TokenomicsSettings();
         _tokenomicsOptionsError = "Tokenomics:Options could not be parsed.";
-    }
-
-    private static string ApiPathMode(TokenomicsApiDefinition definition, TokenomicsApiOptions options)
-    {
-        if (options.PassThrough)
-        {
-            return "preserve";
-        }
-
-        return options.OverridePath ? "override" : "default";
     }
 
     private TokenomicsHostOptions? HostTokenomicsOptions(AppConfigurationScaffoldSetting? setting)
@@ -937,27 +1177,6 @@ else
         _tokenomicsOptionsError is not null || options is null
             ? "text-bg-light border"
             : options.Enabled ? "text-bg-success" : "text-bg-secondary";
-
-    private static string TokenomicsPathModeLabel(
-        TokenomicsApiDefinition definition,
-        TokenomicsApiOptions options) => ApiPathMode(definition, options) switch
-    {
-        "preserve" => "PassThru",
-        "default" => "Default API Spec Path",
-        _ => "Overridden Path"
-    };
-
-    private static string TokenomicsEffectivePath(
-        TokenomicsApiDefinition definition,
-        TokenomicsApiOptions options)
-    {
-        if (options.PassThrough)
-        {
-            return "Incoming request path";
-        }
-
-        return options.OverridePath ? options.Path ?? string.Empty : definition.DefaultPath;
-    }
 
     protected override void OnParametersSet()
     {

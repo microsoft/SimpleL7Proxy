@@ -470,7 +470,7 @@
                         }
                         else if (IsHostSection)
                         {
-                            <HostSectionEditor Hosts="SelectedSettings" Settings="Settings" Label="@Label" OnHostCreated="AddCreatedHost" />
+                            <HostSectionEditor Hosts="SelectedSettings" Settings="Settings" Label="@Label" OnHostCreated="AddCreatedHost" OnChanged="StateHasChanged" />
                         }
                         else if (IsProxyRuntimeSection)
                         {
