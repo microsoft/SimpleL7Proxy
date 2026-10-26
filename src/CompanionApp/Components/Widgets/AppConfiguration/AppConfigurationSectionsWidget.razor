@@ -1,4 +1,5 @@
 @namespace CompanionApp.Components.Widgets.AppConfiguration
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
 @{
     var groups = Groups.ToList();
@@ -19,64 +20,49 @@
         @switch (group.Key.ToLowerInvariant())
         {
             case "async":
-                <AppConfigurationAsyncWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
             case "backend resilience":
-                <AppConfigurationBackendResilienceWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+            case "circuitbreaker":
+            case "healthprobe":
+            case "header policy":
+            case "hosts":
+            case "loadbalancing":
+            case "logging":
+            case "request":
+            case "request processing":
+            case "response":
+            case "server":
+                @ThinTile(group.Key, group)
                 break;
             case "identity & access":
                 <AppConfigurationIdentityAccessWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
                 break;
-            case "circuitbreaker":
-                <AppConfigurationCircuitBreakerWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "healthprobe":
-                <AppConfigurationHealthProbeWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "header policy":
-                <AppConfigurationHeaderPolicyWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "hosts":
-                <AppConfigurationHostsWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "loadbalancing":
-                <AppConfigurationLoadBalancingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "logging":
-                <AppConfigurationLoggingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "request":
-                <AppConfigurationRequestWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "request processing":
-                <AppConfigurationRequestProcessingWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "response":
-                <AppConfigurationResponseWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
-            case "server":
-                <AppConfigurationServerWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
-                break;
             default:
-                <AppConfigurationGenericWidget Section="@group.Key" Settings="group" IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key" />
+                <AppConfigurationSectionWidget Section="@group.Key"
+                    Icon="@AppConfigurationSectionCatalog.ForGenericSection(group.Key).Icon"
+                    ChangedCount="@group.Count(setting => setting.IsChanged)"
+                    IsLoading="IsLoading"
+                    Tooltip='@(Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{group.Key}"] ?? $"Edit {group.Key} settings.")'
+                    OnSelected="@(() => OnSelected.InvokeAsync(group.Key))" @key="group.Key">
+                    <SummaryContent><span class="config-box-meta">@AppConfigurationSectionCatalog.ForGenericSection(group.Key).Summarize(group)</span></SummaryContent>
+                </AppConfigurationSectionWidget>
                 break;
         }
     }
     @if (!groups.Any(group => string.Equals(group.Key, "Hosts", StringComparison.OrdinalIgnoreCase)))
     {
-        <AppConfigurationHostsWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Hosts"))" />
+        @EmptyThinTile("Hosts")
     }
     @if (!groups.Any(group => string.Equals(group.Key, "Request Processing", StringComparison.OrdinalIgnoreCase)))
     {
-        <AppConfigurationRequestProcessingWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Request Processing"))" />
+        @EmptyThinTile("Request Processing")
     }
     @if (!groups.Any(group => string.Equals(group.Key, "Header Policy", StringComparison.OrdinalIgnoreCase)))
     {
-        <AppConfigurationHeaderPolicyWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Header Policy"))" />
+        @EmptyThinTile("Header Policy")
     }
     @if (!groups.Any(group => string.Equals(group.Key, "Backend Resilience", StringComparison.OrdinalIgnoreCase)))
     {
-        <AppConfigurationBackendResilienceWidget IsLoading="IsLoading" OnSelected="@(() => OnSelected.InvokeAsync("Backend Resilience"))" />
+        @EmptyThinTile("Backend Resilience")
     }
 </div>
 
@@ -97,4 +83,38 @@
 
     private static bool IsProxyConfigurationGroup(string name) =>
         name.ToLowerInvariant() is "proxy runtime" or "backend routing";
+
+    private RenderFragment ThinTile(string section, IEnumerable<AppConfigurationScaffoldSetting> settings) =>
+        CatalogTile(section, settings, keyed: true);
+
+    private RenderFragment EmptyThinTile(string section) =>
+        CatalogTile(section, Array.Empty<AppConfigurationScaffoldSetting>(), keyed: false);
+
+    private RenderFragment CatalogTile(
+        string section,
+        IEnumerable<AppConfigurationScaffoldSetting> settings,
+        bool keyed)
+    {
+        if (!AppConfigurationSectionCatalog.TryGetThinSection(section, out var descriptor))
+        {
+            throw new InvalidOperationException($"No thin section catalog entry for '{section}'.");
+        }
+
+        var tooltip = Configuration[$"{CompanionAppOptions.UiSectionName}:SectionTooltips:{section}"]
+            ?? descriptor.TooltipFor(section);
+        var changedCount = settings.Count(setting => setting.IsChanged);
+        var summary = descriptor.Summarize(settings);
+        if (keyed)
+        {
+            return @<AppConfigurationSectionWidget Section="@section" Icon="@descriptor.Icon" ChangedCount="@changedCount"
+                IsLoading="IsLoading" Tooltip="@tooltip" OnSelected="@(() => OnSelected.InvokeAsync(section))" @key="section">
+                <SummaryContent><span class="@descriptor.SummaryClass">@summary</span></SummaryContent>
+            </AppConfigurationSectionWidget>;
+        }
+
+        return @<AppConfigurationSectionWidget Section="@section" Icon="@descriptor.Icon" ChangedCount="@changedCount"
+            IsLoading="IsLoading" Tooltip="@tooltip" OnSelected="@(() => OnSelected.InvokeAsync(section))">
+            <SummaryContent><span class="@descriptor.SummaryClass">@summary</span></SummaryContent>
+        </AppConfigurationSectionWidget>;
+    }
 }
