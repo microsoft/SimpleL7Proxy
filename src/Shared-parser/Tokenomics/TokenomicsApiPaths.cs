@@ -15,6 +15,7 @@ public static class TokenomicsApiPaths {
             ["Cohere (OpenAI-compatible)"] = "/compatibility/v1/chat/completions",
             ["Cohere v2 Chat"] = "/v2/chat",
             ["Cohere v1 Chat"] = "/v1/chat",
+            ["SystemOne"] = "/providers/microsoft/v1/systemone",
             ["OpenAI Chat Completions (vision)"] = "/openai/v1/chat/completions",
             ["OpenAI Responses (vision)"] = "/openai/v1/responses",
             ["Anthropic Messages (vision)"] = "/v1/messages",

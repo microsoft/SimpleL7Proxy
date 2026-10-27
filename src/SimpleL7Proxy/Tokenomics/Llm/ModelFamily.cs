@@ -5,5 +5,6 @@ public enum ModelFamily
     Unknown,
     Classic,
     Gpt5,
-    Reasoning
+    Reasoning,
+    Decision
 }

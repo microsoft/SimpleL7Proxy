@@ -40,6 +40,13 @@ public static class ModelMap
 
         ReadOnlySpan<char> modelName = model.AsSpan().Trim();
 
+        if (IsModel(modelName, "decision-1")
+            || IsModel(modelName, "decision1")
+            || IsModel(modelName, "jev"))
+        {
+            return ModelFamily.Decision;
+        }
+
         if (IsModel(modelName, "gpt-5"))
         {
             return ModelFamily.Gpt5;
@@ -101,6 +108,10 @@ public static class ModelMap
 
             ["command-"] = UsageProvider.Cohere,
             ["c4ai-"] = UsageProvider.Cohere,
+
+            ["decision-1"] = UsageProvider.SystemOne,
+            ["decision1"] = UsageProvider.SystemOne,
+            ["jev"] = UsageProvider.SystemOne,
 
             ["amazon.nova"] = UsageProvider.Bedrock,
             ["anthropic.claude"] = UsageProvider.Bedrock,
@@ -170,6 +181,16 @@ public static class ModelMap
                     "usage.cacheWriteInputTokens",
                 "metadata.usage.cacheWriteInputTokens"
                 ],
+                false,
+                false),
+
+            [UsageProvider.SystemOne] = new(
+                ["usage.input_tokens"],
+                [],
+                ["usage.output_tokens"],
+                [],
+                [],
+                [],
                 false,
                 false),
 

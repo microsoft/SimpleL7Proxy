@@ -7,5 +7,6 @@ public enum UsageProvider
     Anthropic,
     Gemini,
     Bedrock,
-    Cohere
+    Cohere,
+    SystemOne
 }

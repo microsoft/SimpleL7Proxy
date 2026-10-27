@@ -403,10 +403,10 @@ public class ProxyWorker : IConfigChangeSubscriber
                     bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
                     request.ModelReplaced = request.Model != request.OriginalModel;
 
-                    if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
-                    }
+                    // if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    // {
+                    //     var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
+                    // }
                 }
             }
             catch (OutOfMemoryException oomEx)

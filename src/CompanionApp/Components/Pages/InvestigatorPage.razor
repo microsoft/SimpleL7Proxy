@@ -10,11 +10,15 @@
 @inject ChatHistoryStore ChatHistoryStore
 @inject ModelDefaults ChatCatalog
 @inject UserPreferencesService Preferences
+@inject AppConfigurationScaffoldService AppConfiguration
+@using SimpleL7Proxy.Tokenomics
 @using System.Diagnostics
 @using System.Globalization
 @using System.Text
 @using System.Text.Json
+@using System.Text.Json.Nodes
 @using CompanionApp.Components.Shared
+@using CompanionApp.Components.Widgets.SystemOne
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Web
@@ -59,10 +63,26 @@
                            OnAbort="AbortRequestAsync"
                            OnSubmit="SendVisionRequestAsync">
                 <PromptContent>
-                    <div class="vision-body-panel rounded border p-2 small vision-body-fill">
+                    <div class="vision-body-panel rounded border p-2 small vision-body-fill @(SimpleMode ? "vision-body-simple" : string.Empty)">
                         @* ── Section 1 (top): mode toggles + filter / model / api ── *@
                         <div class="vision-section-top">
                             <div class="d-flex flex-wrap justify-content-end align-items-center gap-3 mb-1">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" id="visionModelApisCheck"
+                                           checked="@_showOnlyModelApis"
+                                           @onchange="@(async args => {
+                                               var previousModel = SelectedModel;
+                                               var previousApi = SelectedApi;
+                                               _showOnlyModelApis = args.Value is bool selected && selected;
+                                               EnsureSelectedApi();
+                                               if (!string.Equals(previousModel, SelectedModel, StringComparison.OrdinalIgnoreCase)
+                                                   || !string.Equals(previousApi, SelectedApi, StringComparison.OrdinalIgnoreCase))
+                                               {
+                                                   await OnApiSelected(new ChangeEventArgs { Value = SelectedApi });
+                                               }
+                                           })" />
+                                    <label class="form-check-label" for="visionModelApisCheck"> Enabled APIs</label>
+                                </div>
                                 @if (SupportsIncludeUsage)
                                 {
                                     <div class="form-check mb-0 onboarding-target @(IsOnboardingIncludeUsageStep ? "is-active" : string.Empty)">
@@ -73,7 +93,7 @@
                                         <input class="form-check-input" type="checkbox" id="visionIncludeUsageCheck"
                                                checked="@string.Equals(FieldValues["include_usage"], "true", StringComparison.OrdinalIgnoreCase)"
                                                @onchange="@(async args => { OnFieldChanged("include_usage", args.Value is bool selected && selected ? "true" : "false"); await AdvanceToSendAsync(); })" />
-                                        <label class="form-check-label" for="visionIncludeUsageCheck">include_usage</label>
+                                        <label class="form-check-label" for="visionIncludeUsageCheck">Usage</label>
                                     </div>
                                 }
                                 <div class="form-check mb-0">
@@ -88,12 +108,15 @@
                                 </div>
                             </div>
                             <div class="d-flex flex-wrap align-items-end gap-2">
-                                <div class="vision-filter-group">
-                                    <label class="form-label form-label-sm mb-1" for="visionModelFilter">Filter models</label>
-                                    <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
-                                           placeholder="filter (blank or * = all)"
-                                         @bind:get="ModelFilter" @bind:set="OnModelFilterChanged" @bind:event="oninput" />
-                                </div>
+                                @if (!_showOnlyModelApis)
+                                {
+                                    <div class="vision-filter-group">
+                                        <label class="form-label form-label-sm mb-1" for="visionModelFilter">Filter models</label>
+                                        <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
+                                               placeholder="filter (blank or * = all)"
+                                             @bind:get="ModelFilter" @bind:set="OnModelFilterChanged" @bind:event="oninput" />
+                                    </div>
+                                }
                                 <div class="vision-model-group">
                                     <label class="form-label form-label-sm mb-1" for="visionModelSelect">@ModelSelectLabel</label>
                                     <span class="onboarding-target onboarding-block @(IsOnboardingModelSelectStep ? "is-active" : string.Empty)">
@@ -166,10 +189,15 @@
                         </div>
 
                         @* ── Section between config and body: query parameters + prompt (simple only) ── *@
+                        <div hidden="@(!SimpleMode || !IsSystemOneApi)">
+                            <SystemOneRequestWidget State="@Prompt" StateChanged="OnPromptChanged"
+                                QuestionsChanged="@(value => { _systemOneQuestions = value; RefreshCustomRequestBodyIfNeeded(); })"
+                                ValidationChanged="@(value => _systemOneValidationError = value)" />
+                        </div>
                         @if (SimpleMode)
                         {
                             <div class="vision-section-params">
-                                @if (UsesPrompt)
+                                @if (UsesPrompt && !IsSystemOneApi)
                                 {
                                     <div class="row g-2 mt-1">
                                         <div class="col-12">
@@ -965,6 +993,18 @@
         overflow: hidden;
     }
 
+    .vision-body-simple {
+        overflow-y: auto;
+    }
+
+    .vision-body-simple > div {
+        flex: 0 0 auto;
+    }
+
+    .vision-body-simple > .vision-section-body {
+        overflow: visible;
+    }
+
     /* Section 1 (top) and Section 2 (config) keep their natural height. */
     .vision-section-top,
     .vision-section-config,
@@ -1205,6 +1245,12 @@
         return statusCode is >= 400;
     }
 
+    private bool _showOnlyModelApis = true;
+    private IReadOnlyList<AppConfigurationScaffoldSetting> _routingSettings = Array.Empty<AppConfigurationScaffoldSetting>();
+    private string _systemOneQuestions = "{\"question1\":{\"type\":\"noul\"}}";
+    private string _systemOneValidationError = string.Empty;
+    private bool IsSystemOneApi => string.Equals(SelectedApi, "systemone", StringComparison.OrdinalIgnoreCase);
+
     private IReadOnlyList<VisionApiInfo> AvailableApis => VisionCatalog.ApisForModel(SelectedModel);
 
     private IReadOnlyList<BlendedModelOption> BlendedModels => BuildBlendedModels();
@@ -1214,7 +1260,7 @@
         get
         {
             var query = ModelFilter?.Trim() ?? string.Empty;
-            if (query.Length == 0 || query == "*")
+            if (_showOnlyModelApis || query.Length == 0 || query == "*")
             {
                 return BlendedModels;
             }
@@ -1227,23 +1273,104 @@
         }
     }
 
+    private IReadOnlyDictionary<string, HashSet<string>> ConfiguredModelApis
+    {
+        get
+        {
+            var configuredModels = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var routing = new TokenomicsSettings();
+            var rawOptions = _routingSettings.FirstOrDefault(setting =>
+                string.Equals(setting.Section, "Tokenomics", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(setting.Name, "Options", StringComparison.OrdinalIgnoreCase))?.LoadedValue;
+            if (!string.IsNullOrWhiteSpace(rawOptions) && routing.TryParse(rawOptions))
+            {
+                var enabledHostAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var host in _routingSettings.Where(setting =>
+                    string.Equals(setting.Section, "Hosts", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var token in host.LoadedValue.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var separator = token.IndexOf('=');
+                        if (separator > 0)
+                        {
+                            fields[token[..separator].Trim()] = token[(separator + 1)..].Trim();
+                        }
+                    }
+
+                    if (fields.TryGetValue("enabled", out var enabledValue)
+                        && bool.TryParse(enabledValue, out var enabled) && !enabled)
+                    {
+                        continue;
+                    }
+
+                    foreach (var alias in new[] { host.Name, host.Key[(host.Key.LastIndexOf(':') + 1)..], fields.GetValueOrDefault("host") })
+                    {
+                        if (!string.IsNullOrWhiteSpace(alias))
+                        {
+                            var name = alias.Trim();
+                            enabledHostAliases.Add(name);
+                            enabledHostAliases.Add(name.StartsWith("Host_", StringComparison.OrdinalIgnoreCase) ? name[5..] : $"Host_{name}");
+                        }
+                    }
+                }
+
+                foreach (var model in routing.ModelHostOptions)
+                {
+                    var configuredApis = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var assignment in model.Value.Where(entry => enabledHostAliases.Contains(entry.Key) && entry.Value.Enabled))
+                    {
+                        configuredApis.UnionWith(assignment.Value.APIs.Keys);
+                    }
+
+                    var configuredApiIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var api in ChatCatalog.ListApis())
+                    {
+                        if (configuredApis.Contains(api.Id) || configuredApis.Contains(api.DisplayName))
+                        {
+                            configuredApiIds.Add(api.Id);
+                        }
+                    }
+
+                    foreach (var api in VisionCatalog.ListApis())
+                    {
+                        if (configuredApis.Contains(api.Id) || configuredApis.Contains(api.DisplayName))
+                        {
+                            configuredApiIds.Add(api.Id);
+                        }
+                    }
+
+                    if (configuredApiIds.Count > 0)
+                    {
+                        configuredModels[model.Key] = configuredApiIds;
+                    }
+                }
+            }
+
+            return configuredModels;
+        }
+    }
+
     private IReadOnlyList<ApiOption> AvailableApiOptions
     {
         get
         {
             var options = new List<ApiOption>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var api in ChatCatalog.ApisForModel(SelectedModel))
+            var configuredApis = _showOnlyModelApis && ConfiguredModelApis.TryGetValue(SelectedModel, out var modelApis)
+                ? modelApis
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var api in ChatCatalog.ListApis())
             {
-                if (seen.Add(api.Id))
+                if ((!_showOnlyModelApis || configuredApis.Contains(api.Id)) && seen.Add(api.Id))
                 {
                     options.Add(new ApiOption(api.Id, api.DisplayName, "Chat"));
                 }
             }
 
-            foreach (var api in VisionCatalog.ApisForModel(SelectedModel))
+            foreach (var api in VisionCatalog.ListApis())
             {
-                if (seen.Add(api.Id))
+                if ((!_showOnlyModelApis || configuredApis.Contains(api.Id)) && seen.Add(api.Id))
                 {
                     options.Add(new ApiOption(api.Id, api.DisplayName, "Vision"));
                 }
@@ -1279,7 +1406,9 @@
             Add(model.Id, model.Provider, model.DisplayName);
         }
 
-        return order.Select(id => byId[id]).ToList();
+        var configuredModels = _showOnlyModelApis ? ConfiguredModelApis : null;
+        return order.Where(id => configuredModels is null || configuredModels.ContainsKey(id))
+            .Select(id => byId[id]).ToList();
     }
 
     private VisionApiInfo? SelectedApiInfo => VisionCatalog.GetApi(SelectedApi);
@@ -1620,6 +1749,7 @@
         else if (!string.IsNullOrEmpty(selections.SelectedApi))
         {
             SelectedApi = selections.SelectedApi;
+            EnsureSelectedApi();
             EnsureCompatibleImageSource();
             ResetFields();
             RefreshEndpointPath();
@@ -1647,6 +1777,26 @@
     {
         if (firstRender)
         {
+            if (!string.IsNullOrWhiteSpace(AppConfiguration.DefaultEndpoint))
+            {
+                try
+                {
+                    var settings = string.Equals(AppConfiguration.CachedEndpoint, AppConfiguration.DefaultEndpoint, StringComparison.OrdinalIgnoreCase)
+                        && AppConfiguration.CachedSettings is { } cachedSettings
+                        ? cachedSettings
+                        : await AppConfiguration.LoadAsync(AppConfiguration.DefaultEndpoint);
+                    _routingSettings = settings.Where(setting => !setting.IsNew
+                        && string.Equals(setting.Label, AppConfiguration.DefaultLabel, StringComparison.Ordinal)).ToArray();
+                    EnsureSelectedApi(VisionCatalog.DefaultApi);
+                    ResetFields();
+                    RefreshEndpointPath();
+                }
+                catch (Exception exception)
+                {
+                    StatusMessage = $"Could not load enabled-host API configuration: {exception.Message}";
+                }
+            }
+
             await Preferences.LoadAsync();
             _preferencesLoaded = true;
             ApplyStoredSelections();
@@ -2187,6 +2337,12 @@
 
     private bool ValidateImageInput()
     {
+        if (!UseCustomJson && IsSystemOneApi && !string.IsNullOrEmpty(_systemOneValidationError))
+        {
+            StatusMessage = _systemOneValidationError;
+            return false;
+        }
+
         if (UseCustomJson || IsChatApi)
         {
             return true;
@@ -2308,6 +2464,16 @@
 
     private string BuildGeneratedRequestBody()
     {
+        if (IsSystemOneApi)
+        {
+            return new JsonObject
+            {
+                ["model"] = SelectedModel,
+                ["state"] = Prompt,
+                ["questions"] = JsonNode.Parse(_systemOneQuestions)
+            }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        }
+
         if (IsChatApi)
         {
             return ChatCatalog.BuildRequestBody(new ChatRequestBuildContext
@@ -2373,6 +2539,11 @@
 
     private void EnsureSelectedApi(string? preferredApi = null)
     {
+        if (_showOnlyModelApis && !BlendedModels.Any(model => string.Equals(model.Id, SelectedModel, StringComparison.OrdinalIgnoreCase)))
+        {
+            SelectedModel = BlendedModels.FirstOrDefault()?.Id ?? string.Empty;
+        }
+
         var apis = AvailableApiOptions;
         if (!string.IsNullOrWhiteSpace(SelectedApi) && apis.Any(api => string.Equals(api.Id, SelectedApi, StringComparison.OrdinalIgnoreCase)))
         {
@@ -2386,6 +2557,11 @@
 
     private void ResetFields()
     {
+        if (IsSystemOneApi && string.Equals(Prompt, VisionCatalog.DefaultPrompt, StringComparison.Ordinal))
+        {
+            Prompt = string.Empty;
+        }
+
         FieldValues.Clear();
         var defaults = IsChatApi
             ? ChatCatalog.GetDefaults(SelectedModel, SelectedApi)

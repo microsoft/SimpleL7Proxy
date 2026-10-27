@@ -79,11 +79,22 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
     /// <returns>True if the host supports the model and API; otherwise, false.</returns>
     public string? SupportedHostPath(string model, string hostKey, string apiName, string originalPath)
     {
+        
+        // Console.WriteLine($"Checking supported host path for model: {model}, hostKey: {hostKey}, apiName: {apiName}, originalPath: {originalPath}");
         // nothing defined for this model, return the original path
         if (!Settings.ModelHostOptions.TryGetValue(model, out var supportingHosts)) 
         {
             return originalPath;
         }
+
+        // foreach (var host in supportingHosts)
+        // {
+        //     Console.WriteLine($"Supporting host: {host.Key}");
+        //     foreach (var api in host.Value.APIs)
+        //     {
+        //         Console.WriteLine($"  API: {api.Key}");
+        //     }
+        // }
 
         // Check if the host supports the API for this model
         if (supportingHosts is null
@@ -91,6 +102,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             || !hostOptions.Enabled
             || !hostOptions.APIs.TryGetValue(apiName, out var apiOptions))
         {
+            // Console.WriteLine($"Host {hostKey} does not support API {apiName} for model {model}");
             return null;
         }
 

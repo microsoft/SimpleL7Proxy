@@ -59,6 +59,7 @@
   "apis": [
     { "id": "openai-chat", "displayName": "OpenAI Chat Completions", "endpoint": "/openai/v1/chat/completions" },
     { "id": "openai-responses", "displayName": "OpenAI Responses", "endpoint": "/openai/v1/responses" },
+    { "id": "systemone", "displayName": "SystemOne", "endpoint": "/providers/microsoft/v1/systemone" },
     { "id": "anthropic-messages", "displayName": "Anthropic Messages", "endpoint": "/v1/messages" },
     { "id": "gemini-generate-content", "displayName": "Gemini generateContent", "endpoint": "/v1beta/models/{model}:generateContent" },
     { "id": "gemini-openai-chat", "displayName": "Gemini (OpenAI-compatible)", "endpoint": "/v1beta/openai/chat/completions" },
@@ -96,6 +97,7 @@
     { "id": "gemini-1.5-pro", "provider": "Google Gemini", "displayName": "Gemini 1.5 Pro", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
     { "id": "llama-3.3-70b-instruct", "provider": "Meta Llama", "displayName": "Llama 3.3 70B Instruct", "apis": [ "openai-chat" ] },
     { "id": "llama-3.1-405b-instruct", "provider": "Meta Llama", "displayName": "Llama 3.1 405B Instruct", "apis": [ "openai-chat" ] },
+    { "id": "Decision-1", "provider": "Microsoft", "displayName": "Decision-1", "apis": [ "systemone" ] },
     { "id": "Phi-4-reasoning", "provider": "Microsoft Phi", "displayName": "Phi-4 reasoning", "apis": [ "openai-chat" ] },
     { "id": "Phi-4-mini-reasoning", "provider": "Microsoft Phi", "displayName": "Phi-4 mini reasoning", "apis": [ "openai-chat" ] },
     { "id": "mistral-large-latest", "provider": "Mistral", "displayName": "Mistral Large", "apis": [ "openai-chat" ] },
@@ -216,6 +218,24 @@
   "requestTemplates": [
     { "api": "openai-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
     { "api": "openai-responses", "body": { "model": "{{model}}", "input": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    {
+      "api": "systemone",
+      "body": {
+        "model": "{{model}}",
+        "state": "{{prompt}}",
+        "questions": {
+          "team": {
+            "type": "choice",
+            "instructions": "Which team should handle this ticket?",
+            "criteria": {
+              "billing": "Charges, invoices, and refunds",
+              "engineering": "Bugs, errors, and outages",
+              "support": "How-to and account questions"
+            }
+          }
+        }
+      }
+    },
     { "api": "anthropic-messages", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
     { "api": "gemini-generate-content", "body": { "contents": [ { "role": "user", "parts": [ { "text": "{{prompt}}" } ] } ] } },
     { "api": "gemini-openai-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
