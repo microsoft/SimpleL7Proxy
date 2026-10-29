@@ -246,7 +246,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         if (data.IsOverride)            return ("Administrator Override", Settings.AdministratorOverrideAction);
 
         var (actionType, actions) = data.IsCriticalWorkload ? ("Critical ", Settings.PrivilegedExceedActions)
-            : data.IsPremiumWorkload ? ("Premium ", Settings.PremiumWorkloadLimitActions)
+            : data.IsPremiumWorkload ? ("Premium ", Settings.PremiumExceedActions)
             : data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
                 ? ("Model ", modelActions) : ("", Settings.DefaultExceededActions);
 

@@ -11,10 +11,10 @@ public class TokenomicsSettings
     public LimitsAndBudgets DefaultLimitsAndBudgets { get; set; } = new();
     /// <summary>Gets or sets default actions, serialized using their unprefixed property names.</summary>
     public ExceededActions DefaultExceededActions { get; set; } = new();
-    /// <summary>Gets or sets premium workload limits, serialized as PremiumWorkloadLimits.Field=value.</summary>
-    public LimitsAndBudgets PremiumWorkloadLimits { get; set; } = new();
-    /// <summary>Gets or sets premium workload actions, serialized as PremiumWorkloadLimitActions.Field=value.</summary>
-    public ExceededActions PremiumWorkloadLimitActions { get; set; } = new();
+    /// <summary>Gets or sets premium workload limits, serialized as PremiumLimitsAndBudgets.Field=value.</summary>
+    public LimitsAndBudgets PremiumLimitsAndBudgets { get; set; } = new();
+    /// <summary>Gets or sets premium workload actions, serialized as PremiumExceedActions.Field=value.</summary>
+    public ExceededActions PremiumExceedActions { get; set; } = new();
     /// <summary>Gets or sets privileged workload limits, serialized as PrivilegedLimitsAndBudgets.Field=value.</summary>
     public LimitsAndBudgets PrivilegedLimitsAndBudgets { get; set; } = new();
     /// <summary>Gets or sets privileged workload actions, serialized as PrivilegedExceedActions.Field=value.</summary>
@@ -120,7 +120,7 @@ public class TokenomicsSettings
     /// <summary>
     /// Applies recognized comma- or semicolon-separated key=value pairs. Unprefixed limit and action
     /// keys target defaults; workload keys use their container name, such as
-    /// PrivilegedExceedActions.DailyLimitAction=bypass or PremiumWorkloadLimits.DailyTokenLimit=5000.
+    /// PrivilegedExceedActions.DailyLimitAction=bypass or PremiumLimitsAndBudgets.DailyTokenLimit=5000.
     /// Model overrides retain ModelLimits=model=Field:value and ModelLimitActions=model=Field:value syntax.
     /// Omitted or invalid fields retain their existing values. Invalid entries are skipped and reported
     /// in IgnoredFields; a failed compound entry cannot apply partial changes. Returns false only for
@@ -298,7 +298,7 @@ public class TokenomicsSettings
         if (dotIndex >= 0) {
             var scope = SettableProperties.FirstOrDefault(property =>
                 property.Name.Equals(key[..dotIndex], StringComparison.OrdinalIgnoreCase)
-                && (property.Name is nameof(PremiumWorkloadLimits) or nameof(PremiumWorkloadLimitActions)
+                && (property.Name is nameof(PremiumLimitsAndBudgets) or nameof(PremiumExceedActions)
                     or nameof(PrivilegedLimitsAndBudgets) or nameof(PrivilegedExceedActions)));
             return scope?.GetValue(this) is { } target
                 && TryParseScalar(key[(dotIndex + 1)..], value, target);

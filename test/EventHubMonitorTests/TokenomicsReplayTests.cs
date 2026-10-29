@@ -161,8 +161,8 @@ public sealed class TokenomicsReplayTests {
     public void Settings_WorkloadFields_RoundTripThroughDottedKeys() {
         var source = new TokenomicsSettings();
         var scopeNames = new[] {
-            nameof(TokenomicsSettings.PremiumWorkloadLimits),
-            nameof(TokenomicsSettings.PremiumWorkloadLimitActions),
+            nameof(TokenomicsSettings.PremiumLimitsAndBudgets),
+            nameof(TokenomicsSettings.PremiumExceedActions),
             nameof(TokenomicsSettings.PrivilegedLimitsAndBudgets),
             nameof(TokenomicsSettings.PrivilegedExceedActions)
         };
@@ -215,27 +215,27 @@ public sealed class TokenomicsReplayTests {
     public void Settings_WorkloadUpdates_PreserveIndependentScopesAndOmittedFields() {
         var settings = new TokenomicsSettings();
         Assert.IsTrue(settings.TryParse(
-            "PremiumWorkloadLimits.HourlyTokenLimit=2100;PremiumWorkloadLimits.DailyTokenLimit=2200;" +
+            "PremiumLimitsAndBudgets.HourlyTokenLimit=2100;PremiumLimitsAndBudgets.DailyTokenLimit=2200;" +
             "PrivilegedLimitsAndBudgets.HourlyTokenLimit=3100;PrivilegedLimitsAndBudgets.DailyTokenLimit=3200;" +
-            "PremiumWorkloadLimitActions.DailyLimitAction=reject;" +
+            "PremiumExceedActions.DailyLimitAction=reject;" +
             "PrivilegedExceedActions.DailyLimitAction=bypass"));
-        var premiumLimits = settings.PremiumWorkloadLimits;
+        var premiumLimits = settings.PremiumLimitsAndBudgets;
         var criticalLimits = settings.PrivilegedLimitsAndBudgets;
-        var premiumActions = settings.PremiumWorkloadLimitActions;
+        var premiumActions = settings.PremiumExceedActions;
         var criticalActions = settings.PrivilegedExceedActions;
 
         Assert.IsTrue(settings.TryParse(
-            "premiumworkloadlimits.hourlytokenlimit=2300,PRIVILEGEDEXCEEDACTIONS.HOURLYLIMITACTION=THROTTLE," +
+            "premiumlimitsandbudgets.hourlytokenlimit=2300,PRIVILEGEDEXCEEDACTIONS.HOURLYLIMITACTION=THROTTLE," +
             "DailyTokenLimit=42,DailyLimitAction=delay," +
             "ModelLimits=model%3Bone=DailyTokenLimit:77|DailyBudgetUsd:1.25," +
             "ModelLimitActions=model%3Bone=DailyLimitAction:requeue"));
-        Assert.AreEqual(2300, settings.PremiumWorkloadLimits.HourlyTokenLimit);
-        Assert.AreEqual(2200, settings.PremiumWorkloadLimits.DailyTokenLimit);
+        Assert.AreEqual(2300, settings.PremiumLimitsAndBudgets.HourlyTokenLimit);
+        Assert.AreEqual(2200, settings.PremiumLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual(3100, settings.PrivilegedLimitsAndBudgets.HourlyTokenLimit);
         Assert.AreEqual(3200, settings.PrivilegedLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Throttle, settings.PrivilegedExceedActions.HourlyLimitAction);
         Assert.AreEqual(TokenActionEnum.Bypass, settings.PrivilegedExceedActions.DailyLimitAction);
-        Assert.AreEqual(TokenActionEnum.Reject, settings.PremiumWorkloadLimitActions.DailyLimitAction);
+        Assert.AreEqual(TokenActionEnum.Reject, settings.PremiumExceedActions.DailyLimitAction);
         Assert.AreEqual(42, settings.DefaultLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Delay, settings.DefaultExceededActions.DailyLimitAction);
         Assert.AreEqual(77, settings.ModelLimits["model;one"].DailyTokenLimit);
@@ -245,9 +245,9 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(3100, criticalLimits.HourlyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Reject, premiumActions.DailyLimitAction);
         Assert.AreEqual(new ExceededActions().HourlyLimitAction, criticalActions.HourlyLimitAction);
-        Assert.AreNotSame(premiumLimits, settings.PremiumWorkloadLimits);
+        Assert.AreNotSame(premiumLimits, settings.PremiumLimitsAndBudgets);
         Assert.AreNotSame(criticalLimits, settings.PrivilegedLimitsAndBudgets);
-        Assert.AreNotSame(premiumActions, settings.PremiumWorkloadLimitActions);
+        Assert.AreNotSame(premiumActions, settings.PremiumExceedActions);
         Assert.AreNotSame(criticalActions, settings.PrivilegedExceedActions);
         var roundTrip = new TokenomicsSettings();
         Assert.IsTrue(roundTrip.TryParse(settings.ToString()));
@@ -257,12 +257,12 @@ public sealed class TokenomicsReplayTests {
     /// <summary>A rejected part cannot leak mutations from any workload container.</summary>
     [DataTestMethod]
     [DataRow("UnknownWorkloadLimits.HourlyTokenLimit=1")]
-    [DataRow("PremiumWorkloadLimits.NotAField=1")]
+    [DataRow("PremiumLimitsAndBudgets.NotAField=1")]
     [DataRow("PrivilegedLimitsAndBudgets.HourlyTokenLimit=1.5")]
-    [DataRow("PremiumWorkloadLimits.HourlyBudgetUsd=NaN")]
+    [DataRow("PremiumLimitsAndBudgets.HourlyBudgetUsd=NaN")]
     [DataRow("PrivilegedExceedActions.DailyLimitAction=notAnAction")]
-    [DataRow("PremiumWorkloadLimitActions.DailyLimitAction=999")]
-    [DataRow("PremiumWorkloadLimitActions.DailyLimitAction=1")]
+    [DataRow("PremiumExceedActions.DailyLimitAction=999")]
+    [DataRow("PremiumExceedActions.DailyLimitAction=1")]
     [DataRow("PrivilegedExceedActions.HourlyTokenLimit=1")]
     [DataRow("PrivilegedLimitsAndBudgets.DailyLimitAction=bypass")]
     [DataRow("PrivilegedExceedActions.=bypass")]
@@ -273,21 +273,21 @@ public sealed class TokenomicsReplayTests {
     public void Settings_InvalidWorkloadPart_DoesNotMutateSettings(string invalidPart) {
         var settings = new TokenomicsSettings();
         Assert.IsTrue(settings.TryParse(
-            "DailyTokenLimit=99;PremiumWorkloadLimits.DailyTokenLimit=1100;" +
+            "DailyTokenLimit=99;PremiumLimitsAndBudgets.DailyTokenLimit=1100;" +
             "PrivilegedLimitsAndBudgets.DailyTokenLimit=2200;" +
-            "PremiumWorkloadLimitActions.DailyLimitAction=reject;" +
+            "PremiumExceedActions.DailyLimitAction=reject;" +
             "PrivilegedExceedActions.DailyLimitAction=bypass"));
         var before = settings.ToString();
-        var premiumLimits = settings.PremiumWorkloadLimits;
+        var premiumLimits = settings.PremiumLimitsAndBudgets;
         var criticalLimits = settings.PrivilegedLimitsAndBudgets;
-        var premiumActions = settings.PremiumWorkloadLimitActions;
+        var premiumActions = settings.PremiumExceedActions;
         var criticalActions = settings.PrivilegedExceedActions;
         Assert.IsTrue(settings.TryParse(invalidPart));
         CollectionAssert.AreEqual(new[] { invalidPart.Split('=', 2)[0] }, settings.IgnoredFields.ToArray());
         Assert.AreEqual(before, settings.ToString());
-        Assert.AreSame(premiumLimits, settings.PremiumWorkloadLimits);
+        Assert.AreSame(premiumLimits, settings.PremiumLimitsAndBudgets);
         Assert.AreSame(criticalLimits, settings.PrivilegedLimitsAndBudgets);
-        Assert.AreSame(premiumActions, settings.PremiumWorkloadLimitActions);
+        Assert.AreSame(premiumActions, settings.PremiumExceedActions);
         Assert.AreSame(criticalActions, settings.PrivilegedExceedActions);
     }
 
