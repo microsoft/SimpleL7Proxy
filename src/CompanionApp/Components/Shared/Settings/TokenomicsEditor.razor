@@ -1118,7 +1118,7 @@
             </div>;
         }
         return @<TokenomicsOptionFieldWidget Name="@name"
-            Label="@(workload is null ? FieldLabel(name) : $"{(workload == "CriticalWorkload" ? "Privileged workload" : "Premium tenant")} {FieldLabel(property.Name)}")"
+            Label="@(workload is null ? FieldLabel(name) : $"{(workload == "CriticalWorkload" ? "Privileged workload" : "Premium workload")} {FieldLabel(property.Name)}")"
             Value="@FormatValue(property.GetValue(target), property.Name)" Step="@InputStep(property.PropertyType)"
             InputType="@(property.PropertyType == typeof(string) || property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
             Error="@(_fieldErrors.TryGetValue(errorKey, out var error) ? error : null)"

@@ -250,8 +250,8 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             : data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
                 ? ("Model ", modelActions) : ("", Settings.DefaultLimitActions);
 
-        if (c.HourlyQuotaExceeded )     return ($"{actionType}Hourly Quota Exceeded", actions.DailyBudgetExceededAction);
-        if (c.DailyQuotaExceeded)       return ($"{actionType}Daily Quota Exceeded", actions.DailyBudgetExceededAction);
+        if (c.HourlyQuotaExceeded )     return ($"{actionType}Hourly Quota Exceeded", actions.HourlyLimitAction);
+        if (c.DailyQuotaExceeded)       return ($"{actionType}Daily Quota Exceeded", actions.DailyLimitAction);
         if (c.MonthlyQuotaExceeded)     return ($"{actionType}Monthly Quota Exceeded", actions.MonthlyLimitAction);
         if (c.HourlyBudgetExceeded)     return ($"{actionType}Hourly Budget Exceeded", actions.HourlyBudgetExceededAction);
         if (c.DailyBudgetExceeded)      return ($"{actionType}Daily Budget Exceeded", actions.DailyBudgetExceededAction);
