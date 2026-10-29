@@ -96,7 +96,7 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
         }
 
         var catalogPath = Path.Combine(AppContext.BaseDirectory, "configs", "policy-scenarios.json");
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         Assert.IsTrue(File.Exists(catalogPath), $"Scenario catalog not found: {catalogPath}");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
 
@@ -285,7 +285,7 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            WorkingDirectory = AppContext.BaseDirectory,
+            WorkingDirectory = Path.GetDirectoryName(proxyAssembly)!,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

@@ -99,13 +99,15 @@ public sealed class MetricsServerBenchmarkTests : IRegressionTestMetadata
         context.Response.Body.Position = 0;
         using var document = await JsonDocument.ParseAsync(context.Response.Body);
         Assert.AreEqual(1.28m, document.RootElement.GetProperty("DailyUserBudget").GetDecimal());
-        foreach (var field in new[] { "HourlyInputTokens", "HourlyOutputTokens", "HourlyCachedTokens",
-            "HourlyModel429", "HourlyUser429", "HourlyAvgLatencyMs", "HourlyUserBudget", "HourlyModelBudget" })
+        foreach (var (field, expected) in new (string, decimal)[] {
+            ("HourlyInputTokens", 100m), ("HourlyOutputTokens", 20m), ("HourlyCachedTokens", 40m),
+            ("HourlyModel429", 1m), ("HourlyUser429", 1m), ("HourlyAvgLatencyMs", 120m),
+            ("HourlyUserBudget", 1.28m), ("HourlyModelBudget", 1.28m) })
         {
-            Assert.AreEqual(0m, document.RootElement.GetProperty(field).GetDecimal(), field);
+            Assert.AreEqual(expected, document.RootElement.GetProperty(field).GetDecimal(), field);
         }
-        Assert.IsFalse(document.RootElement.GetProperty("IsHourlyJailbreakDetected").GetBoolean());
-        Assert.IsFalse(document.RootElement.GetProperty("IsHourlyContentFiltered").GetBoolean());
+        Assert.IsTrue(document.RootElement.GetProperty("IsHourlyJailbreakDetected").GetBoolean());
+        Assert.IsTrue(document.RootElement.GetProperty("IsHourlyContentFiltered").GetBoolean());
         var response = document.RootElement.Deserialize(MetricsServer.MetricsJsonContext.Default.ResponseMetric);
         Assert.AreEqual(1.28m, response.MonthlyModelBudget);
         Assert.AreEqual(100, response.DailyInputTokens);

@@ -33,4 +33,21 @@
     </None>
   </ItemGroup>
 
+  <Target Name="CopyProxyRuntime" AfterTargets="Build">
+    <MSBuild Projects="../../src/SimpleL7Proxy/SimpleL7Proxy.csproj"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ProxyTargetPath" />
+    </MSBuild>
+    <PropertyGroup>
+      <_ProxyRuntimeDirectory>@(_ProxyTargetPath->'%(RootDir)%(Directory)')</_ProxyRuntimeDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ProxyRuntimeFile Include="$(_ProxyRuntimeDirectory)**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ProxyRuntimeFile)"
+          DestinationFiles="@(_ProxyRuntimeFile->'$(OutDir)proxy-runtime/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
