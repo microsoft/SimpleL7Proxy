@@ -666,6 +666,10 @@ body:has(.app-configuration-page .config-modal-backdrop) {
     height: min(52rem, calc(100dvh - 1.5rem));
 }
 
+:where(.app-configuration-page) .config-modal:has(.config-host-list) {
+    width: min(96rem, 100%);
+}
+
 :where(.app-configuration-page) .config-modal:has(.identity-access-editor) > .config-modal-body {
     flex: 1 1 auto;
 }
@@ -862,6 +866,12 @@ body:has(.app-configuration-page .config-modal-backdrop) {
 
 :where(.app-configuration-page) .config-host-table input.form-control {
     min-width: 12rem;
+}
+
+:where(.app-configuration-page) .config-host-list th,
+:where(.app-configuration-page) .config-host-list td {
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 :where(.app-configuration-page) .config-host-table select.form-select {

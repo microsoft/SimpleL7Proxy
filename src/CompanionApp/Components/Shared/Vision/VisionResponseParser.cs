@@ -98,6 +98,13 @@ public static class VisionResponseParser
             return interpreted;
         }
 
+        if (observed.Split('\n').Any(line =>
+            line.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+            line.StartsWith("event:", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "The stream returned no assistant text.";
+        }
+
         interpreted = ChatStreamParser.ExtractDisplayContent(observed);
         if (!string.IsNullOrWhiteSpace(interpreted))
         {

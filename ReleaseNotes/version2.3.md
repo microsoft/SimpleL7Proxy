@@ -35,14 +35,13 @@ CompanionApp:
 
 Package updates:
 
-* [Microsoft.Extensions.Configuration.AzureAppConfiguration 8.5.0 to 8.6.0](https://github.com/Azure/AppConfiguration-DotnetProvider/releases/tag/8.6.0)
-* [Microsoft.Extensions.Hosting 10.0.11 to 10.0.12](https://github.com/dotnet/runtime/releases/tag/v10.0.12)
-* [Microsoft.Extensions.Hosting.Abstractions 10.0.11 to 10.0.12](https://github.com/dotnet/runtime/releases/tag/v10.0.12)
-* [Microsoft.Extensions.Logging.Console 10.0.11 to 10.0.12](https://github.com/dotnet/runtime/releases/tag/v10.0.12)
-* [Azure.Core 1.55.0 to 1.62.0](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/core/Azure.Core/CHANGELOG.md)
-* [Azure.Identity 1.20.0 to 1.21.0](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/identity/Azure.Identity/CHANGELOG.md)
-* [Azure.Messaging.ServiceBus 7.20.1 to 7.20.2](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/servicebus/Azure.Messaging.ServiceBus/CHANGELOG.md)
-* [Azure.Storage.Blobs 12.28.0 to 12.29.2](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/storage/Azure.Storage.Blobs/CHANGELOG.md)
-* [Microsoft.IdentityModel.JsonWebTokens 8.19.1 to 8.22.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.22.0)
-* Microsoft.IdentityModel.Protocols.OpenIdConnect version 8.22.0
-* [Microsoft.IdentityModel.Tokens 8.19.1 to 8.22.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.22.0)
+* [Microsoft.Extensions.Configuration.AzureAppConfiguration 8.6.0 to 8.6.1](https://github.com/Azure/AppConfiguration-DotnetProvider/releases/tag/8.6.1)
+* [Microsoft.Extensions.Hosting 10.0.12 to 10.0.14](https://github.com/dotnet/runtime/releases/tag/v10.0.14)
+* [Microsoft.Extensions.Hosting.Abstractions 10.0.12 to 10.0.14](https://github.com/dotnet/runtime/releases/tag/v10.0.14)
+* [Microsoft.Extensions.Logging.Console 10.0.12 to 10.0.14](https://github.com/dotnet/runtime/releases/tag/v10.0.14)
+* [Azure.Core 1.62.0 to 1.64.0](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/core/Azure.Core/CHANGELOG.md)
+* [Azure.Messaging.ServiceBus 7.20.2 to 7.21.0](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/servicebus/Azure.Messaging.ServiceBus/CHANGELOG.md)
+* [Azure.Storage.Blobs 12.29.2 to 12.30.1](https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/storage/Azure.Storage.Blobs/CHANGELOG.md)
+* [Microsoft.IdentityModel.JsonWebTokens 8.22.0 to 8.23.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.23.0)
+* [Microsoft.IdentityModel.Protocols.OpenIdConnect 8.22.0 to 8.23.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.23.0)
+* [Microsoft.IdentityModel.Tokens 8.22.0 to 8.23.0](https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet/releases/tag/8.23.0)

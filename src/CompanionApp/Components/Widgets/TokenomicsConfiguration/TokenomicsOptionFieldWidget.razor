@@ -21,9 +21,14 @@
     <div class="@(Compact ? "tokenomics-period-control" : null)">
         @if (IsAction)
         {
-            <select id="@($"tokenomics-{Name}")" class="form-select form-select-sm" value="@Value"
+            <select id="@($"tokenomics-{Name}")" class="form-select form-select-sm"
+                    value="@(string.Equals(Value, nameof(TokenActionEnum.None), StringComparison.OrdinalIgnoreCase) ? nameof(TokenActionEnum.Bypass) : Value)"
                     aria-label="@Label" @onchange="OnChanged">
-                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                @foreach (var action in Enum.GetValues<TokenActionEnum>().Where(action => action != TokenActionEnum.None
+                    && action != TokenActionEnum.UpgradeModel && action != TokenActionEnum.Requeue
+                    && action != TokenActionEnum.IncreasePriority && action != TokenActionEnum.Delay
+                    && action != TokenActionEnum.Cap && action != TokenActionEnum.IncreaseLimit
+                    && action != TokenActionEnum.DecreaseLimit))
                 {
                     <option value="@action">@ActionLabel(action)</option>
                 }

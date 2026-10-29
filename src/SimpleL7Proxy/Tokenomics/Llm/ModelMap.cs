@@ -124,16 +124,31 @@ public static class ModelMap
             ["mistral.mistral"] = UsageProvider.Bedrock
         }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Maps usage providers to registered token processors for automatic selection.</summary>
+    // REVIEW: Explicit provider assignments allow independent processor selection later.
+    // The current Tokenomics parser supports all listed usage schemas, including unknown-model fallback.
+    public static readonly FrozenDictionary<UsageProvider, string> TokenProcessorByProvider =
+        new Dictionary<UsageProvider, string>
+        {
+            [UsageProvider.Unknown] = "Tokenomics",
+            [UsageProvider.OpenAI] = "Tokenomics",
+            [UsageProvider.Anthropic] = "Tokenomics",
+            [UsageProvider.Gemini] = "Tokenomics",
+            [UsageProvider.Bedrock] = "Tokenomics",
+            [UsageProvider.Cohere] = "Tokenomics",
+            [UsageProvider.SystemOne] = "Tokenomics"
+        }.ToFrozenDictionary();
+
     private static readonly FrozenDictionary<UsageProvider, UsageFieldMap> UsageFields =
         new Dictionary<UsageProvider, UsageFieldMap>
         {
             [UsageProvider.OpenAI] = new(
-                ["usage.prompt_tokens"],
-                ["usage.prompt_tokens_details.cached_tokens"],
-                ["usage.completion_tokens"],
+                ["usage.prompt_tokens", "usage.input_tokens"],
+                ["usage.prompt_tokens_details.cached_tokens", "usage.input_tokens_details.cached_tokens"],
+                ["usage.completion_tokens", "usage.output_tokens"],
                 ["usage.total_tokens"],
-                ["usage.completion_tokens_details.reasoning_tokens"],
-                [],
+                ["usage.completion_tokens_details.reasoning_tokens", "usage.output_tokens_details.reasoning_tokens"],
+                ["usage.input_tokens_details.cache_write_tokens"],
                 false,
                 false),
 

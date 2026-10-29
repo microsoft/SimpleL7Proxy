@@ -59,6 +59,7 @@
   "apis": [
     { "id": "openai-chat", "displayName": "OpenAI Chat Completions", "endpoint": "/openai/v1/chat/completions" },
     { "id": "openai-responses", "displayName": "OpenAI Responses", "endpoint": "/openai/v1/responses" },
+    { "id": "openai-decisions", "displayName": "OpenAI Decisions", "endpoint": "/v1/decisions" },
     { "id": "systemone", "displayName": "SystemOne", "endpoint": "/providers/microsoft/v1/systemone" },
     { "id": "anthropic-messages", "displayName": "Anthropic Messages", "endpoint": "/v1/messages" },
     { "id": "gemini-generate-content", "displayName": "Gemini generateContent", "endpoint": "/v1beta/models/{model}:generateContent" },
@@ -76,12 +77,18 @@
     { "id": "gpt-5-mini", "provider": "OpenAI", "displayName": "GPT-5 mini", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-5-nano", "provider": "OpenAI", "displayName": "GPT-5 nano", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6-astra", "provider": "OpenAI", "displayName": "GPT-6 Astra", "apis": [ "openai-chat", "openai-responses" ] },
-    { "id": "gpt-6-luna", "provider": "OpenAI", "displayName": "GPT-6 Luna", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-6-luna", "provider": "OpenAI", "displayName": "GPT-6 Luna", "apis": [ "openai-chat", "openai-responses", "openai-decisions" ] },
     { "id": "gpt-6-sol", "provider": "OpenAI", "displayName": "GPT-6 Sol", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6.1-sol", "provider": "OpenAI", "displayName": "GPT-6.1 Sol", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-6.1-terra", "provider": "OpenAI", "displayName": "GPT-6.1 Terra", "apis": [ "openai-responses" ] },
     { "id": "o3", "provider": "OpenAI", "displayName": "o3 (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "o4-mini", "provider": "OpenAI", "displayName": "o4-mini (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-3.5-turbo", "provider": "OpenAI", "displayName": "GPT-3.5 Turbo", "apis": [ "openai-chat" ] },
+    { "id": "claude-opus-5", "provider": "Anthropic", "displayName": "Claude Opus 5", "apis": [ "anthropic-messages", "openai-chat" ] },
+    { "id": "claude-opus-5-5", "provider": "Anthropic", "displayName": "Claude Opus 5.5", "apis": [ "anthropic-messages", "openai-chat" ] },
+    { "id": "claude-sonnet-5-5", "provider": "Anthropic", "displayName": "Claude Sonnet 5.5", "apis": [ "anthropic-messages", "openai-chat" ] },
+    { "id": "claude-haiku-5-5", "provider": "Anthropic", "displayName": "Claude Haiku 5.5", "apis": [ "anthropic-messages", "openai-chat" ] },
+    { "id": "claude-fable-5-1", "provider": "Anthropic", "displayName": "Claude Fable 5.1", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-opus-4-8", "provider": "Anthropic", "displayName": "Claude Opus 4.8", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-opus-4-1-20250805", "provider": "Anthropic", "displayName": "Claude Opus 4.1", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-sonnet-4-5-20250929", "provider": "Anthropic", "displayName": "Claude Sonnet 4.5", "apis": [ "anthropic-messages", "openai-chat" ] },
@@ -91,6 +98,9 @@
     { "id": "claude-3-5-sonnet-20241022", "provider": "Anthropic", "displayName": "Claude 3.5 Sonnet", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-3-5-haiku-20241022", "provider": "Anthropic", "displayName": "Claude 3.5 Haiku", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "gemini-2.5-pro", "provider": "Google Gemini", "displayName": "Gemini 2.5 Pro", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
+    { "id": "gemini-4-argon", "provider": "Google Gemini", "displayName": "Gemini 4 Argon", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
+    { "id": "gemini-3.8-flash", "provider": "Google Gemini", "displayName": "Gemini 3.8 Flash", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
+    { "id": "gemini-3.5-flash-lite", "provider": "Google Gemini", "displayName": "Gemini 3.5 Flash-Lite", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
     { "id": "gemini-2.5-flash", "provider": "Google Gemini", "displayName": "Gemini 2.5 Flash", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
     { "id": "gemini-2.5-flash-lite", "provider": "Google Gemini", "displayName": "Gemini 2.5 Flash-Lite", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
     { "id": "gemini-2.0-flash", "provider": "Google Gemini", "displayName": "Gemini 2.0 Flash", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
@@ -218,6 +228,25 @@
   "requestTemplates": [
     { "api": "openai-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
     { "api": "openai-responses", "body": { "model": "{{model}}", "input": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    {
+      "api": "openai-decisions",
+      "body": {
+        "model": "{{model}}",
+        "input": "{{prompt}}",
+        "questions": [
+          {
+            "type": "choice",
+            "name": "team",
+            "instructions": "Which team should handle this ticket?",
+            "choices": [
+              { "value": "billing", "description": "Charges, invoices, and refunds" },
+              { "value": "engineering", "description": "Bugs, errors, and outages" },
+              { "value": "support", "description": "How-to and account questions" }
+            ]
+          }
+        ]
+      }
+    },
     {
       "api": "systemone",
       "body": {

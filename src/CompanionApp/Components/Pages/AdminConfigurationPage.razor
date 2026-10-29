@@ -460,7 +460,16 @@
                                                         <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name">@setting.Key</ConfigurationHelp>
                                                     </td>
                                                     <td class="font-monospace text-break">@DisplayLoadedValue(setting.LoadedValue)</td>
-                                                    <td class="font-monospace text-break">@DisplayLoadedValue(setting.DraftValue)</td>
+                                                    <td class="font-monospace text-break">
+                                                        @if (setting.IsDeleted)
+                                                        {
+                                                            <span class="badge text-bg-danger">Delete host</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @DisplayLoadedValue(setting.DraftValue)
+                                                        }
+                                                    </td>
                                                 </tr>
                                             }
                                         </tbody>

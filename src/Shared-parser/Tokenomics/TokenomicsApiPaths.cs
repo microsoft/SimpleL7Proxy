@@ -9,6 +9,7 @@ public static class TokenomicsApiPaths {
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
             ["OpenAI Chat Completions"] = "/openai/v1/chat/completions",
             ["OpenAI Responses"] = "/openai/v1/responses",
+            ["OpenAI Decisions"] = "/v1/decisions",
             ["Anthropic Messages"] = "/v1/messages",
             ["Gemini generateContent"] = "/v1beta/models/{model}:generateContent",
             ["Gemini (OpenAI-compatible)"] = "/v1beta/openai/chat/completions",

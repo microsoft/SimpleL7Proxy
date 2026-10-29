@@ -671,9 +671,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                                     request.Guid, pr.StreamingProcessor, resp_mediaType);
 
                                 // Determine stream processor
-                                pr.StreamingProcessor = host.Config.DirectMode
-                                    ? host.Config.Processor
-                                    : StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, resp_mediaType);
+                                if (string.Equals(host.Config.Processor, "AutoDetect", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    // REVIEW: Resolve the effective request model to a provider, then its token processor.
+                                    // Providers added without a processor assignment retain the unknown-provider fallback.
+                                    pr.StreamingProcessor = ModelMap.TokenProcessorByProvider.TryGetValue(
+                                        ModelMap.GetUsageProvider(request.Model), out var tokenProcessor)
+                                        ? tokenProcessor
+                                        : ModelMap.TokenProcessorByProvider[UsageProvider.Unknown];
+                                }
+                                else if (string.Equals(host.Config.Processor, "APIMResponseHeader", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    pr.StreamingProcessor = StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, resp_mediaType);
+                                }
+                                else
+                                {
+                                    pr.StreamingProcessor = host.Config.DirectMode
+                                        ? host.Config.Processor
+                                        : StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, resp_mediaType);
+                                }
 
                                 requestState = $"{(host.Config.DirectMode ? "Direct Mode Processor" : "Stream Proxy Response")} : {pr.StreamingProcessor}";
                                 await CaptureResponseStream(proxyResponse, request, pr).ConfigureAwait(false);

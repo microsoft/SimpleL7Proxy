@@ -2557,6 +2557,19 @@
 
     private void ResetFields()
     {
+        if (string.Equals(SelectedApi, "anthropic-messages", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(SelectedApi, "anthropic-messages-vision", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!HeaderSettings.Headers.Any(header => string.Equals(header.Name, "anthropic-version", StringComparison.OrdinalIgnoreCase)))
+            {
+                HeaderSettings.Headers.Add(new HeaderSettings.HeaderItem { Name = "anthropic-version", Value = "2023-06-01" });
+            }
+        }
+        else
+        {
+            HeaderSettings.Headers.RemoveAll(header => string.Equals(header.Name, "anthropic-version", StringComparison.OrdinalIgnoreCase));
+        }
+
         if (IsSystemOneApi && string.Equals(Prompt, VisionCatalog.DefaultPrompt, StringComparison.Ordinal))
         {
             Prompt = string.Empty;

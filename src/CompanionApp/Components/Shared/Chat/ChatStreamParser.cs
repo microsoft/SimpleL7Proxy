@@ -5,7 +5,7 @@ namespace CompanionApp.Components.Shared;
 
 /// <summary>
 /// Parses server-sent event (SSE) chat streams, extracting the assistant text
-/// from OpenAI-style <c>delta.content</c> and <c>choices[].delta.content</c> payloads.
+/// from OpenAI and Anthropic text delta payloads.
 /// </summary>
 public static class ChatStreamParser
 {
@@ -169,6 +169,21 @@ public static class ChatStreamParser
     {
         if (root.ValueKind != JsonValueKind.Object)
         {
+            return;
+        }
+
+        if (root.TryGetProperty("type", out var eventType) &&
+            eventType.ValueKind == JsonValueKind.String &&
+            eventType.GetString() == "content_block_delta" &&
+            root.TryGetProperty("delta", out var anthropicDelta) &&
+            anthropicDelta.ValueKind == JsonValueKind.Object &&
+            anthropicDelta.TryGetProperty("type", out var deltaType) &&
+            deltaType.ValueKind == JsonValueKind.String &&
+            deltaType.GetString() == "text_delta" &&
+            anthropicDelta.TryGetProperty("text", out var textDelta) &&
+            textDelta.ValueKind == JsonValueKind.String)
+        {
+            builder.Append(textDelta.GetString());
             return;
         }
 

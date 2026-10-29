@@ -1,7 +1,24 @@
 ﻿@namespace CompanionApp.Components
+@inject IConfiguration Configuration
+@inject NavigationManager Navigation
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        @if (!Configuration.GetValue<bool>("EnableTesting")
+            && (routeData.PageType == typeof(Pages.UrlTesterPage)
+                || routeData.PageType == typeof(Pages.StressTestPage)
+                || routeData.PageType == typeof(Pages.AbortTestPage)
+                || routeData.PageType == typeof(Pages.TestsPage)
+                || (routeData.PageType == typeof(Pages.Home)
+                    && string.Equals(Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/'), "test", StringComparison.OrdinalIgnoreCase))))
+        {
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <Pages.NotFound />
+            </LayoutView>
+        }
+        else
+        {
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        }
     </Found>
 </Router>

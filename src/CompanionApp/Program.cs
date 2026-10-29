@@ -105,6 +105,14 @@ internal static partial class Program
         builder.Services.AddSingleton(new DefaultAzureCredential(new DefaultAzureCredentialOptions()));
         builder.Services.AddSingleton<AppConfigurationScaffoldService>();
         builder.Services.AddSingleton<ImageSyncService>();
+        builder.Services.AddSingleton(serviceProvider => new Azure.ResourceManager.ArmClient(
+            serviceProvider.GetRequiredService<DefaultAzureCredential>()));
+        builder.Services.AddHttpClient(nameof(ContainerAppManagementService), client => {
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler {
+            AllowAutoRedirect = false
+        });
+        builder.Services.AddSingleton<ContainerAppManagementService>();
         builder.Services.AddSingleton<ChatHistoryStore>();
         builder.Services.AddSingleton<ChatConversationStore>();
         builder.Services.AddSingleton<EventHubMonitorStore>();

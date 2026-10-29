@@ -58,19 +58,10 @@
             <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
                 OnSelected="@(() => _expandedWidget = "priority")">
                 <Summary>
-                    <span><strong>Priority levels:</strong> Critical @FormatValue(_options.CriticalPriority) · High @FormatValue(_options.HighPriority)</span>
-                    <span><strong>Critical:</strong> @SummaryAction(_options.CriticalPriorityAction) · <strong>Entitled:</strong> @SummaryAction(_options.TenantEntitlementAction)</span>
-                    <span><strong>Governance:</strong> @SummaryAction(_options.GovernanceWorkloadAction) · <strong>Default:</strong> @SummaryAction(_options.DefaultAction)</span>
+                    <span><strong>Abuse detected:</strong> @SummaryAction(_options.AbuseDetectedAction)</span>
+                    <span><strong>Administrator override:</strong> @SummaryAction(_options.AdministratorOverrideAction)</span>
                 </Summary>
             </TokenomicsRequestPrioritySettingsWidget>
-            <TokenomicsCapacityQueuesSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "capacity")"
-                OnSelected="@(() => _expandedWidget = "capacity")">
-                <Summary>
-                    <span><strong>Constrained at:</strong> @FormatValue(_options.CapacityConstraintThresholdPercent)% capacity · @_options.HighQueueDepthThreshold.ToString("0.00", CultureInfo.InvariantCulture) queue depth</span>
-                    <span><strong>Large context:</strong> @_options.LargeContextThreshold.ToString("N0", CultureInfo.InvariantCulture)+ tokens · <strong>Delay:</strong> @(( _options.DelayDuration / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sec</span>
-                    <span><strong>When constrained:</strong> @SummaryAction(_options.CapacityConstrainedAction); @( _options.CapacityCriticalWorkloadAction == TokenActionEnum.IncreasePriority ? "critical work gets higher priority" : $"critical work: {SummaryAction(_options.CapacityCriticalWorkloadAction)}")</span>
-                </Summary>
-            </TokenomicsCapacityQueuesSettingsWidget>
             <TokenomicsModelRoutingSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "routing")"
                 OnSelected="@(() => _expandedWidget = "routing")">
                 <Summary>
@@ -175,14 +166,9 @@
                     await OnChanged.InvokeAsync();
                 })" />
             }
-            else if (_expandedWidget == "capacity")
-            {
-            <TokenomicsCapacityQueuesSettingsWidget NumericNames="@(NumericForTab("capacity").Select(property => property.Name))"
-                ActionNames="@(ActionsForTab("capacity").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
-            }
             else if (_expandedWidget == "priority")
             {
-            <TokenomicsRequestPrioritySettingsWidget NumericNames="@(NumericForTab("priority").Select(property => property.Name))"
+            <TokenomicsRequestPrioritySettingsWidget
                 ActionNames="@(ActionsForTab("priority").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
             }
             else if (_expandedWidget == "routing")
@@ -381,7 +367,12 @@
     });
 
     private IEnumerable<PropertyInfo> ActionsForTab(string tab) =>
-        ActionProperties.Where(property => string.Equals(ActionTab(property.Name), tab, StringComparison.Ordinal));
+        ActionProperties.Where(property => string.Equals(ActionTab(property.Name), tab, StringComparison.Ordinal)
+            && property.Name is not (nameof(TokenomicsSettings.CriticalPriorityAction)
+                or nameof(TokenomicsSettings.HighPriorityEntitledTenantAction)
+                or nameof(TokenomicsSettings.TenantEntitlementAction)
+                or nameof(TokenomicsSettings.GovernanceWorkloadAction)
+                or nameof(TokenomicsSettings.DefaultAction)));
 
     private static string ActionTab(string name) => name switch {
         nameof(TokenomicsLimitActions.HourlyLimitAction)

@@ -27,7 +27,9 @@ public sealed record AppConfigurationScaffoldSetting(
 
     public bool IsNew { get; set; }
 
-    public bool IsChanged => IsNew || !string.Equals(LoadedValue, DraftValue, StringComparison.Ordinal);
+    public bool IsDeleted { get; set; }
+
+    public bool IsChanged => IsNew || IsDeleted || !string.Equals(LoadedValue, DraftValue, StringComparison.Ordinal);
 
     /// <summary>Restores the loaded value and cancels a staged addition.</summary>
     public void RevertDraft()
@@ -35,6 +37,7 @@ public sealed record AppConfigurationScaffoldSetting(
         DraftValue = LoadedValue;
         DraftName = Name;
         IsNew = false;
+        IsDeleted = false;
     }
 }
 
@@ -270,7 +273,14 @@ public sealed class AppConfigurationScaffoldService
         {
             try
             {
-                if (createLabel)
+                if (setting.IsDeleted)
+                {
+                    if (!setting.IsNew && !createLabel)
+                    {
+                        await client.DeleteConfigurationSettingAsync(setting.Key, configurationLabel, cancellationToken: cancellationToken);
+                    }
+                }
+                else if (createLabel)
                 {
                     await client.AddConfigurationSettingAsync(setting.Key, setting.DraftValue, configurationLabel, cancellationToken);
                 }
@@ -324,8 +334,10 @@ public sealed class AppConfigurationScaffoldService
             var downloadedSetting = downloadedSettings.FirstOrDefault(setting =>
                 string.Equals(setting.Key, submittedSetting.Key, StringComparison.Ordinal)
                 && string.Equals(setting.Label, label, StringComparison.Ordinal));
-            if (downloadedSetting is null
-                || !string.Equals(downloadedSetting.LoadedValue, submittedSetting.DraftValue, StringComparison.Ordinal))
+            if (submittedSetting.IsDeleted
+                ? downloadedSetting is not null
+                : downloadedSetting is null
+                    || !string.Equals(downloadedSetting.LoadedValue, submittedSetting.DraftValue, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Verification failed after re-downloading '{submittedSetting.Key}'.");
             }
