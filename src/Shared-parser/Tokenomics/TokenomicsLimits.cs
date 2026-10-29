@@ -4,7 +4,7 @@ using SimpleL7Proxy.Extensions;
 
 namespace SimpleL7Proxy.Tokenomics;
 
-public class TokenomicsLimits
+public class LimitsAndBudgets
 {
     public int MonthlyTokenLimit { get; set; }=10000;
     public int DailyTokenLimit { get; set; }=1000;

@@ -173,16 +173,16 @@ else
     private string _search = string.Empty;
 
     private static readonly (string Label, string[] Names)[] NumericRows = {
-        ("Token limit (tokens)", new[] { nameof(TokenomicsLimits.HourlyTokenLimit), nameof(TokenomicsLimits.DailyTokenLimit), nameof(TokenomicsLimits.MonthlyTokenLimit) }),
-        ("Budget (USD)", new[] { nameof(TokenomicsLimits.HourlyBudgetUsd), nameof(TokenomicsLimits.DailyBudgetUsd), nameof(TokenomicsLimits.MonthlyBudgetUsd) })
+        ("Token limit (tokens)", new[] { nameof(LimitsAndBudgets.HourlyTokenLimit), nameof(LimitsAndBudgets.DailyTokenLimit), nameof(LimitsAndBudgets.MonthlyTokenLimit) }),
+        ("Budget (USD)", new[] { nameof(LimitsAndBudgets.HourlyBudgetUsd), nameof(LimitsAndBudgets.DailyBudgetUsd), nameof(LimitsAndBudgets.MonthlyBudgetUsd) })
     };
 
     private static readonly (string Label, string[] Names)[] ActionRows = {
-        ("Standard workload", new[] { nameof(TokenomicsLimitActions.HourlyLimitAction), nameof(TokenomicsLimitActions.DailyLimitAction), nameof(TokenomicsLimitActions.MonthlyLimitAction) }),
-        ("Privileged workload", new[] { $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyLimitAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyLimitAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyLimitAction)}" }),
-        ("Premium workload", new[] { $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyLimitAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyLimitAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyLimitAction)}" }),
-        ("Standard workload", new[] { nameof(TokenomicsLimitActions.HourlyBudgetExceededAction), nameof(TokenomicsLimitActions.DailyBudgetExceededAction), nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) }),
-        ("Privileged workload", new[] { $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction)}" }),
-        ("Premium workload", new[] { $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.DailyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction)}" })
+        ("Standard workload", new[] { nameof(ExceededActions.HourlyLimitAction), nameof(ExceededActions.DailyLimitAction), nameof(ExceededActions.MonthlyLimitAction) }),
+        ("Privileged workload", new[] { $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(ExceededActions.HourlyLimitAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(ExceededActions.DailyLimitAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(ExceededActions.MonthlyLimitAction)}" }),
+        ("Premium workload", new[] { $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(ExceededActions.HourlyLimitAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(ExceededActions.DailyLimitAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(ExceededActions.MonthlyLimitAction)}" }),
+        ("Standard workload", new[] { nameof(ExceededActions.HourlyBudgetExceededAction), nameof(ExceededActions.DailyBudgetExceededAction), nameof(ExceededActions.MonthlyBudgetExceededAction) }),
+        ("Privileged workload", new[] { $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(ExceededActions.HourlyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(ExceededActions.DailyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.CriticalWorkloadLimitActions)}.{nameof(ExceededActions.MonthlyBudgetExceededAction)}" }),
+        ("Premium workload", new[] { $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(ExceededActions.HourlyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(ExceededActions.DailyBudgetExceededAction)}", $"{nameof(TokenomicsSettings.PremiumWorkloadLimitActions)}.{nameof(ExceededActions.MonthlyBudgetExceededAction)}" })
     };
 }

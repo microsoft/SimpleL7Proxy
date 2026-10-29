@@ -12,7 +12,7 @@
                     && string.Equals(Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/'), "test", StringComparison.OrdinalIgnoreCase))))
         {
             <LayoutView Layout="typeof(Layout.MainLayout)">
-                <Pages.NotFound />
+                <CompanionApp.Components.Pages.NotFound />
             </LayoutView>
         }
         else

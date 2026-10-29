@@ -52,17 +52,17 @@ public sealed class TokenomicsReplayTests {
     public void Settings_NewPeriodFields_RoundTripThroughStringFormat() {
         var source = new TokenomicsSettings {
             DefaultModelAPI = "OpenAI Chat Completions",
-            DefaultLimits = new TokenomicsLimits {
+            DefaultLimits = new LimitsAndBudgets {
                 HourlyTokenLimit = 321,
                 HourlyBudgetUsd = 12.345m
             },
-            CriticalWorkloadLimitActions = new TokenomicsLimitActions {
+            CriticalWorkloadLimitActions = new ExceededActions {
                 HourlyLimitAction = TokenActionEnum.IncreaseLimit,
                 DailyLimitAction = TokenActionEnum.Bypass,
                 MonthlyLimitAction = TokenActionEnum.Cap,
                 HourlyBudgetExceededAction = TokenActionEnum.UpgradeModel
             },
-            DefaultLimitActions = new TokenomicsLimitActions {
+            DefaultLimitActions = new ExceededActions {
                 HourlyLimitAction = TokenActionEnum.Throttle,
                 HourlyBudgetExceededAction = TokenActionEnum.Reject
             },
@@ -141,7 +141,7 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_InvalidPart_IsReportedWhileValidPartsApply() {
         var settings = new TokenomicsSettings {
-            DefaultLimits = new TokenomicsLimits { DailyTokenLimit = 25 }
+            DefaultLimits = new LimitsAndBudgets { DailyTokenLimit = 25 }
         };
         settings.ModelHostOptions["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
             ["Host_apim"] = new TokenomicsHostOptions { Enabled = false }
@@ -202,8 +202,8 @@ public sealed class TokenomicsReplayTests {
                     Assert.AreEqual(1, parts.Count(part => part.StartsWith($"{scopeName}.{field.Name}=", StringComparison.Ordinal)));
                 }
             }
-            Assert.AreEqual(new TokenomicsLimits().HourlyTokenLimit, parsed.DefaultLimits.HourlyTokenLimit);
-            Assert.AreEqual(new TokenomicsLimitActions().HourlyLimitAction, parsed.DefaultLimitActions.HourlyLimitAction);
+            Assert.AreEqual(new LimitsAndBudgets().HourlyTokenLimit, parsed.DefaultLimits.HourlyTokenLimit);
+            Assert.AreEqual(new ExceededActions().HourlyLimitAction, parsed.DefaultLimitActions.HourlyLimitAction);
         }
         finally {
             CultureInfo.CurrentCulture = previousCulture;
@@ -244,7 +244,7 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(2100, premiumLimits.HourlyTokenLimit);
         Assert.AreEqual(3100, criticalLimits.HourlyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Reject, premiumActions.DailyLimitAction);
-        Assert.AreEqual(new TokenomicsLimitActions().HourlyLimitAction, criticalActions.HourlyLimitAction);
+        Assert.AreEqual(new ExceededActions().HourlyLimitAction, criticalActions.HourlyLimitAction);
         Assert.AreNotSame(premiumLimits, settings.PremiumWorkloadLimits);
         Assert.AreNotSame(criticalLimits, settings.CriticalWorkloadLimits);
         Assert.AreNotSame(premiumActions, settings.PremiumWorkloadLimitActions);
@@ -335,7 +335,7 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_IgnoredEntries_DoNotLeakPartialChangesOrSerializeDiagnostics() {
         var settings = new TokenomicsSettings();
-        settings.ModelLimits["one"] = new TokenomicsLimits { DailyTokenLimit = 77 };
+        settings.ModelLimits["one"] = new LimitsAndBudgets { DailyTokenLimit = 77 };
         Assert.IsTrue(settings.TryParse(
             "ModelLimits=one=DailyTokenLimit:99|NotAField:1;" +
             "ModelLimits=two=DailyTokenLimit:99|NotAField:1;" +
@@ -343,7 +343,7 @@ public sealed class TokenomicsReplayTests {
             "dailyTokenLimit=still-invalid;DefaultModel=kept"));
         Assert.AreEqual(77, settings.ModelLimits["one"].DailyTokenLimit);
         Assert.IsFalse(settings.ModelLimits.ContainsKey("two"));
-        Assert.AreEqual(new TokenomicsLimits().DailyTokenLimit, settings.DefaultLimits.DailyTokenLimit);
+        Assert.AreEqual(new LimitsAndBudgets().DailyTokenLimit, settings.DefaultLimits.DailyTokenLimit);
         Assert.AreEqual("kept", settings.DefaultModel);
         CollectionAssert.AreEqual(new[] {
             "ModelLimits", "DailyTokenLimit", "InvalidValue", "(malformed entry)"

@@ -8,22 +8,22 @@ namespace SimpleL7Proxy.Tokenomics;
 public class TokenomicsSettings
 {
     /// <summary>Gets or sets the default token limits and USD budgets, serialized using their unprefixed property names.</summary>
-    public TokenomicsLimits DefaultLimits { get; set; } = new();
+    public LimitsAndBudgets DefaultLimits { get; set; } = new();
     /// <summary>Gets or sets default actions, serialized using their unprefixed property names.</summary>
-    public TokenomicsLimitActions DefaultLimitActions { get; set; } = new();
+    public ExceededActions DefaultLimitActions { get; set; } = new();
     /// <summary>Gets or sets premium workload limits, serialized as PremiumWorkloadLimits.Field=value.</summary>
-    public TokenomicsLimits PremiumWorkloadLimits { get; set; } = new();
+    public LimitsAndBudgets PremiumWorkloadLimits { get; set; } = new();
     /// <summary>Gets or sets premium workload actions, serialized as PremiumWorkloadLimitActions.Field=value.</summary>
-    public TokenomicsLimitActions PremiumWorkloadLimitActions { get; set; } = new();
+    public ExceededActions PremiumWorkloadLimitActions { get; set; } = new();
     /// <summary>Gets or sets critical workload limits, serialized as CriticalWorkloadLimits.Field=value.</summary>
-    public TokenomicsLimits CriticalWorkloadLimits { get; set; } = new();
+    public LimitsAndBudgets CriticalWorkloadLimits { get; set; } = new();
     /// <summary>Gets or sets critical workload actions, serialized as CriticalWorkloadLimitActions.Field=value.</summary>
-    public TokenomicsLimitActions CriticalWorkloadLimitActions { get; set; } = new();
+    public ExceededActions CriticalWorkloadLimitActions { get; set; } = new();
 
 
     /// <summary>Gets or sets token limits and USD budgets keyed by model name.</summary>
-    public Dictionary<string, TokenomicsLimits> ModelLimits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public Dictionary<string, TokenomicsLimitActions> ModelLimitActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, LimitsAndBudgets> ModelLimits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ExceededActions> ModelLimitActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets or sets the delay duration in milliseconds.</summary>
     public int DelayDuration { get; set; } = (int)TimeSpan.FromSeconds(10).TotalMilliseconds;
@@ -267,13 +267,13 @@ public class TokenomicsSettings
             object modelOptions;
             if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)) {
                 if (!ModelLimits.TryGetValue(model, out var limits)) {
-                    limits = new TokenomicsLimits();
+                    limits = new LimitsAndBudgets();
                     ModelLimits[model] = limits;
                 }
                 modelOptions = limits;
             } else {
                 if (!ModelLimitActions.TryGetValue(model, out var actions)) {
-                    actions = new TokenomicsLimitActions();
+                    actions = new ExceededActions();
                     ModelLimitActions[model] = actions;
                 }
                 modelOptions = actions;
@@ -616,9 +616,9 @@ public class TokenomicsSettings
             ? target.GetType().GetProperty(key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
             : typeof(TokenomicsSettings).GetProperty(key,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-            ?? typeof(TokenomicsLimits).GetProperty(key,
+            ?? typeof(LimitsAndBudgets).GetProperty(key,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-            ?? typeof(TokenomicsLimitActions).GetProperty(key,
+            ?? typeof(ExceededActions).GetProperty(key,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
         if (property?.SetMethod is null) {
             return false;
@@ -654,8 +654,8 @@ public class TokenomicsSettings
                 return false;
             }
 
-        property.SetValue(target ?? (property.DeclaringType == typeof(TokenomicsLimits) ? (object)DefaultLimits
-            : property.DeclaringType == typeof(TokenomicsLimitActions) ? DefaultLimitActions : this), parsedValue);
+        property.SetValue(target ?? (property.DeclaringType == typeof(LimitsAndBudgets) ? (object)DefaultLimits
+            : property.DeclaringType == typeof(ExceededActions) ? DefaultLimitActions : this), parsedValue);
         return true;
     }
 
@@ -668,15 +668,15 @@ public class TokenomicsSettings
             }
 
             if (property.Name == nameof(DefaultLimits)) {
-                foreach (var limitProperty in typeof(TokenomicsLimits).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                foreach (var limitProperty in typeof(LimitsAndBudgets).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                     parts.Add($"{limitProperty.Name}={FormatScalar(limitProperty.GetValue(DefaultLimits)!)}");
                 }
             } else if (property.Name == nameof(DefaultLimitActions)) {
-                foreach (var actionProperty in typeof(TokenomicsLimitActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                foreach (var actionProperty in typeof(ExceededActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                     parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultLimitActions)!)}");
                 }
-            } else if (property.PropertyType == typeof(TokenomicsLimits)
-                || property.PropertyType == typeof(TokenomicsLimitActions)) {
+            } else if (property.PropertyType == typeof(LimitsAndBudgets)
+                || property.PropertyType == typeof(ExceededActions)) {
                 var scope = property.GetValue(this)
                     ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
                 foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
@@ -831,17 +831,17 @@ public class TokenomicsSettings
     private TokenomicsSettings CloneForParse() {
         var clone = (TokenomicsSettings)MemberwiseClone();
         foreach (var property in SettableProperties.Where(property =>
-            property.PropertyType == typeof(TokenomicsLimits) || property.PropertyType == typeof(TokenomicsLimitActions))) {
+            property.PropertyType == typeof(LimitsAndBudgets) || property.PropertyType == typeof(ExceededActions))) {
             var source = property.GetValue(this)
                 ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
-            object scope = property.PropertyType == typeof(TokenomicsLimits)
-                ? new TokenomicsLimits() : new TokenomicsLimitActions();
+            object scope = property.PropertyType == typeof(LimitsAndBudgets)
+                ? new LimitsAndBudgets() : new ExceededActions();
             foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                 field.SetValue(scope, field.GetValue(source));
             }
             property.SetValue(clone, scope);
         }
-        clone.ModelLimits = ModelLimits.ToDictionary(entry => entry.Key, entry => new TokenomicsLimits {
+        clone.ModelLimits = ModelLimits.ToDictionary(entry => entry.Key, entry => new LimitsAndBudgets {
             MonthlyTokenLimit = entry.Value.MonthlyTokenLimit,
             DailyTokenLimit = entry.Value.DailyTokenLimit,
             HourlyTokenLimit = entry.Value.HourlyTokenLimit,
@@ -849,7 +849,7 @@ public class TokenomicsSettings
             DailyBudgetUsd = entry.Value.DailyBudgetUsd,
             MonthlyBudgetUsd = entry.Value.MonthlyBudgetUsd
         }, ModelLimits.Comparer);
-        clone.ModelLimitActions = ModelLimitActions.ToDictionary(entry => entry.Key, entry => new TokenomicsLimitActions {
+        clone.ModelLimitActions = ModelLimitActions.ToDictionary(entry => entry.Key, entry => new ExceededActions {
             HourlyLimitAction = entry.Value.HourlyLimitAction,
             DailyLimitAction = entry.Value.DailyLimitAction,
             MonthlyLimitAction = entry.Value.MonthlyLimitAction,
