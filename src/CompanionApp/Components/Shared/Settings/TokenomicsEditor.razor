@@ -109,19 +109,19 @@
             <TokenomicsLimitsBudgetsSettingsWidget FieldContent="@(name => RenderField(name, true, _limitsModel))"
                 Models="@_options.ModelHostOptions.Keys.OrderBy(model => model, StringComparer.OrdinalIgnoreCase).ToArray()"
                 SelectedModel="@_limitsModel"
-                OverriddenModels="@_options.ModelLimits.Keys.Concat(_options.ModelLimitActions.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase)"
-                UseDefaults="@(_limitsModel is null || !_options.ModelLimits.ContainsKey(_limitsModel) && !_options.ModelLimitActions.ContainsKey(_limitsModel))"
+                OverriddenModels="@_options.ModelLimitsAndBudgets.Keys.Concat(_options.ModelExceedActions.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase)"
+                UseDefaults="@(_limitsModel is null || !_options.ModelLimitsAndBudgets.ContainsKey(_limitsModel) && !_options.ModelExceedActions.ContainsKey(_limitsModel))"
                 HasErrors="@_fieldErrors.Keys.Any(key => key.StartsWith("limits:", StringComparison.Ordinal))"
                 OnModelSelected="@((string? model) => _limitsModel = model)"
                 OnUseDefaultsChanged="@(async (bool useDefaults) => {
                     if (_limitsModel is not { } model) { return; }
                     if (useDefaults) {
-                        _options.ModelLimits.Remove(model);
-                        _options.ModelLimitActions.Remove(model);
+                        _options.ModelLimitsAndBudgets.Remove(model);
+                        _options.ModelExceedActions.Remove(model);
                     } else {
                         var copy = ParseOptions(_options.ToString())!;
-                        _options.ModelLimits.TryAdd(model, copy.DefaultLimitsAndBudgets);
-                        _options.ModelLimitActions.TryAdd(model, copy.DefaultExceededActions);
+                        _options.ModelLimitsAndBudgets.TryAdd(model, copy.DefaultLimitsAndBudgets);
+                        _options.ModelExceedActions.TryAdd(model, copy.DefaultExceededActions);
                     }
                     foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith($"limits:{model}:", StringComparison.Ordinal)).ToArray()) {
                         _fieldErrors.Remove(key);
@@ -131,8 +131,8 @@
                 })"
                 OnReset="@(async () => {
                     if (_limitsModel is { } model) {
-                        _options.ModelLimits.Remove(model);
-                        _options.ModelLimitActions.Remove(model);
+                        _options.ModelLimitsAndBudgets.Remove(model);
+                        _options.ModelExceedActions.Remove(model);
                     } else {
                         _options.DefaultLimitsAndBudgets = new();
                         _options.DefaultExceededActions = new();
@@ -565,17 +565,17 @@
             : null;
 
         _fieldErrors.Remove(errorKey);
-        if (isLimit && workload is null && limitModel is not null && (!_options.ModelLimits.ContainsKey(limitModel) || !_options.ModelLimitActions.ContainsKey(limitModel))) {
+        if (isLimit && workload is null && limitModel is not null && (!_options.ModelLimitsAndBudgets.ContainsKey(limitModel) || !_options.ModelExceedActions.ContainsKey(limitModel))) {
             var copy = ParseOptions(_options.ToString())!;
-            _options.ModelLimits.TryAdd(limitModel, copy.DefaultLimitsAndBudgets);
-            _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultExceededActions);
+            _options.ModelLimitsAndBudgets.TryAdd(limitModel, copy.DefaultLimitsAndBudgets);
+            _options.ModelExceedActions.TryAdd(limitModel, copy.DefaultExceededActions);
         }
         object target = workload == "PremiumWorkload" ? _options.PremiumExceedActions
             : workload == "CriticalWorkload" ? _options.PrivilegedExceedActions
             : property.DeclaringType == typeof(LimitsAndBudgets)
-            ? limitModel is null ? _options.DefaultLimitsAndBudgets : _options.ModelLimits[limitModel]
+            ? limitModel is null ? _options.DefaultLimitsAndBudgets : _options.ModelLimitsAndBudgets[limitModel]
             : property.DeclaringType == typeof(ExceededActions)
-                ? limitModel is null ? _options.DefaultExceededActions : _options.ModelLimitActions[limitModel]
+                ? limitModel is null ? _options.DefaultExceededActions : _options.ModelExceedActions[limitModel]
                 : _options;
         property.SetValue(target, parsedValue);
 
@@ -923,16 +923,16 @@
             return !Equals(property.GetValue(current), property.GetValue(loaded));
         }
         if (property.DeclaringType == typeof(LimitsAndBudgets)) {
-            var current = model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets;
-            var loaded = model is not null && _loadedOptions.ModelLimits.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimitsAndBudgets;
+            var current = model is not null && _options.ModelLimitsAndBudgets.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets;
+            var loaded = model is not null && _loadedOptions.ModelLimitsAndBudgets.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimitsAndBudgets;
             return !Equals(property.GetValue(current), property.GetValue(loaded))
-                || model is not null && _options.ModelLimits.ContainsKey(model) != _loadedOptions.ModelLimits.ContainsKey(model);
+                || model is not null && _options.ModelLimitsAndBudgets.ContainsKey(model) != _loadedOptions.ModelLimitsAndBudgets.ContainsKey(model);
         }
         if (property.DeclaringType == typeof(ExceededActions)) {
-            var current = model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions;
-            var loaded = model is not null && _loadedOptions.ModelLimitActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultExceededActions;
+            var current = model is not null && _options.ModelExceedActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions;
+            var loaded = model is not null && _loadedOptions.ModelExceedActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultExceededActions;
             return !Equals(property.GetValue(current), property.GetValue(loaded))
-                || model is not null && _options.ModelLimitActions.ContainsKey(model) != _loadedOptions.ModelLimitActions.ContainsKey(model);
+                || model is not null && _options.ModelExceedActions.ContainsKey(model) != _loadedOptions.ModelExceedActions.ContainsKey(model);
         }
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             return _options.ModelHierarchy.Count != _loadedOptions.ModelHierarchy.Count
@@ -1080,9 +1080,9 @@
         object target = workload == "PremiumWorkload" ? _options.PremiumExceedActions
             : workload == "CriticalWorkload" ? _options.PrivilegedExceedActions
             : property.DeclaringType == typeof(LimitsAndBudgets)
-            ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets
+            ? model is not null && _options.ModelLimitsAndBudgets.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets
             : property.DeclaringType == typeof(ExceededActions)
-                ? model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions
+                ? model is not null && _options.ModelExceedActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions
                 : _options;
         var errorKey = property.DeclaringType == typeof(LimitsAndBudgets) || property.DeclaringType == typeof(ExceededActions)
             ? $"limits:{workload ?? model ?? "default"}:{property.Name}" : property.Name;

@@ -167,7 +167,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         var prices = modelPricing ?? ImmutableDictionary<string, ModelTokenPricing>.Empty;
         var hasPriceData = prices.Count > 0;
         Func<IReadOnlyDictionary<string, string>, int?> quotaLimit = fields => {
-            var limits = tokenomicsSettings?.ModelLimits.TryGetValue(Model(fields), out var modelLimits) == true
+            var limits = tokenomicsSettings?.ModelLimitsAndBudgets.TryGetValue(Model(fields), out var modelLimits) == true
                 ? modelLimits : tokenomicsSettings?.DefaultLimitsAndBudgets;
             return period switch {
                 TokenomicsPeriod.Hourly => limits?.HourlyTokenLimit,

@@ -22,8 +22,8 @@ public class TokenomicsSettings
 
 
     /// <summary>Gets or sets token limits and USD budgets keyed by model name.</summary>
-    public Dictionary<string, LimitsAndBudgets> ModelLimits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public Dictionary<string, ExceededActions> ModelLimitActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, LimitsAndBudgets> ModelLimitsAndBudgets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ExceededActions> ModelExceedActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets or sets the delay duration in milliseconds.</summary>
     public int DelayDuration { get; set; } = (int)TimeSpan.FromSeconds(10).TotalMilliseconds;
@@ -121,7 +121,7 @@ public class TokenomicsSettings
     /// Applies recognized comma- or semicolon-separated key=value pairs. Unprefixed limit and action
     /// keys target defaults; workload keys use their container name, such as
     /// PrivilegedExceedActions.DailyLimitAction=bypass or PremiumLimitsAndBudgets.DailyTokenLimit=5000.
-    /// Model overrides retain ModelLimits=model=Field:value and ModelLimitActions=model=Field:value syntax.
+    /// Model overrides use ModelLimitsAndBudgets=model=Field:value and ModelExceedActions=model=Field:value syntax.
     /// Omitted or invalid fields retain their existing values. Invalid entries are skipped and reported
     /// in IgnoredFields; a failed compound entry cannot apply partial changes. Returns false only for
     /// empty input or input that cannot be split into entries.
@@ -253,8 +253,8 @@ public class TokenomicsSettings
             return TryParseModelHostOptions(value);
         }
 
-        if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)
-            || key.Equals(nameof(ModelLimitActions), StringComparison.OrdinalIgnoreCase)) {
+        if (key.Equals(nameof(ModelLimitsAndBudgets), StringComparison.OrdinalIgnoreCase)
+            || key.Equals(nameof(ModelExceedActions), StringComparison.OrdinalIgnoreCase)) {
             if (!TrySplitKeyValue(value, out var encodedModel, out var encodedFields)) {
                 return false;
             }
@@ -265,16 +265,16 @@ public class TokenomicsSettings
             }
 
             object modelOptions;
-            if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)) {
-                if (!ModelLimits.TryGetValue(model, out var limits)) {
+            if (key.Equals(nameof(ModelLimitsAndBudgets), StringComparison.OrdinalIgnoreCase)) {
+                if (!ModelLimitsAndBudgets.TryGetValue(model, out var limits)) {
                     limits = new LimitsAndBudgets();
-                    ModelLimits[model] = limits;
+                    ModelLimitsAndBudgets[model] = limits;
                 }
                 modelOptions = limits;
             } else {
-                if (!ModelLimitActions.TryGetValue(model, out var actions)) {
+                if (!ModelExceedActions.TryGetValue(model, out var actions)) {
                     actions = new ExceededActions();
-                    ModelLimitActions[model] = actions;
+                    ModelExceedActions[model] = actions;
                 }
                 modelOptions = actions;
             }
@@ -682,10 +682,10 @@ public class TokenomicsSettings
                 foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                     parts.Add($"{property.Name}.{field.Name}={FormatScalar(field.GetValue(scope)!)}");
                 }
-            } else if (property.Name is nameof(ModelLimits) or nameof(ModelLimitActions)) {
-                var modelOptions = property.Name == nameof(ModelLimits)
-                    ? ModelLimits.Select(entry => (Model: entry.Key, Value: (object)entry.Value))
-                    : ModelLimitActions.Select(entry => (Model: entry.Key, Value: (object)entry.Value));
+            } else if (property.Name is nameof(ModelLimitsAndBudgets) or nameof(ModelExceedActions)) {
+                var modelOptions = property.Name == nameof(ModelLimitsAndBudgets)
+                    ? ModelLimitsAndBudgets.Select(entry => (Model: entry.Key, Value: (object)entry.Value))
+                    : ModelExceedActions.Select(entry => (Model: entry.Key, Value: (object)entry.Value));
                 foreach (var entry in modelOptions) {
                     if (string.IsNullOrWhiteSpace(entry.Model) || entry.Value is null) {
                         throw new InvalidOperationException($"{property.Name} model names and values cannot be null or whitespace.");
@@ -841,22 +841,22 @@ public class TokenomicsSettings
             }
             property.SetValue(clone, scope);
         }
-        clone.ModelLimits = ModelLimits.ToDictionary(entry => entry.Key, entry => new LimitsAndBudgets {
+        clone.ModelLimitsAndBudgets = ModelLimitsAndBudgets.ToDictionary(entry => entry.Key, entry => new LimitsAndBudgets {
             MonthlyTokenLimit = entry.Value.MonthlyTokenLimit,
             DailyTokenLimit = entry.Value.DailyTokenLimit,
             HourlyTokenLimit = entry.Value.HourlyTokenLimit,
             HourlyBudgetUsd = entry.Value.HourlyBudgetUsd,
             DailyBudgetUsd = entry.Value.DailyBudgetUsd,
             MonthlyBudgetUsd = entry.Value.MonthlyBudgetUsd
-        }, ModelLimits.Comparer);
-        clone.ModelLimitActions = ModelLimitActions.ToDictionary(entry => entry.Key, entry => new ExceededActions {
+        }, ModelLimitsAndBudgets.Comparer);
+        clone.ModelExceedActions = ModelExceedActions.ToDictionary(entry => entry.Key, entry => new ExceededActions {
             HourlyLimitAction = entry.Value.HourlyLimitAction,
             DailyLimitAction = entry.Value.DailyLimitAction,
             MonthlyLimitAction = entry.Value.MonthlyLimitAction,
             HourlyBudgetExceededAction = entry.Value.HourlyBudgetExceededAction,
             DailyBudgetExceededAction = entry.Value.DailyBudgetExceededAction,
             MonthlyBudgetExceededAction = entry.Value.MonthlyBudgetExceededAction
-        }, ModelLimitActions.Comparer);
+        }, ModelExceedActions.Comparer);
         clone.ModelCostPerToken = new Dictionary<string, ModelTokenPricing>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in ModelCostPerToken) {
             clone.ModelCostPerToken[pair.Key] = new ModelTokenPricing {

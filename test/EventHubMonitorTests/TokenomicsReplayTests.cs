@@ -227,8 +227,8 @@ public sealed class TokenomicsReplayTests {
         Assert.IsTrue(settings.TryParse(
             "premiumlimitsandbudgets.hourlytokenlimit=2300,PRIVILEGEDEXCEEDACTIONS.HOURLYLIMITACTION=THROTTLE," +
             "DailyTokenLimit=42,DailyLimitAction=delay," +
-            "ModelLimits=model%3Bone=DailyTokenLimit:77|DailyBudgetUsd:1.25," +
-            "ModelLimitActions=model%3Bone=DailyLimitAction:requeue"));
+            "ModelLimitsAndBudgets=model%3Bone=DailyTokenLimit:77|DailyBudgetUsd:1.25," +
+            "ModelExceedActions=model%3Bone=DailyLimitAction:requeue"));
         Assert.AreEqual(2300, settings.PremiumLimitsAndBudgets.HourlyTokenLimit);
         Assert.AreEqual(2200, settings.PremiumLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual(3100, settings.PrivilegedLimitsAndBudgets.HourlyTokenLimit);
@@ -238,9 +238,9 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(TokenActionEnum.Reject, settings.PremiumExceedActions.DailyLimitAction);
         Assert.AreEqual(42, settings.DefaultLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Delay, settings.DefaultExceededActions.DailyLimitAction);
-        Assert.AreEqual(77, settings.ModelLimits["model;one"].DailyTokenLimit);
-        Assert.AreEqual(1.25m, settings.ModelLimits["model;one"].DailyBudgetUsd);
-        Assert.AreEqual(TokenActionEnum.Requeue, settings.ModelLimitActions["model;one"].DailyLimitAction);
+        Assert.AreEqual(77, settings.ModelLimitsAndBudgets["model;one"].DailyTokenLimit);
+        Assert.AreEqual(1.25m, settings.ModelLimitsAndBudgets["model;one"].DailyBudgetUsd);
+        Assert.AreEqual(TokenActionEnum.Requeue, settings.ModelExceedActions["model;one"].DailyLimitAction);
         Assert.AreEqual(2100, premiumLimits.HourlyTokenLimit);
         Assert.AreEqual(3100, criticalLimits.HourlyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Reject, premiumActions.DailyLimitAction);
@@ -335,18 +335,18 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_IgnoredEntries_DoNotLeakPartialChangesOrSerializeDiagnostics() {
         var settings = new TokenomicsSettings();
-        settings.ModelLimits["one"] = new LimitsAndBudgets { DailyTokenLimit = 77 };
+        settings.ModelLimitsAndBudgets["one"] = new LimitsAndBudgets { DailyTokenLimit = 77 };
         Assert.IsTrue(settings.TryParse(
-            "ModelLimits=one=DailyTokenLimit:99|NotAField:1;" +
-            "ModelLimits=two=DailyTokenLimit:99|NotAField:1;" +
+            "ModelLimitsAndBudgets=one=DailyTokenLimit:99|NotAField:1;" +
+            "ModelLimitsAndBudgets=two=DailyTokenLimit:99|NotAField:1;" +
             "DailyTokenLimit=not-a-number;InvalidValue=secret-value;broken-entry;" +
             "dailyTokenLimit=still-invalid;DefaultModel=kept"));
-        Assert.AreEqual(77, settings.ModelLimits["one"].DailyTokenLimit);
-        Assert.IsFalse(settings.ModelLimits.ContainsKey("two"));
+        Assert.AreEqual(77, settings.ModelLimitsAndBudgets["one"].DailyTokenLimit);
+        Assert.IsFalse(settings.ModelLimitsAndBudgets.ContainsKey("two"));
         Assert.AreEqual(new LimitsAndBudgets().DailyTokenLimit, settings.DefaultLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual("kept", settings.DefaultModel);
         CollectionAssert.AreEqual(new[] {
-            "ModelLimits", "DailyTokenLimit", "InvalidValue", "(malformed entry)"
+            "ModelLimitsAndBudgets", "DailyTokenLimit", "InvalidValue", "(malformed entry)"
         }, settings.IgnoredFields.ToArray());
         Assert.IsFalse(string.Join(", ", settings.IgnoredFields).Contains("secret-value", StringComparison.Ordinal));
         Assert.IsFalse(settings.ToString().Contains("IgnoredFields", StringComparison.Ordinal));

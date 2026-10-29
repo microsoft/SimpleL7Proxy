@@ -58,7 +58,7 @@ public sealed class TokenomicsCondition
         // lookup the appropriate limit:  Critical => Premium => Model-specific => Default
         var limits = data.IsCriticalWorkload ? settings.PrivilegedLimitsAndBudgets
             : data.IsPremiumWorkload ? settings.PremiumLimitsAndBudgets
-            : data.Model is not null && settings.ModelLimits.TryGetValue(data.Model, out var modelLimits)
+            : data.Model is not null && settings.ModelLimitsAndBudgets.TryGetValue(data.Model, out var modelLimits)
                 ? modelLimits : settings.DefaultLimitsAndBudgets;
 
         HourlyQuotaExceeded = lm.GetHourlyTokenBalanceAsync(Metric) >= limits.HourlyTokenLimit;
