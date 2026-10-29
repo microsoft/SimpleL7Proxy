@@ -56,7 +56,7 @@ public sealed class TokenomicsCondition
         Metric = await lm.GetMetric(data.UserID, data.Model);
 
         // lookup the appropriate limit:  Critical => Premium => Model-specific => Default
-        var limits = data.IsCriticalWorkload ? settings.CriticalWorkloadLimits
+        var limits = data.IsCriticalWorkload ? settings.PrivilegedLimitsAndBudgets
             : data.IsPremiumWorkload ? settings.PremiumWorkloadLimits
             : data.Model is not null && settings.ModelLimits.TryGetValue(data.Model, out var modelLimits)
                 ? modelLimits : settings.DefaultLimitsAndBudgets;

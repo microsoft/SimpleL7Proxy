@@ -139,12 +139,12 @@
                     }
                     var workloadDefaults = new ExceededActions();
                     _options.PremiumWorkloadLimitActions = new();
-                    _options.CriticalWorkloadLimitActions.HourlyBudgetExceededAction = workloadDefaults.HourlyBudgetExceededAction;
-                    _options.CriticalWorkloadLimitActions.DailyBudgetExceededAction = workloadDefaults.DailyBudgetExceededAction;
-                    _options.CriticalWorkloadLimitActions.MonthlyBudgetExceededAction = workloadDefaults.MonthlyBudgetExceededAction;
-                    _options.CriticalWorkloadLimitActions.HourlyLimitAction = workloadDefaults.HourlyLimitAction;
-                    _options.CriticalWorkloadLimitActions.DailyLimitAction = workloadDefaults.DailyLimitAction;
-                    _options.CriticalWorkloadLimitActions.MonthlyLimitAction = workloadDefaults.MonthlyLimitAction;
+                    _options.PrivilegedExceedActions.HourlyBudgetExceededAction = workloadDefaults.HourlyBudgetExceededAction;
+                    _options.PrivilegedExceedActions.DailyBudgetExceededAction = workloadDefaults.DailyBudgetExceededAction;
+                    _options.PrivilegedExceedActions.MonthlyBudgetExceededAction = workloadDefaults.MonthlyBudgetExceededAction;
+                    _options.PrivilegedExceedActions.HourlyLimitAction = workloadDefaults.HourlyLimitAction;
+                    _options.PrivilegedExceedActions.DailyLimitAction = workloadDefaults.DailyLimitAction;
+                    _options.PrivilegedExceedActions.MonthlyLimitAction = workloadDefaults.MonthlyLimitAction;
                     foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith("limits:PremiumWorkload:", StringComparison.Ordinal)
                         || key.StartsWith("limits:CriticalWorkload:", StringComparison.Ordinal)).ToArray()) {
                         _fieldErrors.Remove(key);
@@ -571,7 +571,7 @@
             _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultExceededActions);
         }
         object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
-            : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
+            : workload == "CriticalWorkload" ? _options.PrivilegedExceedActions
             : property.DeclaringType == typeof(LimitsAndBudgets)
             ? limitModel is null ? _options.DefaultLimitsAndBudgets : _options.ModelLimits[limitModel]
             : property.DeclaringType == typeof(ExceededActions)
@@ -918,8 +918,8 @@
 
     private bool IsOptionChanged(PropertyInfo property, string? model = null, string? workload = null) {
         if (workload is not null) {
-            var current = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions : _options.CriticalWorkloadLimitActions;
-            var loaded = workload == "PremiumWorkload" ? _loadedOptions.PremiumWorkloadLimitActions : _loadedOptions.CriticalWorkloadLimitActions;
+            var current = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions : _options.PrivilegedExceedActions;
+            var loaded = workload == "PremiumWorkload" ? _loadedOptions.PremiumWorkloadLimitActions : _loadedOptions.PrivilegedExceedActions;
             return !Equals(property.GetValue(current), property.GetValue(loaded));
         }
         if (property.DeclaringType == typeof(LimitsAndBudgets)) {
@@ -1063,22 +1063,22 @@
                 or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(ExceededActions.HourlyBudgetExceededAction)
                 or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(ExceededActions.DailyBudgetExceededAction)
                 or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(ExceededActions.MonthlyBudgetExceededAction) => "PremiumWorkload",
-            nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(ExceededActions.HourlyLimitAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(ExceededActions.DailyLimitAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(ExceededActions.MonthlyLimitAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(ExceededActions.HourlyBudgetExceededAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(ExceededActions.DailyBudgetExceededAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(ExceededActions.MonthlyBudgetExceededAction) => "CriticalWorkload",
+            nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.HourlyLimitAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.DailyLimitAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.MonthlyLimitAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.HourlyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.DailyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.MonthlyBudgetExceededAction) => "CriticalWorkload",
             _ => null
         };
         var propertyName = workload switch {
             "PremiumWorkload" => name[(nameof(TokenomicsSettings.PremiumWorkloadLimitActions).Length + 1)..],
-            "CriticalWorkload" => name[(nameof(TokenomicsSettings.CriticalWorkloadLimitActions).Length + 1)..],
+            "CriticalWorkload" => name[(nameof(TokenomicsSettings.PrivilegedExceedActions).Length + 1)..],
             _ => name
         };
         var property = OptionProperties.Single(property => property.Name == propertyName);
         object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
-            : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
+            : workload == "CriticalWorkload" ? _options.PrivilegedExceedActions
             : property.DeclaringType == typeof(LimitsAndBudgets)
             ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets
             : property.DeclaringType == typeof(ExceededActions)

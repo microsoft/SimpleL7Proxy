@@ -56,7 +56,7 @@ public sealed class TokenomicsReplayTests {
                 HourlyTokenLimit = 321,
                 HourlyBudgetUsd = 12.345m
             },
-            CriticalWorkloadLimitActions = new ExceededActions {
+            PrivilegedExceedActions = new ExceededActions {
                 HourlyLimitAction = TokenActionEnum.IncreaseLimit,
                 DailyLimitAction = TokenActionEnum.Bypass,
                 MonthlyLimitAction = TokenActionEnum.Cap,
@@ -90,10 +90,10 @@ public sealed class TokenomicsReplayTests {
         StringAssert.Contains(serialized, "DefaultModelAPI=OpenAI%20Chat%20Completions");
         StringAssert.Contains(serialized, "HourlyTokenLimit=321");
         StringAssert.Contains(serialized, "HourlyBudgetUsd=12.345");
-        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.HourlyLimitAction=increaseLimit");
-        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.DailyLimitAction=bypass");
-        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.MonthlyLimitAction=cap");
-        StringAssert.Contains(serialized, "CriticalWorkloadLimitActions.HourlyBudgetExceededAction=upgradeModel");
+        StringAssert.Contains(serialized, "PrivilegedExceedActions.HourlyLimitAction=increaseLimit");
+        StringAssert.Contains(serialized, "PrivilegedExceedActions.DailyLimitAction=bypass");
+        StringAssert.Contains(serialized, "PrivilegedExceedActions.MonthlyLimitAction=cap");
+        StringAssert.Contains(serialized, "PrivilegedExceedActions.HourlyBudgetExceededAction=upgradeModel");
         StringAssert.Contains(serialized, "HourlyLimitAction=throttle");
         StringAssert.Contains(serialized, "HourlyBudgetExceededAction=reject");
         StringAssert.Contains(serialized, "ModelHostOptions=gpt-4o=Host_apim=Enabled:true");
@@ -107,12 +107,12 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(source.DefaultModelAPI, parsed.DefaultModelAPI);
         Assert.AreEqual(source.DefaultLimitsAndBudgets.HourlyTokenLimit, parsed.DefaultLimitsAndBudgets.HourlyTokenLimit);
         Assert.AreEqual(source.DefaultLimitsAndBudgets.HourlyBudgetUsd, parsed.DefaultLimitsAndBudgets.HourlyBudgetUsd);
-        Assert.AreEqual(source.CriticalWorkloadLimitActions.HourlyLimitAction, parsed.CriticalWorkloadLimitActions.HourlyLimitAction);
-        Assert.AreEqual(source.CriticalWorkloadLimitActions.DailyLimitAction, parsed.CriticalWorkloadLimitActions.DailyLimitAction);
-        Assert.AreEqual(source.CriticalWorkloadLimitActions.MonthlyLimitAction, parsed.CriticalWorkloadLimitActions.MonthlyLimitAction);
+        Assert.AreEqual(source.PrivilegedExceedActions.HourlyLimitAction, parsed.PrivilegedExceedActions.HourlyLimitAction);
+        Assert.AreEqual(source.PrivilegedExceedActions.DailyLimitAction, parsed.PrivilegedExceedActions.DailyLimitAction);
+        Assert.AreEqual(source.PrivilegedExceedActions.MonthlyLimitAction, parsed.PrivilegedExceedActions.MonthlyLimitAction);
         Assert.AreEqual(source.DefaultExceededActions.HourlyLimitAction, parsed.DefaultExceededActions.HourlyLimitAction);
         Assert.AreEqual(source.DefaultExceededActions.HourlyBudgetExceededAction, parsed.DefaultExceededActions.HourlyBudgetExceededAction);
-        Assert.AreEqual(source.CriticalWorkloadLimitActions.HourlyBudgetExceededAction, parsed.CriticalWorkloadLimitActions.HourlyBudgetExceededAction);
+        Assert.AreEqual(source.PrivilegedExceedActions.HourlyBudgetExceededAction, parsed.PrivilegedExceedActions.HourlyBudgetExceededAction);
         CollectionAssert.AreEquivalent(
             source.ModelHostOptions["gpt-4o"].Keys.ToArray(),
             parsed.ModelHostOptions["gpt-4o"].Keys.ToArray());
@@ -163,8 +163,8 @@ public sealed class TokenomicsReplayTests {
         var scopeNames = new[] {
             nameof(TokenomicsSettings.PremiumWorkloadLimits),
             nameof(TokenomicsSettings.PremiumWorkloadLimitActions),
-            nameof(TokenomicsSettings.CriticalWorkloadLimits),
-            nameof(TokenomicsSettings.CriticalWorkloadLimitActions)
+            nameof(TokenomicsSettings.PrivilegedLimitsAndBudgets),
+            nameof(TokenomicsSettings.PrivilegedExceedActions)
         };
         var actions = new[] {
             TokenActionEnum.Bypass, TokenActionEnum.Reject, TokenActionEnum.Delay,
@@ -216,25 +216,25 @@ public sealed class TokenomicsReplayTests {
         var settings = new TokenomicsSettings();
         Assert.IsTrue(settings.TryParse(
             "PremiumWorkloadLimits.HourlyTokenLimit=2100;PremiumWorkloadLimits.DailyTokenLimit=2200;" +
-            "CriticalWorkloadLimits.HourlyTokenLimit=3100;CriticalWorkloadLimits.DailyTokenLimit=3200;" +
+            "PrivilegedLimitsAndBudgets.HourlyTokenLimit=3100;PrivilegedLimitsAndBudgets.DailyTokenLimit=3200;" +
             "PremiumWorkloadLimitActions.DailyLimitAction=reject;" +
-            "CriticalWorkloadLimitActions.DailyLimitAction=bypass"));
+            "PrivilegedExceedActions.DailyLimitAction=bypass"));
         var premiumLimits = settings.PremiumWorkloadLimits;
-        var criticalLimits = settings.CriticalWorkloadLimits;
+        var criticalLimits = settings.PrivilegedLimitsAndBudgets;
         var premiumActions = settings.PremiumWorkloadLimitActions;
-        var criticalActions = settings.CriticalWorkloadLimitActions;
+        var criticalActions = settings.PrivilegedExceedActions;
 
         Assert.IsTrue(settings.TryParse(
-            "premiumworkloadlimits.hourlytokenlimit=2300,CRITICALWORKLOADLIMITACTIONS.HOURLYLIMITACTION=THROTTLE," +
+            "premiumworkloadlimits.hourlytokenlimit=2300,PRIVILEGEDEXCEEDACTIONS.HOURLYLIMITACTION=THROTTLE," +
             "DailyTokenLimit=42,DailyLimitAction=delay," +
             "ModelLimits=model%3Bone=DailyTokenLimit:77|DailyBudgetUsd:1.25," +
             "ModelLimitActions=model%3Bone=DailyLimitAction:requeue"));
         Assert.AreEqual(2300, settings.PremiumWorkloadLimits.HourlyTokenLimit);
         Assert.AreEqual(2200, settings.PremiumWorkloadLimits.DailyTokenLimit);
-        Assert.AreEqual(3100, settings.CriticalWorkloadLimits.HourlyTokenLimit);
-        Assert.AreEqual(3200, settings.CriticalWorkloadLimits.DailyTokenLimit);
-        Assert.AreEqual(TokenActionEnum.Throttle, settings.CriticalWorkloadLimitActions.HourlyLimitAction);
-        Assert.AreEqual(TokenActionEnum.Bypass, settings.CriticalWorkloadLimitActions.DailyLimitAction);
+        Assert.AreEqual(3100, settings.PrivilegedLimitsAndBudgets.HourlyTokenLimit);
+        Assert.AreEqual(3200, settings.PrivilegedLimitsAndBudgets.DailyTokenLimit);
+        Assert.AreEqual(TokenActionEnum.Throttle, settings.PrivilegedExceedActions.HourlyLimitAction);
+        Assert.AreEqual(TokenActionEnum.Bypass, settings.PrivilegedExceedActions.DailyLimitAction);
         Assert.AreEqual(TokenActionEnum.Reject, settings.PremiumWorkloadLimitActions.DailyLimitAction);
         Assert.AreEqual(42, settings.DefaultLimitsAndBudgets.DailyTokenLimit);
         Assert.AreEqual(TokenActionEnum.Delay, settings.DefaultExceededActions.DailyLimitAction);
@@ -246,9 +246,9 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(TokenActionEnum.Reject, premiumActions.DailyLimitAction);
         Assert.AreEqual(new ExceededActions().HourlyLimitAction, criticalActions.HourlyLimitAction);
         Assert.AreNotSame(premiumLimits, settings.PremiumWorkloadLimits);
-        Assert.AreNotSame(criticalLimits, settings.CriticalWorkloadLimits);
+        Assert.AreNotSame(criticalLimits, settings.PrivilegedLimitsAndBudgets);
         Assert.AreNotSame(premiumActions, settings.PremiumWorkloadLimitActions);
-        Assert.AreNotSame(criticalActions, settings.CriticalWorkloadLimitActions);
+        Assert.AreNotSame(criticalActions, settings.PrivilegedExceedActions);
         var roundTrip = new TokenomicsSettings();
         Assert.IsTrue(roundTrip.TryParse(settings.ToString()));
         Assert.AreEqual(settings.ToString(), roundTrip.ToString());
@@ -258,37 +258,37 @@ public sealed class TokenomicsReplayTests {
     [DataTestMethod]
     [DataRow("UnknownWorkloadLimits.HourlyTokenLimit=1")]
     [DataRow("PremiumWorkloadLimits.NotAField=1")]
-    [DataRow("CriticalWorkloadLimits.HourlyTokenLimit=1.5")]
+    [DataRow("PrivilegedLimitsAndBudgets.HourlyTokenLimit=1.5")]
     [DataRow("PremiumWorkloadLimits.HourlyBudgetUsd=NaN")]
-    [DataRow("CriticalWorkloadLimitActions.DailyLimitAction=notAnAction")]
+    [DataRow("PrivilegedExceedActions.DailyLimitAction=notAnAction")]
     [DataRow("PremiumWorkloadLimitActions.DailyLimitAction=999")]
     [DataRow("PremiumWorkloadLimitActions.DailyLimitAction=1")]
-    [DataRow("CriticalWorkloadLimitActions.HourlyTokenLimit=1")]
-    [DataRow("CriticalWorkloadLimits.DailyLimitAction=bypass")]
-    [DataRow("CriticalWorkloadLimitActions.=bypass")]
-    [DataRow("CriticalWorkloadLimitActions.Nested.DailyLimitAction=bypass")]
-    [DataRow("CriticalWorkloadLimitActions=bypass")]
+    [DataRow("PrivilegedExceedActions.HourlyTokenLimit=1")]
+    [DataRow("PrivilegedLimitsAndBudgets.DailyLimitAction=bypass")]
+    [DataRow("PrivilegedExceedActions.=bypass")]
+    [DataRow("PrivilegedExceedActions.Nested.DailyLimitAction=bypass")]
+    [DataRow("PrivilegedExceedActions=bypass")]
     [DataRow("HourlyQuotaGovernanceAction=bypass")]
     [DataRow("DailyBudgetEntitledTenantAction=bypass")]
     public void Settings_InvalidWorkloadPart_DoesNotMutateSettings(string invalidPart) {
         var settings = new TokenomicsSettings();
         Assert.IsTrue(settings.TryParse(
             "DailyTokenLimit=99;PremiumWorkloadLimits.DailyTokenLimit=1100;" +
-            "CriticalWorkloadLimits.DailyTokenLimit=2200;" +
+            "PrivilegedLimitsAndBudgets.DailyTokenLimit=2200;" +
             "PremiumWorkloadLimitActions.DailyLimitAction=reject;" +
-            "CriticalWorkloadLimitActions.DailyLimitAction=bypass"));
+            "PrivilegedExceedActions.DailyLimitAction=bypass"));
         var before = settings.ToString();
         var premiumLimits = settings.PremiumWorkloadLimits;
-        var criticalLimits = settings.CriticalWorkloadLimits;
+        var criticalLimits = settings.PrivilegedLimitsAndBudgets;
         var premiumActions = settings.PremiumWorkloadLimitActions;
-        var criticalActions = settings.CriticalWorkloadLimitActions;
+        var criticalActions = settings.PrivilegedExceedActions;
         Assert.IsTrue(settings.TryParse(invalidPart));
         CollectionAssert.AreEqual(new[] { invalidPart.Split('=', 2)[0] }, settings.IgnoredFields.ToArray());
         Assert.AreEqual(before, settings.ToString());
         Assert.AreSame(premiumLimits, settings.PremiumWorkloadLimits);
-        Assert.AreSame(criticalLimits, settings.CriticalWorkloadLimits);
+        Assert.AreSame(criticalLimits, settings.PrivilegedLimitsAndBudgets);
         Assert.AreSame(premiumActions, settings.PremiumWorkloadLimitActions);
-        Assert.AreSame(criticalActions, settings.CriticalWorkloadLimitActions);
+        Assert.AreSame(criticalActions, settings.PrivilegedExceedActions);
     }
 
     /// <summary>Existing flat settings load recognized values without restoring retired properties.</summary>
@@ -309,7 +309,7 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(10000, settings.DefaultLimitsAndBudgets.MonthlyTokenLimit);
         Assert.AreEqual(50m, settings.DefaultLimitsAndBudgets.DailyBudgetUsd);
         Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.DefaultExceededActions.HourlyBudgetExceededAction);
-        Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.CriticalWorkloadLimitActions.HourlyLimitAction);
+        Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.PrivilegedExceedActions.HourlyLimitAction);
         Assert.AreEqual(10000, settings.DelayDuration);
         Assert.AreEqual("Contoso", settings.DefaultTenant);
         Assert.AreEqual("gpt-4o", settings.DefaultModel);
