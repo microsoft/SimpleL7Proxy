@@ -8,9 +8,9 @@ namespace SimpleL7Proxy.Tokenomics;
 public class TokenomicsSettings
 {
     /// <summary>Gets or sets the default token limits and USD budgets, serialized using their unprefixed property names.</summary>
-    public LimitsAndBudgets DefaultLimits { get; set; } = new();
+    public LimitsAndBudgets DefaultLimitsAndBudgets { get; set; } = new();
     /// <summary>Gets or sets default actions, serialized using their unprefixed property names.</summary>
-    public ExceededActions DefaultLimitActions { get; set; } = new();
+    public ExceededActions DefaultExceededActions { get; set; } = new();
     /// <summary>Gets or sets premium workload limits, serialized as PremiumWorkloadLimits.Field=value.</summary>
     public LimitsAndBudgets PremiumWorkloadLimits { get; set; } = new();
     /// <summary>Gets or sets premium workload actions, serialized as PremiumWorkloadLimitActions.Field=value.</summary>
@@ -654,8 +654,8 @@ public class TokenomicsSettings
                 return false;
             }
 
-        property.SetValue(target ?? (property.DeclaringType == typeof(LimitsAndBudgets) ? (object)DefaultLimits
-            : property.DeclaringType == typeof(ExceededActions) ? DefaultLimitActions : this), parsedValue);
+        property.SetValue(target ?? (property.DeclaringType == typeof(LimitsAndBudgets) ? (object)DefaultLimitsAndBudgets
+            : property.DeclaringType == typeof(ExceededActions) ? DefaultExceededActions : this), parsedValue);
         return true;
     }
 
@@ -667,13 +667,13 @@ public class TokenomicsSettings
                 continue;
             }
 
-            if (property.Name == nameof(DefaultLimits)) {
+            if (property.Name == nameof(DefaultLimitsAndBudgets)) {
                 foreach (var limitProperty in typeof(LimitsAndBudgets).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
-                    parts.Add($"{limitProperty.Name}={FormatScalar(limitProperty.GetValue(DefaultLimits)!)}");
+                    parts.Add($"{limitProperty.Name}={FormatScalar(limitProperty.GetValue(DefaultLimitsAndBudgets)!)}");
                 }
-            } else if (property.Name == nameof(DefaultLimitActions)) {
+            } else if (property.Name == nameof(DefaultExceededActions)) {
                 foreach (var actionProperty in typeof(ExceededActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
-                    parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultLimitActions)!)}");
+                    parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultExceededActions)!)}");
                 }
             } else if (property.PropertyType == typeof(LimitsAndBudgets)
                 || property.PropertyType == typeof(ExceededActions)) {

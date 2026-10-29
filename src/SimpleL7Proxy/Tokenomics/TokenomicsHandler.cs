@@ -248,7 +248,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         var (actionType, actions) = data.IsCriticalWorkload ? ("Critical ", Settings.CriticalWorkloadLimitActions)
             : data.IsPremiumWorkload ? ("Premium ", Settings.PremiumWorkloadLimitActions)
             : data.Model is not null && Settings.ModelLimitActions.TryGetValue(data.Model, out var modelActions)
-                ? ("Model ", modelActions) : ("", Settings.DefaultLimitActions);
+                ? ("Model ", modelActions) : ("", Settings.DefaultExceededActions);
 
         if (c.HourlyQuotaExceeded )     return ($"{actionType}Hourly Quota Exceeded", actions.HourlyLimitAction);
         if (c.DailyQuotaExceeded)       return ($"{actionType}Daily Quota Exceeded", actions.DailyLimitAction);

@@ -50,9 +50,9 @@
             <TokenomicsLimitsBudgetsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
                 OnSelected="@(() => { _limitsSnapshot = _options.ToString(); _limitsModel = null; _expandedWidget = "limits"; })">
                 <Summary>
-                    <span><strong>Tokens:</strong> @CompactNumber(_options.DefaultLimits.HourlyTokenLimit) hourly · @CompactNumber(_options.DefaultLimits.DailyTokenLimit) daily · @CompactNumber(_options.DefaultLimits.MonthlyTokenLimit) monthly</span>
-                    <span><strong>Budgets:</strong> $@CompactNumber(_options.DefaultLimits.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DefaultLimits.DailyBudgetUsd) daily · $@CompactNumber(_options.DefaultLimits.MonthlyBudgetUsd) monthly</span>
-                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultLimitActions.HourlyLimitAction, _options.DefaultLimitActions.DailyLimitAction, _options.DefaultLimitActions.MonthlyLimitAction)</span>
+                    <span><strong>Tokens:</strong> @CompactNumber(_options.DefaultLimitsAndBudgets.HourlyTokenLimit) hourly · @CompactNumber(_options.DefaultLimitsAndBudgets.DailyTokenLimit) daily · @CompactNumber(_options.DefaultLimitsAndBudgets.MonthlyTokenLimit) monthly</span>
+                    <span><strong>Budgets:</strong> $@CompactNumber(_options.DefaultLimitsAndBudgets.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DefaultLimitsAndBudgets.DailyBudgetUsd) daily · $@CompactNumber(_options.DefaultLimitsAndBudgets.MonthlyBudgetUsd) monthly</span>
+                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultExceededActions.HourlyLimitAction, _options.DefaultExceededActions.DailyLimitAction, _options.DefaultExceededActions.MonthlyLimitAction)</span>
                 </Summary>
             </TokenomicsLimitsBudgetsSettingsWidget>
             <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
@@ -120,8 +120,8 @@
                         _options.ModelLimitActions.Remove(model);
                     } else {
                         var copy = ParseOptions(_options.ToString())!;
-                        _options.ModelLimits.TryAdd(model, copy.DefaultLimits);
-                        _options.ModelLimitActions.TryAdd(model, copy.DefaultLimitActions);
+                        _options.ModelLimits.TryAdd(model, copy.DefaultLimitsAndBudgets);
+                        _options.ModelLimitActions.TryAdd(model, copy.DefaultExceededActions);
                     }
                     foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith($"limits:{model}:", StringComparison.Ordinal)).ToArray()) {
                         _fieldErrors.Remove(key);
@@ -134,8 +134,8 @@
                         _options.ModelLimits.Remove(model);
                         _options.ModelLimitActions.Remove(model);
                     } else {
-                        _options.DefaultLimits = new();
-                        _options.DefaultLimitActions = new();
+                        _options.DefaultLimitsAndBudgets = new();
+                        _options.DefaultExceededActions = new();
                     }
                     var workloadDefaults = new ExceededActions();
                     _options.PremiumWorkloadLimitActions = new();
@@ -567,15 +567,15 @@
         _fieldErrors.Remove(errorKey);
         if (isLimit && workload is null && limitModel is not null && (!_options.ModelLimits.ContainsKey(limitModel) || !_options.ModelLimitActions.ContainsKey(limitModel))) {
             var copy = ParseOptions(_options.ToString())!;
-            _options.ModelLimits.TryAdd(limitModel, copy.DefaultLimits);
-            _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultLimitActions);
+            _options.ModelLimits.TryAdd(limitModel, copy.DefaultLimitsAndBudgets);
+            _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultExceededActions);
         }
         object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
             : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
             : property.DeclaringType == typeof(LimitsAndBudgets)
-            ? limitModel is null ? _options.DefaultLimits : _options.ModelLimits[limitModel]
+            ? limitModel is null ? _options.DefaultLimitsAndBudgets : _options.ModelLimits[limitModel]
             : property.DeclaringType == typeof(ExceededActions)
-                ? limitModel is null ? _options.DefaultLimitActions : _options.ModelLimitActions[limitModel]
+                ? limitModel is null ? _options.DefaultExceededActions : _options.ModelLimitActions[limitModel]
                 : _options;
         property.SetValue(target, parsedValue);
 
@@ -923,14 +923,14 @@
             return !Equals(property.GetValue(current), property.GetValue(loaded));
         }
         if (property.DeclaringType == typeof(LimitsAndBudgets)) {
-            var current = model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits;
-            var loaded = model is not null && _loadedOptions.ModelLimits.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimits;
+            var current = model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets;
+            var loaded = model is not null && _loadedOptions.ModelLimits.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimitsAndBudgets;
             return !Equals(property.GetValue(current), property.GetValue(loaded))
                 || model is not null && _options.ModelLimits.ContainsKey(model) != _loadedOptions.ModelLimits.ContainsKey(model);
         }
         if (property.DeclaringType == typeof(ExceededActions)) {
-            var current = model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions;
-            var loaded = model is not null && _loadedOptions.ModelLimitActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultLimitActions;
+            var current = model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions;
+            var loaded = model is not null && _loadedOptions.ModelLimitActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultExceededActions;
             return !Equals(property.GetValue(current), property.GetValue(loaded))
                 || model is not null && _options.ModelLimitActions.ContainsKey(model) != _loadedOptions.ModelLimitActions.ContainsKey(model);
         }
@@ -1080,9 +1080,9 @@
         object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
             : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
             : property.DeclaringType == typeof(LimitsAndBudgets)
-            ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits
+            ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets
             : property.DeclaringType == typeof(ExceededActions)
-                ? model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions
+                ? model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions
                 : _options;
         var errorKey = property.DeclaringType == typeof(LimitsAndBudgets) || property.DeclaringType == typeof(ExceededActions)
             ? $"limits:{workload ?? model ?? "default"}:{property.Name}" : property.Name;
