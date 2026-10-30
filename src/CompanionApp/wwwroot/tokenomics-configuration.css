@@ -129,10 +129,32 @@
 .tokenomics-configuration .tokenomics-model-pagination{ display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 0.75rem; }
 .tokenomics-configuration .tokenomics-model-pagination .btn{ width: 2.5rem; min-height: 2.25rem; padding: 0; }
 .tokenomics-configuration .tokenomics-routing-pane{ min-width: 0; }
-.tokenomics-configuration .tokenomics-routing-settings-grid{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
+.tokenomics-configuration .tokenomics-routing-settings-grid{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 0.75rem; margin-bottom: 0.75rem; }
 .tokenomics-configuration .tokenomics-routing-settings-panel{ min-width: 0; padding: 0.75rem; border: 1px solid #dce5f2; border-radius: 6px; background: #f8faff; }
+.tokenomics-configuration .tokenomics-routing-hierarchy-panel{ min-height: 0; max-height: 16rem; overflow-y: auto; scrollbar-gutter: stable; }
 .tokenomics-configuration .tokenomics-routing-settings-panel h4{ margin: 0 0 0.65rem; color: #071c61; font-size: 0.9rem; font-weight: 700; }
-.tokenomics-configuration .tokenomics-routing-field-grid{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; }
+.tokenomics-configuration .tokenomics-routing-field-grid{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.65rem; }
+.tokenomics-configuration .tokenomics-routing-settings-panel .config-newhost-field{ min-width: 0; }
+.tokenomics-configuration .tokenomics-routing-settings-grid .tokenomics-routing-settings-panel .config-newhost-field,
+.tokenomics-configuration .tokenomics-routing-settings-grid .tokenomics-routing-settings-panel .tokenomics-inline-action{ padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.tokenomics-configuration .tokenomics-routing-settings-panel:has(.config-field-changed){ border-color: #e7cc76; background: #fffbea; }
+.tokenomics-configuration .tokenomics-routing-settings-grid .config-setting-heading,
+.tokenomics-configuration .tokenomics-routing-settings-grid .config-setting-heading a,
+.tokenomics-configuration .tokenomics-routing-settings-grid .config-setting-heading label,
+.tokenomics-configuration .tokenomics-routing-settings-grid .tokenomics-inline-action-name{ min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.tokenomics-configuration .tokenomics-routing-settings-grid .tokenomics-inline-action-name .config-help-link,
+.tokenomics-configuration .tokenomics-routing-settings-grid .tokenomics-inline-action-name label{ min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.tokenomics-configuration .tokenomics-routing-settings-panel .tokenomics-hierarchy{ display: grid; }
+.tokenomics-configuration .tokenomics-routing-settings-panel .form-select{ width: 100%; min-width: 0; }
+.tokenomics-configuration .tokenomics-hierarchy{ display: grid; align-content: start; gap: 0.65rem; }
+.tokenomics-configuration .tokenomics-card-routing a{ text-decoration: none; color: #464feb; }
+.tokenomics-configuration .tokenomics-card-routing tr th,
+.tokenomics-configuration .tokenomics-card-routing tr td{ border: 1px solid #e6e6e6; }
+.tokenomics-configuration .tokenomics-card-routing tr th{ background-color: #f5f5f5; }
+.tokenomics-configuration .tokenomics-hierarchy-list{ display: grid; gap: 0.4rem; min-width: 0; }
+.tokenomics-configuration .tokenomics-hierarchy-row{ display: grid; grid-template-columns: 1rem minmax(0, 1fr) repeat(3, 1.75rem); align-items: center; gap: 0.3rem; min-width: 0; min-height: 2.25rem; border-radius: 4px; }
+.tokenomics-configuration .tokenomics-hierarchy-position{ text-align: center; font-variant-numeric: tabular-nums; font-size: 0.8rem; font-weight: 700; color: #071c61; }
+.tokenomics-configuration .tokenomics-hierarchy-icon{ display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 2rem; padding: 0; color: #38558b; }
 .tokenomics-configuration .tokenomics-routing-field-grid .config-newhost-field{ min-width: 0; }
 .tokenomics-configuration .tokenomics-routing-field-grid .tokenomics-inline-action{ grid-template-columns: minmax(0, 1fr); align-items: start; gap: 0.35rem; min-width: 0; min-height: 0; padding: 0.65rem; }
 .tokenomics-configuration .tokenomics-routing-field-grid .tokenomics-inline-action-name{ min-width: 0; }
@@ -205,6 +227,15 @@
 .tokenomics-configuration .tokenomics-card-capacity .config-newhost-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 1600px) {
     .tokenomics-configuration .tokenomics-card-capacity .config-newhost-grid{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 701px) {
+    .tokenomics-configuration .tokenomics-widget-popup:has(.tokenomics-card-routing){ height: calc(100dvh - 2rem); }
+    .tokenomics-configuration .tokenomics-widget-popup:has(.tokenomics-card-routing) .tokenomics-widget-popup-body{ display: flex; flex: 1; overflow: hidden; }
+    .tokenomics-configuration .tokenomics-widget-popup .tokenomics-card-routing,
+    .tokenomics-configuration .tokenomics-card-routing .tokenomics-tab-panel,
+    .tokenomics-configuration .tokenomics-card-routing .tokenomics-routing-pane{ display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+    .tokenomics-configuration .tokenomics-card-routing .tokenomics-routing-settings-grid{ flex: 0 0 auto; }
+    .tokenomics-configuration .tokenomics-card-routing .tokenomics-routing-workbench{ flex: 1; height: auto; min-height: 0; }
 }
 @media (max-width: 1100px) {
     .tokenomics-configuration .tokenomics-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -18,24 +18,14 @@ else
     <section id="tokenomics-panel-routing" class="tokenomics-tab-panel" aria-label="Model routing settings">
         <div class="tokenomics-routing-pane">
             <div class="tokenomics-routing-settings-grid">
-                <section class="tokenomics-routing-settings-panel" aria-labelledby="tokenomics-routing-general-heading">
-                    <h4 id="tokenomics-routing-general-heading">General Settings</h4>
+                <section class="tokenomics-routing-settings-panel" aria-label="Default model">
                     <div class="tokenomics-routing-field-grid">
-                        @foreach (var name in NumericNames)
-                        {
-                            @if (name == nameof(TokenomicsSettings.DefaultModel))
-                            {
-                                <div class="d-grid gap-2 align-content-start">
-                                    @FieldContent(name)
-                                    @FieldContent(nameof(TokenomicsSettings.DefaultModelAPI))
-                                </div>
-                            }
-                            else
-                            {
-                                @FieldContent(name)
-                            }
-                        }
+                        @FieldContent(nameof(TokenomicsSettings.DefaultModel))
+                        @FieldContent(nameof(TokenomicsSettings.DefaultModelAPI))
                     </div>
+                </section>
+                <section class="tokenomics-routing-settings-panel tokenomics-routing-hierarchy-panel" aria-label="Model hierarchy">
+                    @FieldContent(nameof(TokenomicsSettings.ModelHierarchy))
                 </section>
                 <section class="tokenomics-routing-settings-panel" aria-labelledby="tokenomics-routing-fallback-heading">
                     <h4 id="tokenomics-routing-fallback-heading">Fallback Behavior</h4>
@@ -130,7 +120,7 @@ else
                     @if (SelectedModel is null)
                     {
                         <div class="tokenomics-routing-empty tokenomics-routing-empty-large">
-                            Configure a default model, model hierarchy, or model price before assigning hosts.
+                            No models have host assignments.
                         </div>
                     }
                     else

@@ -21,7 +21,7 @@ Proxy:
 * Bug fix: Enable OAuth signature validation
 
 Metrics Server:
-* Add support for uploading metrics with daily and monthly rollups
+* Add support for uploading metrics with hourly, daily and monthly rollups
 * Add support for querying current usage for a user
 
 Stream Parser:

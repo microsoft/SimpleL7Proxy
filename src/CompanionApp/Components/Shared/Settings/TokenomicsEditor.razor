@@ -295,13 +295,9 @@
     private bool RawOptionsChanged => OptionsSetting is { } setting
         && !string.Equals(_rawOptions, setting.DraftValue, StringComparison.Ordinal);
 
-    private IReadOnlyList<string> RoutingModels => _options.ModelHierarchy.Values
-        .SelectMany(models => models)
-        .Concat([_options.DefaultModel])
-        .Concat(_options.ModelCostPerToken.Keys)
-        .Concat(_options.ModelHostOptions.Keys)
-        .Concat(ChatCatalog.ListModels().Select(model => model.Id))
-        .Concat(VisionCatalog.ListModels().Select(model => model.Id))
+    private IReadOnlyList<string> RoutingModels => _options.ModelHostOptions
+        .Where(entry => entry.Value.Count > 0)
+        .Select(entry => entry.Key)
         .Select(model => model.Trim())
         .Where(model => model.Length > 0)
         .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -578,6 +574,12 @@
                 ? limitModel is null ? _options.DefaultExceededActions : _options.ModelExceedActions[limitModel]
                 : _options;
         property.SetValue(target, parsedValue);
+
+        if (property.Name == nameof(TokenomicsSettings.DefaultModel)
+            && (!_options.ModelHostOptions.TryGetValue(_options.DefaultModel, out var defaultHosts)
+                || !defaultHosts.Values.Any(host => host.APIs.ContainsKey(_options.DefaultModelAPI)))) {
+            _options.DefaultModelAPI = string.Empty;
+        }
 
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             var hierarchyModels = _options.ModelHierarchy.Values
@@ -1055,6 +1057,55 @@
     }
 
 
+    private async Task CommitHierarchyAsync(List<string> models) {
+        var hierarchy = models.ToDictionary(model => model, model => models.ToList(), StringComparer.OrdinalIgnoreCase);
+        var property = OptionProperties.Single(property => property.Name == nameof(TokenomicsSettings.ModelHierarchy));
+        await SetOptionAsync(property, new ChangeEventArgs { Value = FormatValue(hierarchy, property.Name) });
+    }
+
+    private async Task SetHierarchyModelAsync(int index, ChangeEventArgs args) {
+        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var selectedModel = args.Value?.ToString() ?? string.Empty;
+        if (index < 0 || index >= models.Count
+            || !RoutingModels.Contains(selectedModel, StringComparer.OrdinalIgnoreCase)
+            || models.Where((_, position) => position != index).Contains(selectedModel, StringComparer.OrdinalIgnoreCase)) {
+            return;
+        }
+        models[index] = selectedModel;
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task AddHierarchyModelAsync() {
+        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var selectedModel = RoutingModels.FirstOrDefault(candidate => !models.Contains(candidate, StringComparer.OrdinalIgnoreCase));
+        if (selectedModel is null) {
+            return;
+        }
+        models.Add(selectedModel);
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task RemoveHierarchyModelAsync(int index) {
+        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (index < 0 || index >= models.Count) {
+            return;
+        }
+        models.RemoveAt(index);
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task MoveHierarchyModelAsync(int sourceIndex, int targetIndex) {
+        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (sourceIndex < 0 || sourceIndex >= models.Count || targetIndex < 0 || targetIndex >= models.Count
+            || sourceIndex == targetIndex) {
+            return;
+        }
+        var movingModel = models[sourceIndex];
+        models.RemoveAt(sourceIndex);
+        models.Insert(targetIndex, movingModel);
+        await CommitHierarchyAsync(models);
+    }
+
     private RenderFragment RenderField(string name, bool compact = false, string? model = null) {
         var workload = name switch {
             nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.HourlyLimitAction)
@@ -1086,11 +1137,86 @@
                 : _options;
         var errorKey = property.DeclaringType == typeof(LimitsAndBudgets) || property.DeclaringType == typeof(ExceededActions)
             ? $"limits:{workload ?? model ?? "default"}:{property.Name}" : property.Name;
+        if (name == nameof(TokenomicsSettings.ModelHierarchy)) {
+            var models = RoutingModels;
+            var hierarchyModels = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return @<div class="config-newhost-field tokenomics-hierarchy @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <ConfigurationHelp Section="Tokenomics" Topic="ModelHierarchy">
+                        <span class="form-label">Model Hierarchy</span>
+                    </ConfigurationHelp>
+                </div>
+                <div class="tokenomics-hierarchy-list" role="list" aria-label="Model fallback order">
+                @for (var index = 0; index < hierarchyModels.Count; index++)
+                {
+                            var position = index;
+                            var hierarchyModel = hierarchyModels[position];
+                            <div class="tokenomics-hierarchy-row" role="listitem" @key="position">
+                                <span class="tokenomics-hierarchy-position">@(position + 1)</span>
+                                <select class="form-select form-select-sm" value="@(models.Contains(hierarchyModel, StringComparer.OrdinalIgnoreCase) ? hierarchyModel : string.Empty)" aria-label="Hierarchy model @(position + 1)"
+                                    @key="(position, hierarchyModel, string.Join(';', models), string.Join(';', hierarchyModels))"
+                                        @onchange="@(args => SetHierarchyModelAsync(position, args))">
+                                    @if (!models.Contains(hierarchyModel, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <option value="" disabled>Select an assigned model</option>
+                                    }
+                                    @foreach (var candidate in models.Where(candidate => string.Equals(candidate, hierarchyModel, StringComparison.OrdinalIgnoreCase)
+                                        || !hierarchyModels.Contains(candidate, StringComparer.OrdinalIgnoreCase)))
+                                    {
+                                        <option value="@candidate">@candidate</option>
+                                    }
+                                </select>
+                                <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Move up" aria-label="Move @hierarchyModel up"
+                                    disabled="@(position == 0)" @onclick="@(() => MoveHierarchyModelAsync(position, position - 1))"><span class="bi bi-arrow-up" aria-hidden="true"></span></button>
+                                <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Move down" aria-label="Move @hierarchyModel down"
+                                    disabled="@(position == hierarchyModels.Count - 1)" @onclick="@(() => MoveHierarchyModelAsync(position, position + 1))"><span class="bi bi-arrow-down" aria-hidden="true"></span></button>
+                                <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Remove model" aria-label="Remove @hierarchyModel from hierarchy"
+                                    @onclick="@(() => RemoveHierarchyModelAsync(position))"><span class="bi bi-trash" aria-hidden="true"></span></button>
+                            </div>
+                }
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm" disabled="@(!models.Any(candidate => !hierarchyModels.Contains(candidate, StringComparer.OrdinalIgnoreCase)))" @onclick="AddHierarchyModelAsync">
+                            <span class="bi bi-plus-lg" aria-hidden="true"></span> Add model
+                </button>
+                @if (_fieldErrors.TryGetValue(property.Name, out var hierarchyError))
+                {
+                    <span class="small text-danger" role="alert">@hierarchyError</span>
+                }
+            </div>;
+        }
+        if (name == nameof(TokenomicsSettings.DefaultModel)) {
+            var models = RoutingModels;
+            return @<div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <ConfigurationHelp Section="Tokenomics" Topic="DefaultModel">
+                        <label class="form-label" for="tokenomics-DefaultModel">Default Model</label>
+                    </ConfigurationHelp>
+                </div>
+                <select id="tokenomics-DefaultModel" class="form-select form-select-sm" value="@_options.DefaultModel" @key="string.Join(';', models)"
+                        @onchange="@(args => SetOptionAsync(property, args))">
+                    <option value="">Not configured</option>
+                    @if (!string.IsNullOrEmpty(_options.DefaultModel)
+                        && !models.Contains(_options.DefaultModel, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@_options.DefaultModel" disabled>@_options.DefaultModel (no host assigned)</option>
+                    }
+                    @foreach (var routingModel in models)
+                    {
+                        <option value="@routingModel">@routingModel</option>
+                    }
+                </select>
+                @if (_fieldErrors.TryGetValue(property.Name, out var modelError))
+                {
+                    <span class="small text-danger" role="alert">@modelError</span>
+                }
+            </div>;
+        }
         if (name == nameof(TokenomicsSettings.DefaultModelAPI)) {
-            var apiNames = RoutingApis.Select(api => api.Name)
-                .Concat(_options.ModelHostOptions.Values.SelectMany(hosts => hosts.Values)
-                    .SelectMany(host => host.APIs.Keys))
+            var apiNames = (_options.ModelHostOptions.TryGetValue(_options.DefaultModel, out var modelHosts)
+                ? modelHosts.Values.SelectMany(host => host.APIs.Keys)
+                : Enumerable.Empty<string>())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(apiName => apiName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return @<div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
                 <div class="config-setting-heading">
@@ -1098,7 +1224,7 @@
                         <label class="form-label" for="tokenomics-DefaultModelAPI">Default Model API</label>
                     </ConfigurationHelp>
                 </div>
-                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@_options.DefaultModelAPI"
+                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@_options.DefaultModelAPI" @key="(_options.DefaultModel, string.Join(';', apiNames))"
                         aria-label="Default Model API" @onchange="@(args => SetOptionAsync(property, args))">
                     <option value="">Not configured</option>
                     @if (!string.IsNullOrEmpty(_options.DefaultModelAPI)
