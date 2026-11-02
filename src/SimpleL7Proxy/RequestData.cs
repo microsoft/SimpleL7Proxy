@@ -247,7 +247,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string ParentId { get; set; } = "";
     public string Path { get; set; }
     public bool Requeued { get; set; } = false;
-    public string Tenant { get; set; } = "";   // Tokenomics related tenant
+    public string Workload { get; set; } = "";   // Tokenomics related workload
     public string UserID { get; set; } = "";
     public string profileUserId { get; set; } = "";
     public WebHeaderCollection Headers { get; private set; }

@@ -99,10 +99,10 @@
             </div>
         </article>
         <article class="tokenomics-card insight-card">
-            <div class="policy-card-heading"><h3>Requests by Tenant</h3><p>Recorded signals, not inferred abuse from quota/capacity actions</p></div>
+            <div class="policy-card-heading"><h3>Requests by Workload</h3><p>Recorded signals, not inferred abuse from quota/capacity actions</p></div>
             <div class="users-table-wrap">
                 <table class="users-table abuse-summary-table">
-                    <thead><tr><th scope="col">Tenant</th><th scope="col">Requests</th><th scope="col">Signals</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Signal Rate</th></tr></thead>
+                    <thead><tr><th scope="col">Workload</th><th scope="col">Requests</th><th scope="col">Signals</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Signal Rate</th></tr></thead>
                     <tbody>
                         @foreach (var tenant in _tenants)
                         {
@@ -119,7 +119,7 @@
         <div class="policy-recent-heading"><div class="policy-card-heading"><h3>Repeat Activity and Associated Usage</h3><p>Subjects with positive signals on at least two distinct requests in this window, not multiple evaluations of one request</p></div></div>
         <div class="users-table-wrap">
             <table class="users-table abuse-summary-table">
-                <thead><tr><th scope="col">Subject Alias</th><th scope="col">Tenant</th><th scope="col">Positive Requests</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Latest Outcome Tokens</th><th scope="col">Usage Coverage</th></tr></thead>
+                <thead><tr><th scope="col">Subject Alias</th><th scope="col">Workload</th><th scope="col">Positive Requests</th><th scope="col">Abuse Rejections</th><th scope="col">Filtered</th><th scope="col">Jailbreaks</th><th scope="col">Latest Outcome Tokens</th><th scope="col">Usage Coverage</th></tr></thead>
                 <tbody>
                     @foreach (var subject in _repeatedSubjects)
                     {
@@ -152,7 +152,7 @@
         </div>
         <div class="users-table-wrap">
             <table class="users-table abuse-events-table">
-                <thead><tr><th scope="col">Observation (UTC)</th><th scope="col">Subject / Tenant</th><th scope="col">Model (Requested / Selected)</th><th scope="col">Recorded Signals</th><th scope="col">Abuse Policy Action</th><th scope="col">Latest Policy / HTTP Outcome</th><th scope="col">Latest Outcome Tokens</th><th scope="col">Policy Version</th><th scope="col">Correlation</th></tr></thead>
+                <thead><tr><th scope="col">Observation (UTC)</th><th scope="col">Subject / Workload</th><th scope="col">Model (Requested / Selected)</th><th scope="col">Recorded Signals</th><th scope="col">Abuse Policy Action</th><th scope="col">Latest Policy / HTTP Outcome</th><th scope="col">Latest Outcome Tokens</th><th scope="col">Policy Version</th><th scope="col">Correlation</th></tr></thead>
                 <tbody>
                     @foreach (var row in _visibleRows)
                     {
@@ -194,7 +194,7 @@
         Signal counts can overlap; charts use rejection → both backend flags → jailbreak → filtered → other abuse-policy signal → no recorded positive signal.
         False flags can be emitter defaults, including outcomes without usage; neither false nor missing flags prove safety or scan coverage.
         Usage requires UsageAvailable and uses the latest recorded outcome once per request, not cumulative attempt usage. Tokens are input + output, with cached input already included.
-        Aliases use keyed pseudonyms scoped to this app process; they are stable across updates/filters and change after restart. Tenant names and shared dashboard filters remain unchanged.
+        Aliases use keyed pseudonyms scoped to this app process; they are stable across updates/filters and change after restart. Workload names and shared dashboard filters remain unchanged.
         No prompts, response text, error messages or raw user/request/decision IDs are displayed or exported by this report. Pseudonyms are not a guarantee of anonymity.
         Correlations and repeat activity are limited to the selected time window; timestamps are observation times, not request arrival times.
     </p>
@@ -307,7 +307,7 @@
         var contentFiltered = positiveOutcomes.Any(fields => Boolean(fields, "IsContentFiltered") == true);
         var rejected = abusePolicies.Any(fields => Text(fields, "Decision") == "Rejected");
         var lastSignal = abusePolicies.Concat(positiveOutcomes).OrderBy(Time).LastOrDefault();
-        var tenant = Identity(records, "Tenant");
+        var tenant = Identity(records, "Workload");
         var user = records.Select(fields => Text(fields, "UserId")).FirstOrDefault(value => value is not null);
         var input = Boolean(outcome, "UsageAvailable") == true ? TokenAmount(outcome, "InputTokens") : null;
         var output = Boolean(outcome, "UsageAvailable") == true ? TokenAmount(outcome, "OutputTokens") : null;
@@ -424,7 +424,7 @@
         }).ToArray();
         _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
         _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
-        var csv = new StringBuilder("ObservationTimestampUtc,SubjectAlias,Tenant,RequestedModel,LatestSelectedModel,HasAbusePolicySignal,HadAbusePolicyRejection,HasRecordedJailbreakPositive,HasRecordedContentFilterPositive,AbusePolicyActions,LatestAbusePolicyDecision,LatestPolicyDecision,LatestStatusCode,LatestOutcomeTimestampUtc,LatestOutcomeTokens,DetailedViolationCategory,ConfiguredAction,PolicyVersion,RequestAlias\r\n");
+        var csv = new StringBuilder("ObservationTimestampUtc,SubjectAlias,Workload,RequestedModel,LatestSelectedModel,HasAbusePolicySignal,HadAbusePolicyRejection,HasRecordedJailbreakPositive,HasRecordedContentFilterPositive,AbusePolicyActions,LatestAbusePolicyDecision,LatestPolicyDecision,LatestStatusCode,LatestOutcomeTimestampUtc,LatestOutcomeTokens,DetailedViolationCategory,ConfiguredAction,PolicyVersion,RequestAlias\r\n");
         foreach (var row in _filteredRows) {
             string[] values = [row.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured", row.Subject ?? "Not captured",
                 row.Tenant, row.Requested, row.Selected, row.Abuse ? "true" : "false", row.Rejected ? "true" : "false",

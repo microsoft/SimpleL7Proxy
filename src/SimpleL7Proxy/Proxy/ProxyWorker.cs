@@ -373,7 +373,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     request.WordCount = parseResult.WordCount;
                     request.OriginalModel = parseResult.SourceModel ?? "unknown";
                     request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
-                    request.Tenant = request.Headers["S7P-Tenant-Override"] ?? "unknown";
+                    request.Workload = request.Headers["S7P-Workload"] ?? "unknown";
                     request.IsPremiumWorkload = request.Headers["S7P-Premium-Workload"]?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
                     var PremiumTenant = bool.TryParse(request.Headers[Constants.TokenizerPremiumTenant], out var premiumTenant) && premiumTenant;
                     var EnterpriseTenant = bool.TryParse(request.Headers[Constants.TokenizerEnterpriseTenant], out var enterpriseTenant) && enterpriseTenant;

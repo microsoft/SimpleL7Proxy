@@ -76,11 +76,30 @@
     { "id": "gpt-5", "provider": "OpenAI", "displayName": "GPT-5", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-5-mini", "provider": "OpenAI", "displayName": "GPT-5 mini", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-5-nano", "provider": "OpenAI", "displayName": "GPT-5 nano", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5-pro", "provider": "OpenAI", "displayName": "GPT-5 Pro", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5-codex", "provider": "OpenAI", "displayName": "GPT-5 Codex", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.1", "provider": "OpenAI", "displayName": "GPT-5.1", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.1-codex", "provider": "OpenAI", "displayName": "GPT-5.1 Codex", "apis": [ "openai-responses" ] },
+    { "id": "gpt-5.1-codex-mini", "provider": "OpenAI", "displayName": "GPT-5.1 Codex mini", "apis": [ "openai-responses" ] },
+    { "id": "gpt-5.1-codex-max", "provider": "OpenAI", "displayName": "GPT-5.1 Codex Max", "apis": [ "openai-responses" ] },
+    { "id": "gpt-5.2", "provider": "OpenAI", "displayName": "GPT-5.2", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.2-codex", "provider": "OpenAI", "displayName": "GPT-5.2 Codex", "apis": [ "openai-responses" ] },
+    { "id": "gpt-5.3-codex", "provider": "OpenAI", "displayName": "GPT-5.3 Codex", "apis": [ "openai-responses" ] },
+    { "id": "gpt-5.4", "provider": "OpenAI", "displayName": "GPT-5.4", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.4-mini", "provider": "OpenAI", "displayName": "GPT-5.4 mini", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.4-nano", "provider": "OpenAI", "displayName": "GPT-5.4 nano", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.4-pro", "provider": "OpenAI", "displayName": "GPT-5.4 Pro", "apis": [ "openai-responses" ] },
+    { "id": "gpt-5.5", "provider": "OpenAI", "displayName": "GPT-5.5", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.6-luna", "provider": "OpenAI", "displayName": "GPT-5.6 Luna", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.6-sol", "provider": "OpenAI", "displayName": "GPT-5.6 Sol", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5.6-terra", "provider": "OpenAI", "displayName": "GPT-5.6 Terra", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6-astra", "provider": "OpenAI", "displayName": "GPT-6 Astra", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6-luna", "provider": "OpenAI", "displayName": "GPT-6 Luna", "apis": [ "openai-chat", "openai-responses", "openai-decisions" ] },
     { "id": "gpt-6-sol", "provider": "OpenAI", "displayName": "GPT-6 Sol", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6.1-sol", "provider": "OpenAI", "displayName": "GPT-6.1 Sol", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-6.1-terra", "provider": "OpenAI", "displayName": "GPT-6.1 Terra", "apis": [ "openai-responses" ] },
+    { "id": "gpt-chat-latest", "provider": "OpenAI", "displayName": "GPT Chat Latest", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "openai--gpt-oss-20b", "provider": "OpenAI", "displayName": "GPT OSS 20B", "apis": [ "openai-chat" ] },
     { "id": "o3", "provider": "OpenAI", "displayName": "o3 (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "o4-mini", "provider": "OpenAI", "displayName": "o4-mini (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-3.5-turbo", "provider": "OpenAI", "displayName": "GPT-3.5 Turbo", "apis": [ "openai-chat" ] },
@@ -185,16 +204,10 @@
       ]
     },
     {
-      "appliesTo": [ "gpt-6-sol" ],
+      "appliesTo": [ "gpt-5*", "gpt-6*", "o3", "o4-mini" ],
       "appliesToAPI": [ "openai-chat", "openai-responses" ],
       "fields": [
-        { "temperature": "" }
-      ]
-    },
-    {
-      "appliesTo": [ "gpt-6-sol" ],
-      "appliesToAPI": [ "openai-responses" ],
-      "fields": [
+        { "temperature": "" },
         { "top_p": "" }
       ]
     },

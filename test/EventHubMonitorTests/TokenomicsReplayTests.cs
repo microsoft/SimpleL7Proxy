@@ -295,7 +295,7 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_ExistingFlatOptions_LoadWithIgnoredFieldWarnings() {
         const string raw = """
-            MonthlyTokenLimit=10000; DailyTokenLimit=1000; HourlyTokenLimit=100; HourlyBudgetUsd=10; DailyBudgetUsd=50; MonthlyBudgetUsd=1000; HourlyQuotaGovernanceAction=bypass; DailyQuotaGovernanceAction=increaseLimit; MonthlyQuotaGovernanceAction=reject; HourlyQuotaExceededAction=downgradeModel; DailyQuotaExceededAction=downgradeModel; MonthlyQuotaExceededAction=reject; HourlyBudgetExceededAction=downgradeModel; DailyBudgetExceededAction=downgradeModel; MonthlyBudgetExceededAction=downgradeModel; HourlyBudgetEntitledTenantAction=bypass; DailyBudgetEntitledTenantAction=bypass; MonthlyBudgetEntitledTenantAction=downgradeModel; DelayDuration=10:000; CurrentCapacityUtilizationPercent=0; CapacityConstraintThresholdPercent=80; HighQueueDepthThreshold=0.9; LargeContextThreshold=2048; CriticalPriority=1; HighPriority=2; DefaultTenant=Contoso; DefaultModel=gpt-4o; DefaultModelAPI=; ModelCostPerToken.gpt-4o=Input:0.23|CachedInput:0.23|Output:0.23; ModelCostPerToken.gpt-4.1=Input:0.23|CachedInput:0.23|Output:0.23; ModelCostPerToken.gpt-6-sol=Input:0.46|CachedInput:0.46|Output:0.46; ModelHierarchy=gpt: [gpt-6-sol, gpt-4o, gpt-4.1]; ModelHostOptions=gpt-4o=Host_apim=Enabled:true|Api:OpenAI%20Chat%20Completions:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6.1-sol=Host_6sol=Enabled:true|Api:OpenAI%20Chat%20Completions:false:false|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6-sol=Host_6sol=Enabled:true|Api:OpenAI%20Chat%20Completions:false:false|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6-sol=Host_apim=Enabled:true|Api:OpenAI%20Chat%20Completions:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions|Api:OpenAI%20Responses:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions; AbuseDetectedAction=reject; AdministratorOverrideAction=bypass; CapacityCriticalWorkloadAction=increasePriority; CapacityHighPriorityAction=requeue; CapacityConstrainedAction=delay; QueueCriticalPriorityAction=increasePriority; QueueDepthHighAction=requeue; PreferredModelReplacementAction=none; PreferredModelUnavailableAction=reject; LargeContextCapacityAvailableAction=upgradeModel; LargeContextRequestAction=changeModel; CriticalPriorityAction=increasePriority; HighPriorityEntitledTenantAction=increasePriority; TenantEntitlementAction=increaseLimit; GovernanceWorkloadAction=bypass; DefaultAction=none
+            MonthlyTokenLimit=10000; DailyTokenLimit=1000; HourlyTokenLimit=100; HourlyBudgetUsd=10; DailyBudgetUsd=50; MonthlyBudgetUsd=1000; HourlyQuotaGovernanceAction=bypass; DailyQuotaGovernanceAction=increaseLimit; MonthlyQuotaGovernanceAction=reject; HourlyQuotaExceededAction=downgradeModel; DailyQuotaExceededAction=downgradeModel; MonthlyQuotaExceededAction=reject; HourlyBudgetExceededAction=downgradeModel; DailyBudgetExceededAction=downgradeModel; MonthlyBudgetExceededAction=downgradeModel; HourlyBudgetEntitledTenantAction=bypass; DailyBudgetEntitledTenantAction=bypass; MonthlyBudgetEntitledTenantAction=downgradeModel; DelayDuration=10:000; CurrentCapacityUtilizationPercent=0; CapacityConstraintThresholdPercent=80; HighQueueDepthThreshold=0.9; LargeContextThreshold=2048; CriticalPriority=1; HighPriority=2; DefaultWorkload=Contoso; DefaultModel=gpt-4o; DefaultModelAPI=; ModelCostPerToken.gpt-4o=Input:0.23|CachedInput:0.23|Output:0.23; ModelCostPerToken.gpt-4.1=Input:0.23|CachedInput:0.23|Output:0.23; ModelCostPerToken.gpt-6-sol=Input:0.46|CachedInput:0.46|Output:0.46; ModelHierarchy=gpt: [gpt-6-sol, gpt-4o, gpt-4.1]; ModelHostOptions=gpt-4o=Host_apim=Enabled:true|Api:OpenAI%20Chat%20Completions:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6.1-sol=Host_6sol=Enabled:true|Api:OpenAI%20Chat%20Completions:false:false|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6-sol=Host_6sol=Enabled:true|Api:OpenAI%20Chat%20Completions:false:false|Api:OpenAI%20Responses:false:false; ModelHostOptions=gpt-6-sol=Host_apim=Enabled:true|Api:OpenAI%20Chat%20Completions:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions|Api:OpenAI%20Responses:false:true:%2Fcl%2Fopenai%2Fv1%2Fchat%2Fcompletions; AbuseDetectedAction=reject; AdministratorOverrideAction=bypass; CapacityCriticalWorkloadAction=increasePriority; CapacityHighPriorityAction=requeue; CapacityConstrainedAction=delay; QueueCriticalPriorityAction=increasePriority; QueueDepthHighAction=requeue; PreferredModelReplacementAction=none; PreferredModelUnavailableAction=reject; LargeContextCapacityAvailableAction=upgradeModel; LargeContextRequestAction=changeModel; CriticalPriorityAction=increasePriority; HighPriorityEntitledTenantAction=increasePriority; TenantEntitlementAction=increaseLimit; GovernanceWorkloadAction=bypass; DefaultAction=none
             """;
         var settings = new TokenomicsSettings();
         Assert.IsTrue(settings.TryParse(raw));
@@ -311,7 +311,7 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.DefaultExceededActions.HourlyBudgetExceededAction);
         Assert.AreEqual(TokenActionEnum.DowngradeModel, settings.PrivilegedExceedActions.HourlyLimitAction);
         Assert.AreEqual(10000, settings.DelayDuration);
-        Assert.AreEqual("Contoso", settings.DefaultTenant);
+        Assert.AreEqual("Contoso", settings.DefaultWorkload);
         Assert.AreEqual("gpt-4o", settings.DefaultModel);
         Assert.AreEqual(string.Empty, settings.DefaultModelAPI);
         Assert.AreEqual(3, settings.ModelCostPerToken.Count);
@@ -824,6 +824,13 @@ public sealed class TokenomicsReplayTests {
             Event("decision-only", "PolicyDecision", action: "Bypass", user: "only-user", tenant: "only-tenant", model: "only-model"),
             Event("decision-only", "RequestOutcome", status: "200", action: "Bypass", user: "only-user", tenant: "only-tenant", model: "only-model")
         };
+        foreach (var index in new[] { 1, 3 }) {
+            var fields = JsonSerializer.Deserialize<Dictionary<string, string>>(records[index])!;
+            fields["Workload"] = fields["Tenant"];
+            fields.Remove("Tenant");
+            if (index == 1) fields["Tenant"] = "ignored-legacy";
+            records[index] = JsonSerializer.Serialize(fields);
+        }
         using var store = new TokenomicsDashboardStore();
         var clock = new ReplayClock();
         using var replay = new TokenomicsEventReplay(TokenomicsReplayOptions.Parse(["--run", "events", WriteFile(string.Join("\n", records))]),
@@ -841,6 +848,13 @@ public sealed class TokenomicsReplayTests {
         Assert.IsTrue(snapshot.Users.Any(user => user.Name == "only-user" && user.Total == "0"));
         Assert.IsTrue(snapshot.Tenants.Contains("only-tenant"));
         Assert.IsTrue(snapshot.Models.Any(model => model.Name == "only-model" && model.Share == "0.0%"));
+        Assert.IsFalse(snapshot.Tenants.Contains("ignored-legacy"));
+        Assert.IsTrue(snapshot.RoutingEvents.All(fields => fields.ContainsKey("Workload")));
+        Assert.IsTrue(snapshot.PolicyDecisions.All(fields => fields.ContainsKey("Workload")));
+        var filtered = store.GetSnapshot(TokenomicsPeriod.Monthly, tenantFilter: "tenant");
+        Assert.AreEqual(1, filtered.PolicyDecisions.Length);
+        Assert.IsFalse(filtered.RoutingEvents.IsEmpty);
+        Assert.IsTrue(filtered.RoutingEvents.All(fields => fields["Workload"] == "tenant"));
     }
 
     [TestMethod]

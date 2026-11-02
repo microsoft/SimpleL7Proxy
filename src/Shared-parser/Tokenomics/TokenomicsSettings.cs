@@ -37,8 +37,8 @@ public class TokenomicsSettings
     public int CriticalPriority { get; set; }=1;
     public int HighPriority { get; set; }=2;
 
-    /// <summary>Gets or sets the tenant used when a request does not provide one.</summary>
-    public string DefaultTenant { get; set; } = "Contoso";
+    /// <summary>Gets or sets the default workload used when a request does not provide one.</summary>
+    public string DefaultWorkload { get; set; } = "Contoso";
 
     /// <summary>Gets or sets the default model name; an empty value leaves it unconfigured.</summary>
     public string DefaultModel { get; set; } = string.Empty;
@@ -694,7 +694,7 @@ public class TokenomicsSettings
                         .Select(field => $"{field.Name}:{FormatScalar(field.GetValue(entry.Value)!)}");
                     parts.Add($"{property.Name}={Uri.EscapeDataString(entry.Model)}={string.Join("|", fields)}");
                 }
-            } else if (property.Name is nameof(DefaultTenant) or nameof(DefaultModel) or nameof(DefaultModelAPI)) {
+            } else if (property.Name is nameof(DefaultWorkload) or nameof(DefaultModel) or nameof(DefaultModelAPI)) {
                 parts.Add($"{property.Name}={Uri.EscapeDataString((string?)property.GetValue(this) ?? string.Empty)}");
             } else if (property.Name == nameof(DelayDuration)) {
                 parts.Add($"{property.Name}={FormatDelayDuration()}");

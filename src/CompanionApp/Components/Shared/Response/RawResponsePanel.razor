@@ -60,6 +60,10 @@
                 {
                     <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@RequestBodyDisplay</pre>
                 }
+                else if (IsActiveTab(LegacyRawTab))
+                {
+                    <pre class="mb-0 raw-text-view" style="white-space: pre-wrap; word-break: break-word;">@ObservedResponse</pre>
+                }
                 else if (IsActiveTab(MarkdownBodyTab))
                 {
                     <pre class="mb-0 raw-markdown-view" style="white-space: pre-wrap; word-break: break-word;">@BodyPreviewText</pre>
@@ -321,6 +325,7 @@
     {
         var tabs = new List<ResponseTab>
         {
+            new(LegacyRawTab, "Raw response"),
             new(TextBodyTab, "Text")
         };
 
@@ -361,15 +366,9 @@
     private string NormalizeActiveTab(string? tab)
     {
         if (string.IsNullOrWhiteSpace(tab) ||
-            string.Equals(tab, LegacyResponseBodyTab, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(tab, LegacyRawTab, StringComparison.OrdinalIgnoreCase))
+            string.Equals(tab, LegacyResponseBodyTab, StringComparison.OrdinalIgnoreCase))
         {
-            return BodyPreviewFormat switch
-            {
-                ResponseDisplayFormat.Html when BodyTabs.Any(item => string.Equals(item.Id, HtmlBodyTab, StringComparison.OrdinalIgnoreCase)) => HtmlBodyTab,
-                ResponseDisplayFormat.Markdown when BodyTabs.Any(item => string.Equals(item.Id, MarkdownBodyTab, StringComparison.OrdinalIgnoreCase)) => MarkdownBodyTab,
-                _ => TextBodyTab
-            };
+            return LegacyRawTab;
         }
 
         return tab;

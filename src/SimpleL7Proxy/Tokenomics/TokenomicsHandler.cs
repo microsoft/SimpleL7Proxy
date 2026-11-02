@@ -150,14 +150,14 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
         var (rulename, action) = await EvaluateAsync(data, c);
 
-        data.Tenant = data.Tenant == "unknown" ? Settings.DefaultTenant : data.Tenant;
+        data.Workload = data.Workload == "unknown" ? Settings.DefaultWorkload : data.Workload;
 
         data.EvaluationSequence++;
 
         data.TokenomicsSummary = new TokenomicsSummaryEvent(
             requestId: data.MID,
             userId: data.UserID,
-            tenant: data.Tenant,
+            workload: data.Workload,
             evaluationSequence: data.EvaluationSequence,
             policyCondition: rulename,
             policyAction: action,

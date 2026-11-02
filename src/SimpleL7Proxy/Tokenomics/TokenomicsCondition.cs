@@ -55,6 +55,10 @@ public sealed class TokenomicsCondition
         AbuseDetected = data.IsAbusive;
         Metric = await lm.GetMetric(data.UserID, data.Model);
 
+        Console.WriteLine($"******  Hourly Input Usage: {Metric.HourlyInputTokens}, Hourly Output Usage: {Metric.HourlyOutputTokens}");
+        Console.WriteLine($"******  Daily Input Usage: {Metric.DailyInputTokens}, Daily Output Usage: {Metric.DailyOutputTokens}");
+        Console.WriteLine($"******  Monthly Input Usage: {Metric.MonthlyInputTokens}, Monthly Output Usage: {Metric.MonthlyOutputTokens}");
+
         // lookup the appropriate limit:  Critical => Premium => Model-specific => Default
         var limits = data.IsCriticalWorkload ? settings.PrivilegedLimitsAndBudgets
             : data.IsPremiumWorkload ? settings.PremiumLimitsAndBudgets
