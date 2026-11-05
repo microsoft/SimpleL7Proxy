@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace SharedParser.Tokenomics.LLM.Formaters;
+namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Anthropic Messages JSON text content.</summary>
 internal sealed class AnthropicMessagesOutput : LLMApiOutput {

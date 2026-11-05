@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace SharedParser.Tokenomics.LLM.Parsers;
+namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Parses Responses SSE responses.</summary>
 public sealed class ResponsesSSEParser : LLMSSEApiParser {

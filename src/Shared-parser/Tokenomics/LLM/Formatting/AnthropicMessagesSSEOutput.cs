@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace SharedParser.Tokenomics.LLM.Formaters;
+namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Anthropic Messages SSE text deltas and final metadata.</summary>
 internal sealed class AnthropicMessagesSSEOutput : LLMApiOutput {

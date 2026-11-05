@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace SharedParser.Tokenomics.LLM.Parsers;
+namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Parses an API response through its preamble, data, and post phases.</summary>
 public abstract class LLMApiParser {

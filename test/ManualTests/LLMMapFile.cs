@@ -3,6 +3,7 @@
 using System.Text;
 using System.Text.Json;
 using SharedParser.Tokenomics.LLM;
+using SharedParser.Tokenomics.LLM.Mapping;
 
 const string usage = """
 Usage:

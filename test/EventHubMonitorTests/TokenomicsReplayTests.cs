@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Tokenomics;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace EventHubMonitorTests;
 

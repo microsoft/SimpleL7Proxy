@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Tokenomics;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SimpleL7Proxy.Test;
 

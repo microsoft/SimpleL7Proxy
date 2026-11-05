@@ -1,9 +1,9 @@
 using System.IO;
 
-using SharedParser.Tokenomics.LLM.Formaters;
-using SharedParser.Tokenomics.LLM.Parsers;
+using SharedParser.Tokenomics.LLM.Formatting;
+using SharedParser.Tokenomics.LLM.Parsing;
 
-namespace SharedParser.Tokenomics.LLM;
+namespace SharedParser.Tokenomics.LLM.Mapping;
 
 public class LLMSSEContentMapper
 {

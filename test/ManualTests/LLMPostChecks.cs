@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using SharedParser.Tokenomics.LLM;
+using SharedParser.Tokenomics.LLM.Mapping;
 
 int checks = 0;
 var formats = Enum.GetValues<LLMApiFormatEnum>();

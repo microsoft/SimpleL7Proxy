@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.Tokenomics.Llm;
+namespace SharedParser.Tokenomics.LLM.Models;
 
 public enum ModelFamily
 {

@@ -1,7 +1,8 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using SharedParser.Tokenomics.LLM.Models;
 
-namespace SimpleL7Proxy.Tokenomics.Llm;
+namespace SharedParser.Tokenomics.LLM.Usage;
 
 public static class LLMHandler
 {

@@ -1,4 +1,4 @@
-namespace SharedParser.Tokenomics.LLM.Parsers;
+namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Handles SSE framing before passing JSON payloads to the token tracker.</summary>
 public abstract class LLMSSEApiParser : LLMApiParser {

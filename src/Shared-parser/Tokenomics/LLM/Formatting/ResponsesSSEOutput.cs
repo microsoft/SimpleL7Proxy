@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text;
 
-namespace SharedParser.Tokenomics.LLM.Formaters;
+namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Responses SSE deltas and closing events with finalized text.</summary>
 internal sealed class ResponsesSSEOutput : LLMApiOutput {

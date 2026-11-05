@@ -2,7 +2,7 @@ using System.Buffers;
 using System.IO;
 using System.Text.Json;
 
-namespace SharedParser.Tokenomics.LLM.Formaters;
+namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes generated text in a selected target API format.</summary>
 internal abstract class LLMApiOutput {

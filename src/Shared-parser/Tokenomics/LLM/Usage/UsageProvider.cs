@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.Tokenomics.Llm;
+namespace SharedParser.Tokenomics.LLM.Usage;
 
 public enum UsageProvider
 {

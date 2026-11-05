@@ -17,7 +17,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Tokenomics;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow

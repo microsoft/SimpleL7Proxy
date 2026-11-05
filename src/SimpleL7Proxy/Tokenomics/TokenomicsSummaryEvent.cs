@@ -2,7 +2,7 @@ using System.Net;
 using System.Globalization;
 using System.Threading;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SimpleL7Proxy.Tokenomics;
 

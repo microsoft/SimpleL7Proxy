@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace SharedParser.Tokenomics.LLM.Parsers;
+namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Extracts Chat Completions text deltas and captures response metadata.</summary>
 public sealed class CompletionSSEParser : LLMSSEApiParser {

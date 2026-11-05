@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace SharedParser.Tokenomics.LLM.Parsers;
+namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Parses Anthropic Messages SSE responses.</summary>
 public sealed class AnthropicMessagesSSEParser : LLMSSEApiParser {

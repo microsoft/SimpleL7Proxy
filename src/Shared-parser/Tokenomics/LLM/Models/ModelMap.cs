@@ -1,7 +1,9 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
+
+namespace SharedParser.Tokenomics.LLM.Models;
 
 public static class ModelMap
 {

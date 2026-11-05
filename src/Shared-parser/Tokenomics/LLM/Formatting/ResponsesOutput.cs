@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace SharedParser.Tokenomics.LLM.Formaters;
+namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Responses JSON output text.</summary>
 internal sealed class ResponsesOutput : LLMApiOutput {
