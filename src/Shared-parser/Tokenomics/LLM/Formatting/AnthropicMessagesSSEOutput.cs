@@ -1,10 +1,11 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Anthropic Messages SSE text deltas and final metadata.</summary>
 internal sealed class AnthropicMessagesSSEOutput : LLMApiOutput {
-    public AnthropicMessagesSSEOutput(Stream outputStream, string targetModel) : base(outputStream, targetModel) { }
+    public AnthropicMessagesSSEOutput(Stream outputStream, ValidModel targetModel) : base(outputStream, targetModel) { }
 
     public override void OutputPre(LLMPreamble preamble) {
         using (var writer = StartEvent("event: message_start\ndata: "u8)) {
@@ -15,7 +16,7 @@ internal sealed class AnthropicMessagesSSEOutput : LLMApiOutput {
                 writer.WriteString("id", messageId);
             }
             writer.WriteString("type", "message");
-            writer.WriteString("model", TargetModel);
+            writer.WriteString("model", TargetModel.Name.Value);
             writer.WriteString("role", preamble.Role ?? "assistant");
             writer.WriteStartArray("content");
             writer.WriteEndArray();
@@ -36,14 +37,14 @@ internal sealed class AnthropicMessagesSSEOutput : LLMApiOutput {
         }
     }
 
-    public override void OutputData(string content) {
+    public override void OutputData(NonNullString content) {
         using var writer = StartEvent("event: content_block_delta\ndata: "u8);
         writer.WriteStartObject();
         writer.WriteString("type", "content_block_delta");
         writer.WriteNumber("index", 0);
         writer.WriteStartObject("delta");
         writer.WriteString("type", "text_delta");
-        writer.WriteString("text", content);
+        writer.WriteString("text", content.Value);
         writer.WriteEndObject();
         writer.WriteEndObject();
         CompleteEvent(writer);

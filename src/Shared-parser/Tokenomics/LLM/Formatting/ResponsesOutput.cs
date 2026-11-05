@@ -1,10 +1,11 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Responses JSON output text.</summary>
 internal sealed class ResponsesOutput : LLMApiOutput {
-    public ResponsesOutput(Stream outputStream, string targetModel) : base(outputStream, targetModel) { }
+    public ResponsesOutput(Stream outputStream, ValidModel targetModel) : base(outputStream, targetModel) { }
 
     public override void OutputPre(LLMPreamble preamble) {
         var writer = StartJson();

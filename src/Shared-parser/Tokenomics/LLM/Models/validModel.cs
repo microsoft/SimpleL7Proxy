@@ -1,0 +1,67 @@
+using System.Diagnostics.CodeAnalysis;
+
+namespace SharedParser.Tokenomics.LLM.Models;
+
+/// <summary>A model name and API format validated once at construction, without a provider lookup.</summary>
+public sealed class ValidModel {
+    /// <summary>Gets the non-empty, non-whitespace model name.</summary>
+    public NonNullString Name { get; }
+
+    /// <summary>Gets the validated API format.</summary>
+    public LLMApiFormatEnum ApiFormat { get; }
+
+    /// <summary>Creates a model with a non-empty name and a defined API format.</summary>
+    public ValidModel(string name, LLMApiFormatEnum apiFormat) {
+        var modelName = new NonNullString(name);
+        if (modelName.Value.AsSpan().IsWhiteSpace()) {
+            throw new ArgumentException("The model name must not be empty or whitespace.", nameof(name));
+        }
+        if (!Enum.IsDefined(apiFormat)) {
+            throw new ArgumentOutOfRangeException(nameof(apiFormat), apiFormat, "Unsupported model API format.");
+        }
+
+        Name = modelName;
+        ApiFormat = apiFormat;
+    }
+
+    private ValidModel(NonNullString name, LLMApiFormatEnum apiFormat) {
+        Name = name;
+        ApiFormat = apiFormat;
+    }
+
+    /// <summary>Parses model.APIFormat without throwing for invalid input.</summary>
+    public static bool TryParse(NonNullString value, [NotNullWhen(true)] out ValidModel? model) {
+        model = null;
+        var input = value.Value.AsSpan();
+        int separator = input.LastIndexOf('.');
+        if (separator <= 0 || separator == input.Length - 1) {
+            return false;
+        }
+
+        var modelName = input[..separator].Trim();
+        var formatName = input[(separator + 1)..].Trim();
+        if (modelName.IsEmpty) {
+            return false;
+        }
+
+        LLMApiFormatEnum apiFormat;
+        if (formatName.Equals("Completions", StringComparison.OrdinalIgnoreCase)
+            || formatName.Equals("OpenAIChatCompletions", StringComparison.OrdinalIgnoreCase)) {
+            apiFormat = LLMApiFormatEnum.OpenAIChatCompletions;
+        }
+        else if (formatName.Equals("Responses", StringComparison.OrdinalIgnoreCase)
+            || formatName.Equals("OpenAIResponses", StringComparison.OrdinalIgnoreCase)) {
+            apiFormat = LLMApiFormatEnum.OpenAIResponses;
+        }
+        else if (formatName.Equals("Messages", StringComparison.OrdinalIgnoreCase)
+            || formatName.Equals("AnthropicMessages", StringComparison.OrdinalIgnoreCase)) {
+            apiFormat = LLMApiFormatEnum.AnthropicMessages;
+        }
+        else {
+            return false;
+        }
+
+        model = new ValidModel(new NonNullString(modelName.ToString()), apiFormat);
+        return true;
+    }
+}

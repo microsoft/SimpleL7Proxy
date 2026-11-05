@@ -1,4 +1,5 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
@@ -6,7 +7,7 @@ namespace SharedParser.Tokenomics.LLM.Formatting;
 internal sealed class CompletionSSEOutput : LLMApiOutput {
     private LLMPreamble _preamble = new();
 
-    public CompletionSSEOutput(Stream outputStream, string targetModel) : base(outputStream, targetModel) { }
+    public CompletionSSEOutput(Stream outputStream, ValidModel targetModel) : base(outputStream, targetModel) { }
 
     public override void OutputPre(LLMPreamble preamble) {
         _preamble = preamble;
@@ -18,7 +19,7 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
         if (preamble.CreatedAt is long createdAt) {
             writer.WriteNumber("created", createdAt);
         }
-        writer.WriteString("model", TargetModel);
+        writer.WriteString("model", TargetModel.Name.Value);
         writer.WriteString("object", "chat.completion.chunk");
         writer.WriteStartArray("choices");
         writer.WriteStartObject();
@@ -33,7 +34,7 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
         CompleteEvent(writer);
     }
 
-    public override void OutputData(string content) {
+    public override void OutputData(NonNullString content) {
         using var writer = StartEvent("data: "u8);
         writer.WriteStartObject();
         if ((_preamble.ResponseId ?? _preamble.MessageId) is string responseId) {
@@ -42,13 +43,13 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
         if (_preamble.CreatedAt is long createdAt) {
             writer.WriteNumber("created", createdAt);
         }
-        writer.WriteString("model", TargetModel);
+        writer.WriteString("model", TargetModel.Name.Value);
         writer.WriteString("object", "chat.completion.chunk");
         writer.WriteStartArray("choices");
         writer.WriteStartObject();
         writer.WriteNumber("index", 0);
         writer.WriteStartObject("delta");
-        writer.WriteString("content", content);
+        writer.WriteString("content", content.Value);
         writer.WriteEndObject();
         writer.WriteEndObject();
         writer.WriteEndArray();
@@ -63,7 +64,7 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
             if ((postamble.CreatedAt ?? preamble.CreatedAt) is long createdAt) {
                 writer.WriteNumber("created", createdAt);
             }
-            writer.WriteString("model", TargetModel);
+            writer.WriteString("model", TargetModel.Name.Value);
             writer.WriteString("object", "chat.completion.chunk");
             writer.WriteStartArray("choices");
             writer.WriteStartObject();
@@ -83,7 +84,7 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
             if ((postamble.CreatedAt ?? preamble.CreatedAt) is long createdAt) {
                 writer.WriteNumber("created", createdAt);
             }
-            writer.WriteString("model", TargetModel);
+            writer.WriteString("model", TargetModel.Name.Value);
             writer.WriteString("object", "chat.completion.chunk");
             writer.WriteStartArray("choices");
             writer.WriteEndArray();
@@ -91,6 +92,6 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
             writer.WriteEndObject();
             CompleteEvent(writer);
         }
-        OutputStream.Write("data: [DONE]\n\n"u8);
+        WriteFraming("data: [DONE]\n\n"u8);
     }
 }

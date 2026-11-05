@@ -1,10 +1,11 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Anthropic Messages JSON text content.</summary>
 internal sealed class AnthropicMessagesOutput : LLMApiOutput {
-    public AnthropicMessagesOutput(Stream outputStream, string targetModel) : base(outputStream, targetModel) { }
+    public AnthropicMessagesOutput(Stream outputStream, ValidModel targetModel) : base(outputStream, targetModel) { }
 
     public override void OutputPre(LLMPreamble preamble) {
         var writer = StartJson();

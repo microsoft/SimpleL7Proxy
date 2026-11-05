@@ -1,10 +1,11 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes Chat Completions JSON text content.</summary>
 internal sealed class CompletionOutput : LLMApiOutput {
-    public CompletionOutput(Stream outputStream, string targetModel) : base(outputStream, targetModel) { }
+    public CompletionOutput(Stream outputStream, ValidModel targetModel) : base(outputStream, targetModel) { }
 
     public override void OutputPre(LLMPreamble preamble) {
         var writer = StartJson();

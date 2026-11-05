@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SimpleL7Proxy.StreamProcessor;
+using SharedParser;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace StreamingMicroService;
 
@@ -30,30 +32,50 @@ public class process
     [Function("process")]
     public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post")] HttpRequest req)
     {
-        var url = req.Query["url"].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        var url = new NonNullString(req.Query["url"].FirstOrDefault() ?? string.Empty);
+        if (!Uri.TryCreate(url.Value, UriKind.Absolute, out var uri))
             return new BadRequestObjectResult("Missing or invalid 'url' query parameter.");
 
-        _logger.LogInformation("Streaming from {Url}", url);
+        var explicitProcessor = new NonNullString(req.Query["processor"].FirstOrDefault() ?? string.Empty);
+        ValidModel? validatedSourceModel = null;
+        ValidModel? validatedTargetModel = null;
+        if (req.Query.ContainsKey("sourceModel") || req.Query.ContainsKey("targetModel"))
+        {
+            var sourceModel = new NonNullString(req.Query["sourceModel"].FirstOrDefault() ?? string.Empty);
+            var targetModel = new NonNullString(req.Query["targetModel"].FirstOrDefault() ?? string.Empty);
+
+            if (!ValidModel.TryParse(sourceModel, out validatedSourceModel)
+                || !ValidModel.TryParse(targetModel, out validatedTargetModel))
+            {
+                validatedSourceModel = null;
+                validatedTargetModel = null;
+                _logger.LogDebug("'sourceModel' and 'targetModel' must be valid model.APIFormat values. Using normal stream processing.");
+            }
+        }
+
+        _logger.LogInformation("Streaming from {Url}", url.Value);
 
         using var upstreamResponse = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
         upstreamResponse.EnsureSuccessStatusCode();
 
-        var mediaType = upstreamResponse.Content.Headers.ContentType?.MediaType ?? string.Empty;
-        var explicitProcessor = req.Query["processor"].FirstOrDefault();
-        var sourceModel = req.Query["sourceModel"].FirstOrDefault();
-        var targetModel = req.Query["targetModel"].FirstOrDefault();
-        var processorName = !string.IsNullOrWhiteSpace(explicitProcessor)
+        var mediaType = new NonNullString(upstreamResponse.Content.Headers.ContentType?.MediaType ?? string.Empty);
+        var processorName = !explicitProcessor.Value.AsSpan().IsWhiteSpace()
             ? explicitProcessor
-            : StreamProcessorFactory.DetermineStreamProcessor(upstreamResponse, mediaType);
+            : new NonNullString(StreamProcessorFactory.DetermineStreamProcessor(upstreamResponse, mediaType.Value));
 
-        var processor = _processorFactory.GetStreamProcessor(processorName, out var resolvedName);
+        var streaming = mediaType.Value.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase);
+        string resolvedName;
+        var processor = validatedSourceModel is not null && validatedTargetModel is not null
+            ? _processorFactory.GetStreamProcessor(processorName.Value, validatedSourceModel, validatedTargetModel, out resolvedName, streaming)
+            : _processorFactory.GetStreamProcessor(processorName.Value, out resolvedName);
         _logger.LogInformation("Using stream processor: {Processor}", resolvedName);
 
         req.HttpContext.Response.ContentType =
-            upstreamResponse.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+            resolvedName == "ModelMapping"
+                ? streaming ? "text/event-stream; charset=utf-8" : "application/json; charset=utf-8"
+                : upstreamResponse.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
 
-        await processor.CopyToAsync(upstreamResponse.Content, req.HttpContext.Response.Body);
+        await processor.CopyToAsync(upstreamResponse.Content, req.HttpContext.Response.Body, debug: false);
 
         var stats = new Dictionary<string, string>(_baseStats);
         processor.GetStats(stats, upstreamResponse.Headers);

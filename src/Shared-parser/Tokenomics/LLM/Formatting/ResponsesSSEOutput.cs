@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
@@ -9,7 +10,7 @@ internal sealed class ResponsesSSEOutput : LLMApiOutput {
     private string? _messageId;
     private readonly StringBuilder _content = new();
 
-    public ResponsesSSEOutput(Stream outputStream, string targetModel) : base(outputStream, targetModel) { }
+    public ResponsesSSEOutput(Stream outputStream, ValidModel targetModel) : base(outputStream, targetModel) { }
 
     public override void OutputPre(LLMPreamble preamble) {
         _messageId = preamble.MessageId;
@@ -26,7 +27,7 @@ internal sealed class ResponsesSSEOutput : LLMApiOutput {
                 writer.WriteNumber("created_at", createdAt);
             }
             writer.WriteString("object", "response");
-            writer.WriteString("model", TargetModel);
+            writer.WriteString("model", TargetModel.Name.Value);
             writer.WriteString("status", "in_progress");
             writer.WriteStartArray("output");
             writer.WriteEndArray();
@@ -72,8 +73,8 @@ internal sealed class ResponsesSSEOutput : LLMApiOutput {
         }
     }
 
-    public override void OutputData(string content) {
-        _content.Append(content);
+    public override void OutputData(NonNullString content) {
+        _content.Append(content.Value);
         using var writer = StartEvent("event: response.output_text.delta\ndata: "u8);
         writer.WriteStartObject();
         writer.WriteString("type", "response.output_text.delta");
@@ -83,7 +84,7 @@ internal sealed class ResponsesSSEOutput : LLMApiOutput {
         if (_messageId is not null) {
             writer.WriteString("item_id", _messageId);
         }
-        writer.WriteString("delta", content);
+        writer.WriteString("delta", content.Value);
         writer.WriteEndObject();
         CompleteEvent(writer);
     }
@@ -114,7 +115,7 @@ internal sealed class ResponsesSSEOutput : LLMApiOutput {
                         writer.WriteNumber("created_at", createdAt);
                     }
                     writer.WriteString("object", "response");
-                    writer.WriteString("model", TargetModel);
+                    writer.WriteString("model", TargetModel.Name.Value);
                     writer.WriteString("status", status);
                     WriteUsage(writer, postamble, LLMApiFormatEnum.OpenAIResponses);
                     if (status == "incomplete") {

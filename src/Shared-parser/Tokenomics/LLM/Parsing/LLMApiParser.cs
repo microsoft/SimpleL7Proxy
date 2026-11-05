@@ -1,12 +1,13 @@
 using System.Text;
 using System.Text.Json;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Parses an API response through its preamble, data, and post phases.</summary>
 public abstract class LLMApiParser {
     /// <summary>Processes a line and returns the processor for the next line.</summary>
-    public delegate LineProcessor LineProcessor(string line);
+    public delegate LineProcessor LineProcessor(NonNullString line);
 
     /// <summary>Gets the current processing state.</summary>
     public LLMParserStateEnum ParserState { get; private set; } = LLMParserStateEnum.Pre;
@@ -31,7 +32,7 @@ public abstract class LLMApiParser {
     protected virtual bool IsContentContext => true;
     protected virtual bool IsContentCollectionEnd => Containers.Count == 2 && Containers[^1].IsArray;
     protected virtual bool CompletesAtRoot => true;
-    protected Action<string>? ContentWriter => ParserState == LLMParserStateEnum.Data ? WriteContent : null;
+    protected Action<NonNullString>? ContentWriter => ParserState == LLMParserStateEnum.Data ? WriteContent : null;
 
     private readonly List<string> _preLines = new();
     private bool _capturePreLines;
@@ -39,7 +40,7 @@ public abstract class LLMApiParser {
     private readonly LineProcessor _parsePre;
     private readonly LineProcessor _parseData;
     private readonly LineProcessor _parsePost;
-    private Action<string>? _output;
+    private Action<NonNullString>? _output;
     private byte[] _pendingBytes = new byte[4096];
     private int _pendingCount;
     private JsonReaderState _readerState;
@@ -55,28 +56,27 @@ public abstract class LLMApiParser {
         _parsePost = ParsePost;
     }
 
-    internal static LLMApiParser Create(LLMApiFormatEnum sourceFormat, bool streaming, bool capturePreLines = false) {
-        LLMApiParser parser = (sourceFormat, streaming) switch {
+    internal static LLMApiParser Create(ValidModel sourceModel, bool streaming, bool capturePreLines = false) {
+        LLMApiParser parser = (sourceModel.ApiFormat, streaming) switch {
             (LLMApiFormatEnum.OpenAIChatCompletions, false) => new CompletionParser(),
             (LLMApiFormatEnum.OpenAIChatCompletions, true) => new CompletionSSEParser(),
             (LLMApiFormatEnum.OpenAIResponses, false) => new ResponsesParser(),
             (LLMApiFormatEnum.OpenAIResponses, true) => new ResponsesSSEParser(),
             (LLMApiFormatEnum.AnthropicMessages, false) => new AnthropicMessagesParser(),
             (LLMApiFormatEnum.AnthropicMessages, true) => new AnthropicMessagesSSEParser(),
-        _ => throw new ArgumentOutOfRangeException(nameof(sourceFormat), sourceFormat, "Unsupported source API format.")
+        _ => throw new NotSupportedException("No parser is registered for the validated source API format.")
         };
         parser._capturePreLines = capturePreLines;
         return parser;
     }
 
     /// <summary>Processes one physical line without its line terminator.</summary>
-    public LineProcessor ParsePre(string line) {
-        ArgumentNullException.ThrowIfNull(line);
+    public LineProcessor ParsePre(NonNullString line) {
         if (ParserState != LLMParserStateEnum.Pre) {
             throw new InvalidOperationException("The parser is not in the pre phase.");
         }
         if (_capturePreLines) {
-            _preLines.Add(line);
+            _preLines.Add(line.Value);
             _preSnapshot = null;
         }
         _lineIndex++;
@@ -96,7 +96,7 @@ public abstract class LLMApiParser {
         return _parseData;
     }
 
-    internal LineProcessor ResumeData(Action<string> writeContent) {
+    internal LineProcessor ResumeData(Action<NonNullString> writeContent) {
         ArgumentNullException.ThrowIfNull(writeContent);
         if (ParserState != LLMParserStateEnum.Data || _candidateContent is null) {
             throw new InvalidOperationException("No content is available for the data handoff.");
@@ -107,15 +107,14 @@ public abstract class LLMApiParser {
         _candidateContent = null;
         _candidateLineIndex = -1;
         _candidateOffset = -1;
-        WriteContent(content);
+        WriteContent(new NonNullString(content));
         ProcessJson(ReadOnlySpan<char>.Empty, 0, writeContent: WriteContent);
         Array.Resize(ref _pendingBytes, _pendingCount);
         return ParserState == LLMParserStateEnum.Post ? _parsePost : _parseData;
     }
 
     /// <summary>Parses generated content and returns the next phase processor.</summary>
-    public LineProcessor ParseData(string line) {
-        ArgumentNullException.ThrowIfNull(line);
+    public LineProcessor ParseData(NonNullString line) {
         if (ParserState != LLMParserStateEnum.Data || _output is null || _candidateContent is not null) {
             throw new InvalidOperationException("The data handoff must be completed before parsing data.");
         }
@@ -123,11 +122,10 @@ public abstract class LLMApiParser {
         return ParserState == LLMParserStateEnum.Post ? _parsePost : _parseData;
     }
 
-    protected virtual void ProcessPayload(string line) => ProcessJson(line.AsSpan(), 0, writeContent: ContentWriter);
+    protected virtual void ProcessPayload(NonNullString line) => ProcessJson(line.Value.AsSpan(), 0, writeContent: ContentWriter);
 
     /// <summary>Parses final metadata and returns the post processor.</summary>
-    public LineProcessor ParsePost(string line) {
-        ArgumentNullException.ThrowIfNull(line);
+    public LineProcessor ParsePost(NonNullString line) {
         if (ParserState != LLMParserStateEnum.Post) {
             throw new InvalidOperationException("The parser is not in the post phase.");
         }
@@ -158,7 +156,7 @@ public abstract class LLMApiParser {
         _pendingBytes = Array.Empty<byte>();
     }
 
-    private void WriteContent(string content) {
+    private void WriteContent(NonNullString content) {
         (_output ?? throw new InvalidOperationException("No data output callback has been installed."))(content);
     }
 
@@ -266,7 +264,7 @@ public abstract class LLMApiParser {
         _readerState = default;
     }
 
-    protected void ProcessJson(ReadOnlySpan<char> payload, int valueOffset, bool finalBlock = false, Action<string>? writeContent = null) {
+    protected void ProcessJson(ReadOnlySpan<char> payload, int valueOffset, bool finalBlock = false, Action<NonNullString>? writeContent = null) {
         int previousCount = _pendingCount;
         int requiredCapacity = checked(previousCount + Encoding.UTF8.GetByteCount(payload) + (finalBlock ? 0 : 1));
         if (_pendingBytes.Length < requiredCapacity) {
@@ -323,7 +321,7 @@ public abstract class LLMApiParser {
                     ObserveStringValue(ref reader);
                     if (ParserState == LLMParserStateEnum.Data && writeContent is not null) {
                         if (IsContentValue(ref reader) && IsContentContext) {
-                            writeContent(reader.GetString()!);
+                            writeContent(new NonNullString(reader.GetString()!));
                         }
                     }
                     else if (ParserState == LLMParserStateEnum.Pre && reader.ValueSpan.Length > 0) {

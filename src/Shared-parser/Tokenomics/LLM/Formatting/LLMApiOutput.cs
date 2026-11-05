@@ -1,40 +1,49 @@
 using System.Buffers;
 using System.IO;
 using System.Text.Json;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
 
 /// <summary>Writes generated text in a selected target API format.</summary>
 internal abstract class LLMApiOutput {
     protected readonly Stream OutputStream;
-    protected readonly string TargetModel;
+    protected readonly ValidModel TargetModel;
     protected Utf8JsonWriter? Writer;
     private readonly ArrayBufferWriter<byte> _buffer = new();
 
-    protected LLMApiOutput(Stream outputStream, string targetModel) {
+    protected LLMApiOutput(Stream outputStream, ValidModel targetModel) {
         OutputStream = outputStream;
         TargetModel = targetModel;
     }
 
-    internal static LLMApiOutput Create(LLMApiFormatEnum format, bool streaming, Stream outputStream, string targetModel) => (format, streaming) switch {
+    internal static LLMApiOutput Create(ValidModel targetModel, bool streaming, Stream outputStream) => (targetModel.ApiFormat, streaming) switch {
         (LLMApiFormatEnum.OpenAIChatCompletions, false) => new CompletionOutput(outputStream, targetModel),
         (LLMApiFormatEnum.OpenAIChatCompletions, true) => new CompletionSSEOutput(outputStream, targetModel),
         (LLMApiFormatEnum.OpenAIResponses, false) => new ResponsesOutput(outputStream, targetModel),
         (LLMApiFormatEnum.OpenAIResponses, true) => new ResponsesSSEOutput(outputStream, targetModel),
         (LLMApiFormatEnum.AnthropicMessages, false) => new AnthropicMessagesOutput(outputStream, targetModel),
         (LLMApiFormatEnum.AnthropicMessages, true) => new AnthropicMessagesSSEOutput(outputStream, targetModel),
-        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported target API format.")
+        _ => throw new NotSupportedException("No writer is registered for the validated target API format.")
     };
 
     public abstract void OutputPre(LLMPreamble preamble);
 
-    public virtual void OutputData(string content) => Writer!.WriteStringValueSegment(content.AsSpan(), false);
+    public virtual void OutputData(NonNullString content) => Writer!.WriteStringValueSegment(content.Value.AsSpan(), false);
 
     public virtual void DrainSerializedBytes() {
         Writer?.Flush();
         if (_buffer.WrittenCount > 0) {
             OutputStream.Write(_buffer.WrittenSpan);
-            _buffer.Clear();
+            _buffer.ResetWrittenCount();
+        }
+    }
+
+    public async ValueTask DrainSerializedBytesAsync() {
+        Writer?.Flush();
+        if (_buffer.WrittenCount > 0) {
+            await OutputStream.WriteAsync(_buffer.WrittenMemory).ConfigureAwait(false);
+            _buffer.ResetWrittenCount();
         }
     }
 
@@ -93,7 +102,7 @@ internal abstract class LLMApiOutput {
     protected Utf8JsonWriter StartJson() {
         Writer = new Utf8JsonWriter(_buffer);
         Writer.WriteStartObject();
-        Writer.WriteString("model", TargetModel);
+        Writer.WriteString("model", TargetModel.Name.Value);
         return Writer;
     }
 
@@ -101,17 +110,20 @@ internal abstract class LLMApiOutput {
         Writer!.WriteEndObject();
         Writer.Dispose();
         Writer = null;
-        DrainSerializedBytes();
     }
 
     protected Utf8JsonWriter StartEvent(ReadOnlySpan<byte> prefix) {
-        OutputStream.Write(prefix);
+        WriteFraming(prefix);
         return new Utf8JsonWriter(_buffer);
     }
 
     protected void CompleteEvent(Utf8JsonWriter writer) {
         writer.Dispose();
-        DrainSerializedBytes();
-        OutputStream.Write("\n\n"u8);
+        WriteFraming("\n\n"u8);
+    }
+
+    protected void WriteFraming(ReadOnlySpan<byte> bytes) {
+        bytes.CopyTo(_buffer.GetSpan(bytes.Length));
+        _buffer.Advance(bytes.Length);
     }
 }

@@ -31,11 +31,12 @@ public abstract class LLMSSEApiParser : LLMApiParser {
         base.Complete();
     }
 
-    protected override void ProcessPayload(string line) {
+    protected override void ProcessPayload(NonNullString line) {
         if (Postamble.Status == "failed") {
             throw new IOException("The source response stream failed.");
         }
-        if (line.Length == 0) {
+        var payload = line.Value.AsSpan();
+        if (payload.Length == 0) {
             if (_hasEventData) {
                 CompleteJsonEvent();
                 _hasEventData = false;
@@ -48,16 +49,16 @@ public abstract class LLMSSEApiParser : LLMApiParser {
             return;
         }
 
-        int separator = line.IndexOf(':');
+        int separator = payload.IndexOf(':');
         if (separator <= 0) {
             return;
         }
-        var field = line.AsSpan(0, separator);
+        var field = payload[..separator];
         int valueOffset = separator + 1;
-        if (valueOffset < line.Length && line[valueOffset] == ' ') {
+        if (valueOffset < payload.Length && payload[valueOffset] == ' ') {
             valueOffset++;
         }
-        var value = line.AsSpan(valueOffset);
+        var value = payload[valueOffset..];
         if (field.SequenceEqual("event")) {
             if (value.SequenceEqual("response.failed") || value.SequenceEqual("error")) {
                 Postamble.Status = "failed";
