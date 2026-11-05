@@ -109,6 +109,7 @@
     { "id": "claude-haiku-5-5", "provider": "Anthropic", "displayName": "Claude Haiku 5.5", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-fable-5-1", "provider": "Anthropic", "displayName": "Claude Fable 5.1", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-opus-4-8", "provider": "Anthropic", "displayName": "Claude Opus 4.8", "apis": [ "anthropic-messages", "openai-chat" ] },
+    { "id": "claude-opus-4.5", "provider": "Anthropic", "displayName": "Claude Opus 4.5", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-opus-4-1-20250805", "provider": "Anthropic", "displayName": "Claude Opus 4.1", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-sonnet-4-5-20250929", "provider": "Anthropic", "displayName": "Claude Sonnet 4.5", "apis": [ "anthropic-messages", "openai-chat" ] },
     { "id": "claude-haiku-4-5-20251001", "provider": "Anthropic", "displayName": "Claude Haiku 4.5", "apis": [ "anthropic-messages", "openai-chat" ] },

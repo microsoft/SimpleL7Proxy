@@ -41,6 +41,8 @@ public class process
 
         var mediaType = upstreamResponse.Content.Headers.ContentType?.MediaType ?? string.Empty;
         var explicitProcessor = req.Query["processor"].FirstOrDefault();
+        var sourceModel = req.Query["sourceModel"].FirstOrDefault();
+        var targetModel = req.Query["targetModel"].FirstOrDefault();
         var processorName = !string.IsNullOrWhiteSpace(explicitProcessor)
             ? explicitProcessor
             : StreamProcessorFactory.DetermineStreamProcessor(upstreamResponse, mediaType);

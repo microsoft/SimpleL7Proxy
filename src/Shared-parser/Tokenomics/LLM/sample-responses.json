@@ -1,0 +1,55 @@
+{
+	"id": "resp_sample_001",
+	"object": "response",
+	"created_at": 1735689600,
+	"status": "completed",
+	"error": null,
+	"incomplete_details": null,
+	"instructions": null,
+	"max_output_tokens": 256,
+	"model": "gpt-4.1-2025-04-14",
+	"output": [
+		{
+			"id": "msg_sample_001",
+			"type": "message",
+			"status": "completed",
+			"role": "assistant",
+			"content": [
+				{
+					"type": "output_text",
+					"text": "Hello! How can I help you today?",
+					"annotations": []
+				}
+			]
+		}
+	],
+	"parallel_tool_calls": true,
+	"previous_response_id": null,
+	"reasoning": {
+		"effort": null,
+		"summary": null
+	},
+	"store": false,
+	"temperature": 1,
+	"text": {
+		"format": {
+			"type": "text"
+		}
+	},
+	"tool_choice": "auto",
+	"tools": [],
+	"top_p": 1,
+	"truncation": "disabled",
+	"usage": {
+		"input_tokens": 100,
+		"input_tokens_details": {
+			"cached_tokens": 20
+		},
+		"output_tokens": 25,
+		"output_tokens_details": {
+			"reasoning_tokens": 0
+		},
+		"total_tokens": 125
+	},
+	"metadata": {}
+}

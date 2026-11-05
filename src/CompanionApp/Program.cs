@@ -58,7 +58,7 @@ internal static partial class Program
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(options => options.FormatterName = "custom");
         builder.Logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
-        CompanionAppStartup.AddModelConfigFiles(builder);
+        await CompanionAppStartup.AddModelConfigFiles(builder);
         StartupDI(builder, replayOptions, uiOnly);
         var app = builder.Build();
         if (uiOnly)

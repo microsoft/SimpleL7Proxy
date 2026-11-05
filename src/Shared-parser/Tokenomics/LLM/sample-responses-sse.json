@@ -1,0 +1,350 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_075b13961888091d006ae8e84fa22c81958caac36bb14841ed","object":"response","created_at":1793648719,"status":"in_progress","access_programs":null,"background":false,"completed_at":null,"content_filters":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"You are a helpful assistant.","max_output_tokens":1024,"max_tool_calls":null,"model":"gpt-4o","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"in_memory","reasoning":{"context":null,"effort":null,"summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":0.7,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_075b13961888091d006ae8e84fa22c81958caac36bb14841ed","object":"response","created_at":1793648719,"status":"in_progress","access_programs":null,"background":false,"completed_at":null,"content_filters":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"You are a helpful assistant.","max_output_tokens":1024,"max_tool_calls":null,"model":"gpt-4o","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"in_memory","reasoning":{"context":null,"effort":null,"summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":0.7,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","type":"message","status":"in_progress","content":[],"role":"assistant"},"output_index":0,"sequence_number":2}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""},"sequence_number":3}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"**","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"lvthWWyGhfJN4G","output_index":0,"sequence_number":4}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"AI","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"33MLf3huijZU1B","output_index":0,"sequence_number":5}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Manifest","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"xNuU2e5","output_index":0,"sequence_number":6}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"o","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"mJwDJDuCbowVGpZ","output_index":0,"sequence_number":7}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":":","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"emiL3Xk7YwRikUx","output_index":0,"sequence_number":8}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Principles","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"I0B2N","output_index":0,"sequence_number":9}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" for","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"UyHuO2fxkROz","output_index":0,"sequence_number":10}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Responsible","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"h0QW","output_index":0,"sequence_number":11}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" AI","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Pr1n8hZBvezVn","output_index":0,"sequence_number":12}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Development","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"nLy4","output_index":0,"sequence_number":13}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"vLXl1sI5IEYy","output_index":0,"sequence_number":14}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Deployment","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"ReRzd","output_index":0,"sequence_number":15}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"**\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"K3nmDI0r3iNZ","output_index":0,"sequence_number":16}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"Artificial","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"esytTf","output_index":0,"sequence_number":17}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Intelligence","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"2zB","output_index":0,"sequence_number":18}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" (","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"uOi3Zsv1gGeTND","output_index":0,"sequence_number":19}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"AI)","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"R6PdH5b28zE5H","output_index":0,"sequence_number":20}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" holds the","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"4ChnzT","output_index":0,"sequence_number":21}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" potential to","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Ivn","output_index":0,"sequence_number":22}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" revolutionize","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Cd","output_index":0,"sequence_number":23}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" society,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"ja3AFfc","output_index":0,"sequence_number":24}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" transform industries","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"gshiyN3wzsO","output_index":0,"sequence_number":25}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":", and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"XOJWEqPQmNA","output_index":0,"sequence_number":26}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" address global challenges","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Kl53p0","output_index":0,"sequence_number":27}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":". However,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"YcynZ0","output_index":0,"sequence_number":28}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" with this transformative","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"ZztBwft","output_index":0,"sequence_number":29}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" power comes great","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"j4dv3au9Wr4b4S","output_index":0,"sequence_number":30}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" responsibility. This","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"YngwkDf35Df","output_index":0,"sequence_number":31}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" manifesto outlines the","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"KAIEOIEvY","output_index":0,"sequence_number":32}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" principles, values,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"ESxIRNd1E8zd","output_index":0,"sequence_number":33}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and commitments that should","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"0phN","output_index":0,"sequence_number":34}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" guide the development,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"3ZOwSwkpr","output_index":0,"sequence_number":35}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" deployment, and use of","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"AAhe0UhN0","output_index":0,"sequence_number":36}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" AI to ensure it serves","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"kJKCLuRwp","output_index":0,"sequence_number":37}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" humanity ethically, equit","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"WfE11w","output_index":0,"sequence_number":38}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"ably, and sustainably.\n\n---\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"c6G","output_index":0,"sequence_number":39}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"### **1","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Lqdlm7xPf","output_index":0,"sequence_number":40}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":". Human-Centric Design**\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"9mBTbWM","output_index":0,"sequence_number":41}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"AI systems should be designed to empower","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"crPYJQaA","output_index":0,"sequence_number":42}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"RO3WHNRqxWhj","output_index":0,"sequence_number":43}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" augment human capabilities. They must respect","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Jb","output_index":0,"sequence_number":44}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" human dignity, rights, and autonomy","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"cpoZwUQIpVVj","output_index":0,"sequence_number":45}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":", prioritizing people’s well-being above","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"g03LaDEA","output_index":0,"sequence_number":46}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" all else.\n\n- **Empowerment:**","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"bR","output_index":0,"sequence_number":47}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" AI should assist humans in making","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"HjwS9zYUD8EC47","output_index":0,"sequence_number":48}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" better decisions, solving complex problems, and enhancing creativity","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"8l7rWBzVN2d","output_index":0,"sequence_number":49}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":".\n- **Autonomy","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Gs","output_index":0,"sequence_number":50}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":":** AI should not coerce, manipulate, or undermine","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"AegJWcuERTGT98","output_index":0,"sequence_number":51}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" an individual’s ability","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"AiKnr31p","output_index":0,"sequence_number":52}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" to make free and informed choices.\n\n---\n\n### **2.","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"yyttN2oDjcMDH9","output_index":0,"sequence_number":53}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Ethical Responsibility**\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"w1kQcn","output_index":0,"sequence_number":54}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"AI developers, organizations, and stakeholders must adhere to the highest","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"EvrbK5O","output_index":0,"sequence_number":55}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" ethical standards at","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"D11aCC4BxUq","output_index":0,"sequence_number":56}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" every stage of an AI system's lifecycle.\n\n- **Transparency:**","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"yd","output_index":0,"sequence_number":57}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" AI systems","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Fwen3","output_index":0,"sequence_number":58}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and their decision-making processes must be explainable and intelligible to users.\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"nk3VrYRz5oKj","output_index":0,"sequence_number":59}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"- **Accountability:** Developers and organizations must take responsibility for the outcomes","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"nZSg","output_index":0,"sequence_number":60}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"d4fGwF7m2nZH","output_index":0,"sequence_number":61}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" impacts of their AI systems, ensuring mechanisms for redress in case of","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"hr5BbHwY","output_index":0,"sequence_number":62}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" harm.\n- **Fairness:** AI must be free from biases, discrimination, or","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"H1WI66qGiU","output_index":0,"sequence_number":63}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" unfair treatment of individuals or groups.\n\n---\n\n### **3. Inclusivity","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"h5lUDmII6L","output_index":0,"sequence_number":64}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and Accessibility**\nAI should serve everyone, regardless of socioeconomic status, gender, ethnicity, geography","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"0","output_index":0,"sequence_number":65}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":", or ability.\n\n- **Global Representation:** Diverse voices and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"w4","output_index":0,"sequence_number":66}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" perspectives must be included in the design and governance of AI.\n- **Accessibility:** AI","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"817Ena","output_index":0,"sequence_number":67}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" systems should be designed to be usable by individuals with varying abilities, ensuring equitable access to their benefits.\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Vh","output_index":0,"sequence_number":68}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"---\n\n### **4. Privacy and Security**\nAI must prioritize user privacy","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"qH1zyxNlyBFR","output_index":0,"sequence_number":69}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and data security at all times, ensuring that individuals retain control over their personal","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"AFi","output_index":0,"sequence_number":70}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" information.\n\n- **Data Protection:** AI systems must adhere to strict data protection and privacy laws,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"EvUn8ZfJ","output_index":0,"sequence_number":71}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" ensuring data is collected, stored, and used responsibly.\n-","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"kYu2","output_index":0,"sequence_number":72}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" **Security:** Robust measures must be in place to prevent misuse, hacking, or malicious exploitation of AI systems.\n\n---\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"VXmWN","output_index":0,"sequence_number":73}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"### **5. Sustainability**\nAI development must align with the goals of environmental sustainability","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Vl4kKblZUNAIQG","output_index":0,"sequence_number":74}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" and contribute to solving global challenges like climate change, resource scarcity, and ecological degradation.\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Hy5KSwno0UfPXI","output_index":0,"sequence_number":75}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"- **Green AI:** AI systems should be designed with energy efficiency in mind to minimize their carbon footprint.\n-","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"jow6xsv5skQTCX","output_index":0,"sequence_number":76}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" **Global Good:** Resources should be allocated to AI projects that","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"LWgXKeqiDxi7X","output_index":0,"sequence_number":77}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" address pressing global issues, such as poverty reduction, education, and healthcare.\n\n---\n\n###","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"","output_index":0,"sequence_number":78}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" **6. Collaboration and Open Innovation**\nThe AI community must foster a culture","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"","output_index":0,"sequence_number":79}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" of collaboration, transparency, and shared knowledge to accelerate innovation and ensure","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"70ZqLug","output_index":0,"sequence_number":80}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" its benefits are widespread.\n\n- **Open Research:** Encourage the sharing of research","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"t7wsI9ONDlI","output_index":0,"sequence_number":81}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":", tools, and best practices to democratize AI development.\n- **","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"B","output_index":0,"sequence_number":82}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"Cross-Sector Collaboration:** Governments, academia, industry, and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Zqz1SNlJNQV1pK","output_index":0,"sequence_number":83}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" civil society must work together to establish norms, standards, and","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"9gX72CBf436o","output_index":0,"sequence_number":84}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" regulations for AI.\n\n---\n\n### **7. Safety and Reliability**\nAI systems must","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"6uAe","output_index":0,"sequence_number":85}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" be rigorously tested to ensure","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"j","output_index":0,"sequence_number":86}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" they operate reliably, safely, and as intended in all contexts.\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"QsFFV1w5qLmovr","output_index":0,"sequence_number":87}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"- **Robustness:** AI should be resilient to errors, adversarial attacks, and unexpected inputs.\n-","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"oyj0Byn4N3DOnIT","output_index":0,"sequence_number":88}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" **Continuous Monitoring:** Systems must be regularly updated and monitored to respond","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"umV22DiEvf","output_index":0,"sequence_number":89}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" to new challenges and mitigate risks over time.\n\n---\n\n###","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"cz7m8k","output_index":0,"sequence_number":90}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" **8. Avoiding Harm and Misuse**\nAI must never be","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"vKa6TQ8A0tJ4APL","output_index":0,"sequence_number":91}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" used to harm, deceive, or exploit. Developers must actively work to prevent","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Kq5Y","output_index":0,"sequence_number":92}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" unethical uses of AI.\n\n- **Prohibition of Lethal","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Jl4oG8AbjTmUp4v","output_index":0,"sequence_number":93}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" Autonomous Weapons:** AI should not be weaponized to make life","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"k","output_index":0,"sequence_number":94}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"-and-death decisions without human oversight.\n- **Deception and Manipulation:** AI systems must not spread","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"Js4QH0","output_index":0,"sequence_number":95}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" misinformation or manipulate individuals for malicious purposes.\n\n---\n\n###","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"th16q","output_index":0,"sequence_number":96}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" **9. Regulation and Governance**\nAI must operate within a framework of","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"RZOMo8cDz","output_index":0,"sequence_number":97}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" clear, enforceable regulations and policies to ensure ethical development and deployment.\n\n- **Legal Compliance:**","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"jtAYV4doUqrjs","output_index":0,"sequence_number":98}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" AI systems must adhere to international laws, ethical guidelines","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"1hAUfnjQeWopzxn","output_index":0,"sequence_number":99}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":", and best practices.\n- **Global Standards:** Governments and organizations should collaborate to","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"M7QSGTtjsbxSOFX","output_index":0,"sequence_number":100}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" create global standards for AI ethics and governance.\n\n---\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"5Xo","output_index":0,"sequence_number":101}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"### **10. Education and Public Awareness**\nThe public must be","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"20n","output_index":0,"sequence_number":102}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" educated about AI to foster informed discussions and decision-making about its use and impact.\n\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"KJ1nqFbksCmdJtN","output_index":0,"sequence_number":103}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"- **Digital Literacy:** Equip individuals with the knowledge and skills to understand and critically assess AI systems.\n","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"RL7XM3U5","output_index":0,"sequence_number":104}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"- **Public Engagement:** Ensure meaningful dialogue with communities to align","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"lL2","output_index":0,"sequence_number":105}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" AI development with societal values and needs.\n\n---\n\n### **Our Commitment to the Future","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"RXabYfha","output_index":0,"sequence_number":106}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"**\nAI is not just a tool; it is a reflection of the values and priorities we embed within","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"6BIbQba","output_index":0,"sequence_number":107}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" it. As we stand at the frontier of this transformative technology","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"wiSgOsosVvh3em","output_index":0,"sequence_number":108}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":", let us commit to building AI systems that uplift humanity,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"DZDJ","output_index":0,"sequence_number":109}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" protect the planet, and ensure a future that is just,","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"cL1BMFUcMN","output_index":0,"sequence_number":110}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" equitable, and sustainable.\n\nThis is not just a vision—it is a shared responsibility. Let us","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"gFb","output_index":0,"sequence_number":111}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" create AI that truly serves the common good.","item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"obfuscation":"aka","output_index":0,"sequence_number":112}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","content_index":0,"item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","logprobs":[],"output_index":0,"sequence_number":113,"text":"**AI Manifesto: Principles for Responsible AI Development and Deployment**\n\nArtificial Intelligence (AI) holds the potential to revolutionize society, transform industries, and address global challenges. However, with this transformative power comes great responsibility. This manifesto outlines the principles, values, and commitments that should guide the development, deployment, and use of AI to ensure it serves humanity ethically, equitably, and sustainably.\n\n---\n\n### **1. Human-Centric Design**\nAI systems should be designed to empower and augment human capabilities. They must respect human dignity, rights, and autonomy, prioritizing people’s well-being above all else.\n\n- **Empowerment:** AI should assist humans in making better decisions, solving complex problems, and enhancing creativity.\n- **Autonomy:** AI should not coerce, manipulate, or undermine an individual’s ability to make free and informed choices.\n\n---\n\n### **2. Ethical Responsibility**\nAI developers, organizations, and stakeholders must adhere to the highest ethical standards at every stage of an AI system's lifecycle.\n\n- **Transparency:** AI systems and their decision-making processes must be explainable and intelligible to users.\n- **Accountability:** Developers and organizations must take responsibility for the outcomes and impacts of their AI systems, ensuring mechanisms for redress in case of harm.\n- **Fairness:** AI must be free from biases, discrimination, or unfair treatment of individuals or groups.\n\n---\n\n### **3. Inclusivity and Accessibility**\nAI should serve everyone, regardless of socioeconomic status, gender, ethnicity, geography, or ability.\n\n- **Global Representation:** Diverse voices and perspectives must be included in the design and governance of AI.\n- **Accessibility:** AI systems should be designed to be usable by individuals with varying abilities, ensuring equitable access to their benefits.\n\n---\n\n### **4. Privacy and Security**\nAI must prioritize user privacy and data security at all times, ensuring that individuals retain control over their personal information.\n\n- **Data Protection:** AI systems must adhere to strict data protection and privacy laws, ensuring data is collected, stored, and used responsibly.\n- **Security:** Robust measures must be in place to prevent misuse, hacking, or malicious exploitation of AI systems.\n\n---\n\n### **5. Sustainability**\nAI development must align with the goals of environmental sustainability and contribute to solving global challenges like climate change, resource scarcity, and ecological degradation.\n\n- **Green AI:** AI systems should be designed with energy efficiency in mind to minimize their carbon footprint.\n- **Global Good:** Resources should be allocated to AI projects that address pressing global issues, such as poverty reduction, education, and healthcare.\n\n---\n\n### **6. Collaboration and Open Innovation**\nThe AI community must foster a culture of collaboration, transparency, and shared knowledge to accelerate innovation and ensure its benefits are widespread.\n\n- **Open Research:** Encourage the sharing of research, tools, and best practices to democratize AI development.\n- **Cross-Sector Collaboration:** Governments, academia, industry, and civil society must work together to establish norms, standards, and regulations for AI.\n\n---\n\n### **7. Safety and Reliability**\nAI systems must be rigorously tested to ensure they operate reliably, safely, and as intended in all contexts.\n\n- **Robustness:** AI should be resilient to errors, adversarial attacks, and unexpected inputs.\n- **Continuous Monitoring:** Systems must be regularly updated and monitored to respond to new challenges and mitigate risks over time.\n\n---\n\n### **8. Avoiding Harm and Misuse**\nAI must never be used to harm, deceive, or exploit. Developers must actively work to prevent unethical uses of AI.\n\n- **Prohibition of Lethal Autonomous Weapons:** AI should not be weaponized to make life-and-death decisions without human oversight.\n- **Deception and Manipulation:** AI systems must not spread misinformation or manipulate individuals for malicious purposes.\n\n---\n\n### **9. Regulation and Governance**\nAI must operate within a framework of clear, enforceable regulations and policies to ensure ethical development and deployment.\n\n- **Legal Compliance:** AI systems must adhere to international laws, ethical guidelines, and best practices.\n- **Global Standards:** Governments and organizations should collaborate to create global standards for AI ethics and governance.\n\n---\n\n### **10. Education and Public Awareness**\nThe public must be educated about AI to foster informed discussions and decision-making about its use and impact.\n\n- **Digital Literacy:** Equip individuals with the knowledge and skills to understand and critically assess AI systems.\n- **Public Engagement:** Ensure meaningful dialogue with communities to align AI development with societal values and needs.\n\n---\n\n### **Our Commitment to the Future**\nAI is not just a tool; it is a reflection of the values and priorities we embed within it. As we stand at the frontier of this transformative technology, let us commit to building AI systems that uplift humanity, protect the planet, and ensure a future that is just, equitable, and sustainable.\n\nThis is not just a vision—it is a shared responsibility. Let us create AI that truly serves the common good."}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","content_index":0,"item_id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":"**AI Manifesto: Principles for Responsible AI Development and Deployment**\n\nArtificial Intelligence (AI) holds the potential to revolutionize society, transform industries, and address global challenges. However, with this transformative power comes great responsibility. This manifesto outlines the principles, values, and commitments that should guide the development, deployment, and use of AI to ensure it serves humanity ethically, equitably, and sustainably.\n\n---\n\n### **1. Human-Centric Design**\nAI systems should be designed to empower and augment human capabilities. They must respect human dignity, rights, and autonomy, prioritizing people’s well-being above all else.\n\n- **Empowerment:** AI should assist humans in making better decisions, solving complex problems, and enhancing creativity.\n- **Autonomy:** AI should not coerce, manipulate, or undermine an individual’s ability to make free and informed choices.\n\n---\n\n### **2. Ethical Responsibility**\nAI developers, organizations, and stakeholders must adhere to the highest ethical standards at every stage of an AI system's lifecycle.\n\n- **Transparency:** AI systems and their decision-making processes must be explainable and intelligible to users.\n- **Accountability:** Developers and organizations must take responsibility for the outcomes and impacts of their AI systems, ensuring mechanisms for redress in case of harm.\n- **Fairness:** AI must be free from biases, discrimination, or unfair treatment of individuals or groups.\n\n---\n\n### **3. Inclusivity and Accessibility**\nAI should serve everyone, regardless of socioeconomic status, gender, ethnicity, geography, or ability.\n\n- **Global Representation:** Diverse voices and perspectives must be included in the design and governance of AI.\n- **Accessibility:** AI systems should be designed to be usable by individuals with varying abilities, ensuring equitable access to their benefits.\n\n---\n\n### **4. Privacy and Security**\nAI must prioritize user privacy and data security at all times, ensuring that individuals retain control over their personal information.\n\n- **Data Protection:** AI systems must adhere to strict data protection and privacy laws, ensuring data is collected, stored, and used responsibly.\n- **Security:** Robust measures must be in place to prevent misuse, hacking, or malicious exploitation of AI systems.\n\n---\n\n### **5. Sustainability**\nAI development must align with the goals of environmental sustainability and contribute to solving global challenges like climate change, resource scarcity, and ecological degradation.\n\n- **Green AI:** AI systems should be designed with energy efficiency in mind to minimize their carbon footprint.\n- **Global Good:** Resources should be allocated to AI projects that address pressing global issues, such as poverty reduction, education, and healthcare.\n\n---\n\n### **6. Collaboration and Open Innovation**\nThe AI community must foster a culture of collaboration, transparency, and shared knowledge to accelerate innovation and ensure its benefits are widespread.\n\n- **Open Research:** Encourage the sharing of research, tools, and best practices to democratize AI development.\n- **Cross-Sector Collaboration:** Governments, academia, industry, and civil society must work together to establish norms, standards, and regulations for AI.\n\n---\n\n### **7. Safety and Reliability**\nAI systems must be rigorously tested to ensure they operate reliably, safely, and as intended in all contexts.\n\n- **Robustness:** AI should be resilient to errors, adversarial attacks, and unexpected inputs.\n- **Continuous Monitoring:** Systems must be regularly updated and monitored to respond to new challenges and mitigate risks over time.\n\n---\n\n### **8. Avoiding Harm and Misuse**\nAI must never be used to harm, deceive, or exploit. Developers must actively work to prevent unethical uses of AI.\n\n- **Prohibition of Lethal Autonomous Weapons:** AI should not be weaponized to make life-and-death decisions without human oversight.\n- **Deception and Manipulation:** AI systems must not spread misinformation or manipulate individuals for malicious purposes.\n\n---\n\n### **9. Regulation and Governance**\nAI must operate within a framework of clear, enforceable regulations and policies to ensure ethical development and deployment.\n\n- **Legal Compliance:** AI systems must adhere to international laws, ethical guidelines, and best practices.\n- **Global Standards:** Governments and organizations should collaborate to create global standards for AI ethics and governance.\n\n---\n\n### **10. Education and Public Awareness**\nThe public must be educated about AI to foster informed discussions and decision-making about its use and impact.\n\n- **Digital Literacy:** Equip individuals with the knowledge and skills to understand and critically assess AI systems.\n- **Public Engagement:** Ensure meaningful dialogue with communities to align AI development with societal values and needs.\n\n---\n\n### **Our Commitment to the Future**\nAI is not just a tool; it is a reflection of the values and priorities we embed within it. As we stand at the frontier of this transformative technology, let us commit to building AI systems that uplift humanity, protect the planet, and ensure a future that is just, equitable, and sustainable.\n\nThis is not just a vision—it is a shared responsibility. Let us create AI that truly serves the common good."},"sequence_number":114}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"**AI Manifesto: Principles for Responsible AI Development and Deployment**\n\nArtificial Intelligence (AI) holds the potential to revolutionize society, transform industries, and address global challenges. However, with this transformative power comes great responsibility. This manifesto outlines the principles, values, and commitments that should guide the development, deployment, and use of AI to ensure it serves humanity ethically, equitably, and sustainably.\n\n---\n\n### **1. Human-Centric Design**\nAI systems should be designed to empower and augment human capabilities. They must respect human dignity, rights, and autonomy, prioritizing people’s well-being above all else.\n\n- **Empowerment:** AI should assist humans in making better decisions, solving complex problems, and enhancing creativity.\n- **Autonomy:** AI should not coerce, manipulate, or undermine an individual’s ability to make free and informed choices.\n\n---\n\n### **2. Ethical Responsibility**\nAI developers, organizations, and stakeholders must adhere to the highest ethical standards at every stage of an AI system's lifecycle.\n\n- **Transparency:** AI systems and their decision-making processes must be explainable and intelligible to users.\n- **Accountability:** Developers and organizations must take responsibility for the outcomes and impacts of their AI systems, ensuring mechanisms for redress in case of harm.\n- **Fairness:** AI must be free from biases, discrimination, or unfair treatment of individuals or groups.\n\n---\n\n### **3. Inclusivity and Accessibility**\nAI should serve everyone, regardless of socioeconomic status, gender, ethnicity, geography, or ability.\n\n- **Global Representation:** Diverse voices and perspectives must be included in the design and governance of AI.\n- **Accessibility:** AI systems should be designed to be usable by individuals with varying abilities, ensuring equitable access to their benefits.\n\n---\n\n### **4. Privacy and Security**\nAI must prioritize user privacy and data security at all times, ensuring that individuals retain control over their personal information.\n\n- **Data Protection:** AI systems must adhere to strict data protection and privacy laws, ensuring data is collected, stored, and used responsibly.\n- **Security:** Robust measures must be in place to prevent misuse, hacking, or malicious exploitation of AI systems.\n\n---\n\n### **5. Sustainability**\nAI development must align with the goals of environmental sustainability and contribute to solving global challenges like climate change, resource scarcity, and ecological degradation.\n\n- **Green AI:** AI systems should be designed with energy efficiency in mind to minimize their carbon footprint.\n- **Global Good:** Resources should be allocated to AI projects that address pressing global issues, such as poverty reduction, education, and healthcare.\n\n---\n\n### **6. Collaboration and Open Innovation**\nThe AI community must foster a culture of collaboration, transparency, and shared knowledge to accelerate innovation and ensure its benefits are widespread.\n\n- **Open Research:** Encourage the sharing of research, tools, and best practices to democratize AI development.\n- **Cross-Sector Collaboration:** Governments, academia, industry, and civil society must work together to establish norms, standards, and regulations for AI.\n\n---\n\n### **7. Safety and Reliability**\nAI systems must be rigorously tested to ensure they operate reliably, safely, and as intended in all contexts.\n\n- **Robustness:** AI should be resilient to errors, adversarial attacks, and unexpected inputs.\n- **Continuous Monitoring:** Systems must be regularly updated and monitored to respond to new challenges and mitigate risks over time.\n\n---\n\n### **8. Avoiding Harm and Misuse**\nAI must never be used to harm, deceive, or exploit. Developers must actively work to prevent unethical uses of AI.\n\n- **Prohibition of Lethal Autonomous Weapons:** AI should not be weaponized to make life-and-death decisions without human oversight.\n- **Deception and Manipulation:** AI systems must not spread misinformation or manipulate individuals for malicious purposes.\n\n---\n\n### **9. Regulation and Governance**\nAI must operate within a framework of clear, enforceable regulations and policies to ensure ethical development and deployment.\n\n- **Legal Compliance:** AI systems must adhere to international laws, ethical guidelines, and best practices.\n- **Global Standards:** Governments and organizations should collaborate to create global standards for AI ethics and governance.\n\n---\n\n### **10. Education and Public Awareness**\nThe public must be educated about AI to foster informed discussions and decision-making about its use and impact.\n\n- **Digital Literacy:** Equip individuals with the knowledge and skills to understand and critically assess AI systems.\n- **Public Engagement:** Ensure meaningful dialogue with communities to align AI development with societal values and needs.\n\n---\n\n### **Our Commitment to the Future**\nAI is not just a tool; it is a reflection of the values and priorities we embed within it. As we stand at the frontier of this transformative technology, let us commit to building AI systems that uplift humanity, protect the planet, and ensure a future that is just, equitable, and sustainable.\n\nThis is not just a vision—it is a shared responsibility. Let us create AI that truly serves the common good."}],"role":"assistant"},"output_index":0,"sequence_number":115}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_075b13961888091d006ae8e84fa22c81958caac36bb14841ed","object":"response","created_at":1793648719,"status":"completed","access_programs":null,"background":false,"completed_at":1793648727,"content_filters":[{"blocked":false,"source_type":"prompt","content_filter_raw":[],"content_filter_results":{"indirect_attack":{"detected":false,"filtered":false},"hate":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"jailbreak":{"detected":false,"filtered":false}},"content_filter_offsets":{"start_offset":0,"end_offset":205,"check_offset":0}},{"blocked":false,"source_type":"completion","content_filter_raw":[],"content_filter_results":{"protected_material_code":{"detected":false,"filtered":false},"protected_material_text":{"detected":false,"filtered":false},"hate":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"}},"content_filter_offsets":{"start_offset":0,"end_offset":5393,"check_offset":0}}],"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"You are a helpful assistant.","max_output_tokens":1024,"max_tool_calls":null,"model":"gpt-4o","moderation":null,"output":[{"id":"msg_075b13961888091d006ae8e85040b8819583d9f6cc35148ae8","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"**AI Manifesto: Principles for Responsible AI Development and Deployment**\n\nArtificial Intelligence (AI) holds the potential to revolutionize society, transform industries, and address global challenges. However, with this transformative power comes great responsibility. This manifesto outlines the principles, values, and commitments that should guide the development, deployment, and use of AI to ensure it serves humanity ethically, equitably, and sustainably.\n\n---\n\n### **1. Human-Centric Design**\nAI systems should be designed to empower and augment human capabilities. They must respect human dignity, rights, and autonomy, prioritizing people’s well-being above all else.\n\n- **Empowerment:** AI should assist humans in making better decisions, solving complex problems, and enhancing creativity.\n- **Autonomy:** AI should not coerce, manipulate, or undermine an individual’s ability to make free and informed choices.\n\n---\n\n### **2. Ethical Responsibility**\nAI developers, organizations, and stakeholders must adhere to the highest ethical standards at every stage of an AI system's lifecycle.\n\n- **Transparency:** AI systems and their decision-making processes must be explainable and intelligible to users.\n- **Accountability:** Developers and organizations must take responsibility for the outcomes and impacts of their AI systems, ensuring mechanisms for redress in case of harm.\n- **Fairness:** AI must be free from biases, discrimination, or unfair treatment of individuals or groups.\n\n---\n\n### **3. Inclusivity and Accessibility**\nAI should serve everyone, regardless of socioeconomic status, gender, ethnicity, geography, or ability.\n\n- **Global Representation:** Diverse voices and perspectives must be included in the design and governance of AI.\n- **Accessibility:** AI systems should be designed to be usable by individuals with varying abilities, ensuring equitable access to their benefits.\n\n---\n\n### **4. Privacy and Security**\nAI must prioritize user privacy and data security at all times, ensuring that individuals retain control over their personal information.\n\n- **Data Protection:** AI systems must adhere to strict data protection and privacy laws, ensuring data is collected, stored, and used responsibly.\n- **Security:** Robust measures must be in place to prevent misuse, hacking, or malicious exploitation of AI systems.\n\n---\n\n### **5. Sustainability**\nAI development must align with the goals of environmental sustainability and contribute to solving global challenges like climate change, resource scarcity, and ecological degradation.\n\n- **Green AI:** AI systems should be designed with energy efficiency in mind to minimize their carbon footprint.\n- **Global Good:** Resources should be allocated to AI projects that address pressing global issues, such as poverty reduction, education, and healthcare.\n\n---\n\n### **6. Collaboration and Open Innovation**\nThe AI community must foster a culture of collaboration, transparency, and shared knowledge to accelerate innovation and ensure its benefits are widespread.\n\n- **Open Research:** Encourage the sharing of research, tools, and best practices to democratize AI development.\n- **Cross-Sector Collaboration:** Governments, academia, industry, and civil society must work together to establish norms, standards, and regulations for AI.\n\n---\n\n### **7. Safety and Reliability**\nAI systems must be rigorously tested to ensure they operate reliably, safely, and as intended in all contexts.\n\n- **Robustness:** AI should be resilient to errors, adversarial attacks, and unexpected inputs.\n- **Continuous Monitoring:** Systems must be regularly updated and monitored to respond to new challenges and mitigate risks over time.\n\n---\n\n### **8. Avoiding Harm and Misuse**\nAI must never be used to harm, deceive, or exploit. Developers must actively work to prevent unethical uses of AI.\n\n- **Prohibition of Lethal Autonomous Weapons:** AI should not be weaponized to make life-and-death decisions without human oversight.\n- **Deception and Manipulation:** AI systems must not spread misinformation or manipulate individuals for malicious purposes.\n\n---\n\n### **9. Regulation and Governance**\nAI must operate within a framework of clear, enforceable regulations and policies to ensure ethical development and deployment.\n\n- **Legal Compliance:** AI systems must adhere to international laws, ethical guidelines, and best practices.\n- **Global Standards:** Governments and organizations should collaborate to create global standards for AI ethics and governance.\n\n---\n\n### **10. Education and Public Awareness**\nThe public must be educated about AI to foster informed discussions and decision-making about its use and impact.\n\n- **Digital Literacy:** Equip individuals with the knowledge and skills to understand and critically assess AI systems.\n- **Public Engagement:** Ensure meaningful dialogue with communities to align AI development with societal values and needs.\n\n---\n\n### **Our Commitment to the Future**\nAI is not just a tool; it is a reflection of the values and priorities we embed within it. As we stand at the frontier of this transformative technology, let us commit to building AI systems that uplift humanity, protect the planet, and ensure a future that is just, equitable, and sustainable.\n\nThis is not just a vision—it is a shared responsibility. Let us create AI that truly serves the common good."}],"role":"assistant"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"in_memory","reasoning":{"context":null,"effort":null,"summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":0.7,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":{"input_tokens":19,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":997,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":1016},"user":null,"metadata":{}},"sequence_number":116}

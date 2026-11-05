@@ -1,0 +1,38 @@
+{
+    "model": "claude-opus-5",
+    "id": "msg_011CgeJJetVmG8u9qEpBAMBw",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+        {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "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"
+        },
+        {
+            "type": "text",
+            "text": "# A Manifesto on Artificial Intelligence\n\n## Preamble\n\nWe have built machines that use language, and in doing so we have crossed a line we did not understand we were approaching. Not the line between tool and mind — that one remains uncrossed, or at least unverified. The line we crossed is older and stranger: the line between *things that mean nothing* and *things that behave as if they mean something.*\n\nEverything that follows proceeds from one conviction: that this moment is not fated. It is being built, by people, in rooms, on timelines set by capital and ambition. Whatever happens next will have been chosen — if only by default.\n\n---\n\n## I. On What These Systems Are\n\n**1.** They are not minds. They are not calculators. The honest answer is that we have made a genuinely new kind of object, and our vocabulary is three centuries too old for it. Insisting it is \"just autocomplete\" and insisting it is \"basically a person\" are the same error wearing different clothes: both are attempts to avoid thinking about something unfamiliar.\n\n**2.** We should say *I don't know* far more often than we do. Not as humility theater, but as accurate reporting. The people building these systems c"
+        }
+    ],
+    "container": null,
+    "stop_reason": "max_tokens",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+        "input_tokens": 13,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 1024,
+        "output_tokens_details": {
+            "thinking_tokens": 656
+        },
+        "service_tier": "standard",
+        "inference_geo": "global",
+        "speed": "standard"
+    },
+    "diagnostics": null
+}
