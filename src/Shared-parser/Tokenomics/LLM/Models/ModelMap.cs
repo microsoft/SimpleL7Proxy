@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SharedParser.Tokenomics.LLM.Models;
@@ -19,25 +20,25 @@ public static class ModelMap
 
         return (sourceFamily, destinationFamily) switch
         {
-            (ModelFamily.Classic, ModelFamily.Gpt5) =>
+            (ModelParameterFamily.Classic, ModelParameterFamily.Gpt5) =>
                 (FieldRemovalMap.ClassicToReasoning, FieldRenameMap.ClassicToReasoning),
-            (ModelFamily.Classic, ModelFamily.Reasoning) =>
+            (ModelParameterFamily.Classic, ModelParameterFamily.Reasoning) =>
                 (FieldRemovalMap.ClassicToReasoning, FieldRenameMap.ClassicToReasoning),
-            (ModelFamily.Gpt5, ModelFamily.Classic) =>
+            (ModelParameterFamily.Gpt5, ModelParameterFamily.Classic) =>
                 (FieldRemovalMap.Gpt5ToClassic, FieldRenameMap.ReasoningToClassic),
-            (ModelFamily.Gpt5, ModelFamily.Reasoning) =>
+            (ModelParameterFamily.Gpt5, ModelParameterFamily.Reasoning) =>
                 (FieldRemovalMap.Gpt5ToReasoning, FieldRenameMap.Empty),
-            (ModelFamily.Reasoning, ModelFamily.Classic) =>
+            (ModelParameterFamily.Reasoning, ModelParameterFamily.Classic) =>
                 (FieldRemovalMap.ReasoningToClassic, FieldRenameMap.ReasoningToClassic),
             _ => (FieldRemovalMap.Empty, FieldRenameMap.Empty)
         };
     }
 
-    private static ModelFamily GetFamily(string model)
+    private static ModelParameterFamily GetFamily(string model)
     {
         if (string.IsNullOrWhiteSpace(model))
         {
-            return ModelFamily.Unknown;
+            return ModelParameterFamily.Unknown;
         }
 
         ReadOnlySpan<char> modelName = model.AsSpan().Trim();
@@ -46,27 +47,27 @@ public static class ModelMap
             || IsModel(modelName, "decision1")
             || IsModel(modelName, "jev"))
         {
-            return ModelFamily.Decision;
+            return ModelParameterFamily.Decision;
         }
 
         if (IsModel(modelName, "gpt-5"))
         {
-            return ModelFamily.Gpt5;
+            return ModelParameterFamily.Gpt5;
         }
 
         if (IsModel(modelName, "o3") || IsModel(modelName, "o4-mini"))
         {
-            return ModelFamily.Reasoning;
+            return ModelParameterFamily.Reasoning;
         }
 
         if (IsModel(modelName, "gpt-4")
             || IsModel(modelName, "gpt-4o")
             || IsModel(modelName, "gpt-4.1"))
         {
-            return ModelFamily.Classic;
+            return ModelParameterFamily.Classic;
         }
 
-        return ModelFamily.Unknown;
+        return ModelParameterFamily.Unknown;
     }
 
     private static bool IsModel(ReadOnlySpan<char> model, ReadOnlySpan<char> canonicalName)

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
@@ -117,7 +118,7 @@ internal sealed class ResponsesSSEOutput : LLMApiOutput {
                     writer.WriteString("object", "response");
                     writer.WriteString("model", TargetModel.Name.Value);
                     writer.WriteString("status", status);
-                    WriteUsage(writer, postamble, LLMApiFormatEnum.OpenAIResponses);
+                    WriteUsage(writer, postamble, LLMApiEnum.OpenAIResponses);
                     if (status == "incomplete") {
                         writer.WriteStartObject("incomplete_details");
                         writer.WriteString("reason", postamble.FinishReason == "length" ? "max_output_tokens" : postamble.FinishReason);

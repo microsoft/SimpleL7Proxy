@@ -4,6 +4,7 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Proxy;
 using System.Net;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 public sealed class TokenomicsHandler : IConfigChangeSubscriber
 {
@@ -77,7 +78,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
     /// <param name="hostKey">The host key to check.</param>
     /// <param name="apiName">The API name to check.</param>
     /// <returns>True if the host supports the model and API; otherwise, false.</returns>
-    public string? SupportedHostPath(string model, string hostKey, string apiName, string originalPath)
+    public string? SupportedHostPath(string model, string hostKey, LLMApiEnum apiName, string originalPath)
     {
         
         // Console.WriteLine($"Checking supported host path for model: {model}, hostKey: {hostKey}, apiName: {apiName}, originalPath: {originalPath}");
@@ -100,6 +101,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
         if (supportingHosts is null
             || !supportingHosts.TryGetValue(hostKey, out var hostOptions)
             || !hostOptions.Enabled
+            || apiName == LLMApiEnum.Unknown
             || !hostOptions.APIs.TryGetValue(apiName, out var apiOptions))
         {
             // Console.WriteLine($"Host {hostKey} does not support API {apiName} for model {model}");
@@ -117,7 +119,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             return apiOptions.Path;
         }
 
-        if (!TokenomicsApiPaths.PartialUrls.TryGetValue(apiName, out var defaultPath))
+        if (!LLMApiEnumParser.PartialUrls.TryGetValue(apiName, out var defaultPath))
         {
             return null;
         }
@@ -130,18 +132,12 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
     }
 
 
-    public string? ModelApiName(string path) => TokenomicsApiPaths.GetApiName(path);
+    public LLMApiEnum ModelApiName(string path) =>
+        LLMApiEnumParser.TryParsePath(path, out var api) ? api : LLMApiEnum.Unknown;
 
-    public string? UpdateModelPath(string model, string originalPath)
+    public LLMApiEnum UpdateModelPath(string model, string originalPath, string? hostKey = null)
     {
-        if (Settings.ModelHostOptions.TryGetValue(model, out var hostSettings) && originalPath is not null)
-        {
-            if ( hostSettings is not null)
-            return ModelApiName(originalPath);
-
-        }
-
-        return string.Empty;
+        return ModelApiName(originalPath);
     }
 
     public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)
@@ -161,7 +157,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
             evaluationSequence: data.EvaluationSequence,
             policyCondition: rulename,
             policyAction: action,
-            requestedModel: data.Model,
+            requestedModel: data.EffectiveModel,
             modelBefore: data.OriginalModel,
             priorityBefore: data.Priority);
 
@@ -212,20 +208,23 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
                     break;
 
                 case TokenActionEnum.ChangeModel:
-                    data.Model = Settings.DefaultModel;
-                    data.TokenomicsSummary.SetModel(data.Model);
+                    data.EffectiveModel = Settings.DefaultModel;
+                    data.EffectiveAPIName = Settings.DefaultModelAPI;
+                    data.TokenomicsSummary.SetModel(data.EffectiveModel);
                     data.TokenomicsSummary.SetDecision(TokenDecisionEnum.AllowedWithChanges, true);
                     break;
 
                 case TokenActionEnum.UpgradeModel:
-                    data.Model = UpdateModel(data.Model, ModelOverrideEnum.Upgrade);
-                    data.TokenomicsSummary.SetModel(data.Model);
+                    (data.EffectiveModel, data.EffectiveAPIName) = UpdateModelDestination(
+                        data.EffectiveModel, data.EffectiveAPIName, ModelOverrideEnum.Upgrade);
+                    data.TokenomicsSummary.SetModel(data.EffectiveModel);
                     data.TokenomicsSummary.SetDecision(TokenDecisionEnum.AllowedWithChanges, true);
                     break;
 
                 case TokenActionEnum.DowngradeModel:
-                    data.Model = UpdateModel(data.Model, ModelOverrideEnum.Downgrade);
-                    data.TokenomicsSummary.SetModel(data.Model);
+                    (data.EffectiveModel, data.EffectiveAPIName) = UpdateModelDestination(
+                        data.EffectiveModel, data.EffectiveAPIName, ModelOverrideEnum.Downgrade);
+                    data.TokenomicsSummary.SetModel(data.EffectiveModel);
                     data.TokenomicsSummary.SetDecision(TokenDecisionEnum.AllowedWithChanges, true);
                     break;
             }
@@ -247,7 +246,7 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
         var (actionType, actions) = data.IsCriticalWorkload ? ("Critical ", Settings.PrivilegedExceedActions)
             : data.IsPremiumWorkload ? ("Premium ", Settings.PremiumExceedActions)
-            : data.Model is not null && Settings.ModelExceedActions.TryGetValue(data.Model, out var modelActions)
+            : data.EffectiveModel is not null && Settings.ModelExceedActions.TryGetValue(data.EffectiveModel, out var modelActions)
                 ? ("Model ", modelActions) : ("", Settings.DefaultExceededActions);
 
         if (c.HourlyQuotaExceeded )     return ($"{actionType}Hourly Quota Exceeded", actions.HourlyLimitAction);
@@ -281,13 +280,20 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
     public string UpdateModel(string currentModel, ModelOverrideEnum modelOverride)
     {
+        return UpdateModelDestination(currentModel, LLMApiEnum.Unknown, modelOverride).Model;
+    }
+
+    /// <summary>Selects the adjacent model/API destination, retaining the current pair at hierarchy boundaries.</summary>
+    public (string Model, LLMApiEnum APIName) UpdateModelDestination(
+        string currentModel, LLMApiEnum currentAPIName, ModelOverrideEnum modelOverride)
+    {
         if (string.IsNullOrWhiteSpace(currentModel)
             || modelOverride is not (ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade))
         {
-            return currentModel;
+            return (currentModel, currentAPIName);
         }
 
-        List<string>? matchingModels = null;
+        List<ModelHierarchyEntry>? matchingModels = null;
         int longestPrefixLength = -1;
         foreach (var hierarchy in Settings.ModelHierarchy)
         {
@@ -302,23 +308,32 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
 
         if (matchingModels == null)
         {
-            return currentModel;
+            return (currentModel, currentAPIName);
         }
 
-        for (int index = 0; index < matchingModels.Count; index++)
+        var destinations = matchingModels.GroupBy(entry => entry.Model, StringComparer.OrdinalIgnoreCase).ToList();
+        for (int index = 0; index < destinations.Count; index++)
         {
-            if (currentModel.Equals(matchingModels[index], StringComparison.OrdinalIgnoreCase))
+            if (currentModel.Equals(destinations[index].Key, StringComparison.OrdinalIgnoreCase))
             {
                 int updatedIndex = modelOverride == ModelOverrideEnum.Upgrade
                     ? index - 1
                     : index + 1;
-                return updatedIndex >= 0 && updatedIndex < matchingModels.Count
-                    ? matchingModels[updatedIndex]
-                    : currentModel;
+                if (updatedIndex < 0 || updatedIndex >= destinations.Count)
+                {
+                    return (currentModel, currentAPIName);
+                }
+
+                var destination = destinations[updatedIndex].FirstOrDefault(entry =>
+                    currentAPIName != LLMApiEnum.Unknown && entry.APIName == currentAPIName)
+                    ?? destinations[updatedIndex].FirstOrDefault(entry => entry.APIName == LLMApiEnum.Unknown)
+                    ?? destinations[updatedIndex].First();
+                return (destination.Model, destination.APIName == LLMApiEnum.Unknown
+                    ? currentAPIName : destination.APIName);
             }
         }
 
-        return currentModel;
+        return (currentModel, currentAPIName);
     }
 
 }

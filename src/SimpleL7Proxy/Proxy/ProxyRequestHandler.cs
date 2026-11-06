@@ -399,7 +399,7 @@ public partial class ProxyRequestHandler
                         statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
-                        _options.TokenomicsEnable ? incomingRequest.Model ?? "N/A" : "-",
+                        _options.TokenomicsEnable ? incomingRequest.EffectiveModel ?? "N/A" : "-",
                         pr.StreamingProcessor,
                         conlen,
                         incomingRequest.DequeueTime.ToLocalTime(),
@@ -431,7 +431,7 @@ public partial class ProxyRequestHandler
                             pr.StatusCode,
                             DateTime.UtcNow - incomingRequest.EnqueueTime,
                             pr.BackendHostname,
-                            incomingRequest.Model ?? "unknown",
+                            incomingRequest.EffectiveModel ?? "unknown",
                             incomingRequest.BackendAttempts,
                             incomingRequest.LifetimeBackendAttempts,
                             pr.UsageStats);
@@ -488,7 +488,7 @@ public partial class ProxyRequestHandler
                     {
                         incomingRequest.TokenomicsSummary.PrepForExceptionStats(
                             HttpStatusCode.TooManyRequests, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
-                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            incomingRequest.EffectiveModel, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
                             e.Message);
                     }
 
@@ -540,7 +540,7 @@ public partial class ProxyRequestHandler
                     {
                         incomingRequest.TokenomicsSummary.PrepForExceptionStats(
                             HttpStatusCode.Forbidden, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
-                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            incomingRequest.EffectiveModel, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
                             e.Message);
                     }
 

@@ -1,4 +1,5 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
@@ -65,7 +66,7 @@ internal sealed class AnthropicMessagesSSEOutput : LLMApiOutput {
             writer.WriteString("stop_reason", AnthropicStopReason(postamble));
             writer.WriteString("stop_sequence", postamble.StopSequence);
             writer.WriteEndObject();
-            WriteUsage(writer, postamble, LLMApiFormatEnum.AnthropicMessages);
+            WriteUsage(writer, postamble, LLMApiEnum.AnthropicMessages);
             writer.WriteEndObject();
             CompleteEvent(writer);
         }

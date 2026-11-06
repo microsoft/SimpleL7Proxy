@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 namespace SharedParser.Tokenomics.LLM.Models;
 
@@ -8,15 +9,15 @@ public sealed class ValidModel {
     public NonNullString Name { get; }
 
     /// <summary>Gets the validated API format.</summary>
-    public LLMApiFormatEnum ApiFormat { get; }
+    public LLMApiEnum ApiFormat { get; }
 
     /// <summary>Creates a model with a non-empty name and a defined API format.</summary>
-    public ValidModel(string name, LLMApiFormatEnum apiFormat) {
+    public ValidModel(string name, LLMApiEnum apiFormat) {
         var modelName = new NonNullString(name);
         if (modelName.Value.AsSpan().IsWhiteSpace()) {
             throw new ArgumentException("The model name must not be empty or whitespace.", nameof(name));
         }
-        if (!Enum.IsDefined(apiFormat)) {
+        if (apiFormat is not (LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIResponses or LLMApiEnum.AnthropicMessages)) {
             throw new ArgumentOutOfRangeException(nameof(apiFormat), apiFormat, "Unsupported model API format.");
         }
 
@@ -24,7 +25,7 @@ public sealed class ValidModel {
         ApiFormat = apiFormat;
     }
 
-    private ValidModel(NonNullString name, LLMApiFormatEnum apiFormat) {
+    private ValidModel(NonNullString name, LLMApiEnum apiFormat) {
         Name = name;
         ApiFormat = apiFormat;
     }
@@ -44,18 +45,18 @@ public sealed class ValidModel {
             return false;
         }
 
-        LLMApiFormatEnum apiFormat;
+        LLMApiEnum apiFormat;
         if (formatName.Equals("Completions", StringComparison.OrdinalIgnoreCase)
             || formatName.Equals("OpenAIChatCompletions", StringComparison.OrdinalIgnoreCase)) {
-            apiFormat = LLMApiFormatEnum.OpenAIChatCompletions;
+            apiFormat = LLMApiEnum.OpenAIChatCompletions;
         }
         else if (formatName.Equals("Responses", StringComparison.OrdinalIgnoreCase)
             || formatName.Equals("OpenAIResponses", StringComparison.OrdinalIgnoreCase)) {
-            apiFormat = LLMApiFormatEnum.OpenAIResponses;
+            apiFormat = LLMApiEnum.OpenAIResponses;
         }
         else if (formatName.Equals("Messages", StringComparison.OrdinalIgnoreCase)
             || formatName.Equals("AnthropicMessages", StringComparison.OrdinalIgnoreCase)) {
-            apiFormat = LLMApiFormatEnum.AnthropicMessages;
+            apiFormat = LLMApiEnum.AnthropicMessages;
         }
         else {
             return false;

@@ -1,4 +1,5 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
@@ -36,7 +37,7 @@ internal sealed class CompletionOutput : LLMApiOutput {
         if (preamble.CreatedAt is null && postamble.CreatedAt is long createdAt) {
             Writer.WriteNumber("created", createdAt);
         }
-        WriteUsage(Writer, postamble, LLMApiFormatEnum.OpenAIChatCompletions);
+        WriteUsage(Writer, postamble, LLMApiEnum.OpenAIChatCompletions);
         CompleteJson();
     }
 }

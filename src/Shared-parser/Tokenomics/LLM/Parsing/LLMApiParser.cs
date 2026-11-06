@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using SharedParser.Tokenomics.LLM.Models;
 
+using SharedParser.Tokenomics.LLM.Catalog;
+
 namespace SharedParser.Tokenomics.LLM.Parsing;
 
 /// <summary>Parses an API response through its preamble, data, and post phases.</summary>
@@ -61,12 +63,12 @@ public abstract class LLMApiParser {
 
     internal static LLMApiParser Create(ValidModel sourceModel, bool streaming, bool capturePreLines = false) {
         LLMApiParser parser = (sourceModel.ApiFormat, streaming) switch {
-            (LLMApiFormatEnum.OpenAIChatCompletions, false) => new CompletionParser(),
-            (LLMApiFormatEnum.OpenAIChatCompletions, true) => new CompletionSSEParser(),
-            (LLMApiFormatEnum.OpenAIResponses, false) => new ResponsesParser(),
-            (LLMApiFormatEnum.OpenAIResponses, true) => new ResponsesSSEParser(),
-            (LLMApiFormatEnum.AnthropicMessages, false) => new AnthropicMessagesParser(),
-            (LLMApiFormatEnum.AnthropicMessages, true) => new AnthropicMessagesSSEParser(),
+            (LLMApiEnum.OpenAIChatCompletions, false) => new CompletionParser(),
+            (LLMApiEnum.OpenAIChatCompletions, true) => new CompletionSSEParser(),
+            (LLMApiEnum.OpenAIResponses, false) => new ResponsesParser(),
+            (LLMApiEnum.OpenAIResponses, true) => new ResponsesSSEParser(),
+            (LLMApiEnum.AnthropicMessages, false) => new AnthropicMessagesParser(),
+            (LLMApiEnum.AnthropicMessages, true) => new AnthropicMessagesSSEParser(),
         _ => throw new NotSupportedException("No parser is registered for the validated source API format.")
         };
         parser._capturePreLines = capturePreLines;

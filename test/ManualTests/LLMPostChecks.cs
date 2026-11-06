@@ -3,11 +3,34 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using SharedParser;
 using SharedParser.Tokenomics.LLM;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Mapping;
+using SharedParser.Tokenomics.LLM.Models;
 
 int checks = 0;
-var formats = Enum.GetValues<LLMApiFormatEnum>();
+LLMApiEnum[] formats = [LLMApiEnum.OpenAIChatCompletions, LLMApiEnum.OpenAIResponses, LLMApiEnum.AnthropicMessages];
+foreach (var format in formats) {
+    Check(new ValidModel("model", format).ApiFormat == format, "model retains the API enum");
+    Check(ValidModel.TryParse(new NonNullString($"model.{format}"), out var parsed)
+        && parsed.ApiFormat == format, "model parses the API enum name");
+}
+foreach (var (suffix, format) in new[] {
+    ("Completions", LLMApiEnum.OpenAIChatCompletions),
+    ("Responses", LLMApiEnum.OpenAIResponses),
+    ("Messages", LLMApiEnum.AnthropicMessages)
+}) {
+    Check(ValidModel.TryParse(new NonNullString($"model.{suffix}"), out var parsed)
+        && parsed.ApiFormat == format, "legacy model suffix remains supported");
+}
+foreach (var unsupported in Enum.GetValues<LLMApiEnum>().Where(api => !formats.Contains(api)).Append((LLMApiEnum)int.MaxValue)) {
+    bool threw = false;
+    try { _ = new ValidModel("model", unsupported); }
+    catch (ArgumentOutOfRangeException) { threw = true; }
+    Check(threw, $"unsupported mapper API is rejected: {unsupported}");
+    Check(!ValidModel.TryParse(new NonNullString($"model.{unsupported}"), out _), "unsupported suffix is rejected");
+}
 string sampleRoot = Path.Combine(Directory.GetCurrentDirectory(), "src/Shared-parser/Tokenomics/LLM");
 string[] sampleNames = ["completions", "responses", "anthropic-messages"];
 {
@@ -15,25 +38,27 @@ string[] sampleNames = ["completions", "responses", "anthropic-messages"];
     using var original = JsonDocument.Parse(string.Join('\n', sourceLines));
     string model = original.RootElement.GetProperty("model").GetString()!;
     using var messagesStream = new MemoryStream();
-    var toMessages = new LLMContentMapper(model, model, messagesStream,
-        LLMApiFormatEnum.OpenAIChatCompletions, LLMApiFormatEnum.AnthropicMessages);
-    foreach (string line in sourceLines) toMessages.ProcessLine(line);
+    var toMessages = new LLMContentMapper(
+        new ValidModel(model, LLMApiEnum.OpenAIChatCompletions),
+        new ValidModel(model, LLMApiEnum.AnthropicMessages), messagesStream);
+    foreach (string line in sourceLines) toMessages.ProcessLine(new NonNullString(line));
     toMessages.Complete();
     string messagesJson = Encoding.UTF8.GetString(messagesStream.ToArray());
     using var messages = JsonDocument.Parse(messagesJson);
     Check(messages.RootElement.GetProperty("type").GetString() == "message", "round trip intermediate is Anthropic Messages");
     using var completionStream = new MemoryStream();
-    var toCompletion = new LLMContentMapper(model, model, completionStream,
-        LLMApiFormatEnum.AnthropicMessages, LLMApiFormatEnum.OpenAIChatCompletions);
-    foreach (string line in messagesJson.Split('\n')) toCompletion.ProcessLine(line);
+    var toCompletion = new LLMContentMapper(
+        new ValidModel(model, LLMApiEnum.AnthropicMessages),
+        new ValidModel(model, LLMApiEnum.OpenAIChatCompletions), completionStream);
+    foreach (string line in messagesJson.Split('\n')) toCompletion.ProcessLine(new NonNullString(line));
     toCompletion.Complete();
     string completionJson = Encoding.UTF8.GetString(completionStream.ToArray());
     using var completion = JsonDocument.Parse(completionJson);
     var result = completion.RootElement;
     var source = original.RootElement;
     Check(result.GetProperty("object").GetString() == "chat.completion", "round trip result is Chat Completions");
-    Check(SourceText(completionJson.Split('\n'), LLMApiFormatEnum.OpenAIChatCompletions, false)
-        == SourceText(sourceLines, LLMApiFormatEnum.OpenAIChatCompletions, false), "round trip preserves exact generated text");
+    Check(SourceText(completionJson.Split('\n'), LLMApiEnum.OpenAIChatCompletions, false)
+        == SourceText(sourceLines, LLMApiEnum.OpenAIChatCompletions, false), "round trip preserves exact generated text");
     foreach (string property in new[] { "id", "model" })
         Check(JsonElement.DeepEquals(source.GetProperty(property), result.GetProperty(property)), $"round trip preserves {property}");
     var originalChoice = source.GetProperty("choices")[0];
@@ -61,16 +86,18 @@ foreach (bool streaming in new[] { false, true }) {
             Func<LLMPostamble> metadata;
             object mapper;
             if (streaming) {
-                var sseMapper = new LLMSSEContentMapper("source", "target", stream, formats[sourceIndex], target);
+                var sseMapper = new LLMSSEContentMapper(
+                    new ValidModel("source", formats[sourceIndex]), new ValidModel("target", target), stream);
                 mapper = sseMapper;
-                process = sseMapper.ProcessLine;
+                process = line => sseMapper.ProcessLine(new NonNullString(line));
                 complete = sseMapper.Complete;
                 metadata = () => sseMapper.Postamble;
             }
             else {
-                var jsonMapper = new LLMContentMapper("source", "target", stream, formats[sourceIndex], target);
+                var jsonMapper = new LLMContentMapper(
+                    new ValidModel("source", formats[sourceIndex]), new ValidModel("target", target), stream);
                 mapper = jsonMapper;
-                process = jsonMapper.ProcessLine;
+                process = line => jsonMapper.ProcessLine(new NonNullString(line));
                 complete = jsonMapper.Complete;
                 metadata = () => jsonMapper.Postamble;
             }
@@ -87,16 +114,16 @@ foreach (bool streaming in new[] { false, true }) {
             var postamble = metadata();
             Check(postamble.OutputTokens is not null, "source usage captured");
             var roots = streaming ? Events(output) : [JsonDocument.Parse(output).RootElement.Clone()];
-            JsonElement final = streaming && target == LLMApiFormatEnum.OpenAIResponses
+            JsonElement final = streaming && target == LLMApiEnum.OpenAIResponses
                 ? roots.Last().GetProperty("response") : roots.Last();
-            if (target == LLMApiFormatEnum.OpenAIChatCompletions) {
+            if (target == LLMApiEnum.OpenAIChatCompletions) {
                 JsonElement usageRoot = roots.Last(root => root.TryGetProperty("usage", out _));
                 Check(usageRoot.GetProperty("usage").GetProperty("completion_tokens").GetInt64() == postamble.OutputTokens, "Chat usage serialized");
                 JsonElement finish = roots.Last(root => root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0);
                 Check(finish.GetProperty("choices")[0].GetProperty("finish_reason").GetString() == (postamble.FinishReason ?? "stop"), "Chat finish reason serialized");
                 if (streaming) Check(output.EndsWith("data: [DONE]\n\n"), "Chat terminal marker last");
             }
-            else if (target == LLMApiFormatEnum.OpenAIResponses) {
+            else if (target == LLMApiEnum.OpenAIResponses) {
                 string status = postamble.Status ?? (postamble.FinishReason is "length" or "content_filter" ? "incomplete" : "completed");
                 Check(final.GetProperty("status").GetString() == status, "Responses terminal status serialized");
                 Check(final.GetProperty("usage").GetProperty("output_tokens").GetInt64() == postamble.OutputTokens, "Responses usage serialized");
@@ -124,14 +151,15 @@ foreach (bool streaming in new[] { false, true }) {
 
 foreach (var target in formats) {
     using var stream = new MemoryStream();
-    var mapper = new LLMSSEContentMapper("source", "target", stream, LLMApiFormatEnum.OpenAIChatCompletions, target);
-    mapper.ProcessLine("data: {\"choices\":[{\"finish_reason\":\"length\",\"delta\":{\"content\":\"last\"}}]}");
-    mapper.ProcessLine("");
+    var mapper = new LLMSSEContentMapper(
+        new ValidModel("source", LLMApiEnum.OpenAIChatCompletions), new ValidModel("target", target), stream);
+    mapper.ProcessLine(new NonNullString("data: {\"choices\":[{\"finish_reason\":\"length\",\"delta\":{\"content\":\"last\"}}]}"));
+    mapper.ProcessLine(new NonNullString(""));
     string before = Encoding.UTF8.GetString(stream.ToArray());
     Check(!before.Contains("response.output_text.done") && !before.Contains("content_block_stop") && !before.Contains("[DONE]"), "finish reason does not finalize early");
-    mapper.ProcessLine("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12,\"prompt_tokens_details\":{\"cached_tokens\":3}}}");
-    mapper.ProcessLine("");
-    mapper.ProcessLine("data: [DONE]");
+    mapper.ProcessLine(new NonNullString("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12,\"prompt_tokens_details\":{\"cached_tokens\":3}}}"));
+    mapper.ProcessLine(new NonNullString(""));
+    mapper.ProcessLine(new NonNullString("data: [DONE]"));
     mapper.Complete();
     Check(mapper.Postamble.CachedInputTokens == 3 && mapper.Postamble.InputTokens == 10, "late usage captured after finish reason");
     Check(SourceText(Encoding.UTF8.GetString(stream.ToArray()).Split('\n'), target, true) == "last", "same-chunk content follows finish reason");
@@ -139,14 +167,16 @@ foreach (var target in formats) {
 
 foreach (string terminal in new[] { "response.completed", "response.incomplete" }) {
     using var stream = new MemoryStream();
-    var mapper = new LLMSSEContentMapper("source", "target", stream, LLMApiFormatEnum.OpenAIResponses, LLMApiFormatEnum.OpenAIResponses);
-    mapper.ProcessLine("data: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}");
-    mapper.ProcessLine("");
-    mapper.ProcessLine("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}");
-    mapper.ProcessLine("");
-    mapper.ProcessLine($"event: {terminal}");
+    var mapper = new LLMSSEContentMapper(
+        new ValidModel("source", LLMApiEnum.OpenAIResponses),
+        new ValidModel("target", LLMApiEnum.OpenAIResponses), stream);
+    mapper.ProcessLine(new NonNullString("data: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}"));
+    mapper.ProcessLine(new NonNullString(""));
+    mapper.ProcessLine(new NonNullString("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}"));
+    mapper.ProcessLine(new NonNullString(""));
+    mapper.ProcessLine(new NonNullString($"event: {terminal}"));
     Check(!Encoding.UTF8.GetString(stream.ToArray()).Contains("response.output_text.done"), "event header alone does not finalize");
-    mapper.ProcessLine($"data: {{\"type\":\"{terminal}\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":2}}}}}}");
+    mapper.ProcessLine(new NonNullString($"data: {{\"type\":\"{terminal}\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":2}}}}}}"));
     mapper.Complete();
     Check(Events(Encoding.UTF8.GetString(stream.ToArray())).Last().GetProperty("type").GetString() == terminal, "EOF finalizes parsed terminal payload");
 }
@@ -163,19 +193,20 @@ foreach (var source in formats) {
                 "data: {\"error\":{}}"
             }) {
                 using var stream = new MemoryStream();
-                var mapper = new LLMSSEContentMapper("source", "target", stream, source, target);
+                var mapper = new LLMSSEContentMapper(
+                    new ValidModel("source", source), new ValidModel("target", target), stream);
                 if (afterText) {
-                    mapper.ProcessLine(source switch {
-                        LLMApiFormatEnum.OpenAIChatCompletions => "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}",
-                        LLMApiFormatEnum.OpenAIResponses => "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}",
+                    mapper.ProcessLine(new NonNullString(source switch {
+                        LLMApiEnum.OpenAIChatCompletions => "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}",
+                        LLMApiEnum.OpenAIResponses => "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}",
                         _ => "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}"
-                    });
-                    mapper.ProcessLine("");
+                    }));
+                    mapper.ProcessLine(new NonNullString(""));
                     Check(stream.Length > 0, "failure test has already emitted text");
                 }
                 long priorLength = stream.Length;
                 bool threw = false;
-                try { mapper.ProcessLine(failure); }
+                try { mapper.ProcessLine(new NonNullString(failure)); }
                 catch (IOException) { threw = true; }
                 Check(threw && mapper.Postamble.Status == "failed", $"{source} -> {target}: failure throws IOException");
                 threw = false;
@@ -183,7 +214,7 @@ foreach (var source in formats) {
                 catch (IOException) { threw = true; }
                 Check(threw, "Complete cannot turn a failed stream into success");
                 threw = false;
-                try { mapper.ProcessLine("data: [DONE]"); }
+                try { mapper.ProcessLine(new NonNullString("data: [DONE]")); }
                 catch (IOException) { threw = true; }
                 Check(threw, "later input cannot turn a failed stream into success");
                 Check(stream.Length == priorLength && stream.CanWrite, "failure writes no footer and leaves the caller stream open");
@@ -194,11 +225,12 @@ foreach (var source in formats) {
 
 foreach (var target in formats) {
     using var stream = new MemoryStream();
-    var mapper = new LLMSSEContentMapper("source", "target", stream, LLMApiFormatEnum.OpenAIChatCompletions, target);
-    mapper.ProcessLine("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}");
-    mapper.ProcessLine("");
+    var mapper = new LLMSSEContentMapper(
+        new ValidModel("source", LLMApiEnum.OpenAIChatCompletions), new ValidModel("target", target), stream);
+    mapper.ProcessLine(new NonNullString("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"));
+    mapper.ProcessLine(new NonNullString(""));
     bool threw = false;
-    try { mapper.ProcessLine("data: {\"choices\":[{\"delta\":{\"content\":\" partial\"}}],\"error\":{}}"); }
+    try { mapper.ProcessLine(new NonNullString("data: {\"choices\":[{\"delta\":{\"content\":\" partial\"}}],\"error\":{}}")); }
     catch (IOException) { threw = true; }
     Check(threw, "error after content in the same payload throws");
     long failedLength = stream.Length;
@@ -210,28 +242,33 @@ foreach (var target in formats) {
 
 foreach (var source in formats) {
     using var stream = new MemoryStream();
-    var mapper = new LLMSSEContentMapper("source", "target", stream, source, LLMApiFormatEnum.OpenAIResponses);
+    var mapper = new LLMSSEContentMapper(
+        new ValidModel("source", source), new ValidModel("target", LLMApiEnum.OpenAIResponses), stream);
     string line = source switch {
-        LLMApiFormatEnum.OpenAIChatCompletions => "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}",
-        LLMApiFormatEnum.OpenAIResponses => "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}",
+        LLMApiEnum.OpenAIChatCompletions => "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}",
+        LLMApiEnum.OpenAIResponses => "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}",
         _ => "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hello\"}}"
     };
-    mapper.ProcessLine(line);
-    mapper.ProcessLine("");
+    mapper.ProcessLine(new NonNullString(line));
+    mapper.ProcessLine(new NonNullString(""));
     ThrowsEof(mapper.Complete);
     Check(!Encoding.UTF8.GetString(stream.ToArray()).Contains("response.output_text.done"), "missing terminal leaves footer unwritten");
 }
 using (var stream = new MemoryStream()) {
-    var mapper = new LLMContentMapper("source", "target", stream, LLMApiFormatEnum.OpenAIChatCompletions, LLMApiFormatEnum.OpenAIResponses);
-    mapper.ProcessLine("{\"choices\":[{\"message\":{\"content\":\"hello\"}}],\"usage\":{");
+    var mapper = new LLMContentMapper(
+        new ValidModel("source", LLMApiEnum.OpenAIChatCompletions),
+        new ValidModel("target", LLMApiEnum.OpenAIResponses), stream);
+    mapper.ProcessLine(new NonNullString("{\"choices\":[{\"message\":{\"content\":\"hello\"}}],\"usage\":{"));
     ThrowsEof(mapper.Complete);
 }
 using (var stream = new MemoryStream()) {
-    var mapper = new LLMSSEContentMapper("source", "target", stream, LLMApiFormatEnum.OpenAIResponses, LLMApiFormatEnum.OpenAIResponses);
-    mapper.ProcessLine("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}");
-    mapper.ProcessLine("");
-    mapper.ProcessLine("event: response.completed");
-    mapper.ProcessLine("data: {\"type\":\"response.completed\",\"response\":{");
+    var mapper = new LLMSSEContentMapper(
+        new ValidModel("source", LLMApiEnum.OpenAIResponses),
+        new ValidModel("target", LLMApiEnum.OpenAIResponses), stream);
+    mapper.ProcessLine(new NonNullString("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}"));
+    mapper.ProcessLine(new NonNullString(""));
+    mapper.ProcessLine(new NonNullString("event: response.completed"));
+    mapper.ProcessLine(new NonNullString("data: {\"type\":\"response.completed\",\"response\":{"));
     ThrowsEof(mapper.Complete);
 }
 Console.WriteLine($"SUCCESS: {checks} LLM Post checks passed.");
@@ -251,25 +288,25 @@ JsonElement[] Events(string output) => output.Replace("\r\n", "\n").Split('\n')
     .Where(line => line.StartsWith("data: ") && line != "data: [DONE]")
     .Select(line => JsonDocument.Parse(line[6..]).RootElement.Clone()).ToArray();
 
-string SourceText(string[] lines, LLMApiFormatEnum format, bool streaming) {
+string SourceText(string[] lines, LLMApiEnum format, bool streaming) {
     if (!streaming) {
         using var document = JsonDocument.Parse(string.Join('\n', lines));
         var root = document.RootElement;
         return format switch {
-            LLMApiFormatEnum.OpenAIChatCompletions => string.Concat(root.GetProperty("choices").EnumerateArray().Select(choice => choice.GetProperty("message").GetProperty("content").GetString())),
-            LLMApiFormatEnum.OpenAIResponses => string.Concat(root.GetProperty("output").EnumerateArray().Where(item => item.GetProperty("type").GetString() == "message").SelectMany(item => item.GetProperty("content").EnumerateArray()).Where(part => part.GetProperty("type").GetString() == "output_text").Select(part => part.GetProperty("text").GetString())),
+            LLMApiEnum.OpenAIChatCompletions => string.Concat(root.GetProperty("choices").EnumerateArray().Select(choice => choice.GetProperty("message").GetProperty("content").GetString())),
+            LLMApiEnum.OpenAIResponses => string.Concat(root.GetProperty("output").EnumerateArray().Where(item => item.GetProperty("type").GetString() == "message").SelectMany(item => item.GetProperty("content").EnumerateArray()).Where(part => part.GetProperty("type").GetString() == "output_text").Select(part => part.GetProperty("text").GetString())),
             _ => string.Concat(root.GetProperty("content").EnumerateArray().Where(part => part.GetProperty("type").GetString() == "text").Select(part => part.GetProperty("text").GetString()))
         };
     }
     var text = new StringBuilder();
     foreach (var root in Events(string.Join('\n', lines))) {
-        if (format == LLMApiFormatEnum.OpenAIChatCompletions && root.TryGetProperty("choices", out var choices)) {
+        if (format == LLMApiEnum.OpenAIChatCompletions && root.TryGetProperty("choices", out var choices)) {
             foreach (var choice in choices.EnumerateArray()) {
                 if (choice.TryGetProperty("delta", out var delta) && delta.TryGetProperty("content", out var content)) text.Append(content.GetString());
             }
         }
-        else if (format == LLMApiFormatEnum.OpenAIResponses && root.GetProperty("type").GetString() == "response.output_text.delta") text.Append(root.GetProperty("delta").GetString());
-        else if (format == LLMApiFormatEnum.AnthropicMessages && root.GetProperty("type").GetString() == "content_block_delta"
+        else if (format == LLMApiEnum.OpenAIResponses && root.GetProperty("type").GetString() == "response.output_text.delta") text.Append(root.GetProperty("delta").GetString());
+        else if (format == LLMApiEnum.AnthropicMessages && root.GetProperty("type").GetString() == "content_block_delta"
             && root.GetProperty("delta").TryGetProperty("text", out var content)) text.Append(content.GetString());
     }
     return text.ToString();

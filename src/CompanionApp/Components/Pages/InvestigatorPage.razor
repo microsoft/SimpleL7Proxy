@@ -12,6 +12,7 @@
 @inject UserPreferencesService Preferences
 @inject AppConfigurationScaffoldService AppConfiguration
 @using SimpleL7Proxy.Tokenomics
+@using SharedParser.Tokenomics.LLM.Catalog
 @using System.Diagnostics
 @using System.Globalization
 @using System.Text
@@ -1317,7 +1318,7 @@
 
                 foreach (var model in routing.ModelHostOptions)
                 {
-                    var configuredApis = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var configuredApis = new HashSet<LLMApiEnum>();
                     foreach (var assignment in model.Value.Where(entry => enabledHostAliases.Contains(entry.Key) && entry.Value.Enabled))
                     {
                         configuredApis.UnionWith(assignment.Value.APIs.Keys);
@@ -1326,17 +1327,17 @@
                     var configuredApiIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var api in ChatCatalog.ListApis())
                     {
-                        if (configuredApis.Contains(api.Id) || configuredApis.Contains(api.DisplayName))
+                        if (configuredApis.Contains(api.Id))
                         {
-                            configuredApiIds.Add(api.Id);
+                            configuredApiIds.Add(LLMApiEnumParser.ToId(api.Id));
                         }
                     }
 
                     foreach (var api in VisionCatalog.ListApis())
                     {
-                        if (configuredApis.Contains(api.Id) || configuredApis.Contains(api.DisplayName))
+                        if (configuredApis.Contains(api.Id))
                         {
-                            configuredApiIds.Add(api.Id);
+                            configuredApiIds.Add(LLMApiEnumParser.ToId(api.Id));
                         }
                     }
 
@@ -1362,17 +1363,19 @@
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var api in ChatCatalog.ListApis())
             {
-                if ((!_showOnlyModelApis || configuredApis.Contains(api.Id)) && seen.Add(api.Id))
+                var apiId = LLMApiEnumParser.ToId(api.Id);
+                if ((!_showOnlyModelApis || configuredApis.Contains(apiId)) && seen.Add(apiId))
                 {
-                    options.Add(new ApiOption(api.Id, api.DisplayName, "Chat"));
+                    options.Add(new ApiOption(apiId, api.DisplayName, "Chat"));
                 }
             }
 
             foreach (var api in VisionCatalog.ListApis())
             {
-                if ((!_showOnlyModelApis || configuredApis.Contains(api.Id)) && seen.Add(api.Id))
+                var apiId = LLMApiEnumParser.ToId(api.Id);
+                if ((!_showOnlyModelApis || configuredApis.Contains(apiId)) && seen.Add(apiId))
                 {
-                    options.Add(new ApiOption(api.Id, api.DisplayName, "Vision"));
+                    options.Add(new ApiOption(apiId, api.DisplayName, "Vision"));
                 }
             }
 
@@ -1671,7 +1674,7 @@
             ? VisionCatalog.DefaultModel
             : VisionCatalog.ListModels().FirstOrDefault()?.Id ?? string.Empty;
         Prompt = VisionCatalog.DefaultPrompt;
-        EnsureSelectedApi(VisionCatalog.DefaultApi);
+        EnsureSelectedApi(LLMApiEnumParser.ToId(VisionCatalog.DefaultApi));
         EnsureCompatibleImageSource();
         ResetFields();
         RefreshEndpointPath();
@@ -1702,7 +1705,7 @@
     private string AutoApiForCurrentModel()
     {
         var apis = AvailableApiOptions;
-        return apis.FirstOrDefault(api => string.Equals(api.Id, VisionCatalog.DefaultApi, StringComparison.OrdinalIgnoreCase))?.Id
+        return apis.FirstOrDefault(api => string.Equals(api.Id, LLMApiEnumParser.ToId(VisionCatalog.DefaultApi), StringComparison.OrdinalIgnoreCase))?.Id
             ?? apis.FirstOrDefault()?.Id
             ?? string.Empty;
     }
@@ -1741,7 +1744,7 @@
         {
             SelectedModel = selections.SelectedModel;
             SelectedApi = string.Empty;
-            EnsureSelectedApi(string.IsNullOrEmpty(selections.SelectedApi) ? VisionCatalog.DefaultApi : selections.SelectedApi);
+            EnsureSelectedApi(string.IsNullOrEmpty(selections.SelectedApi) ? LLMApiEnumParser.ToId(VisionCatalog.DefaultApi) : selections.SelectedApi);
             EnsureCompatibleImageSource();
             ResetFields();
             RefreshEndpointPath();
@@ -1787,7 +1790,7 @@
                         : await AppConfiguration.LoadAsync(AppConfiguration.DefaultEndpoint);
                     _routingSettings = settings.Where(setting => !setting.IsNew
                         && string.Equals(setting.Label, AppConfiguration.DefaultLabel, StringComparison.Ordinal)).ToArray();
-                    EnsureSelectedApi(VisionCatalog.DefaultApi);
+                    EnsureSelectedApi(LLMApiEnumParser.ToId(VisionCatalog.DefaultApi));
                     ResetFields();
                     RefreshEndpointPath();
                 }
@@ -2607,7 +2610,7 @@
     {
         SelectedModel = args.Value?.ToString() ?? string.Empty;
         SelectedApi = string.Empty;
-        EnsureSelectedApi(VisionCatalog.DefaultApi);
+        EnsureSelectedApi(LLMApiEnumParser.ToId(VisionCatalog.DefaultApi));
         EnsureCompatibleImageSource();
         ResetFields();
         RefreshEndpointPath();

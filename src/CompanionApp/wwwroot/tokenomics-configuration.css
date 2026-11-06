@@ -153,6 +153,8 @@
 .tokenomics-configuration .tokenomics-card-routing tr th{ background-color: #f5f5f5; }
 .tokenomics-configuration .tokenomics-hierarchy-list{ display: grid; gap: 0.4rem; min-width: 0; }
 .tokenomics-configuration .tokenomics-hierarchy-row{ display: grid; grid-template-columns: 1rem minmax(0, 1fr) repeat(3, 1.75rem); align-items: center; gap: 0.3rem; min-width: 0; min-height: 2.25rem; border-radius: 4px; }
+.tokenomics-configuration .tokenomics-hierarchy-destination{ display: grid; gap: 0.3rem; min-width: 0; }
+.tokenomics-configuration .tokenomics-hierarchy-destination select{ min-width: 0; width: 100%; }
 .tokenomics-configuration .tokenomics-hierarchy-position{ text-align: center; font-variant-numeric: tabular-nums; font-size: 0.8rem; font-weight: 700; color: #071c61; }
 .tokenomics-configuration .tokenomics-hierarchy-icon{ display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 2rem; padding: 0; color: #38558b; }
 .tokenomics-configuration .tokenomics-routing-field-grid .config-newhost-field{ min-width: 0; }

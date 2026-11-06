@@ -2,6 +2,7 @@
 @using System.Globalization
 @using System.Reflection
 @using SimpleL7Proxy.Tokenomics
+@using SharedParser.Tokenomics.LLM.Catalog
 @using CompanionApp.Components.Widgets.TokenomicsConfiguration
 @inject ModelDefaults ChatCatalog
 @inject VisionModelCatalog VisionCatalog
@@ -66,7 +67,7 @@
                 OnSelected="@(() => _expandedWidget = "routing")">
                 <Summary>
                     <span><strong>Default model:</strong> <span class="tokenomics-summary-model" title="@_options.DefaultModel">@(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)</span></span>
-                    <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
+                    <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Select(entry => entry.Model).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
                     <span><strong>Host routing:</strong> @(_options.ModelHostOptions.Count == 0 ? "No model hosts configured" : $"{_options.ModelHostOptions.Count} {_options.ModelHostOptions.Count switch { 1 => "model", _ => "models" }} · {_options.ModelHostOptions.Values.Sum(hosts => hosts.Count)} host assignments")</span>
                     <span><strong>Fallback:</strong> @SummaryAction(_options.PreferredModelReplacementAction) when permitted · otherwise @FieldLabel(_options.PreferredModelUnavailableAction.ToString())</span>
                 </Summary>
@@ -459,7 +460,7 @@
             .ToHashSet(StringComparer.Ordinal);
         foreach (var model in _options.ModelHierarchy.Values
             .SelectMany(models => models)
-            .Select(model => model.Trim())
+            .Select(entry => entry.Model.Trim())
             .Where(model => model.Length > 0)) {
             if (configuredModels.Add(model)) {
                 _modelCosts.Add(new ModelCostRow(model, string.Empty, string.Empty, string.Empty));
@@ -556,7 +557,7 @@
         var previousHierarchyModels = property.Name == nameof(TokenomicsSettings.ModelHierarchy)
             ? _options.ModelHierarchy.Values
                 .SelectMany(models => models)
-                .Select(model => model.Trim())
+                .Select(entry => entry.Model.Trim())
                 .ToHashSet(StringComparer.Ordinal)
             : null;
 
@@ -578,13 +579,13 @@
         if (property.Name == nameof(TokenomicsSettings.DefaultModel)
             && (!_options.ModelHostOptions.TryGetValue(_options.DefaultModel, out var defaultHosts)
                 || !defaultHosts.Values.Any(host => host.APIs.ContainsKey(_options.DefaultModelAPI)))) {
-            _options.DefaultModelAPI = string.Empty;
+            _options.DefaultModelAPI = LLMApiEnum.Unknown;
         }
 
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             var hierarchyModels = _options.ModelHierarchy.Values
                 .SelectMany(models => models)
-                .Select(model => model.Trim())
+                .Select(entry => entry.Model.Trim())
                 .Where(model => model.Length > 0)
                 .ToHashSet(StringComparer.Ordinal);
 
@@ -650,7 +651,10 @@
             var modelApis = ApisForRoutingModel(change.Model);
             var modelHostOptions = new TokenomicsHostOptions();
             foreach (var apiName in modelApis) {
-                modelHostOptions.APIs[apiName] = new TokenomicsApiOptions {
+                if (!LLMApiEnumParser.TryParse(apiName, out var api)) {
+                    continue;
+                }
+                modelHostOptions.APIs[api] = new TokenomicsApiOptions {
                     PassThrough = false,
                     OverridePath = false,
                     Path = null
@@ -685,14 +689,15 @@
         (string? Model, string Host, string Api, TokenomicsApiOptions? Options) change) {
         if (change.Model is null
             || !_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)
-            || !modelHosts.TryGetValue(change.Host, out var hostOptions)) {
+            || !modelHosts.TryGetValue(change.Host, out var hostOptions)
+            || !LLMApiEnumParser.TryParse(change.Api, out var api)) {
             return;
         }
 
         if (change.Options is null) {
-            hostOptions.APIs.Remove(change.Api);
+            hostOptions.APIs.Remove(api);
         } else {
-            hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+            hostOptions.APIs[api] = new TokenomicsApiOptions {
                 PassThrough = change.Options.PassThrough,
                 OverridePath = change.Options.OverridePath,
                 Path = change.Options.Path
@@ -705,6 +710,9 @@
 
     private async Task SetModelHostApiAsync(
         (string Model, string Host, string Api, TokenomicsApiOptions Options) change) {
+        if (!LLMApiEnumParser.TryParse(change.Api, out var api)) {
+            return;
+        }
         if (!_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
             modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
             _options.ModelHostOptions[change.Model] = modelHosts;
@@ -714,7 +722,7 @@
             modelHosts[change.Host] = hostOptions;
         }
 
-        hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+        hostOptions.APIs[api] = new TokenomicsApiOptions {
             PassThrough = change.Options.PassThrough,
             OverridePath = change.Options.OverridePath,
             Path = change.Options.Path
@@ -743,6 +751,12 @@
                     parsedValue = (int)totalMilliseconds;
                 }
             }
+        } else if (type == typeof(LLMApiEnum)) {
+            if (value.Length == 0) {
+                parsedValue = LLMApiEnum.Unknown;
+            } else if (LLMApiEnumParser.TryParse(value, out var api)) {
+                parsedValue = api;
+            }
         } else if (type == typeof(string)) {
             parsedValue = value;
         } else if (type == typeof(int) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) {
@@ -759,7 +773,7 @@
             && Enum.TryParse<TokenActionEnum>(value, true, out var action)
             && Enum.IsDefined(action)) {
             parsedValue = action;
-        } else if (type == typeof(Dictionary<string, List<string>>)) {
+        } else if (type == typeof(Dictionary<string, List<ModelHierarchyEntry>>)) {
             var options = new TokenomicsSettings();
             if (!value.Contains(';')
                 && !value.Contains('=')
@@ -833,7 +847,7 @@
         var models = new HashSet<string>(StringComparer.Ordinal);
         var hierarchyModels = _options.ModelHierarchy.Values
             .SelectMany(hierarchy => hierarchy)
-            .Select(model => model.Trim())
+            .Select(entry => entry.Model.Trim())
             .ToHashSet(StringComparer.Ordinal);
         var valid = true;
         foreach (var row in _modelCosts) {
@@ -940,7 +954,8 @@
             return _options.ModelHierarchy.Count != _loadedOptions.ModelHierarchy.Count
                 || _options.ModelHierarchy.Any(entry =>
                     !_loadedOptions.ModelHierarchy.TryGetValue(entry.Key, out var loadedModels)
-                    || !entry.Value.SequenceEqual(loadedModels, StringComparer.Ordinal));
+                    || !entry.Value.Select(destination => (destination.Model, destination.APIName))
+                        .SequenceEqual(loadedModels.Select(destination => (destination.Model, destination.APIName))));
         }
 
         return !Equals(property.GetValue(_options), property.GetValue(_loadedOptions));
@@ -967,7 +982,7 @@
     private bool IsUnpricedModelPlaceholder(string model) =>
         _options.ModelHierarchy.Values
             .SelectMany(models => models)
-            .Any(hierarchyModel => string.Equals(hierarchyModel.Trim(), model, StringComparison.Ordinal))
+            .Any(entry => string.Equals(entry.Model.Trim(), model, StringComparison.Ordinal))
         || _options.ModelHostOptions.ContainsKey(model);
 
     private void SyncAssignedModelCostRows() {
@@ -1033,8 +1048,10 @@
             string.Create(CultureInfo.InvariantCulture,
                 $"{duration / 60000:D2}:{duration / 1000 % 60:D2}:{duration % 1000:D3}"),
         bool boolean => boolean.ToString().ToLowerInvariant(),
-        Dictionary<string, List<string>> hierarchy => string.Join(", ", hierarchy.Select(entry =>
-            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]")),
+        LLMApiEnum api => api == LLMApiEnum.Unknown ? string.Empty : LLMApiEnumParser.ToDisplayName(api),
+        Dictionary<string, List<ModelHierarchyEntry>> hierarchy => string.Join(", ", hierarchy.Select(entry =>
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(destination =>
+            $"{Uri.EscapeDataString(destination.Model)}|{Uri.EscapeDataString(FormatValue(destination.APIName))}"))}]")),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
         _ => value.ToString() ?? string.Empty
     };
@@ -1057,36 +1074,59 @@
     }
 
 
-    private async Task CommitHierarchyAsync(List<string> models) {
-        var hierarchy = models.ToDictionary(model => model, model => models.ToList(), StringComparer.OrdinalIgnoreCase);
+    private List<List<ModelHierarchyEntry>> HierarchyDestinations => _options.ModelHierarchy.Values
+        .SelectMany(models => models)
+        .GroupBy(entry => entry.Model, StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.DistinctBy(entry => entry.APIName).ToList())
+        .ToList();
+
+    private async Task CommitHierarchyAsync(List<List<ModelHierarchyEntry>> models) {
+        var hierarchy = models.ToDictionary(group => group[0].Model, group => models.SelectMany(entries => entries).ToList(), StringComparer.OrdinalIgnoreCase);
         var property = OptionProperties.Single(property => property.Name == nameof(TokenomicsSettings.ModelHierarchy));
         await SetOptionAsync(property, new ChangeEventArgs { Value = FormatValue(hierarchy, property.Name) });
     }
 
     private async Task SetHierarchyModelAsync(int index, ChangeEventArgs args) {
-        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var models = HierarchyDestinations;
         var selectedModel = args.Value?.ToString() ?? string.Empty;
         if (index < 0 || index >= models.Count
             || !RoutingModels.Contains(selectedModel, StringComparer.OrdinalIgnoreCase)
-            || models.Where((_, position) => position != index).Contains(selectedModel, StringComparer.OrdinalIgnoreCase)) {
+            || models.Where((_, position) => position != index).Any(group => string.Equals(group[0].Model, selectedModel, StringComparison.OrdinalIgnoreCase))) {
             return;
         }
-        models[index] = selectedModel;
+        models[index] = [new ModelHierarchyEntry { Model = selectedModel }];
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task SetHierarchyApiAsync(int index, ChangeEventArgs args) {
+        var models = HierarchyDestinations;
+        var selectedApis = args.Value is string[] values ? values : [args.Value?.ToString() ?? string.Empty];
+        if (index < 0 || index >= models.Count
+            || selectedApis.Any(api => api.Length > 0 && !LLMApiEnumParser.TryParse(api, out _))
+            || selectedApis.Any(api => api.Length > 0
+                && !ApisForRoutingModel(models[index][0].Model).Contains(api, StringComparer.OrdinalIgnoreCase)
+                && !models[index].Any(entry => string.Equals(FormatValue(entry.APIName), api, StringComparison.OrdinalIgnoreCase)))) {
+            return;
+        }
+        models[index] = (selectedApis.Length > 0 ? selectedApis : [string.Empty])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(api => new ModelHierarchyEntry { Model = models[index][0].Model,
+                APIName = LLMApiEnumParser.TryParse(api, out var parsedApi) ? parsedApi : LLMApiEnum.Unknown }).ToList();
         await CommitHierarchyAsync(models);
     }
 
     private async Task AddHierarchyModelAsync() {
-        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var selectedModel = RoutingModels.FirstOrDefault(candidate => !models.Contains(candidate, StringComparer.OrdinalIgnoreCase));
+        var models = HierarchyDestinations;
+        var selectedModel = RoutingModels.FirstOrDefault(candidate => !models.Any(group => string.Equals(group[0].Model, candidate, StringComparison.OrdinalIgnoreCase)));
         if (selectedModel is null) {
             return;
         }
-        models.Add(selectedModel);
+        models.Add([new ModelHierarchyEntry { Model = selectedModel }]);
         await CommitHierarchyAsync(models);
     }
 
     private async Task RemoveHierarchyModelAsync(int index) {
-        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var models = HierarchyDestinations;
         if (index < 0 || index >= models.Count) {
             return;
         }
@@ -1095,7 +1135,7 @@
     }
 
     private async Task MoveHierarchyModelAsync(int sourceIndex, int targetIndex) {
-        var models = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var models = HierarchyDestinations;
         if (sourceIndex < 0 || sourceIndex >= models.Count || targetIndex < 0 || targetIndex >= models.Count
             || sourceIndex == targetIndex) {
             return;
@@ -1139,7 +1179,8 @@
             ? $"limits:{workload ?? model ?? "default"}:{property.Name}" : property.Name;
         if (name == nameof(TokenomicsSettings.ModelHierarchy)) {
             var models = RoutingModels;
-            var hierarchyModels = _options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var hierarchyEntries = HierarchyDestinations;
+            var hierarchyModels = hierarchyEntries.Select(group => group[0].Model).ToList();
             return @<div class="config-newhost-field tokenomics-hierarchy @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
                 <div class="config-setting-heading">
                     <ConfigurationHelp Section="Tokenomics" Topic="ModelHierarchy">
@@ -1151,8 +1192,12 @@
                 {
                             var position = index;
                             var hierarchyModel = hierarchyModels[position];
+                            var selectedApis = hierarchyEntries[position].Select(entry => FormatValue(entry.APIName)).ToArray();
+                            var catalogApis = ApisForRoutingModel(hierarchyModel);
+                            var hierarchyApis = catalogApis.Concat(selectedApis.Where(api => api.Length > 0)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                             <div class="tokenomics-hierarchy-row" role="listitem" @key="position">
                                 <span class="tokenomics-hierarchy-position">@(position + 1)</span>
+                                <div class="tokenomics-hierarchy-destination">
                                 <select class="form-select form-select-sm" value="@(models.Contains(hierarchyModel, StringComparer.OrdinalIgnoreCase) ? hierarchyModel : string.Empty)" aria-label="Hierarchy model @(position + 1)"
                                     @key="(position, hierarchyModel, string.Join(';', models), string.Join(';', hierarchyModels))"
                                         @onchange="@(args => SetHierarchyModelAsync(position, args))">
@@ -1166,6 +1211,16 @@
                                         <option value="@candidate">@candidate</option>
                                     }
                                 </select>
+                                <select class="form-select form-select-sm" multiple size="3" aria-label="Hierarchy APIs @(position + 1)"
+                                    @key="(position, hierarchyModel, string.Join(';', selectedApis), string.Join(';', hierarchyApis))"
+                                    @bind:get="selectedApis" @bind:set="@(values => SetHierarchyApiAsync(position, new ChangeEventArgs { Value = values }))">
+                                    <option value="">Keep request API</option>
+                                    @foreach (var apiName in hierarchyApis)
+                                    {
+                                        <option value="@apiName">@apiName@(!catalogApis.Contains(apiName, StringComparer.OrdinalIgnoreCase) ? " (not in catalog)" : "")</option>
+                                    }
+                                </select>
+                                </div>
                                 <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Move up" aria-label="Move @hierarchyModel up"
                                     disabled="@(position == 0)" @onclick="@(() => MoveHierarchyModelAsync(position, position - 1))"><span class="bi bi-arrow-up" aria-hidden="true"></span></button>
                                 <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Move down" aria-label="Move @hierarchyModel down"
@@ -1213,7 +1268,7 @@
         }
         if (name == nameof(TokenomicsSettings.DefaultModelAPI)) {
             var apiNames = (_options.ModelHostOptions.TryGetValue(_options.DefaultModel, out var modelHosts)
-                ? modelHosts.Values.SelectMany(host => host.APIs.Keys)
+                ? modelHosts.Values.SelectMany(host => host.APIs.Keys).Select(LLMApiEnumParser.ToDisplayName)
                 : Enumerable.Empty<string>())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(apiName => apiName, StringComparer.OrdinalIgnoreCase)
@@ -1224,13 +1279,13 @@
                         <label class="form-label" for="tokenomics-DefaultModelAPI">Default Model API</label>
                     </ConfigurationHelp>
                 </div>
-                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@_options.DefaultModelAPI" @key="(_options.DefaultModel, string.Join(';', apiNames))"
+                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@FormatValue(_options.DefaultModelAPI)" @key="(_options.DefaultModel, string.Join(';', apiNames))"
                         aria-label="Default Model API" @onchange="@(args => SetOptionAsync(property, args))">
                     <option value="">Not configured</option>
-                    @if (!string.IsNullOrEmpty(_options.DefaultModelAPI)
-                        && !apiNames.Contains(_options.DefaultModelAPI, StringComparer.OrdinalIgnoreCase))
+                    @if (_options.DefaultModelAPI != LLMApiEnum.Unknown
+                        && !apiNames.Contains(FormatValue(_options.DefaultModelAPI), StringComparer.OrdinalIgnoreCase))
                     {
-                        <option value="@_options.DefaultModelAPI" disabled>@_options.DefaultModelAPI</option>
+                        <option value="@FormatValue(_options.DefaultModelAPI)" disabled>@FormatValue(_options.DefaultModelAPI)</option>
                     }
                     @foreach (var apiName in apiNames)
                     {

@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Tokenomics;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Usage;
 
 namespace EventHubMonitorTests;
@@ -51,7 +52,7 @@ public sealed class TokenomicsReplayTests {
     [TestMethod]
     public void Settings_NewPeriodFields_RoundTripThroughStringFormat() {
         var source = new TokenomicsSettings {
-            DefaultModelAPI = "OpenAI Chat Completions",
+            DefaultModelAPI = LLMApiEnum.OpenAIChatCompletions,
             DefaultLimitsAndBudgets = new LimitsAndBudgets {
                 HourlyTokenLimit = 321,
                 HourlyBudgetUsd = 12.345m
@@ -69,15 +70,15 @@ public sealed class TokenomicsReplayTests {
             ModelHostOptions = new Dictionary<string, Dictionary<string, TokenomicsHostOptions>>(StringComparer.OrdinalIgnoreCase) {
                 ["gpt-4o"] = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase) {
                     ["Host_apim"] = new TokenomicsHostOptions {
-                        APIs = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase) {
-                            ["OpenAI Chat Completions"] = new TokenomicsApiOptions {
+                        APIs = new Dictionary<LLMApiEnum, TokenomicsApiOptions> {
+                            [LLMApiEnum.OpenAIChatCompletions] = new TokenomicsApiOptions {
                                 OverridePath = true,
                                 Path = "/custom/chat"
                             },
-                            ["OpenAI Responses"] = new TokenomicsApiOptions {
+                            [LLMApiEnum.OpenAIResponses] = new TokenomicsApiOptions {
                                 PassThrough = true
                             },
-                            ["Anthropic Messages"] = new TokenomicsApiOptions()
+                            [LLMApiEnum.AnthropicMessages] = new TokenomicsApiOptions()
                         }
                     },
                     ["Host_disabled"] = new TokenomicsHostOptions { Enabled = false }
@@ -118,14 +119,14 @@ public sealed class TokenomicsReplayTests {
             parsed.ModelHostOptions["gpt-4o"].Keys.ToArray());
         Assert.IsFalse(parsed.ModelHostOptions["gpt-4o"]["Host_disabled"].Enabled);
         var parsedApis = parsed.ModelHostOptions["gpt-4o"]["Host_apim"].APIs;
-        Assert.IsFalse(parsedApis["OpenAI Chat Completions"].PassThrough);
-        Assert.IsTrue(parsedApis["OpenAI Chat Completions"].OverridePath);
-        Assert.AreEqual("/custom/chat", parsedApis["OpenAI Chat Completions"].Path);
-        Assert.IsTrue(parsedApis["OpenAI Responses"].PassThrough);
-        Assert.IsFalse(parsedApis["OpenAI Responses"].OverridePath);
-        Assert.IsFalse(parsedApis["Anthropic Messages"].PassThrough);
-        Assert.IsFalse(parsedApis["Anthropic Messages"].OverridePath);
-        Assert.IsNull(parsedApis["Anthropic Messages"].Path);
+        Assert.IsFalse(parsedApis[LLMApiEnum.OpenAIChatCompletions].PassThrough);
+        Assert.IsTrue(parsedApis[LLMApiEnum.OpenAIChatCompletions].OverridePath);
+        Assert.AreEqual("/custom/chat", parsedApis[LLMApiEnum.OpenAIChatCompletions].Path);
+        Assert.IsTrue(parsedApis[LLMApiEnum.OpenAIResponses].PassThrough);
+        Assert.IsFalse(parsedApis[LLMApiEnum.OpenAIResponses].OverridePath);
+        Assert.IsFalse(parsedApis[LLMApiEnum.AnthropicMessages].PassThrough);
+        Assert.IsFalse(parsedApis[LLMApiEnum.AnthropicMessages].OverridePath);
+        Assert.IsNull(parsedApis[LLMApiEnum.AnthropicMessages].Path);
 
         var semicolonSeparated = new TokenomicsSettings();
         Assert.IsTrue(semicolonSeparated.TryParse(
@@ -313,14 +314,15 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(10000, settings.DelayDuration);
         Assert.AreEqual("Contoso", settings.DefaultWorkload);
         Assert.AreEqual("gpt-4o", settings.DefaultModel);
-        Assert.AreEqual(string.Empty, settings.DefaultModelAPI);
+        Assert.AreEqual(LLMApiEnum.Unknown, settings.DefaultModelAPI);
         Assert.AreEqual(3, settings.ModelCostPerToken.Count);
         Assert.AreEqual(0.46m, settings.ModelCostPerToken["gpt-6-sol"].Output);
-        CollectionAssert.AreEqual(new[] { "gpt-6-sol", "gpt-4o", "gpt-4.1" }, settings.ModelHierarchy["gpt"]);
+        CollectionAssert.AreEqual(new[] { "gpt-6-sol", "gpt-4o", "gpt-4.1" }, settings.ModelHierarchy["gpt"].Select(entry => entry.Model).ToArray());
+        Assert.IsTrue(settings.ModelHierarchy["gpt"].All(entry => entry.APIName == LLMApiEnum.Unknown));
         Assert.AreEqual(3, settings.ModelHostOptions.Count);
         Assert.AreEqual(4, settings.ModelHostOptions.Values.Sum(hosts => hosts.Count));
         Assert.AreEqual("/cl/openai/v1/chat/completions",
-            settings.ModelHostOptions["gpt-6-sol"]["Host_apim"].APIs["OpenAI Responses"].Path);
+            settings.ModelHostOptions["gpt-6-sol"]["Host_apim"].APIs[LLMApiEnum.OpenAIResponses].Path);
         Assert.AreEqual(TokenActionEnum.None, settings.DefaultAction);
         var canonical = settings.ToString();
         Assert.IsFalse(canonical.Contains("IgnoredFields", StringComparison.Ordinal));
@@ -363,7 +365,11 @@ public sealed class TokenomicsReplayTests {
                 ["gpt-4o"] = new ModelTokenPricing { Input = 1.1m, CachedInput = 0.2m, Output = 3.3m }
             },
             ModelHierarchy = {
-                ["gpt"] = ["gpt-4o", "gpt-4o-mini"]
+                ["gpt"] = [
+                    new ModelHierarchyEntry { Model = "gpt-4o", APIName = LLMApiEnum.OpenAIResponses },
+                    new ModelHierarchyEntry { Model = "gpt-4o", APIName = LLMApiEnum.OpenAIChatCompletions },
+                    new ModelHierarchyEntry { Model = "gpt-4o-mini", APIName = LLMApiEnum.OpenAIChatCompletions }
+                ]
             }
         };
 
@@ -374,8 +380,39 @@ public sealed class TokenomicsReplayTests {
         Assert.AreEqual(0.2m, parsed.ModelCostPerToken["gpt-4o"].CachedInput);
         Assert.AreEqual(3.3m, parsed.ModelCostPerToken["gpt-4o"].Output);
         CollectionAssert.AreEqual(
-            new[] { "gpt-4o", "gpt-4o-mini" },
-            parsed.ModelHierarchy["gpt"]);
+            new[] { "gpt-4o", "gpt-4o", "gpt-4o-mini" },
+            parsed.ModelHierarchy["gpt"].Select(entry => entry.Model).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { LLMApiEnum.OpenAIResponses, LLMApiEnum.OpenAIChatCompletions, LLMApiEnum.OpenAIChatCompletions },
+            parsed.ModelHierarchy["gpt"].Select(entry => entry.APIName).ToArray());
+        Assert.AreEqual(source.ToString(), parsed.ToString());
+    }
+
+    [TestMethod]
+    public void Settings_HierarchyPairs_PreserveEscapedNamesAndRollbackInvalidEntries() {
+        var settings = new TokenomicsSettings();
+        Assert.IsTrue(settings.TryParse("DefaultModelAPI=openai-responses;" +
+            "ModelHostOptions=model=host=Enabled:true|Api:openai-responses:false:false;" +
+            "ModelHierarchy=model: [model%7Cone|openai-responses, model-two|]"));
+        Assert.AreEqual(LLMApiEnum.OpenAIResponses, settings.DefaultModelAPI);
+        Assert.IsTrue(settings.ModelHostOptions["model"]["host"].APIs.ContainsKey(LLMApiEnum.OpenAIResponses));
+        Assert.AreEqual("model|one", settings.ModelHierarchy["model"][0].Model);
+        Assert.AreEqual(LLMApiEnum.OpenAIResponses, settings.ModelHierarchy["model"][0].APIName);
+        Assert.AreEqual(LLMApiEnum.Unknown, settings.ModelHierarchy["model"][1].APIName);
+        var canonical = settings.ToString();
+        StringAssert.Contains(canonical, "DefaultModelAPI=OpenAI%20Responses");
+        Assert.IsTrue(settings.TryParse("DefaultModelAPI=unknown-api;" +
+            "ModelHostOptions=model=host=Enabled:false|Api:unknown-api:false:false;" +
+            "ModelHierarchy=model: [model%7Cone|API%2Cone%7Ctwo]"));
+        CollectionAssert.AreEquivalent(new[] { "DefaultModelAPI", "ModelHostOptions", "ModelHierarchy" },
+            settings.IgnoredFields.ToArray());
+        Assert.AreEqual(canonical, settings.ToString());
+        Assert.IsTrue(settings.TryParse("ModelHostOptions=model=host=Enabled:false|Api:openai-responses:false:false|Api:OpenAI%20Responses:false:false"));
+        CollectionAssert.Contains(settings.IgnoredFields.ToArray(), nameof(TokenomicsSettings.ModelHostOptions));
+        Assert.AreEqual(canonical, settings.ToString());
+        Assert.IsTrue(settings.TryParse("ModelHierarchy=model: [changed|API, invalid|API|extra]"));
+        CollectionAssert.Contains(settings.IgnoredFields.ToArray(), nameof(TokenomicsSettings.ModelHierarchy));
+        Assert.AreEqual(canonical, settings.ToString());
     }
 
     [TestMethod]

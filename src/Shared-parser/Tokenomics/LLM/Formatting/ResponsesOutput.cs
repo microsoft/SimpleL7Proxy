@@ -1,4 +1,5 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
@@ -53,7 +54,7 @@ internal sealed class ResponsesOutput : LLMApiOutput {
             Writer.WriteString("reason", postamble.FinishReason == "length" ? "max_output_tokens" : postamble.FinishReason);
             Writer.WriteEndObject();
         }
-        WriteUsage(Writer, postamble, LLMApiFormatEnum.OpenAIResponses);
+        WriteUsage(Writer, postamble, LLMApiEnum.OpenAIResponses);
         CompleteJson();
     }
 }

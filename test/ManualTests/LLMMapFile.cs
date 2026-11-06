@@ -2,8 +2,10 @@
 
 using System.Text;
 using System.Text.Json;
-using SharedParser.Tokenomics.LLM;
+using SharedParser;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Mapping;
+using SharedParser.Tokenomics.LLM.Models;
 
 const string usage = """
 Usage:
@@ -28,8 +30,10 @@ if (args.Length is not (5 or 6) || (args.Length == 6 && args[5] != "--sse")) {
     Console.Error.WriteLine(usage);
     return 2;
 }
-if (!Enum.TryParse<LLMApiFormatEnum>(args[3], true, out var inputFormat) || !Enum.IsDefined(inputFormat)
-    || !Enum.TryParse<LLMApiFormatEnum>(args[4], true, out var outputFormat) || !Enum.IsDefined(outputFormat)) {
+if (!Enum.TryParse<LLMApiEnum>(args[3], true, out var inputFormat)
+    || inputFormat is not (LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIResponses or LLMApiEnum.AnthropicMessages)
+    || !Enum.TryParse<LLMApiEnum>(args[4], true, out var outputFormat)
+    || outputFormat is not (LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIResponses or LLMApiEnum.AnthropicMessages)) {
     Console.Error.WriteLine("Invalid API format. Use OpenAIChatCompletions, OpenAIResponses, or AnthropicMessages.");
     return 2;
 }
@@ -48,13 +52,15 @@ try {
     Action<string> processLine;
     Action complete;
     if (streaming) {
-        var mapper = new LLMSSEContentMapper(inputModel, outputModel, output, inputFormat, outputFormat);
-        processLine = mapper.ProcessLine;
+        var mapper = new LLMSSEContentMapper(
+            new ValidModel(inputModel, inputFormat), new ValidModel(outputModel, outputFormat), output);
+        processLine = line => mapper.ProcessLine(new NonNullString(line));
         complete = mapper.Complete;
     }
     else {
-        var mapper = new LLMContentMapper(inputModel, outputModel, output, inputFormat, outputFormat);
-        processLine = mapper.ProcessLine;
+        var mapper = new LLMContentMapper(
+            new ValidModel(inputModel, inputFormat), new ValidModel(outputModel, outputFormat), output);
+        processLine = line => mapper.ProcessLine(new NonNullString(line));
         complete = mapper.Complete;
     }
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using SimpleL7Proxy.Extensions;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 namespace SimpleL7Proxy.Tokenomics;
 
@@ -42,12 +43,12 @@ public class TokenomicsSettings
 
     /// <summary>Gets or sets the default model name; an empty value leaves it unconfigured.</summary>
     public string DefaultModel { get; set; } = string.Empty;
-    public string DefaultModelAPI { get; set; } = string.Empty;
+    public LLMApiEnum DefaultModelAPI { get; set; } = LLMApiEnum.Unknown;
 
     /// <summary>Gets or sets input, cached-input, and output USD prices per token for each priced model; unlisted models are excluded from spend totals.</summary>
     public Dictionary<string, ModelTokenPricing> ModelCostPerToken { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Gets or sets model lists keyed by hierarchy prefix.</summary>
-    public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, List<ModelHierarchyEntry>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, TokenomicsHostOptions> HostOptions { get; set; } = new();
     
@@ -308,6 +309,19 @@ public class TokenomicsSettings
             return TryParseHierarchy(value);
         }
 
+        if (key.Equals(nameof(DefaultModelAPI), StringComparison.OrdinalIgnoreCase)) {
+            var apiName = Uri.UnescapeDataString(value);
+            if (apiName.Length == 0) {
+                DefaultModelAPI = LLMApiEnum.Unknown;
+                return true;
+            }
+            if (!LLMApiEnumParser.TryParse(apiName, out var api)) {
+                return false;
+            }
+            DefaultModelAPI = api;
+            return true;
+        }
+
         if (key.Equals(nameof(DelayDuration), StringComparison.OrdinalIgnoreCase)) {
             if (!TryParseDelayDuration(value, out var milliseconds)) {
                 return false;
@@ -363,7 +377,7 @@ public class TokenomicsSettings
     private static bool TryParseHostOptionValue(string encodedOptions, out TokenomicsHostOptions hostOptions) {
         hostOptions = null!;
         bool? enabled = null;
-        var apis = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase);
+        var apis = new Dictionary<LLMApiEnum, TokenomicsApiOptions>();
         foreach (var optionPart in encodedOptions.Split('|', StringSplitOptions.TrimEntries)) {
             var optionFields = optionPart.Split(':', 5, StringSplitOptions.None);
             if (optionFields.Length == 2 &&
@@ -378,8 +392,7 @@ public class TokenomicsSettings
 
             if (optionFields.Length is >= 3 and <= 5 &&
                 optionFields[0].Equals("Api", StringComparison.OrdinalIgnoreCase)) {
-                var apiName = Uri.UnescapeDataString(optionFields[1]);
-                if (string.IsNullOrWhiteSpace(apiName) ||
+                if (!LLMApiEnumParser.TryParse(Uri.UnescapeDataString(optionFields[1]), out var apiName) ||
                     !bool.TryParse(optionFields[2], out var firstFlag) ||
                     apis.ContainsKey(apiName)) {
                     return false;
@@ -487,7 +500,7 @@ public class TokenomicsSettings
     }
 
     private bool TryParseHierarchy(string value) {
-        var hierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var hierarchy = new Dictionary<string, List<ModelHierarchyEntry>>(StringComparer.OrdinalIgnoreCase);
         var hierarchyIndex = 0;
 
                 while (hierarchyIndex < value.Length) {
@@ -520,16 +533,29 @@ public class TokenomicsSettings
                         return false;
                     }
 
-                    var models = new List<string>();
+                    var models = new List<ModelHierarchyEntry>();
                     var encodedModels = value[(hierarchyIndex + 1)..closeBracketIndex].Trim();
                     if (encodedModels.Length > 0) {
                         foreach (var encodedModel in encodedModels.Split(',', StringSplitOptions.TrimEntries)) {
-                            var model = Uri.UnescapeDataString(encodedModel);
+                            var fields = encodedModel.Split('|');
+                            if (fields.Length > 2) {
+                                return false;
+                            }
+                            var model = Uri.UnescapeDataString(fields[0]);
                             if (string.IsNullOrWhiteSpace(model)) {
                                 return false;
                             }
 
-                            models.Add(model);
+                            var apiName = LLMApiEnum.Unknown;
+                            if (fields.Length == 2 && fields[1].Length > 0
+                                && !LLMApiEnumParser.TryParse(Uri.UnescapeDataString(fields[1]), out apiName)) {
+                                return false;
+                            }
+
+                            models.Add(new ModelHierarchyEntry {
+                                Model = model,
+                                APIName = apiName
+                            });
                         }
                     }
 
@@ -694,7 +720,10 @@ public class TokenomicsSettings
                         .Select(field => $"{field.Name}:{FormatScalar(field.GetValue(entry.Value)!)}");
                     parts.Add($"{property.Name}={Uri.EscapeDataString(entry.Model)}={string.Join("|", fields)}");
                 }
-            } else if (property.Name is nameof(DefaultWorkload) or nameof(DefaultModel) or nameof(DefaultModelAPI)) {
+            } else if (property.Name == nameof(DefaultModelAPI)) {
+                parts.Add($"{property.Name}={Uri.EscapeDataString(DefaultModelAPI == LLMApiEnum.Unknown
+                    ? string.Empty : LLMApiEnumParser.ToDisplayName(DefaultModelAPI))}");
+            } else if (property.Name is nameof(DefaultWorkload) or nameof(DefaultModel)) {
                 parts.Add($"{property.Name}={Uri.EscapeDataString((string?)property.GetValue(this) ?? string.Empty)}");
             } else if (property.Name == nameof(DelayDuration)) {
                 parts.Add($"{property.Name}={FormatDelayDuration()}");
@@ -753,7 +782,9 @@ public class TokenomicsSettings
 
     private string FormatHierarchy() {
         return string.Join(", ", ModelHierarchy.Select(entry =>
-            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(destination =>
+                $"{Uri.EscapeDataString(destination.Model)}|{Uri.EscapeDataString(destination.APIName == LLMApiEnum.Unknown
+                    ? string.Empty : LLMApiEnumParser.ToDisplayName(destination.APIName))}"))}]"));
     }
 
     private void FormatHostOptions(List<string> parts) {
@@ -798,7 +829,7 @@ public class TokenomicsSettings
             $"{nameof(TokenomicsHostOptions.Enabled)}:{hostOptions.Enabled.ToString().ToLowerInvariant()}"
         };
         foreach (var (apiName, apiOptions) in hostOptions.APIs) {
-            if (string.IsNullOrWhiteSpace(apiName) || apiOptions is null) {
+            if (apiName == LLMApiEnum.Unknown || !Enum.IsDefined(apiName) || apiOptions is null) {
                 throw new InvalidOperationException(
                     $"{settingName} API names and option values cannot be null or whitespace.");
             }
@@ -806,7 +837,7 @@ public class TokenomicsSettings
             var passThrough = apiOptions.PassThrough;
             var overridePath = !passThrough && apiOptions.OverridePath && apiOptions.Path is not null;
             var apiPart =
-                $"Api:{Uri.EscapeDataString(apiName)}:{passThrough.ToString().ToLowerInvariant()}:{overridePath.ToString().ToLowerInvariant()}";
+                $"Api:{Uri.EscapeDataString(LLMApiEnumParser.ToDisplayName(apiName))}:{passThrough.ToString().ToLowerInvariant()}:{overridePath.ToString().ToLowerInvariant()}";
             if (overridePath) {
                 apiPart += $":{Uri.EscapeDataString(apiOptions.Path!)}";
             }
@@ -866,9 +897,12 @@ public class TokenomicsSettings
             };
         }
 
-        clone.ModelHierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        clone.ModelHierarchy = new Dictionary<string, List<ModelHierarchyEntry>>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in ModelHierarchy) {
-            clone.ModelHierarchy[pair.Key] = [.. pair.Value];
+            clone.ModelHierarchy[pair.Key] = pair.Value.Select(destination => new ModelHierarchyEntry {
+                Model = destination.Model,
+                APIName = destination.APIName
+            }).ToList();
         }
 
         clone.HostOptions = new Dictionary<string, TokenomicsHostOptions>(HostOptions.Comparer);
@@ -890,7 +924,7 @@ public class TokenomicsSettings
     }
 
     private static TokenomicsHostOptions CloneHostOptions(TokenomicsHostOptions hostOptions) {
-        var clonedApis = new Dictionary<string, TokenomicsApiOptions>(hostOptions.APIs.Comparer);
+        var clonedApis = new Dictionary<LLMApiEnum, TokenomicsApiOptions>(hostOptions.APIs.Comparer);
         foreach (var (apiName, apiOptions) in hostOptions.APIs) {
             clonedApis[apiName] = new TokenomicsApiOptions {
                 PassThrough = apiOptions.PassThrough,

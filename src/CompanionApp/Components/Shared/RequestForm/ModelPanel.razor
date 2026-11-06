@@ -3,6 +3,7 @@
 @using System.Globalization
 @using System.Text.Encodings.Web
 @using System.Text.Json
+@using SharedParser.Tokenomics.LLM.Catalog
 @inject ModelDefaults ModelDefaults
 @inject RequestDebugSettings DebugSettings
 
@@ -71,7 +72,7 @@
             <option value="">API...</option>
             @foreach (var api in AvailableApis)
             {
-                <option value="@api.Id">@api.DisplayName</option>
+                <option value="@LLMApiEnumParser.ToId(api.Id)">@api.DisplayName</option>
             }
         </select>
     </div>
@@ -386,12 +387,12 @@
     private void EnsureSelectedApi()
     {
         var apis = AvailableApis;
-        if (apis.Any(a => string.Equals(a.Id, SelectedApi, StringComparison.OrdinalIgnoreCase)))
+        if (LLMApiEnumParser.TryParse(SelectedApi, out var selectedApi) && apis.Any(api => api.Id == selectedApi))
         {
             return;
         }
 
-        SelectedApi = apis.FirstOrDefault()?.Id ?? string.Empty;
+        SelectedApi = LLMApiEnumParser.ToId(apis.FirstOrDefault()?.Id ?? LLMApiEnum.Unknown);
     }
 
     private void RefreshFieldsIfNeeded()

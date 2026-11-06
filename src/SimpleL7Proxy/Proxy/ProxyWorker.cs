@@ -9,6 +9,7 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Usage;
 using SharedParser.Tokenomics.LLM.Models;
 using SimpleL7Proxy.Tokenomics.Models;
@@ -149,7 +150,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 if (pr.Headers["Request-Queue-Duration"] is { } queueDuration) context.Response.Headers["Request-Queue-Duration"] = queueDuration;
                 if (pr.Headers["Request-Process-Duration"] is { } processDuration) context.Response.Headers["Request-Process-Duration"] = processDuration;
                 if (pr.Headers["Total-Latency"] is { } totalLatency) context.Response.Headers["Total-Latency"] = totalLatency;
-                if (_options.TokenomicsEnable && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
+                if (_options.TokenomicsEnable && request.EffectiveModel is { Length: > 0 } model) request.EventData["Model"] = model;
                 if (pr.Headers["x-backend-label"] is { } backendLabel) request.EventData["x-backend-label"] = backendLabel;
             }
 
@@ -371,10 +372,11 @@ public class ProxyWorker : IConfigChangeSubscriber
                 {
                     // Parse and evaluate the request once, then reuse the transformed body for failover attempts.
                     var parseResult = ModelSwapper.ParseModel(bodyBytes);
-                    request.OriginalAPIName = _wrkCntxt.TokenomicsHandler.ModelApiName(request.Path) ?? request.Path;
+                    request.OriginalAPIName = _wrkCntxt.TokenomicsHandler.ModelApiName(request.Path);
                     request.WordCount = parseResult.WordCount;
                     request.OriginalModel = parseResult.SourceModel ?? "unknown";
-                    request.Model = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
+                    request.EffectiveModel = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
+                    request.EffectiveAPIName = request.OriginalAPIName;
                     request.Workload = request.Headers["S7P-Workload"] ?? "unknown";
                     request.IsPremiumWorkload = request.Headers["S7P-Premium-Workload"]?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
                     var PremiumTenant = bool.TryParse(request.Headers[Constants.TokenizerPremiumTenant], out var premiumTenant) && premiumTenant;
@@ -402,8 +404,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                             request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
                     }
 
-                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.Model, parseResult);
-                    request.ModelReplaced = request.Model != request.OriginalModel;
+                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.EffectiveModel, parseResult);
+                    request.ModelReplaced = request.EffectiveModel != request.OriginalModel;
 
                     // if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
                     // {
@@ -433,12 +435,12 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 // move to the next host if it does not support the requested model
                 requestPath = _wrkCntxt.TokenomicsHandler
-                        .SupportedHostPath(request.Model, host.HostKey, request.OriginalAPIName, request.Path);
+                    .SupportedHostPath(request.EffectiveModel, host.HostKey, request.EffectiveAPIName, request.Path);
                 if (requestPath is null)
                 {
                     continue;
                 }
-                
+
                 // Update the modified path to reflect the supported host path
                 modifiedPath = requestPath;
             }
@@ -530,7 +532,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.APIMPolicyCycleCounter.ToString());
                     proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimeAPIMPolicyCycleCounter.ToString());
-                    proxyRequest.Headers.Add("x-LLMModel", request.Model);
+                    proxyRequest.Headers.Add("x-LLMModel", request.EffectiveModel);
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
 
                     // add S7PDEBUG back in if it was requested
@@ -678,7 +680,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                                     // REVIEW: Resolve the effective request model to a provider, then its token processor.
                                     // Providers added without a processor assignment retain the unknown-provider fallback.
                                     pr.StreamingProcessor = ModelMap.TokenProcessorByProvider.TryGetValue(
-                                        ModelMap.GetUsageProvider(request.Model), out var tokenProcessor)
+                                        ModelMap.GetUsageProvider(request.EffectiveModel), out var tokenProcessor)
                                         ? tokenProcessor
                                         : ModelMap.TokenProcessorByProvider[UsageProvider.Unknown];
                                 }
@@ -1050,7 +1052,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             ["x-MID"] = request.MID,
             ["Attempts"] = request.BackendAttempts.ToString(),
             ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString(),
-            ["Model"] = request.Model
+            ["Model"] = request.EffectiveModel
         };
         if (request.RequeueDelayMs > 0)
         {
@@ -1385,7 +1387,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Context.Response.Headers["x-MID"] = request.MID;
                 request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
                 request.Context.Response.Headers["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString();
-                request.Context.Response.Headers["Model"] = request.Model;
+                request.Context.Response.Headers["Model"] = request.EffectiveModel;
 
                 await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(errorBody)).ConfigureAwait(false);
                 await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
@@ -1451,7 +1453,31 @@ public class ProxyWorker : IConfigChangeSubscriber
             return;
         }
 
-        IStreamProcessor processor = _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
+        LLMApiEnum? sourceFormat = request.EffectiveAPIName switch
+        {
+            LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIChatCompletionsVision
+                or LLMApiEnum.GeminiOpenAICompatible or LLMApiEnum.CohereOpenAICompatible => LLMApiEnum.OpenAIChatCompletions,
+            LLMApiEnum.OpenAIResponses or LLMApiEnum.OpenAIResponsesVision => LLMApiEnum.OpenAIResponses,
+            LLMApiEnum.AnthropicMessages or LLMApiEnum.AnthropicMessagesVision => LLMApiEnum.AnthropicMessages,
+            _ => null
+        };
+        LLMApiEnum? targetFormat = request.OriginalAPIName switch
+        {
+            LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIChatCompletionsVision
+                or LLMApiEnum.GeminiOpenAICompatible or LLMApiEnum.CohereOpenAICompatible => LLMApiEnum.OpenAIChatCompletions,
+            LLMApiEnum.OpenAIResponses or LLMApiEnum.OpenAIResponsesVision => LLMApiEnum.OpenAIResponses,
+            LLMApiEnum.AnthropicMessages or LLMApiEnum.AnthropicMessagesVision => LLMApiEnum.AnthropicMessages,
+            _ => null
+        };
+        bool streaming = string.Equals(proxyResponse.Content?.Headers.ContentType?.MediaType,
+            "text/event-stream", StringComparison.OrdinalIgnoreCase);
+        string resolvedProcessor;
+        IStreamProcessor processor = sourceFormat.HasValue && targetFormat.HasValue
+            && !string.IsNullOrWhiteSpace(request.EffectiveModel) && !string.IsNullOrWhiteSpace(request.OriginalModel)
+            ? _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processWith,
+                new ValidModel(request.EffectiveModel, sourceFormat.Value),
+                new ValidModel(request.OriginalModel, targetFormat.Value), out resolvedProcessor, streaming)
+            : _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processWith, out resolvedProcessor);
         MemoryStream? memoryBuffer = null;
         
         try
@@ -1539,9 +1565,9 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                     // submit stats to Tokenomics
                     if (_options.TokenomicsEnable &&
-                        !string.IsNullOrWhiteSpace(request.UserID) && !string.IsNullOrWhiteSpace(request.Model))
+                        !string.IsNullOrWhiteSpace(request.UserID) && !string.IsNullOrWhiteSpace(request.EffectiveModel))
                     {
-                        pr.UsageStats = LLMHandler.PopulateUsage(request.Model, request.EventData);
+                        pr.UsageStats = LLMHandler.PopulateUsage(request.EffectiveModel, request.EventData);
 
                         if (pr.UsageStats.UsageAvailable)
                         {
@@ -1551,14 +1577,14 @@ public class ProxyWorker : IConfigChangeSubscriber
                             request.EventData["Usage.Cached_Tokens"] = pr.UsageStats.CachedTokens.ToString();
 
                             pr.UsageStats.Cost = _wrkCntxt.TokenomicsHandler.RequestCost(
-                                request.Model,
+                                request.EffectiveModel,
                                 pr.UsageStats.InputTokens,
                                 pr.UsageStats.CachedTokens,
                                 pr.UsageStats.OutputTokens);
 
                             _wrkCntxt.TokenomicsHandler.TokenMetricsCache.AddMetric(
                                 request.UserID,
-                                request.Model,
+                                request.EffectiveModel,
                                 pr.UsageStats.InputTokens,
                                 pr.UsageStats.OutputTokens,
                                 pr.UsageStats.CachedTokens,
@@ -1571,7 +1597,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                         {
                             _wrkCntxt.TokenomicsHandler.TokenMetricsCache.RecordRequestOutcome(
                                 request.UserID,
-                                request.Model,
+                                request.EffectiveModel,
                                 (int)proxyResponse.StatusCode,
                                 (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds);
                         }

@@ -1,4 +1,5 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
@@ -30,7 +31,7 @@ internal sealed class AnthropicMessagesOutput : LLMApiOutput {
             && (postamble.MessageId ?? postamble.ResponseId) is string messageId) {
             Writer.WriteString("id", messageId);
         }
-        WriteUsage(Writer, postamble, LLMApiFormatEnum.AnthropicMessages);
+        WriteUsage(Writer, postamble, LLMApiEnum.AnthropicMessages);
         CompleteJson();
     }
 }

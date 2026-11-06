@@ -1096,7 +1096,7 @@
         CloseSection();
         Settings = _allSettings
             .Where(setting => string.Equals(setting.Label, Label ?? string.Empty, StringComparison.Ordinal))
-            .Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false })
+            .Select(setting => setting with { IsNew = false })
             .ToList();
         // Older labels predate Tokenomics, so stage only its missing keys for the normal Update flow.
         var existingKeys = Settings

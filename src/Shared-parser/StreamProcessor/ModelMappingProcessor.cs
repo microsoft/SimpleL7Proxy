@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using SharedParser.Tokenomics.LLM;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Mapping;
 using SharedParser.Tokenomics.LLM.Models;
 using SimpleL7Proxy.StreamProcessor;
@@ -12,7 +13,7 @@ namespace SharedParser.StreamProcessor;
 
 /// <summary>Maps response text between explicitly selected model API formats.</summary>
 public class ModelMappingProcessor : UsageStreamProcessor {
-	private readonly LLMApiFormatEnum _sourceFormat;
+	private readonly LLMApiEnum _sourceFormat;
 	private (ValidModel SourceModel, ValidModel TargetModel, bool Streaming)? _mappingOptions;
 	private LLMPostamble? _postamble;
 
@@ -89,12 +90,12 @@ public class ModelMappingProcessor : UsageStreamProcessor {
 			postamble.TotalTokens.HasValue || postamble.CachedInputTokens.HasValue ||
 			postamble.CacheCreationInputTokens.HasValue || postamble.ReasoningOutputTokens.HasValue).ToString();
 
-		bool completion = _sourceFormat == LLMApiFormatEnum.OpenAIChatCompletions;
+		bool completion = _sourceFormat == LLMApiEnum.OpenAIChatCompletions;
 		AddUsageField(eventData, completion ? "Usage.Prompt_Tokens" : "Usage.Input_Tokens", postamble.InputTokens);
 		AddUsageField(eventData, completion ? "Usage.Completion_Tokens" : "Usage.Output_Tokens", postamble.OutputTokens);
 		AddUsageField(eventData, "Usage.Total_Tokens", postamble.TotalTokens);
 		AddUsageField(eventData, "Usage.Cached_Tokens", postamble.CachedInputTokens);
-		if (_sourceFormat == LLMApiFormatEnum.AnthropicMessages) {
+		if (_sourceFormat == LLMApiEnum.AnthropicMessages) {
 			AddUsageField(eventData, "Usage.Cache_Read_Input_Tokens", postamble.CachedInputTokens);
 			AddUsageField(eventData, "Usage.Cache_Creation_Input_Tokens", postamble.CacheCreationInputTokens);
 		}

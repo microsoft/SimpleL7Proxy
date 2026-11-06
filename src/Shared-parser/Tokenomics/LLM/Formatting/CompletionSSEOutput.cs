@@ -1,4 +1,5 @@
 using System.IO;
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Models;
 
 namespace SharedParser.Tokenomics.LLM.Formatting;
@@ -88,7 +89,7 @@ internal sealed class CompletionSSEOutput : LLMApiOutput {
             writer.WriteString("object", "chat.completion.chunk");
             writer.WriteStartArray("choices");
             writer.WriteEndArray();
-            WriteUsage(writer, postamble, LLMApiFormatEnum.OpenAIChatCompletions);
+            WriteUsage(writer, postamble, LLMApiEnum.OpenAIChatCompletions);
             writer.WriteEndObject();
             CompleteEvent(writer);
         }

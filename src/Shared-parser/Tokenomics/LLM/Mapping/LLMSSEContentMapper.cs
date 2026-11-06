@@ -1,5 +1,6 @@
 using System.IO;
 
+using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Formatting;
 using SharedParser.Tokenomics.LLM.Models;
 using SharedParser.Tokenomics.LLM.Parsing;
@@ -11,7 +12,7 @@ public class LLMSSEContentMapper
     public ValidModel SourceModel { get; }
     public ValidModel TargetModel { get; }
     /// <summary>Gets the target API format used for output serialization.</summary>
-    public LLMApiFormatEnum TargetFormat => TargetModel.ApiFormat;
+    public LLMApiEnum TargetFormat => TargetModel.ApiFormat;
     public Stream OutputStream { get; }
     /// <summary>Gets diagnostic preamble lines when capture is enabled, excluding generated content.</summary>
     public string[] preBuffer => _preParser.PreBuffer;

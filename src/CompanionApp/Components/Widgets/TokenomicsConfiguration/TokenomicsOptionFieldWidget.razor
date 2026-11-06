@@ -37,7 +37,7 @@
         else if (Name == nameof(TokenomicsSettings.ModelHierarchy))
         {
             <textarea id="@($"tokenomics-{Name}")" class="form-control form-control-sm font-monospace" rows="3"
-                      placeholder="prefix: [model1, model2]" @bind:get="Value"
+                      placeholder="prefix: [model1|API1, model2|API2]" @bind:get="Value"
                       aria-invalid="@(Error is null ? "false" : "true")"
                       aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @bind:set="@(value => OnChanged.InvokeAsync(new ChangeEventArgs { Value = value }))"></textarea>
         }

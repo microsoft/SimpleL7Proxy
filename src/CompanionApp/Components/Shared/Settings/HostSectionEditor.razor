@@ -1,5 +1,6 @@
 @namespace CompanionApp.Components.Shared
 @using SimpleL7Proxy.Tokenomics
+@using SharedParser.Tokenomics.LLM.Catalog
 @inject AppConfigurationScaffoldService AppConfiguration
 @inject IJSRuntime JS
 @inject ModelDefaults ChatCatalog
@@ -68,9 +69,9 @@ else
                             }
                             else if (tokenomicsHostOptions?.APIs.Count > 0)
                             {
-                                @foreach (var api in tokenomicsHostOptions.APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                @foreach (var api in tokenomicsHostOptions.APIs.OrderBy(api => LLMApiEnumParser.ToDisplayName(api.Key), StringComparer.OrdinalIgnoreCase))
                                 {
-                                    <span class="badge config-tokenomics-api-badge">@TokenomicsApiBadge(api.Key)</span>
+                                    <span class="badge config-tokenomics-api-badge">@TokenomicsApiBadge(LLMApiEnumParser.ToDisplayName(api.Key))</span>
                                 }
                             }
                             else
@@ -1191,6 +1192,7 @@ else
     private IEnumerable<string> TokenomicsModelIds() =>
         _tokenomicsOptions.ModelHierarchy.Values
             .SelectMany(models => models)
+            .Select(entry => entry.Model)
             .Concat([_tokenomicsOptions.DefaultModel])
             .Concat(_tokenomicsOptions.ModelCostPerToken.Keys)
             .Concat(_tokenomicsOptions.ModelHostOptions.Keys)
@@ -1229,6 +1231,7 @@ else
             if (!string.IsNullOrEmpty(match.Key) && match.Value.APIs.Count > 0)
             {
                 return match.Value.APIs.Keys
+                    .Select(LLMApiEnumParser.ToDisplayName)
                     .OrderBy(api => api, StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
@@ -1297,7 +1300,11 @@ else
             var hostOptions = new TokenomicsHostOptions();
             foreach (var apiName in StandardApisForModel(model))
             {
-                hostOptions.APIs[apiName] = new TokenomicsApiOptions
+                if (!LLMApiEnumParser.TryParse(apiName, out var api))
+                {
+                    continue;
+                }
+                hostOptions.APIs[api] = new TokenomicsApiOptions
                 {
                     PassThrough = false,
                     OverridePath = false,
@@ -1441,8 +1448,8 @@ else
         return modelHosts.Count == 0 ? null : new TokenomicsHostOptions {
             Enabled = modelHosts.Any(options => options.Enabled),
             APIs = modelHosts.SelectMany(options => options.APIs)
-                .GroupBy(api => api.Key, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(api => api.Key)
+                .ToDictionary(group => group.Key, group => group.First().Value)
         };
     }
 

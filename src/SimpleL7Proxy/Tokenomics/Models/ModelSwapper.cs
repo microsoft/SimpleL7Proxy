@@ -183,15 +183,17 @@ public class ModelSwapper
         request.WordCount = parseResult.WordCount;
 
         // 2. Decide final model
-        string finalModel = modelOverride switch
+        var (finalModel, finalAPIName) = modelOverride switch
         {
-            ModelOverrideEnum.None => parseResult.SourceModel ?? "unknown",
+            ModelOverrideEnum.None => (parseResult.SourceModel ?? "unknown", request.EffectiveAPIName),
             ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade
-                => _tokenomicsHandler.UpdateModel(parseResult.SourceModel ?? "unknown", modelOverride),
-            _ => modelOverrideName
+                => _tokenomicsHandler.UpdateModelDestination(
+                    parseResult.SourceModel ?? "unknown", request.EffectiveAPIName, modelOverride),
+            _ => (modelOverrideName, request.EffectiveAPIName)
         };
 
-        request.Model = finalModel;
+        request.EffectiveModel = finalModel;
+        request.EffectiveAPIName = finalAPIName;
 
         // 3. Get transforms and merge
 
