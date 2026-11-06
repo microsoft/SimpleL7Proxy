@@ -1,5 +1,7 @@
 # Copilot Learnings
 
+- For mapper benchmark timing, accumulate stage totals silently per response. Print and clear totals only on the explicit ReSeTCaChe request, not when instance stopwatches reset at completion.
+- The user reported the pooled UTF-8 line-reader/byte-overload refactor was slower and requested a full revert. Do not assume eliminating transcoding improves end-to-end latency; prefer small, separately measurable encoding changes and account for Functions console logging when comparing runs.
 - Bash syntax validation does not parse embedded AWK. Check the extracted formatter separately and use supplied benchmark measurements to validate output without sending requests. Avoid AWK built-in names such as length for arrays, and put logical continuation operators at the ends of multiline conditions.
 - File-based manual samples can run with reflection-based JSON serialization disabled. Pretty-print parsed JSON with JsonElement.WriteTo and an indented Utf8JsonWriter, not reflection-based JsonSerializer.Serialize overloads.
 - LLM output stream flushing belongs to the external 250 ms flusher. Stream-backed Utf8JsonWriter.Flush/Dispose also flush the stream; serialize through ArrayBufferWriter<byte> and drain with Stream.Write instead. Leave builds and test runs to the user when requested.

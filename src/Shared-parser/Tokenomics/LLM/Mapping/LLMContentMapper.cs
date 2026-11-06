@@ -58,15 +58,23 @@ public class LLMContentMapper
     private void ProcessLineCore(NonNullString line) {
         LLMParserStateEnum previousState = ParserState;
         _processLine = _processLine(line);
-
-        if (previousState == LLMParserStateEnum.Pre && ParserState == LLMParserStateEnum.Data) {
-            _dataWriter.OutputPre(Preamble);
-            _processLine = _preParser.ResumeData(_dataWriter.OutputData);
+        if (previousState != ParserState) {
+            _processLine = HandleStateTransition(previousState, ParserState);
         }
 
         if (!_outputCompleted && _preParser.IsComplete && ParserState == LLMParserStateEnum.Post) {
             _dataWriter.OutputPost(Preamble, Postamble);
             _outputCompleted = true;
+        }
+    }
+
+    private LLMApiParser.LineProcessor HandleStateTransition(LLMParserStateEnum oldState, LLMParserStateEnum newState) {
+        switch ((oldState, newState)) {
+            case (LLMParserStateEnum.Pre, LLMParserStateEnum.Data):
+                _dataWriter.OutputPre(Preamble);
+                return _preParser.ResumeData(_dataWriter.OutputData);
+            default:
+                return _processLine;
         }
     }
 

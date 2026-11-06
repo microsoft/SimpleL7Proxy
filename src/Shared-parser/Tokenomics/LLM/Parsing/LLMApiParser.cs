@@ -1,3 +1,6 @@
+#define LLM_UTF8_TRYGETBYTES
+//#define LLM_SKIP_UNUSED_STRING_DECODING
+
 using System.Text;
 using System.Text.Json;
 using SharedParser.Tokenomics.LLM.Models;
@@ -172,6 +175,15 @@ public abstract class LLMApiParser {
         bool envelope = Containers.Count == 1 || (Containers.Count == 2
             && Containers[1].Name is "response" or "message");
         if (reader.TokenType == JsonTokenType.String) {
+#if LLM_SKIP_UNUSED_STRING_DECODING
+            if (PropertyName is not ("finish_reason" or "stop_reason" or "stop_sequence")
+                && !(PropertyName == "reason" && Containers[^1].Name == "incomplete_details")
+                && !(PropertyName == "status" && envelope)
+                && !(PropertyName == "id" && (envelope || Containers[^1].Name is "item" or "output"))
+                && !(!CompletesAtRoot && Containers.Count == 1 && PropertyName is "type" or "error")) {
+                return;
+            }
+#endif
             string? value = reader.GetString();
             if (!CompletesAtRoot && ((Containers.Count == 1 && PropertyName == "type"
                 && value is "response.failed" or "error")
@@ -266,11 +278,25 @@ public abstract class LLMApiParser {
 
     protected void ProcessJson(ReadOnlySpan<char> payload, int valueOffset, bool finalBlock = false, Action<NonNullString>? writeContent = null) {
         int previousCount = _pendingCount;
+#if LLM_UTF8_TRYGETBYTES
+        int requiredCapacity = checked(previousCount + payload.Length + (finalBlock ? 0 : 1));
+        if (_pendingBytes.Length < requiredCapacity) {
+            Array.Resize(ref _pendingBytes, Math.Max(requiredCapacity, _pendingBytes.Length * 2));
+        }
+        if (!Encoding.UTF8.TryGetBytes(payload,
+            _pendingBytes.AsSpan(previousCount, _pendingBytes.Length - previousCount - (finalBlock ? 0 : 1)), out int bytesWritten)) {
+            requiredCapacity = checked(previousCount + Encoding.UTF8.GetByteCount(payload) + (finalBlock ? 0 : 1));
+            Array.Resize(ref _pendingBytes, Math.Max(requiredCapacity, _pendingBytes.Length * 2));
+            bytesWritten = Encoding.UTF8.GetBytes(payload, _pendingBytes.AsSpan(previousCount));
+        }
+        _pendingCount += bytesWritten;
+    #else
         int requiredCapacity = checked(previousCount + Encoding.UTF8.GetByteCount(payload) + (finalBlock ? 0 : 1));
         if (_pendingBytes.Length < requiredCapacity) {
             Array.Resize(ref _pendingBytes, Math.Max(requiredCapacity, _pendingBytes.Length * 2));
         }
         _pendingCount += Encoding.UTF8.GetBytes(payload, _pendingBytes.AsSpan(_pendingCount));
+    #endif
         if (!finalBlock) {
             _pendingBytes[_pendingCount++] = (byte)'\n';
         }

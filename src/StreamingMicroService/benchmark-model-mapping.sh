@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly requestCount=1000
-readonly concurrency=10
+readonly requestCount=500
+readonly concurrency=1
 readonly url1="${1:-http://localhost:7071/api/process?url=http://localhost:3000/file-stream/openAI.txt&sourceModel=gpt-4o.Completions&targetModel=claude-sonnet-4-5.Messages}"
-readonly url2="${2:-http://localhost:7071/api/process?url=http://localhost:3000/file-stream/openAI.txt&sourceModel=gpt-4o.Completions&targetModel=gpt-4o.Completions}"
+readonly url2="${2:-http://localhost:7071/api/process?url=http://localhost:3000/file-stream/openAI.txt&processor=AllUsage-2}"
 
 if ! command -v ab >/dev/null 2>&1; then
     printf 'ApacheBench (ab) is required. On Ubuntu, install apache2-utils.\n' >&2
@@ -13,15 +13,32 @@ fi
 
 exitCode=0
 results=()
-for url in "$url1" "$url2"; do
-    if output=$(ab -n "$requestCount" -c "$concurrency" "$url" 2>&1); then
+processIds=()
+urls=("$url1" "$url2")
+resultsDirectory=$(mktemp -d)
+trap 'rm -rf -- "$resultsDirectory"' EXIT
+
+for url in "${urls[@]}"; do
+    ab -n "$requestCount" -c "$concurrency" "$url" >"$resultsDirectory/${#processIds[@]}" 2>&1 &
+    processIds+=("$!")
+done
+
+for index in "${!processIds[@]}"; do
+    if wait "${processIds[$index]}"; then
+        output=$(<"$resultsDirectory/$index")
         results+=("$output")
     else
-        printf 'ApacheBench failed for %s:\n%s\n' "$url" "$output" >&2
+        output=$(<"$resultsDirectory/$index")
+        printf 'ApacheBench failed for %s:\n%s\n' "${urls[$index]}" "$output" >&2
         results+=("")
         exitCode=1
     fi
 done
+
+# if ! curl --fail --silent --show-error --output /dev/null "${url1%%\?*}?processor=ReSeTCaChe"; then
+#     printf 'Reset failed after benchmark runs.\n' >&2
+#     exitCode=1
+# fi
 
 printf '%s\n' 'RESULT 1' "${results[0]}" 'RESULT 2' "${results[1]}" | awk -v requested="$requestCount" -v commandFailed="$exitCode" -v firstUrl="$url1" -v secondUrl="$url2" '
     function modelLabel(url, parameters, parameterCount, parameterIndex, value, sourceModel, targetModel) {

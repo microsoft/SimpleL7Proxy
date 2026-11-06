@@ -1,3 +1,5 @@
+//#define LLM_SUPPRESS_NETWORK_OUTPUT
+
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
@@ -40,16 +42,21 @@ public class ModelMappingProcessor : UsageStreamProcessor {
 		BackgroundRequestId = string.Empty;
 		BackgroundCompleted = false;
 
+#if LLM_SUPPRESS_NETWORK_OUTPUT
+		var mappingOutputStream = Stream.Null;
+#else
+		var mappingOutputStream = outputStream;
+#endif
 		Func<NonNullString, ValueTask> processLine;
 		Func<ValueTask> complete;
 		if (options.Streaming) {
-			var mapper = new LLMSSEContentMapper(options.SourceModel, options.TargetModel, outputStream);
+			var mapper = new LLMSSEContentMapper(options.SourceModel, options.TargetModel, mappingOutputStream);
 			processLine = mapper.ProcessLineAsync;
 			complete = mapper.CompleteAsync;
 			_postamble = mapper.Postamble;
 		}
 		else {
-			var mapper = new LLMContentMapper(options.SourceModel, options.TargetModel, outputStream);
+			var mapper = new LLMContentMapper(options.SourceModel, options.TargetModel, mappingOutputStream);
 			processLine = mapper.ProcessLineAsync;
 			complete = mapper.CompleteAsync;
 			_postamble = mapper.Postamble;
@@ -65,6 +72,9 @@ public class ModelMappingProcessor : UsageStreamProcessor {
 		}
 		await complete().ConfigureAwait(false);
 		BackgroundCompleted = string.Equals(_postamble.Status, "completed", StringComparison.OrdinalIgnoreCase);
+#if LLM_SUPPRESS_NETWORK_OUTPUT
+		await outputStream.WriteAsync("ok"u8.ToArray()).ConfigureAwait(false);
+#endif
 	}
 
 	/// <summary>Publishes captured usage in the source API schema without inventing missing counts.</summary>
