@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 namespace CompanionApp.Components.Shared;
 
@@ -22,7 +23,7 @@ public enum FieldPlacement
 /// <summary>A single request-body template bound to an API id.</summary>
 public sealed class RequestTemplate
 {
-    public string Api { get; init; } = string.Empty;
+    public LLMApiEnum Api { get; init; } = LLMApiEnum.Unknown;
 
     public JsonNode? Body { get; init; }
 }
@@ -47,16 +48,20 @@ public static class RequestTemplateEngine
         return templatesSection.GetChildren()
             .Select(section => new RequestTemplate
             {
-                Api = section["api"] ?? string.Empty,
+                Api = LLMApiEnumParser.TryParse(section["api"], out var api)
+                    ? api
+                    : throw new InvalidOperationException($"Unknown API '{section["api"]}' at '{section.Path}:api'."),
                 Body = BuildJsonNode(section.GetSection("body"))
             })
-            .Where(template => !string.IsNullOrWhiteSpace(template.Api) && template.Body is not null)
+            .Where(template => template.Body is not null)
             .ToList();
     }
 
     /// <summary>Finds the template for an API id, or <c>null</c> when none is configured.</summary>
     public static RequestTemplate? FindTemplate(IReadOnlyList<RequestTemplate> templates, string? apiId) =>
-        templates.FirstOrDefault(template => string.Equals(template.Api, apiId, StringComparison.OrdinalIgnoreCase));
+        LLMApiEnumParser.TryParse(apiId, out var api)
+            ? templates.FirstOrDefault(template => template.Api == api)
+            : null;
 
     /// <summary>Recursively converts a configuration section into a JSON node (object, array, or scalar).</summary>
     public static JsonNode? BuildJsonNode(IConfigurationSection section)

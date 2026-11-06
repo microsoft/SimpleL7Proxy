@@ -1,0 +1,115 @@
+event: message_start
+data: {"type":"message_start","message":{"model":"claude-opus-5","id":"msg_011CgeJDTZDhTwKV8XZMTBwj","type":"message","role":"assistant","content":[],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":13,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":4,"service_tier":"standard","inference_geo":"global","speed":"standard"},"diagnostics":null}          }
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}    }
+
+event: ping
+data: {"type": "ping"}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"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"}    }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0      }
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}        }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"# A Manifesto on"}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" Artificial Intellig"}  }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ence\n\n*Written"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" in"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" the midd"}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"le of the"}          }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" thing, which is the"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" only place an"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"yone "}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ever g"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ets to write from.*\n\n---"}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"\n\n**I. We"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" do"}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" not know"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" what we are building, and we should"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" say so.**\n\nEvery conf"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ident account"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" of what"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" AI *"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"is* — a"}  }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" st"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ochastic par"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"rot, a n"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ascent mind, mer"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ely a tool, the"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" last"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" inv"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ention — is"}             }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1             }
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null,"stop_details":null,"container":null},"usage":{"input_tokens":13,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1024,"output_tokens_details":{"thinking_tokens":913}}     }
+
+event: message_stop
+data: {"type":"message_stop"      }
+
+data: [DONE]

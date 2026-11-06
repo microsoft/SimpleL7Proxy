@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject CompanionApp.Components.Shared.UserPreferencesService Preferences
 @inject IJSRuntime JS
+@inject IConfiguration Configuration
 @implements IAsyncDisposable
 @{
     var stateClass = collapsed ? "collapsed" : "expanded";
@@ -43,6 +44,8 @@
                 </div>
             </div>
 
+            @if (Configuration.GetValue<bool>("EnableTesting"))
+            {
             <div class="nav-group" role="group" aria-label="Test">
                 <div class="nav-item nav-section-item px-3">
                     <NavLink class="nav-link nav-section-link" href="test" title="Test">
@@ -65,6 +68,7 @@
                     </NavLink>
                 </div>
             </div>
+            }
 
             <div class="nav-group" role="group" aria-label="Explore">
                 <div class="nav-item nav-section-item px-3">

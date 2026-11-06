@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 namespace CompanionApp.Components.Shared;
 
@@ -40,7 +41,7 @@ public sealed class ModelDefaultRule
 public sealed class ApiInfo
 {
     /// <summary>Stable api id referenced by models and default rules.</summary>
-    public string Id { get; set; } = string.Empty;
+    public LLMApiEnum Id { get; set; } = LLMApiEnum.Unknown;
 
     /// <summary>Friendly name shown in the dropdown.</summary>
     public string DisplayName { get; set; } = string.Empty;
@@ -64,7 +65,7 @@ public sealed class ModelInfo
     public string DisplayName { get; set; } = string.Empty;
 
     /// <summary>The ids of the APIs this model supports.</summary>
-    public string[] Apis { get; set; } = Array.Empty<string>();
+    public LLMApiEnum[] Apis { get; set; } = Array.Empty<LLMApiEnum>();
 }
 
 /// <summary>Inputs for building a chat request body from a configured template.</summary>
@@ -105,10 +106,29 @@ public sealed class ModelDefaults
     {
         _rules = configuration.GetSection(SectionName).Get<List<ModelDefaultRule>>()
             ?? new List<ModelDefaultRule>();
-        _models = configuration.GetSection(ModelsSectionName).Get<List<ModelInfo>>()
-            ?? new List<ModelInfo>();
-        _apis = configuration.GetSection(ApisSectionName).Get<List<ApiInfo>>()
-            ?? new List<ApiInfo>();
+        _models = configuration.GetSection(ModelsSectionName).GetChildren()
+            .Select(section => new ModelInfo
+            {
+                Id = section["id"] ?? string.Empty,
+                Provider = section["provider"] ?? string.Empty,
+                DisplayName = section["displayName"] ?? string.Empty,
+                Apis = section.GetSection("apis").GetChildren()
+                    .Select(entry => LLMApiEnumParser.TryParse(entry.Value, out var api)
+                        ? api
+                        : throw new InvalidOperationException($"Unknown API '{entry.Value}' at '{entry.Path}'."))
+                    .ToArray()
+            })
+            .ToList();
+        _apis = configuration.GetSection(ApisSectionName).GetChildren()
+            .Select(section => new ApiInfo
+            {
+                Id = LLMApiEnumParser.TryParse(section["id"], out var api)
+                    ? api
+                    : throw new InvalidOperationException($"Unknown API '{section["id"]}' at '{section.Path}:id'."),
+                DisplayName = section["displayName"] ?? string.Empty,
+                Endpoint = section["endpoint"] ?? string.Empty
+            })
+            .ToList();
         _templates = RequestTemplateEngine.LoadTemplates(configuration.GetSection("requestTemplates"));
     }
 
@@ -124,7 +144,9 @@ public sealed class ModelDefaults
 
     /// <summary>Finds an API by its id, or null if not found.</summary>
     public ApiInfo? GetApi(string? id) =>
-        _apis.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase));
+        LLMApiEnumParser.TryParse(id, out var api)
+            ? _apis.FirstOrDefault(entry => entry.Id == api)
+            : null;
 
     /// <summary>Returns the APIs supported by the given model, in configured order.</summary>
     public IReadOnlyList<ApiInfo> ApisForModel(string? modelId)
@@ -136,7 +158,7 @@ public sealed class ModelDefaults
         }
 
         return model.Apis
-            .Select(GetApi)
+            .Select(api => _apis.FirstOrDefault(entry => entry.Id == api))
             .Where(a => a is not null)
             .Select(a => a!)
             .ToList();

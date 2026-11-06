@@ -73,10 +73,10 @@
 
     <div class="tokenomics-insight-grid governance-breakdown-grid">
         <article class="tokenomics-card insight-card">
-            <div class="policy-card-heading"><h3>Governed Requests by Tenant</h3><p>Distinct requests with recorded governance conditions; categories can overlap</p></div>
+            <div class="policy-card-heading"><h3>Governed Requests by Workload</h3><p>Distinct requests with recorded governance conditions; categories can overlap</p></div>
             <div class="users-table-wrap">
                 <table class="users-table governance-summary-table">
-                    <thead><tr><th scope="col">Tenant</th><th scope="col">Requests</th><th scope="col">Override / Exception</th><th scope="col">Quota Governance</th><th scope="col">Entitled Tenant</th></tr></thead>
+                    <thead><tr><th scope="col">Workload</th><th scope="col">Requests</th><th scope="col">Override / Exception</th><th scope="col">Quota Governance</th><th scope="col">Entitled Workload</th></tr></thead>
                     <tbody>
                         @foreach (var tenant in _tenants)
                         {
@@ -91,7 +91,7 @@
             <div class="policy-card-heading"><h3>Governed Requests by User</h3><p>Requesting users, not override actors; rate uses distinct evaluated requests</p></div>
             <div class="users-table-wrap">
                 <table class="users-table governance-summary-table">
-                    <thead><tr><th scope="col">User / Tenant</th><th scope="col">Governed</th><th scope="col">Evaluated</th><th scope="col">Rate</th></tr></thead>
+                    <thead><tr><th scope="col">User / Workload</th><th scope="col">Governed</th><th scope="col">Evaluated</th><th scope="col">Rate</th></tr></thead>
                     <tbody>
                         @foreach (var user in _users)
                         {
@@ -121,7 +121,7 @@
         <div class="policy-recent-heading"><div class="policy-card-heading"><h3>Usage and Recorded Cost of Governed Traffic</h3><p>Each governed request counted once, regardless of repeated evaluations. Recorded Cost is not verified billing; currency is not captured.</p></div></div>
         <div class="users-table-wrap">
             <table class="users-table governance-summary-table">
-                <thead><tr><th scope="col">Tenant</th><th scope="col">Requests</th><th scope="col">Outcomes Captured</th><th scope="col">Non-2xx</th><th scope="col">Tokens Captured</th><th scope="col">Usage Coverage</th><th scope="col">Recorded Cost (event units)</th><th scope="col">Cost Coverage</th></tr></thead>
+                <thead><tr><th scope="col">Workload</th><th scope="col">Requests</th><th scope="col">Outcomes Captured</th><th scope="col">Non-2xx</th><th scope="col">Tokens Captured</th><th scope="col">Usage Coverage</th><th scope="col">Recorded Cost (event units)</th><th scope="col">Cost Coverage</th></tr></thead>
                 <tbody>
                     @foreach (var tenant in _tenants)
                     {
@@ -171,7 +171,7 @@
         </div>
         <div class="users-table-wrap">
             <table class="users-table governance-events-table">
-                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Tenant</th><th scope="col">Model (Requested / Selected)</th><th scope="col">Recorded Category</th><th scope="col">Reason / Actor</th><th scope="col">Condition / Action</th><th scope="col">Quota State</th><th scope="col">Tokens / Cost</th><th scope="col">Policy Outcome / HTTP Status</th><th scope="col">Correlation</th></tr></thead>
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Workload</th><th scope="col">Model (Requested / Selected)</th><th scope="col">Recorded Category</th><th scope="col">Reason / Actor</th><th scope="col">Condition / Action</th><th scope="col">Quota State</th><th scope="col">Tokens / Cost</th><th scope="col">Policy Outcome / HTTP Status</th><th scope="col">Correlation</th></tr></thead>
                 <tbody>
                     @foreach (var entry in _visibleEvents)
                     {
@@ -216,7 +216,7 @@
     <p class="policy-note">
         Only the winning policy condition is recorded. AdministratorOverride combines administrator override OR approved exception.
         DailyQuotaGovernance combines incident response OR audit investigation OR compliance when daily quota is exceeded.
-        Entitled-tenant budget conditions combine premium OR enterprise. CapacityCriticalWorkload does not prove incident response: critical priority can produce it.
+        Entitled-workload budget conditions combine premium OR enterprise. CapacityCriticalWorkload does not prove incident response: critical priority can produce it.
         These conditions identify request policy evaluations, not administrator approval operations or proof of exemption.
         Charts and action tables count deduplicated evaluations; KPIs and usage/cost count distinct requests. Audit rows can repeat the same request's usage, so they must not be summed.
         Evaluation/outcome timestamps are not request arrival or approval times. All joins and attribution are limited to the selected snapshot window.
@@ -237,8 +237,8 @@
         int Outcomes, int NonSuccess, decimal? Tokens, int UsageSamples, decimal? Cost, int CostSamples);
 
     private const int PageSize = 10;
-    private readonly string[] _categories = ["Override / Exception", "Daily Quota Governance", "Entitled-Tenant Budget"];
-    private readonly string[] _filters = ["All Actions", "Overrides / Exceptions", "Quota Governance", "Entitled Tenants"];
+    private readonly string[] _categories = ["Override / Exception", "Daily Quota Governance", "Entitled-Workload Budget"];
+    private readonly string[] _filters = ["All Actions", "Overrides / Exceptions", "Quota Governance", "Entitled Workloads"];
     private readonly HashSet<string> _warnings = new(StringComparer.Ordinal);
     private GovernedRequest[] _requests = [];
     private GovernanceEvaluation[] _events = [];
@@ -313,7 +313,7 @@
         }
         var input = hasUsage ? TokenAmount(outcome, "InputTokens") : null;
         var output = hasUsage ? TokenAmount(outcome, "OutputTokens") : null;
-        return new GovernedRequest(group.Key, Identity(records, "UserId"), Identity(records, "Tenant"),
+        return new GovernedRequest(group.Key, Identity(records, "UserId"), Identity(records, "Workload"),
             Text(outcome, "EffectiveModel") ?? Text(latest, "ModelAfter") ?? "Not captured", Field(latest, "Decision"), policies,
             Status(outcome), outcome is null ? null : Time(outcome),
             input.HasValue && output.HasValue ? input.Value + output.Value : null, hasUsage ? RecordedCost(outcome) : null);
@@ -435,11 +435,11 @@
     private void UpdateRows() {
         _filteredEvents = _events.Where(entry => _selectedFilter switch {
             "Overrides / Exceptions" => entry.Category == 0, "Quota Governance" => entry.Category == 1,
-            "Entitled Tenants" => entry.Category == 2, _ => true
+            "Entitled Workloads" => entry.Category == 2, _ => true
         }).ToArray();
         _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
         _visibleEvents = _filteredEvents.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
-        var csv = new StringBuilder("TimestampUtc,User,Tenant,RequestedModel,ModelBefore,ModelAfter,LatestSelectedModel,PriorityBefore,PriorityAfter,RecordedCategory,PolicyCondition,PolicyAction,PolicyDecision,LatestPolicyDecision,FinalStatusCode,OutcomeTimestampUtc,Tokens,RecordedCost,QuotaState,QuotaBalance,QuotaLimit,ConfiguredAction,AdministratorOverrideFlag,ApprovedExceptionFlag,PremiumTenantFlag,EnterpriseTenantFlag,IncidentResponseFlag,AuditInvestigationFlag,ComplianceRequiredFlag,Reason,Actor,ApprovalReference,AuditCorrelationId,PolicyVersion,MID,DecisionId,EvaluationSequence\r\n");
+        var csv = new StringBuilder("TimestampUtc,User,Workload,RequestedModel,ModelBefore,ModelAfter,LatestSelectedModel,PriorityBefore,PriorityAfter,RecordedCategory,PolicyCondition,PolicyAction,PolicyDecision,LatestPolicyDecision,FinalStatusCode,OutcomeTimestampUtc,Tokens,RecordedCost,QuotaState,QuotaBalance,QuotaLimit,ConfiguredAction,AdministratorOverrideFlag,ApprovedExceptionFlag,PremiumTenantFlag,EnterpriseTenantFlag,IncidentResponseFlag,AuditInvestigationFlag,ComplianceRequiredFlag,Reason,Actor,ApprovalReference,AuditCorrelationId,PolicyVersion,MID,DecisionId,EvaluationSequence\r\n");
         foreach (var entry in _filteredEvents) {
             string[] values = [entry.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
                 entry.Request.User, entry.Request.Tenant, Field(entry.Fields, "RequestedModel"), Field(entry.Fields, "ModelBefore"), Field(entry.Fields, "ModelAfter"),

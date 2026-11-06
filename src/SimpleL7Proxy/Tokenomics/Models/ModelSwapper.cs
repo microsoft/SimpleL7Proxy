@@ -3,8 +3,9 @@ using System.Text;
 using System.Text.Json;
 using SimpleL7Proxy.Tokenomics;
 using System.Collections.Frozen;
+using SharedParser.Tokenomics.LLM.Models;
 
-namespace SimpleL7Proxy.Tokenomics.Llm;
+namespace SimpleL7Proxy.Tokenomics.Models;
 public class ModelSwapper
 {
     private readonly ILogger<ModelSwapper> _logger;
@@ -182,15 +183,17 @@ public class ModelSwapper
         request.WordCount = parseResult.WordCount;
 
         // 2. Decide final model
-        string finalModel = modelOverride switch
+        var (finalModel, finalAPIName) = modelOverride switch
         {
-            ModelOverrideEnum.None => parseResult.SourceModel ?? "unknown",
+            ModelOverrideEnum.None => (parseResult.SourceModel ?? "unknown", request.EffectiveAPIName),
             ModelOverrideEnum.Upgrade or ModelOverrideEnum.Downgrade
-                => _tokenomicsHandler.UpdateModel(parseResult.SourceModel ?? "unknown", modelOverride),
-            _ => modelOverrideName
+                => _tokenomicsHandler.UpdateModelDestination(
+                    parseResult.SourceModel ?? "unknown", request.EffectiveAPIName, modelOverride),
+            _ => (modelOverrideName, request.EffectiveAPIName)
         };
 
-        request.Model = finalModel;
+        request.EffectiveModel = finalModel;
+        request.EffectiveAPIName = finalAPIName;
 
         // 3. Get transforms and merge
 

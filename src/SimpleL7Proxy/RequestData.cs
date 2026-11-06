@@ -17,7 +17,8 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Tokenomics;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Catalog;
+using SharedParser.Tokenomics.LLM.Usage;
 
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
@@ -222,35 +223,38 @@ public class RequestData : IDisposable, IAsyncDisposable
     public short S7PHash { get; set; }
     public int S7PInputTokens { get; set; }
     public int S7POutputTokens { get; set; }
-    public bool ModelReplacementAllowed { get; set; }   // Tokenomics related flag
     /// <summary>Gets or sets whether abuse detection has marked this request for rejection.</summary>
     public bool IsAbusive { get; set; }
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
     public ProxyEvent EventData;
-    public TokenomicsSummaryEvent? TokenomicsSummary { get; set; }
     public Stream? OutputStream { get; set; }
     public Stream? Body { get; private set; }
-    public int EvaluationSequence { get; set; } = 0;   // Tokenomics related evaluation sequence
     public string ExpireReason { get; set; } = "";
     public string ExpiresAtString { get; set; } = "";
     public string FullURL { get; set; }
     public string Method { get; set; }
     public string MID { get; set; } = "";
-    public string Model { get; set; } = "";     // Tokenomics related model
-    public string OriginalModel { get; set; } = "";   // Tokenomics related original model
-    public string OriginalAPIName { get; set; } = "";   // Tokenomics related original API
-    public bool ModelReplaced { get; set; } = false;   // Tokenomics related flag
-    public bool IsPremiumWorkload { get; set; } = false;   // Tokenomics related flag
-    public bool IsCriticalWorkload { get; set; } = false;   // Tokenomics related flag
-    public bool IsOverride { get; set; } = false;   // Tokenomics related flag
     public string ParentId { get; set; } = "";
     public string Path { get; set; }
     public bool Requeued { get; set; } = false;
-    public string Tenant { get; set; } = "";   // Tokenomics related tenant
     public string UserID { get; set; } = "";
     public string profileUserId { get; set; } = "";
     public WebHeaderCollection Headers { get; private set; }
+
+    // Tokenomics related
+    public bool ModelReplacementAllowed { get; set; }   
+    public TokenomicsSummaryEvent? TokenomicsSummary { get; set; }
+    public int EvaluationSequence { get; set; } = 0;   
+    public string EffectiveModel { get; set; } = "";
+    public LLMApiEnum EffectiveAPIName { get; set; } = LLMApiEnum.Unknown;
+    public string OriginalModel { get; set; } = "";
+    public LLMApiEnum OriginalAPIName { get; set; } = LLMApiEnum.Unknown;
+    public bool ModelReplaced { get; set; } = false;
+    public bool IsPremiumWorkload { get; set; } = false;
+    public bool IsCriticalWorkload { get; set; } = false;
+    public bool IsOverride { get; set; } = false;
+    public string Workload { get; set; } = "";
 
     // Method to initialize the static variable from DI
     public static void InitializeServiceBusRequestService(ISBTopicService sbTopicService,

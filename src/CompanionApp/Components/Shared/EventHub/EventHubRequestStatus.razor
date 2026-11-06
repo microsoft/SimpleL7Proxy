@@ -756,10 +756,11 @@
             HoveredItem = null;
         }
 
-        if (SelectedItem is not null && !Items.Contains(SelectedItem))
+        if (SelectedItem is not null)
         {
-            SelectedItem = null;
-            BackendLogModalValue = null;
+            SelectedItem = Items.FirstOrDefault(item => string.Equals(
+                GetRunningRequestKey(item), GetRunningRequestKey(SelectedItem), StringComparison.Ordinal))
+                ?? SelectedItem;
         }
     }
 

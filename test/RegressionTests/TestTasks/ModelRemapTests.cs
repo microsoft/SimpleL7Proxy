@@ -1,6 +1,7 @@
 using System.Text.Json;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 using SimpleL7Proxy.Tokenomics;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SimpleL7Proxy.Test;
 

@@ -53,13 +53,17 @@ public sealed class TokenomicsCondition
         ArgumentNullException.ThrowIfNull(queue);
 
         AbuseDetected = data.IsAbusive;
-        Metric = await lm.GetMetric(data.UserID, data.Model);
+        Metric = await lm.GetMetric(data.UserID, data.EffectiveModel);
+
+        Console.WriteLine($"******  Hourly Input Usage: {Metric.HourlyInputTokens}, Hourly Output Usage: {Metric.HourlyOutputTokens}");
+        Console.WriteLine($"******  Daily Input Usage: {Metric.DailyInputTokens}, Daily Output Usage: {Metric.DailyOutputTokens}");
+        Console.WriteLine($"******  Monthly Input Usage: {Metric.MonthlyInputTokens}, Monthly Output Usage: {Metric.MonthlyOutputTokens}");
 
         // lookup the appropriate limit:  Critical => Premium => Model-specific => Default
-        var limits = data.IsCriticalWorkload ? settings.CriticalWorkloadLimits
-            : data.IsPremiumWorkload ? settings.PremiumWorkloadLimits
-            : data.Model is not null && settings.ModelLimits.TryGetValue(data.Model, out var modelLimits)
-                ? modelLimits : settings.DefaultLimits;
+        var limits = data.IsCriticalWorkload ? settings.PrivilegedLimitsAndBudgets
+            : data.IsPremiumWorkload ? settings.PremiumLimitsAndBudgets
+            : data.EffectiveModel is not null && settings.ModelLimitsAndBudgets.TryGetValue(data.EffectiveModel, out var modelLimits)
+                ? modelLimits : settings.DefaultLimitsAndBudgets;
 
         HourlyQuotaExceeded = lm.GetHourlyTokenBalanceAsync(Metric) >= limits.HourlyTokenLimit;
         DailyQuotaExceeded = lm.GetDailyTokenBalanceAsync(Metric) >= limits.DailyTokenLimit;

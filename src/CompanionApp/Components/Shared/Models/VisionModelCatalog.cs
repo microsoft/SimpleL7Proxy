@@ -3,12 +3,13 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 namespace CompanionApp.Components.Shared;
 
 public sealed class VisionApiInfo
 {
-    public string Id { get; set; } = string.Empty;
+    public LLMApiEnum Id { get; set; } = LLMApiEnum.Unknown;
 
     public string DisplayName { get; set; } = string.Empty;
 
@@ -33,7 +34,7 @@ public sealed class VisionModelInfo
 
     public string DisplayName { get; set; } = string.Empty;
 
-    public string[] Apis { get; set; } = Array.Empty<string>();
+    public LLMApiEnum[] Apis { get; set; } = Array.Empty<LLMApiEnum>();
 
     public string[] InputModes { get; set; } = Array.Empty<string>();
 }
@@ -67,17 +68,48 @@ public sealed class VisionModelCatalog
     public VisionModelCatalog(IConfiguration configuration)
     {
         var section = configuration.GetSection(SectionName);
-        DefaultApi = section["defaultApi"] ?? string.Empty;
+        DefaultApi = string.IsNullOrWhiteSpace(section["defaultApi"])
+            ? LLMApiEnum.Unknown
+            : LLMApiEnumParser.TryParse(section["defaultApi"], out var defaultApi)
+                ? defaultApi
+                : throw new InvalidOperationException($"Unknown API '{section["defaultApi"]}' at '{section.Path}:defaultApi'.");
         DefaultModel = section["defaultModel"] ?? string.Empty;
         DefaultPrompt = section["defaultPrompt"] ?? "Describe the image.";
 
-        _apis = section.GetSection("apis").Get<List<VisionApiInfo>>() ?? new List<VisionApiInfo>();
-        _models = section.GetSection("models").Get<List<VisionModelInfo>>() ?? new List<VisionModelInfo>();
+        _apis = section.GetSection("apis").GetChildren()
+            .Select(entry => new VisionApiInfo
+            {
+                Id = LLMApiEnumParser.TryParse(entry["id"], out var api)
+                    ? api
+                    : throw new InvalidOperationException($"Unknown API '{entry["id"]}' at '{entry.Path}:id'."),
+                DisplayName = entry["displayName"] ?? string.Empty,
+                Endpoint = entry["endpoint"] ?? string.Empty,
+                Method = entry["method"] ?? "POST",
+                RequestFormat = entry["requestFormat"] ?? string.Empty,
+                ModelParameter = entry["modelParameter"] ?? string.Empty,
+                ImageInputs = entry.GetSection("imageInputs").Get<string[]>() ?? Array.Empty<string>(),
+                SupportsStreaming = entry.GetValue<bool>("supportsStreaming")
+            })
+            .ToList();
+        _models = section.GetSection("models").GetChildren()
+            .Select(entry => new VisionModelInfo
+            {
+                Id = entry["id"] ?? string.Empty,
+                Provider = entry["provider"] ?? string.Empty,
+                DisplayName = entry["displayName"] ?? string.Empty,
+                Apis = entry.GetSection("apis").GetChildren()
+                    .Select(value => LLMApiEnumParser.TryParse(value.Value, out var api)
+                        ? api
+                        : throw new InvalidOperationException($"Unknown API '{value.Value}' at '{value.Path}'."))
+                    .ToArray(),
+                InputModes = entry.GetSection("inputModes").Get<string[]>() ?? Array.Empty<string>()
+            })
+            .ToList();
         _rules = section.GetSection("modeldefaults").Get<List<ModelDefaultRule>>() ?? new List<ModelDefaultRule>();
         _templates = RequestTemplateEngine.LoadTemplates(section.GetSection("requestTemplates"));
     }
 
-    public string DefaultApi { get; }
+    public LLMApiEnum DefaultApi { get; }
 
     public string DefaultModel { get; }
 
@@ -91,7 +123,9 @@ public sealed class VisionModelCatalog
         _models.FirstOrDefault(model => string.Equals(model.Id, id, StringComparison.OrdinalIgnoreCase));
 
     public VisionApiInfo? GetApi(string? id) =>
-        _apis.FirstOrDefault(api => string.Equals(api.Id, id, StringComparison.OrdinalIgnoreCase));
+        LLMApiEnumParser.TryParse(id, out var api)
+            ? _apis.FirstOrDefault(entry => entry.Id == api)
+            : null;
 
     public IReadOnlyList<VisionApiInfo> ApisForModel(string? modelId)
     {
@@ -102,7 +136,7 @@ public sealed class VisionModelCatalog
         }
 
         return model.Apis
-            .Select(GetApi)
+            .Select(api => _apis.FirstOrDefault(entry => entry.Id == api))
             .Where(api => api is not null)
             .Select(api => api!)
             .ToList();
@@ -171,7 +205,7 @@ public sealed class VisionModelCatalog
     public bool RequiresExternalImageUrl(string? apiId)
     {
         var api = GetApi(apiId);
-        return api is not null && api.Id.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase);
+        return api?.Id == LLMApiEnum.AzureAIVisionImageAnalysis;
     }
 
     public string BuildRequestBody(VisionRequestBuildContext context)
@@ -223,7 +257,7 @@ public sealed class VisionModelCatalog
     }
 
     private static bool UsesQueryParameters(VisionApiInfo api) =>
-        api.Id.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase);
+        api.Id == LLMApiEnum.AzureAIVisionImageAnalysis;
 
     private static string AppendQueryParameter(string endpoint, string name, string value)
     {

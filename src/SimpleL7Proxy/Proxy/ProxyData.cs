@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SimpleL7Proxy.Proxy;
 // This class represents the data returned from the downstream host.

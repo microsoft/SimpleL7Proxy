@@ -21,9 +21,14 @@
     <div class="@(Compact ? "tokenomics-period-control" : null)">
         @if (IsAction)
         {
-            <select id="@($"tokenomics-{Name}")" class="form-select form-select-sm" value="@Value"
+            <select id="@($"tokenomics-{Name}")" class="form-select form-select-sm"
+                    value="@(string.Equals(Value, nameof(TokenActionEnum.None), StringComparison.OrdinalIgnoreCase) ? nameof(TokenActionEnum.Bypass) : Value)"
                     aria-label="@Label" @onchange="OnChanged">
-                @foreach (var action in Enum.GetValues<TokenActionEnum>())
+                @foreach (var action in Enum.GetValues<TokenActionEnum>().Where(action => action != TokenActionEnum.None
+                    && action != TokenActionEnum.UpgradeModel && action != TokenActionEnum.Requeue
+                    && action != TokenActionEnum.IncreasePriority && action != TokenActionEnum.Delay
+                    && action != TokenActionEnum.Cap && action != TokenActionEnum.IncreaseLimit
+                    && action != TokenActionEnum.DecreaseLimit))
                 {
                     <option value="@action">@ActionLabel(action)</option>
                 }
@@ -32,7 +37,7 @@
         else if (Name == nameof(TokenomicsSettings.ModelHierarchy))
         {
             <textarea id="@($"tokenomics-{Name}")" class="form-control form-control-sm font-monospace" rows="3"
-                      placeholder="prefix: [model1, model2]" @bind:get="Value"
+                      placeholder="prefix: [model1|API1, model2|API2]" @bind:get="Value"
                       aria-invalid="@(Error is null ? "false" : "true")"
                       aria-describedby="@(Error is null ? null : $"tokenomics-{Name}-error")" @bind:set="@(value => OnChanged.InvokeAsync(new ChangeEventArgs { Value = value }))"></textarea>
         }

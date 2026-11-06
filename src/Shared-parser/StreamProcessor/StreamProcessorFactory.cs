@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
+using SharedParser.StreamProcessor;
+using SharedParser.Tokenomics.LLM.Models;
 
 namespace SimpleL7Proxy.StreamProcessor;
 
@@ -119,6 +121,32 @@ public sealed class StreamProcessorFactory
             resolvedProcessorName = STREAM_PROCESSOR;
             return ProcessorFactories[STREAM_PROCESSOR]();
         }
+    }
+
+    /// <summary>
+    /// Creates a model mapping processor when model names or API formats differ.
+    /// Uses the existing processor lookup and fallback when both model values match.
+    /// Model names are compared using ordinal equality.
+    /// </summary>
+    /// <param name="processorName">The processor name used when no model mapping is required.</param>
+    /// <param name="sourceModel">The validated source model and API format.</param>
+    /// <param name="targetModel">The validated target model and API format.</param>
+    /// <param name="resolvedProcessorName">The selected processor name.</param>
+    /// <param name="streaming">Whether model mapping reads and writes SSE instead of JSON.</param>
+    /// <returns>A model mapping processor or the processor selected by the existing lookup.</returns>
+    public IStreamProcessor GetStreamProcessor(string processorName, ValidModel sourceModel,
+        ValidModel targetModel, out string resolvedProcessorName, bool streaming = false)
+    {
+        ArgumentNullException.ThrowIfNull(sourceModel);
+        ArgumentNullException.ThrowIfNull(targetModel);
+
+        if (sourceModel.Name == targetModel.Name && sourceModel.ApiFormat == targetModel.ApiFormat)
+        {
+            return GetStreamProcessor(processorName, out resolvedProcessorName);
+        }
+
+        resolvedProcessorName = "ModelMapping";
+        return new ModelMappingProcessor(sourceModel, targetModel, streaming);
     }
 
     /// <summary>

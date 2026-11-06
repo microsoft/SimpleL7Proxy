@@ -54,10 +54,16 @@ public static class ModelCatalog
         AddOpenAiModel(templates, "gpt-6-astra", "OpenAI", "GPT-6 Astra", "gpt-6-astra");
         AddOpenAiModel(templates, "gpt-6-luna", "OpenAI", "GPT-6 Luna", "gpt-6-luna");
         AddOpenAiModel(templates, "gpt-6.1-sol", "OpenAI", "GPT-6.1 Sol", "gpt-6.1-sol");
+        AddOpenAiResponsesModel(templates, "gpt-6.1-terra", "OpenAI", "GPT-6.1 Terra", "gpt-6.1-terra");
         AddOpenAiModel(templates, "o3", "OpenAI", "o3 (reasoning)", "o3");
         AddOpenAiModel(templates, "o4-mini", "OpenAI", "o4-mini (reasoning)", "o4-mini");
         AddOpenAiModel(templates, "gpt-3.5-turbo", "OpenAI", "GPT-3.5 Turbo", "gpt-3.5-turbo");
 
+        AddAnthropicModel(templates, "claude-opus-5", "Anthropic", "Claude Opus 5", "claude-opus-5");
+        AddAnthropicModel(templates, "claude-opus-5-5", "Anthropic", "Claude Opus 5.5", "claude-opus-5-5");
+        AddAnthropicModel(templates, "claude-sonnet-5-5", "Anthropic", "Claude Sonnet 5.5", "claude-sonnet-5-5");
+        AddAnthropicModel(templates, "claude-haiku-5-5", "Anthropic", "Claude Haiku 5.5", "claude-haiku-5-5");
+        AddAnthropicModel(templates, "claude-fable-5-1", "Anthropic", "Claude Fable 5.1", "claude-fable-5-1");
         AddAnthropicModel(templates, "claude-opus-4-8", "Anthropic", "Claude Opus 4.8", "claude-opus-4-8");
         AddAnthropicModel(templates, "claude-opus-4-1", "Anthropic", "Claude Opus 4.1", "claude-opus-4-1-20250805");
         AddAnthropicModel(templates, "claude-sonnet-4-5", "Anthropic", "Claude Sonnet 4.5", "claude-sonnet-4-5-20250929");
@@ -68,6 +74,9 @@ public static class ModelCatalog
         AddAnthropicModel(templates, "claude-3-5-haiku", "Anthropic", "Claude 3.5 Haiku", "claude-3-5-haiku-20241022");
 
         AddGeminiModel(templates, "gemini-2.5-pro", "Google Gemini", "Gemini 2.5 Pro", "gemini-2.5-pro");
+        AddGeminiModel(templates, "gemini-4-argon", "Google Gemini", "Gemini 4 Argon", "gemini-4-argon");
+        AddGeminiModel(templates, "gemini-3.8-flash", "Google Gemini", "Gemini 3.8 Flash", "gemini-3.8-flash");
+        AddGeminiModel(templates, "gemini-3.5-flash-lite", "Google Gemini", "Gemini 3.5 Flash-Lite", "gemini-3.5-flash-lite");
         AddGeminiModel(templates, "gemini-2.5-flash", "Google Gemini", "Gemini 2.5 Flash", "gemini-2.5-flash");
         AddGeminiModel(templates, "gemini-2.5-flash-lite", "Google Gemini", "Gemini 2.5 Flash-Lite", "gemini-2.5-flash-lite");
         AddGeminiModel(templates, "gemini-2.0-flash", "Google Gemini", "Gemini 2.0 Flash", "gemini-2.0-flash");
@@ -98,6 +107,11 @@ public static class ModelCatalog
     private static void AddOpenAiModel(List<ModelTemplate> templates, string key, string provider, string displayName, string modelId)
     {
         AddOpenAiCompatibleModel(templates, key, provider, displayName, modelId);
+        AddOpenAiResponsesModel(templates, key, provider, displayName, modelId);
+    }
+
+    private static void AddOpenAiResponsesModel(List<ModelTemplate> templates, string key, string provider, string displayName, string modelId)
+    {
         templates.Add(new($"{key}-responses", provider, $"{displayName} - Responses API stream", modelId, OpenAiResponses));
         templates.Add(new($"{key}-responses-nonstreaming", provider, $"{displayName} - Responses API", modelId, OpenAiResponsesNonStreaming));
         templates.Add(new($"{key}-responses-v1", provider, $"{displayName} - /v1/responses stream", modelId, OpenAiResponses, "/v1/responses"));

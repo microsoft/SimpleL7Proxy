@@ -7,6 +7,7 @@
 @rendermode InteractiveServer
 @inject CompanionApp.Components.Shared.UserPreferencesService Preferences
 @inject NavigationManager Navigation
+@inject IConfiguration Configuration
 @implements IDisposable
 
 <PageTitle>@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea ?? "Home")</PageTitle>
@@ -25,7 +26,7 @@
             (Name: "Test", Path: "test", Description: "Run tests against your proxy and review the results to investigate request behavior and failures."),
             (Name: "Explore", Path: "explore", Description: "Send requests and chat with models, review conversation history, and personalize your workspace."),
             (Name: "Analyze", Path: "analyze", Description: "Monitor proxy events, investigate behavior and failures, and review token usage and costs.")
-        })
+        }.Where(area => area.Name != "Test" || Configuration.GetValue<bool>("EnableTesting")))
         {
             <a class="home-area" href="@area.Path">
                 <span class="home-area-title">@area.Name</span>

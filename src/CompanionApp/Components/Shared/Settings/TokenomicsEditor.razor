@@ -2,6 +2,7 @@
 @using System.Globalization
 @using System.Reflection
 @using SimpleL7Proxy.Tokenomics
+@using SharedParser.Tokenomics.LLM.Catalog
 @using CompanionApp.Components.Widgets.TokenomicsConfiguration
 @inject ModelDefaults ChatCatalog
 @inject VisionModelCatalog VisionCatalog
@@ -50,38 +51,29 @@
             <TokenomicsLimitsBudgetsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "limits")"
                 OnSelected="@(() => { _limitsSnapshot = _options.ToString(); _limitsModel = null; _expandedWidget = "limits"; })">
                 <Summary>
-                    <span><strong>Tokens:</strong> @CompactNumber(_options.DefaultLimits.HourlyTokenLimit) hourly · @CompactNumber(_options.DefaultLimits.DailyTokenLimit) daily · @CompactNumber(_options.DefaultLimits.MonthlyTokenLimit) monthly</span>
-                    <span><strong>Budgets:</strong> $@CompactNumber(_options.DefaultLimits.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DefaultLimits.DailyBudgetUsd) daily · $@CompactNumber(_options.DefaultLimits.MonthlyBudgetUsd) monthly</span>
-                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultLimitActions.HourlyLimitAction, _options.DefaultLimitActions.DailyLimitAction, _options.DefaultLimitActions.MonthlyLimitAction)</span>
+                    <span><strong>Tokens:</strong> @CompactNumber(_options.DefaultLimitsAndBudgets.HourlyTokenLimit) hourly · @CompactNumber(_options.DefaultLimitsAndBudgets.DailyTokenLimit) daily · @CompactNumber(_options.DefaultLimitsAndBudgets.MonthlyTokenLimit) monthly</span>
+                    <span><strong>Budgets:</strong> $@CompactNumber(_options.DefaultLimitsAndBudgets.HourlyBudgetUsd) hourly · $@CompactNumber(_options.DefaultLimitsAndBudgets.DailyBudgetUsd) daily · $@CompactNumber(_options.DefaultLimitsAndBudgets.MonthlyBudgetUsd) monthly</span>
+                    <span><strong>On exceed:</strong> @PeriodActions(_options.DefaultExceededActions.HourlyLimitAction, _options.DefaultExceededActions.DailyLimitAction, _options.DefaultExceededActions.MonthlyLimitAction)</span>
                 </Summary>
             </TokenomicsLimitsBudgetsSettingsWidget>
             <TokenomicsRequestPrioritySettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "priority")"
                 OnSelected="@(() => _expandedWidget = "priority")">
                 <Summary>
-                    <span><strong>Priority levels:</strong> Critical @FormatValue(_options.CriticalPriority) · High @FormatValue(_options.HighPriority)</span>
-                    <span><strong>Critical:</strong> @SummaryAction(_options.CriticalPriorityAction) · <strong>Entitled:</strong> @SummaryAction(_options.TenantEntitlementAction)</span>
-                    <span><strong>Governance:</strong> @SummaryAction(_options.GovernanceWorkloadAction) · <strong>Default:</strong> @SummaryAction(_options.DefaultAction)</span>
+                    <span><strong>Abuse detected:</strong> @SummaryAction(_options.AbuseDetectedAction)</span>
+                    <span><strong>Administrator override:</strong> @SummaryAction(_options.AdministratorOverrideAction)</span>
                 </Summary>
             </TokenomicsRequestPrioritySettingsWidget>
-            <TokenomicsCapacityQueuesSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "capacity")"
-                OnSelected="@(() => _expandedWidget = "capacity")">
-                <Summary>
-                    <span><strong>Constrained at:</strong> @FormatValue(_options.CapacityConstraintThresholdPercent)% capacity · @_options.HighQueueDepthThreshold.ToString("0.00", CultureInfo.InvariantCulture) queue depth</span>
-                    <span><strong>Large context:</strong> @_options.LargeContextThreshold.ToString("N0", CultureInfo.InvariantCulture)+ tokens · <strong>Delay:</strong> @(( _options.DelayDuration / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sec</span>
-                    <span><strong>When constrained:</strong> @SummaryAction(_options.CapacityConstrainedAction); @( _options.CapacityCriticalWorkloadAction == TokenActionEnum.IncreasePriority ? "critical work gets higher priority" : $"critical work: {SummaryAction(_options.CapacityCriticalWorkloadAction)}")</span>
-                </Summary>
-            </TokenomicsCapacityQueuesSettingsWidget>
             <TokenomicsModelRoutingSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "routing")"
                 OnSelected="@(() => _expandedWidget = "routing")">
                 <Summary>
                     <span><strong>Default model:</strong> <span class="tokenomics-summary-model" title="@_options.DefaultModel">@(string.IsNullOrWhiteSpace(_options.DefaultModel) ? "Not configured" : _options.DefaultModel)</span></span>
-                    <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
+                    <span><strong>Hierarchy:</strong> @(_options.ModelHierarchy.Values.SelectMany(models => models).Select(entry => entry.Model).Distinct(StringComparer.OrdinalIgnoreCase).Count() is var modelCount && modelCount > 0 ? $"{modelCount} {(modelCount == 1 ? "model" : "models")}" : "No models configured")</span>
                     <span><strong>Host routing:</strong> @(_options.ModelHostOptions.Count == 0 ? "No model hosts configured" : $"{_options.ModelHostOptions.Count} {_options.ModelHostOptions.Count switch { 1 => "model", _ => "models" }} · {_options.ModelHostOptions.Values.Sum(hosts => hosts.Count)} host assignments")</span>
                     <span><strong>Fallback:</strong> @SummaryAction(_options.PreferredModelReplacementAction) when permitted · otherwise @FieldLabel(_options.PreferredModelUnavailableAction.ToString())</span>
                 </Summary>
             </TokenomicsModelRoutingSettingsWidget>
             <TokenomicsModelCostsSettingsWidget IsSummary="true" IsSelected="@(_expandedWidget == "costs")"
-                OnSelected="@(() => _expandedWidget = "costs")">
+                OnSelected="@(() => { SyncAssignedModelCostRows(); _expandedWidget = "costs"; })">
                 <Summary>
                     @if (_options.ModelCostPerToken.Count == 0)
                     {
@@ -118,19 +110,19 @@
             <TokenomicsLimitsBudgetsSettingsWidget FieldContent="@(name => RenderField(name, true, _limitsModel))"
                 Models="@_options.ModelHostOptions.Keys.OrderBy(model => model, StringComparer.OrdinalIgnoreCase).ToArray()"
                 SelectedModel="@_limitsModel"
-                OverriddenModels="@_options.ModelLimits.Keys.Concat(_options.ModelLimitActions.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase)"
-                UseDefaults="@(_limitsModel is null || !_options.ModelLimits.ContainsKey(_limitsModel) && !_options.ModelLimitActions.ContainsKey(_limitsModel))"
+                OverriddenModels="@_options.ModelLimitsAndBudgets.Keys.Concat(_options.ModelExceedActions.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase)"
+                UseDefaults="@(_limitsModel is null || !_options.ModelLimitsAndBudgets.ContainsKey(_limitsModel) && !_options.ModelExceedActions.ContainsKey(_limitsModel))"
                 HasErrors="@_fieldErrors.Keys.Any(key => key.StartsWith("limits:", StringComparison.Ordinal))"
                 OnModelSelected="@((string? model) => _limitsModel = model)"
                 OnUseDefaultsChanged="@(async (bool useDefaults) => {
                     if (_limitsModel is not { } model) { return; }
                     if (useDefaults) {
-                        _options.ModelLimits.Remove(model);
-                        _options.ModelLimitActions.Remove(model);
+                        _options.ModelLimitsAndBudgets.Remove(model);
+                        _options.ModelExceedActions.Remove(model);
                     } else {
                         var copy = ParseOptions(_options.ToString())!;
-                        _options.ModelLimits.TryAdd(model, copy.DefaultLimits);
-                        _options.ModelLimitActions.TryAdd(model, copy.DefaultLimitActions);
+                        _options.ModelLimitsAndBudgets.TryAdd(model, copy.DefaultLimitsAndBudgets);
+                        _options.ModelExceedActions.TryAdd(model, copy.DefaultExceededActions);
                     }
                     foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith($"limits:{model}:", StringComparison.Ordinal)).ToArray()) {
                         _fieldErrors.Remove(key);
@@ -140,20 +132,20 @@
                 })"
                 OnReset="@(async () => {
                     if (_limitsModel is { } model) {
-                        _options.ModelLimits.Remove(model);
-                        _options.ModelLimitActions.Remove(model);
+                        _options.ModelLimitsAndBudgets.Remove(model);
+                        _options.ModelExceedActions.Remove(model);
                     } else {
-                        _options.DefaultLimits = new();
-                        _options.DefaultLimitActions = new();
+                        _options.DefaultLimitsAndBudgets = new();
+                        _options.DefaultExceededActions = new();
                     }
-                    var workloadDefaults = new TokenomicsLimitActions();
-                    _options.PremiumWorkloadLimitActions = new();
-                    _options.CriticalWorkloadLimitActions.HourlyBudgetExceededAction = workloadDefaults.HourlyBudgetExceededAction;
-                    _options.CriticalWorkloadLimitActions.DailyBudgetExceededAction = workloadDefaults.DailyBudgetExceededAction;
-                    _options.CriticalWorkloadLimitActions.MonthlyBudgetExceededAction = workloadDefaults.MonthlyBudgetExceededAction;
-                    _options.CriticalWorkloadLimitActions.HourlyLimitAction = workloadDefaults.HourlyLimitAction;
-                    _options.CriticalWorkloadLimitActions.DailyLimitAction = workloadDefaults.DailyLimitAction;
-                    _options.CriticalWorkloadLimitActions.MonthlyLimitAction = workloadDefaults.MonthlyLimitAction;
+                    var workloadDefaults = new ExceededActions();
+                    _options.PremiumExceedActions = new();
+                    _options.PrivilegedExceedActions.HourlyBudgetExceededAction = workloadDefaults.HourlyBudgetExceededAction;
+                    _options.PrivilegedExceedActions.DailyBudgetExceededAction = workloadDefaults.DailyBudgetExceededAction;
+                    _options.PrivilegedExceedActions.MonthlyBudgetExceededAction = workloadDefaults.MonthlyBudgetExceededAction;
+                    _options.PrivilegedExceedActions.HourlyLimitAction = workloadDefaults.HourlyLimitAction;
+                    _options.PrivilegedExceedActions.DailyLimitAction = workloadDefaults.DailyLimitAction;
+                    _options.PrivilegedExceedActions.MonthlyLimitAction = workloadDefaults.MonthlyLimitAction;
                     foreach (var key in _fieldErrors.Keys.Where(key => key.StartsWith("limits:PremiumWorkload:", StringComparison.Ordinal)
                         || key.StartsWith("limits:CriticalWorkload:", StringComparison.Ordinal)).ToArray()) {
                         _fieldErrors.Remove(key);
@@ -175,14 +167,9 @@
                     await OnChanged.InvokeAsync();
                 })" />
             }
-            else if (_expandedWidget == "capacity")
-            {
-            <TokenomicsCapacityQueuesSettingsWidget NumericNames="@(NumericForTab("capacity").Select(property => property.Name))"
-                ActionNames="@(ActionsForTab("capacity").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
-            }
             else if (_expandedWidget == "priority")
             {
-            <TokenomicsRequestPrioritySettingsWidget NumericNames="@(NumericForTab("priority").Select(property => property.Name))"
+            <TokenomicsRequestPrioritySettingsWidget
                 ActionNames="@(ActionsForTab("priority").Select(property => property.Name))" FieldContent="@(name => RenderField(name))" />
             }
             else if (_expandedWidget == "routing")
@@ -204,6 +191,7 @@
                     <TokenomicsModelCostsSettingsWidget Search="@_modelSearch" Page="_modelPage" PageSize="_modelPageSize"
                         PageCount="ModelPageCount" TotalCount="_modelCosts.Count" FilteredCount="FilteredModelCostCount"
                         ResultSummary="@ModelResultSummary" Rows="VisibleModelCosts" IsChanged="IsModelCostChanged"
+                        CostsPerMillion="_costsPerMillion" OnCostsPerMillionChanged="SetCostsPerMillion"
                         OnSearchChanged="SetModelSearch" OnPageSizeChanged="SetModelPageSize" OnPageChanged="SetModelPage"
                         OnAdd="AddModelCost" OnClearSearch="ClearModelSearch" OnRemove="RemoveModelCostAsync"
                         OnModelChanged="@(change => SetModelCostAsync(change.Row, change.Value, null, null, null))"
@@ -242,8 +230,8 @@
 
     private static readonly PropertyInfo[] OptionProperties = typeof(TokenomicsSettings)
         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-        .Concat(typeof(TokenomicsLimits).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-        .Concat(typeof(TokenomicsLimitActions).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        .Concat(typeof(LimitsAndBudgets).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        .Concat(typeof(ExceededActions).GetProperties(BindingFlags.Public | BindingFlags.Instance))
         .Where(property => property.CanRead && property.CanWrite && property.Name != nameof(TokenomicsSettings.ModelCostPerToken))
         .ToArray();
 
@@ -255,6 +243,8 @@
 
     private readonly Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
     private readonly List<ModelCostRow> _modelCosts = new();
+    private bool _costsPerMillion = true;
+    private const decimal TokensPerMillion = 1_000_000m;
     private string? _expandedWidget;
     private string? _limitsModel;
     private string? _limitsSnapshot;
@@ -306,13 +296,9 @@
     private bool RawOptionsChanged => OptionsSetting is { } setting
         && !string.Equals(_rawOptions, setting.DraftValue, StringComparison.Ordinal);
 
-    private IReadOnlyList<string> RoutingModels => _options.ModelHierarchy.Values
-        .SelectMany(models => models)
-        .Concat([_options.DefaultModel])
-        .Concat(_options.ModelCostPerToken.Keys)
-        .Concat(_options.ModelHostOptions.Keys)
-        .Concat(ChatCatalog.ListModels().Select(model => model.Id))
-        .Concat(VisionCatalog.ListModels().Select(model => model.Id))
+    private IReadOnlyList<string> RoutingModels => _options.ModelHostOptions
+        .Where(entry => entry.Value.Count > 0)
+        .Select(entry => entry.Key)
         .Select(model => model.Trim())
         .Where(model => model.Length > 0)
         .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -361,12 +347,12 @@
 
     private IEnumerable<PropertyInfo> NumericForTab(string tab) => NumericProperties.Where(property => tab switch
     {
-        "limits" => property.Name is nameof(TokenomicsLimits.HourlyTokenLimit)
-            or nameof(TokenomicsLimits.DailyTokenLimit)
-            or nameof(TokenomicsLimits.MonthlyTokenLimit),
-        "budgets" => property.Name is nameof(TokenomicsLimits.HourlyBudgetUsd)
-            or nameof(TokenomicsLimits.DailyBudgetUsd)
-            or nameof(TokenomicsLimits.MonthlyBudgetUsd),
+        "limits" => property.Name is nameof(LimitsAndBudgets.HourlyTokenLimit)
+            or nameof(LimitsAndBudgets.DailyTokenLimit)
+            or nameof(LimitsAndBudgets.MonthlyTokenLimit),
+        "budgets" => property.Name is nameof(LimitsAndBudgets.HourlyBudgetUsd)
+            or nameof(LimitsAndBudgets.DailyBudgetUsd)
+            or nameof(LimitsAndBudgets.MonthlyBudgetUsd),
         "capacity" => property.Name is nameof(TokenomicsSettings.CurrentCapacityUtilizationPercent)
             or nameof(TokenomicsSettings.CapacityConstraintThresholdPercent)
             or nameof(TokenomicsSettings.HighQueueDepthThreshold)
@@ -378,15 +364,20 @@
     });
 
     private IEnumerable<PropertyInfo> ActionsForTab(string tab) =>
-        ActionProperties.Where(property => string.Equals(ActionTab(property.Name), tab, StringComparison.Ordinal));
+        ActionProperties.Where(property => string.Equals(ActionTab(property.Name), tab, StringComparison.Ordinal)
+            && property.Name is not (nameof(TokenomicsSettings.CriticalPriorityAction)
+                or nameof(TokenomicsSettings.HighPriorityEntitledTenantAction)
+                or nameof(TokenomicsSettings.TenantEntitlementAction)
+                or nameof(TokenomicsSettings.GovernanceWorkloadAction)
+                or nameof(TokenomicsSettings.DefaultAction)));
 
     private static string ActionTab(string name) => name switch {
-        nameof(TokenomicsLimitActions.HourlyLimitAction)
-            or nameof(TokenomicsLimitActions.DailyLimitAction)
-            or nameof(TokenomicsLimitActions.MonthlyLimitAction) => "limits",
-        nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
-            or nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
-            or nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "budgets",
+        nameof(ExceededActions.HourlyLimitAction)
+            or nameof(ExceededActions.DailyLimitAction)
+            or nameof(ExceededActions.MonthlyLimitAction) => "limits",
+        nameof(ExceededActions.HourlyBudgetExceededAction)
+            or nameof(ExceededActions.DailyBudgetExceededAction)
+            or nameof(ExceededActions.MonthlyBudgetExceededAction) => "budgets",
         nameof(TokenomicsSettings.CapacityCriticalWorkloadAction)
             or nameof(TokenomicsSettings.CapacityHighPriorityAction)
             or nameof(TokenomicsSettings.CapacityConstrainedAction)
@@ -459,9 +450,9 @@
         foreach (var modelCost in _options.ModelCostPerToken) {
             _modelCosts.Add(new ModelCostRow(
                 modelCost.Key,
-                modelCost.Value.Input.ToString(CultureInfo.InvariantCulture),
-                modelCost.Value.CachedInput.ToString(CultureInfo.InvariantCulture),
-                modelCost.Value.Output.ToString(CultureInfo.InvariantCulture)));
+                FormatStoredCost(modelCost.Value.Input),
+                FormatStoredCost(modelCost.Value.CachedInput),
+                FormatStoredCost(modelCost.Value.Output)));
         }
 
         var configuredModels = _modelCosts
@@ -469,12 +460,14 @@
             .ToHashSet(StringComparer.Ordinal);
         foreach (var model in _options.ModelHierarchy.Values
             .SelectMany(models => models)
-            .Select(model => model.Trim())
+            .Select(entry => entry.Model.Trim())
             .Where(model => model.Length > 0)) {
             if (configuredModels.Add(model)) {
                 _modelCosts.Add(new ModelCostRow(model, string.Empty, string.Empty, string.Empty));
             }
         }
+
+        SyncAssignedModelCostRows();
     }
 
     private static TokenomicsSettings? ParseOptions(string? value) {
@@ -551,11 +544,11 @@
 
     private async Task SetOptionAsync(PropertyInfo property, ChangeEventArgs args, string? limitModel = null, string? workload = null) {
         var value = args.Value?.ToString() ?? string.Empty;
-        var isLimit = property.DeclaringType == typeof(TokenomicsLimits) || property.DeclaringType == typeof(TokenomicsLimitActions);
+        var isLimit = property.DeclaringType == typeof(LimitsAndBudgets) || property.DeclaringType == typeof(ExceededActions);
         var errorKey = isLimit ? $"limits:{workload ?? limitModel ?? "default"}:{property.Name}" : property.Name;
         if (!TryParseValue(property.PropertyType, property.Name, value, out var parsedValue)
             || property.Name == nameof(TokenomicsSettings.DelayDuration) && parsedValue is int duration && duration < 0
-            || property.DeclaringType == typeof(TokenomicsLimits) && Convert.ToDecimal(parsedValue, CultureInfo.InvariantCulture) < 0) {
+            || property.DeclaringType == typeof(LimitsAndBudgets) && Convert.ToDecimal(parsedValue, CultureInfo.InvariantCulture) < 0) {
             _fieldErrors[errorKey] = $"Enter a valid non-negative {FieldLabel(property.Name)} value.";
             await OnChanged.InvokeAsync();
             return;
@@ -564,29 +557,35 @@
         var previousHierarchyModels = property.Name == nameof(TokenomicsSettings.ModelHierarchy)
             ? _options.ModelHierarchy.Values
                 .SelectMany(models => models)
-                .Select(model => model.Trim())
+                .Select(entry => entry.Model.Trim())
                 .ToHashSet(StringComparer.Ordinal)
             : null;
 
         _fieldErrors.Remove(errorKey);
-        if (isLimit && workload is null && limitModel is not null && (!_options.ModelLimits.ContainsKey(limitModel) || !_options.ModelLimitActions.ContainsKey(limitModel))) {
+        if (isLimit && workload is null && limitModel is not null && (!_options.ModelLimitsAndBudgets.ContainsKey(limitModel) || !_options.ModelExceedActions.ContainsKey(limitModel))) {
             var copy = ParseOptions(_options.ToString())!;
-            _options.ModelLimits.TryAdd(limitModel, copy.DefaultLimits);
-            _options.ModelLimitActions.TryAdd(limitModel, copy.DefaultLimitActions);
+            _options.ModelLimitsAndBudgets.TryAdd(limitModel, copy.DefaultLimitsAndBudgets);
+            _options.ModelExceedActions.TryAdd(limitModel, copy.DefaultExceededActions);
         }
-        object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
-            : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
-            : property.DeclaringType == typeof(TokenomicsLimits)
-            ? limitModel is null ? _options.DefaultLimits : _options.ModelLimits[limitModel]
-            : property.DeclaringType == typeof(TokenomicsLimitActions)
-                ? limitModel is null ? _options.DefaultLimitActions : _options.ModelLimitActions[limitModel]
+        object target = workload == "PremiumWorkload" ? _options.PremiumExceedActions
+            : workload == "CriticalWorkload" ? _options.PrivilegedExceedActions
+            : property.DeclaringType == typeof(LimitsAndBudgets)
+            ? limitModel is null ? _options.DefaultLimitsAndBudgets : _options.ModelLimitsAndBudgets[limitModel]
+            : property.DeclaringType == typeof(ExceededActions)
+                ? limitModel is null ? _options.DefaultExceededActions : _options.ModelExceedActions[limitModel]
                 : _options;
         property.SetValue(target, parsedValue);
+
+        if (property.Name == nameof(TokenomicsSettings.DefaultModel)
+            && (!_options.ModelHostOptions.TryGetValue(_options.DefaultModel, out var defaultHosts)
+                || !defaultHosts.Values.Any(host => host.APIs.ContainsKey(_options.DefaultModelAPI)))) {
+            _options.DefaultModelAPI = LLMApiEnum.Unknown;
+        }
 
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             var hierarchyModels = _options.ModelHierarchy.Values
                 .SelectMany(models => models)
-                .Select(model => model.Trim())
+                .Select(entry => entry.Model.Trim())
                 .Where(model => model.Length > 0)
                 .ToHashSet(StringComparer.Ordinal);
 
@@ -652,7 +651,10 @@
             var modelApis = ApisForRoutingModel(change.Model);
             var modelHostOptions = new TokenomicsHostOptions();
             foreach (var apiName in modelApis) {
-                modelHostOptions.APIs[apiName] = new TokenomicsApiOptions {
+                if (!LLMApiEnumParser.TryParse(apiName, out var api)) {
+                    continue;
+                }
+                modelHostOptions.APIs[api] = new TokenomicsApiOptions {
                     PassThrough = false,
                     OverridePath = false,
                     Path = null
@@ -687,14 +689,15 @@
         (string? Model, string Host, string Api, TokenomicsApiOptions? Options) change) {
         if (change.Model is null
             || !_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)
-            || !modelHosts.TryGetValue(change.Host, out var hostOptions)) {
+            || !modelHosts.TryGetValue(change.Host, out var hostOptions)
+            || !LLMApiEnumParser.TryParse(change.Api, out var api)) {
             return;
         }
 
         if (change.Options is null) {
-            hostOptions.APIs.Remove(change.Api);
+            hostOptions.APIs.Remove(api);
         } else {
-            hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+            hostOptions.APIs[api] = new TokenomicsApiOptions {
                 PassThrough = change.Options.PassThrough,
                 OverridePath = change.Options.OverridePath,
                 Path = change.Options.Path
@@ -707,6 +710,9 @@
 
     private async Task SetModelHostApiAsync(
         (string Model, string Host, string Api, TokenomicsApiOptions Options) change) {
+        if (!LLMApiEnumParser.TryParse(change.Api, out var api)) {
+            return;
+        }
         if (!_options.ModelHostOptions.TryGetValue(change.Model, out var modelHosts)) {
             modelHosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
             _options.ModelHostOptions[change.Model] = modelHosts;
@@ -716,7 +722,7 @@
             modelHosts[change.Host] = hostOptions;
         }
 
-        hostOptions.APIs[change.Api] = new TokenomicsApiOptions {
+        hostOptions.APIs[api] = new TokenomicsApiOptions {
             PassThrough = change.Options.PassThrough,
             OverridePath = change.Options.OverridePath,
             Path = change.Options.Path
@@ -745,6 +751,12 @@
                     parsedValue = (int)totalMilliseconds;
                 }
             }
+        } else if (type == typeof(LLMApiEnum)) {
+            if (value.Length == 0) {
+                parsedValue = LLMApiEnum.Unknown;
+            } else if (LLMApiEnumParser.TryParse(value, out var api)) {
+                parsedValue = api;
+            }
         } else if (type == typeof(string)) {
             parsedValue = value;
         } else if (type == typeof(int) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) {
@@ -761,7 +773,7 @@
             && Enum.TryParse<TokenActionEnum>(value, true, out var action)
             && Enum.IsDefined(action)) {
             parsedValue = action;
-        } else if (type == typeof(Dictionary<string, List<string>>)) {
+        } else if (type == typeof(Dictionary<string, List<ModelHierarchyEntry>>)) {
             var options = new TokenomicsSettings();
             if (!value.Contains(';')
                 && !value.Contains('=')
@@ -835,7 +847,7 @@
         var models = new HashSet<string>(StringComparer.Ordinal);
         var hierarchyModels = _options.ModelHierarchy.Values
             .SelectMany(hierarchy => hierarchy)
-            .Select(model => model.Trim())
+            .Select(entry => entry.Model.Trim())
             .ToHashSet(StringComparer.Ordinal);
         var valid = true;
         foreach (var row in _modelCosts) {
@@ -852,30 +864,26 @@
                 valid = false;
             }
 
-            var isHierarchyPlaceholder = row.ModelError is null
+            var isUnpricedPlaceholder = row.ModelError is null
                 && string.IsNullOrWhiteSpace(row.InputCost)
                 && string.IsNullOrWhiteSpace(row.CachedInputCost)
                 && string.IsNullOrWhiteSpace(row.OutputCost)
-                && hierarchyModels.Contains(model);
-            if (isHierarchyPlaceholder) {
+                && (hierarchyModels.Contains(model) || _options.ModelHostOptions.ContainsKey(model));
+            if (isUnpricedPlaceholder) {
                 continue;
             }
 
-            if (!decimal.TryParse(row.InputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var inputCost)
-                || inputCost < 0) {
+            if (!TryParseEditorCost(row.InputCost, out var inputCost)) {
                 row.InputCostError = "Enter a non-negative input cost.";
                 valid = false;
             }
 
-            if (!decimal.TryParse(row.CachedInputCost, NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out var cachedInputCost)
-                || cachedInputCost < 0) {
+            if (!TryParseEditorCost(row.CachedInputCost, out var cachedInputCost)) {
                 row.CachedInputCostError = "Enter a non-negative cached input cost.";
                 valid = false;
             }
 
-            if (!decimal.TryParse(row.OutputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var outputCost)
-                || outputCost < 0) {
+            if (!TryParseEditorCost(row.OutputCost, out var outputCost)) {
                 row.OutputCostError = "Enter a non-negative output cost.";
                 valid = false;
             }
@@ -926,27 +934,28 @@
 
     private bool IsOptionChanged(PropertyInfo property, string? model = null, string? workload = null) {
         if (workload is not null) {
-            var current = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions : _options.CriticalWorkloadLimitActions;
-            var loaded = workload == "PremiumWorkload" ? _loadedOptions.PremiumWorkloadLimitActions : _loadedOptions.CriticalWorkloadLimitActions;
+            var current = workload == "PremiumWorkload" ? _options.PremiumExceedActions : _options.PrivilegedExceedActions;
+            var loaded = workload == "PremiumWorkload" ? _loadedOptions.PremiumExceedActions : _loadedOptions.PrivilegedExceedActions;
             return !Equals(property.GetValue(current), property.GetValue(loaded));
         }
-        if (property.DeclaringType == typeof(TokenomicsLimits)) {
-            var current = model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits;
-            var loaded = model is not null && _loadedOptions.ModelLimits.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimits;
+        if (property.DeclaringType == typeof(LimitsAndBudgets)) {
+            var current = model is not null && _options.ModelLimitsAndBudgets.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets;
+            var loaded = model is not null && _loadedOptions.ModelLimitsAndBudgets.TryGetValue(model, out var loadedLimits) ? loadedLimits : _loadedOptions.DefaultLimitsAndBudgets;
             return !Equals(property.GetValue(current), property.GetValue(loaded))
-                || model is not null && _options.ModelLimits.ContainsKey(model) != _loadedOptions.ModelLimits.ContainsKey(model);
+                || model is not null && _options.ModelLimitsAndBudgets.ContainsKey(model) != _loadedOptions.ModelLimitsAndBudgets.ContainsKey(model);
         }
-        if (property.DeclaringType == typeof(TokenomicsLimitActions)) {
-            var current = model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions;
-            var loaded = model is not null && _loadedOptions.ModelLimitActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultLimitActions;
+        if (property.DeclaringType == typeof(ExceededActions)) {
+            var current = model is not null && _options.ModelExceedActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions;
+            var loaded = model is not null && _loadedOptions.ModelExceedActions.TryGetValue(model, out var loadedActions) ? loadedActions : _loadedOptions.DefaultExceededActions;
             return !Equals(property.GetValue(current), property.GetValue(loaded))
-                || model is not null && _options.ModelLimitActions.ContainsKey(model) != _loadedOptions.ModelLimitActions.ContainsKey(model);
+                || model is not null && _options.ModelExceedActions.ContainsKey(model) != _loadedOptions.ModelExceedActions.ContainsKey(model);
         }
         if (property.Name == nameof(TokenomicsSettings.ModelHierarchy)) {
             return _options.ModelHierarchy.Count != _loadedOptions.ModelHierarchy.Count
                 || _options.ModelHierarchy.Any(entry =>
                     !_loadedOptions.ModelHierarchy.TryGetValue(entry.Key, out var loadedModels)
-                    || !entry.Value.SequenceEqual(loadedModels, StringComparer.Ordinal));
+                    || !entry.Value.Select(destination => (destination.Model, destination.APIName))
+                        .SequenceEqual(loadedModels.Select(destination => (destination.Model, destination.APIName))));
         }
 
         return !Equals(property.GetValue(_options), property.GetValue(_loadedOptions));
@@ -957,9 +966,7 @@
         if (string.IsNullOrWhiteSpace(row.InputCost)
             && string.IsNullOrWhiteSpace(row.CachedInputCost)
             && string.IsNullOrWhiteSpace(row.OutputCost)
-            && _options.ModelHierarchy.Values
-                .SelectMany(models => models)
-                .Any(hierarchyModel => string.Equals(hierarchyModel.Trim(), model, StringComparison.Ordinal))) {
+            && IsUnpricedModelPlaceholder(model)) {
             return _loadedOptions.ModelCostPerToken.ContainsKey(model);
         }
 
@@ -967,13 +974,70 @@
             return true;
         }
 
-        return !decimal.TryParse(row.InputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var inputCost)
-            || !decimal.TryParse(row.CachedInputCost, NumberStyles.Float, CultureInfo.InvariantCulture,
-                out var cachedInputCost)
-            || !decimal.TryParse(row.OutputCost, NumberStyles.Float, CultureInfo.InvariantCulture, out var outputCost)
-            || inputCost != loadedPricing.Input
-            || cachedInputCost != loadedPricing.CachedInput
-            || outputCost != loadedPricing.Output;
+        return !string.Equals(row.InputCost.Trim(), FormatStoredCost(loadedPricing.Input), StringComparison.Ordinal)
+            || !string.Equals(row.CachedInputCost.Trim(), FormatStoredCost(loadedPricing.CachedInput), StringComparison.Ordinal)
+            || !string.Equals(row.OutputCost.Trim(), FormatStoredCost(loadedPricing.Output), StringComparison.Ordinal);
+    }
+
+    private bool IsUnpricedModelPlaceholder(string model) =>
+        _options.ModelHierarchy.Values
+            .SelectMany(models => models)
+            .Any(entry => string.Equals(entry.Model.Trim(), model, StringComparison.Ordinal))
+        || _options.ModelHostOptions.ContainsKey(model);
+
+    private void SyncAssignedModelCostRows() {
+        var configuredModels = new HashSet<string>(
+            _modelCosts.Select(row => row.Model.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var model in _options.ModelHostOptions.Keys) {
+            var trimmed = model.Trim();
+            if (trimmed.Length == 0 || !configuredModels.Add(trimmed)) {
+                continue;
+            }
+
+            _modelCosts.Add(new ModelCostRow(trimmed, string.Empty, string.Empty, string.Empty));
+        }
+    }
+
+    private void SetCostsPerMillion(ChangeEventArgs args) {
+        var next = args.Value is bool isChecked && isChecked;
+        if (next == _costsPerMillion) {
+            return;
+        }
+
+        foreach (var row in _modelCosts) {
+            row.InputCost = RescaleCostText(row.InputCost, next);
+            row.CachedInputCost = RescaleCostText(row.CachedInputCost, next);
+            row.OutputCost = RescaleCostText(row.OutputCost, next);
+        }
+
+        _costsPerMillion = next;
+    }
+
+    private string RescaleCostText(string text, bool toPerMillion) {
+        if (string.IsNullOrWhiteSpace(text)
+            || !decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) {
+            return text;
+        }
+
+        var scaled = toPerMillion ? value * TokensPerMillion : value / TokensPerMillion;
+        return FormatCost(scaled);
+    }
+
+    private string FormatStoredCost(decimal perToken) =>
+        FormatCost(_costsPerMillion ? perToken * TokensPerMillion : perToken);
+
+    private static string FormatCost(decimal value) =>
+        value.ToString("0.#############################", CultureInfo.InvariantCulture);
+
+    private bool TryParseEditorCost(string text, out decimal perToken) {
+        perToken = 0;
+        if (!decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var entered) || entered < 0) {
+            return false;
+        }
+
+        perToken = _costsPerMillion ? entered / TokensPerMillion : entered;
+        return true;
     }
 
     private static string InputStep(Type type) => type == typeof(int) ? "1" : "any";
@@ -984,8 +1048,10 @@
             string.Create(CultureInfo.InvariantCulture,
                 $"{duration / 60000:D2}:{duration / 1000 % 60:D2}:{duration % 1000:D3}"),
         bool boolean => boolean.ToString().ToLowerInvariant(),
-        Dictionary<string, List<string>> hierarchy => string.Join(", ", hierarchy.Select(entry =>
-            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]")),
+        LLMApiEnum api => api == LLMApiEnum.Unknown ? string.Empty : LLMApiEnumParser.ToDisplayName(api),
+        Dictionary<string, List<ModelHierarchyEntry>> hierarchy => string.Join(", ", hierarchy.Select(entry =>
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(destination =>
+            $"{Uri.EscapeDataString(destination.Model)}|{Uri.EscapeDataString(FormatValue(destination.APIName))}"))}]")),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
         _ => value.ToString() ?? string.Empty
     };
@@ -1008,42 +1074,204 @@
     }
 
 
+    private List<List<ModelHierarchyEntry>> HierarchyDestinations => _options.ModelHierarchy.Values
+        .SelectMany(models => models)
+        .GroupBy(entry => entry.Model, StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.DistinctBy(entry => entry.APIName).ToList())
+        .ToList();
+
+    private async Task CommitHierarchyAsync(List<List<ModelHierarchyEntry>> models) {
+        var hierarchy = models.ToDictionary(group => group[0].Model, group => models.SelectMany(entries => entries).ToList(), StringComparer.OrdinalIgnoreCase);
+        var property = OptionProperties.Single(property => property.Name == nameof(TokenomicsSettings.ModelHierarchy));
+        await SetOptionAsync(property, new ChangeEventArgs { Value = FormatValue(hierarchy, property.Name) });
+    }
+
+    private async Task SetHierarchyModelAsync(int index, ChangeEventArgs args) {
+        var models = HierarchyDestinations;
+        var selectedModel = args.Value?.ToString() ?? string.Empty;
+        if (index < 0 || index >= models.Count
+            || !RoutingModels.Contains(selectedModel, StringComparer.OrdinalIgnoreCase)
+            || models.Where((_, position) => position != index).Any(group => string.Equals(group[0].Model, selectedModel, StringComparison.OrdinalIgnoreCase))) {
+            return;
+        }
+        models[index] = [new ModelHierarchyEntry { Model = selectedModel }];
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task SetHierarchyApiAsync(int index, ChangeEventArgs args) {
+        var models = HierarchyDestinations;
+        var selectedApis = args.Value is string[] values ? values : [args.Value?.ToString() ?? string.Empty];
+        if (index < 0 || index >= models.Count
+            || selectedApis.Any(api => api.Length > 0 && !LLMApiEnumParser.TryParse(api, out _))
+            || selectedApis.Any(api => api.Length > 0
+                && !ApisForRoutingModel(models[index][0].Model).Contains(api, StringComparer.OrdinalIgnoreCase)
+                && !models[index].Any(entry => string.Equals(FormatValue(entry.APIName), api, StringComparison.OrdinalIgnoreCase)))) {
+            return;
+        }
+        models[index] = (selectedApis.Length > 0 ? selectedApis : [string.Empty])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(api => new ModelHierarchyEntry { Model = models[index][0].Model,
+                APIName = LLMApiEnumParser.TryParse(api, out var parsedApi) ? parsedApi : LLMApiEnum.Unknown }).ToList();
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task AddHierarchyModelAsync() {
+        var models = HierarchyDestinations;
+        var selectedModel = RoutingModels.FirstOrDefault(candidate => !models.Any(group => string.Equals(group[0].Model, candidate, StringComparison.OrdinalIgnoreCase)));
+        if (selectedModel is null) {
+            return;
+        }
+        models.Add([new ModelHierarchyEntry { Model = selectedModel }]);
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task RemoveHierarchyModelAsync(int index) {
+        var models = HierarchyDestinations;
+        if (index < 0 || index >= models.Count) {
+            return;
+        }
+        models.RemoveAt(index);
+        await CommitHierarchyAsync(models);
+    }
+
+    private async Task MoveHierarchyModelAsync(int sourceIndex, int targetIndex) {
+        var models = HierarchyDestinations;
+        if (sourceIndex < 0 || sourceIndex >= models.Count || targetIndex < 0 || targetIndex >= models.Count
+            || sourceIndex == targetIndex) {
+            return;
+        }
+        var movingModel = models[sourceIndex];
+        models.RemoveAt(sourceIndex);
+        models.Insert(targetIndex, movingModel);
+        await CommitHierarchyAsync(models);
+    }
+
     private RenderFragment RenderField(string name, bool compact = false, string? model = null) {
         var workload = name switch {
-            nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyLimitAction)
-                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyLimitAction)
-                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyLimitAction)
-                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
-                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
-                or nameof(TokenomicsSettings.PremiumWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "PremiumWorkload",
-            nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyLimitAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyLimitAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyLimitAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.HourlyBudgetExceededAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.DailyBudgetExceededAction)
-                or nameof(TokenomicsSettings.CriticalWorkloadLimitActions) + "." + nameof(TokenomicsLimitActions.MonthlyBudgetExceededAction) => "CriticalWorkload",
+            nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.HourlyLimitAction)
+                or nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.DailyLimitAction)
+                or nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.MonthlyLimitAction)
+                or nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.HourlyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.DailyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PremiumExceedActions) + "." + nameof(ExceededActions.MonthlyBudgetExceededAction) => "PremiumWorkload",
+            nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.HourlyLimitAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.DailyLimitAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.MonthlyLimitAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.HourlyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.DailyBudgetExceededAction)
+                or nameof(TokenomicsSettings.PrivilegedExceedActions) + "." + nameof(ExceededActions.MonthlyBudgetExceededAction) => "CriticalWorkload",
             _ => null
         };
         var propertyName = workload switch {
-            "PremiumWorkload" => name[(nameof(TokenomicsSettings.PremiumWorkloadLimitActions).Length + 1)..],
-            "CriticalWorkload" => name[(nameof(TokenomicsSettings.CriticalWorkloadLimitActions).Length + 1)..],
+            "PremiumWorkload" => name[(nameof(TokenomicsSettings.PremiumExceedActions).Length + 1)..],
+            "CriticalWorkload" => name[(nameof(TokenomicsSettings.PrivilegedExceedActions).Length + 1)..],
             _ => name
         };
         var property = OptionProperties.Single(property => property.Name == propertyName);
-        object target = workload == "PremiumWorkload" ? _options.PremiumWorkloadLimitActions
-            : workload == "CriticalWorkload" ? _options.CriticalWorkloadLimitActions
-            : property.DeclaringType == typeof(TokenomicsLimits)
-            ? model is not null && _options.ModelLimits.TryGetValue(model, out var limits) ? limits : _options.DefaultLimits
-            : property.DeclaringType == typeof(TokenomicsLimitActions)
-                ? model is not null && _options.ModelLimitActions.TryGetValue(model, out var actions) ? actions : _options.DefaultLimitActions
+        object target = workload == "PremiumWorkload" ? _options.PremiumExceedActions
+            : workload == "CriticalWorkload" ? _options.PrivilegedExceedActions
+            : property.DeclaringType == typeof(LimitsAndBudgets)
+            ? model is not null && _options.ModelLimitsAndBudgets.TryGetValue(model, out var limits) ? limits : _options.DefaultLimitsAndBudgets
+            : property.DeclaringType == typeof(ExceededActions)
+                ? model is not null && _options.ModelExceedActions.TryGetValue(model, out var actions) ? actions : _options.DefaultExceededActions
                 : _options;
-        var errorKey = property.DeclaringType == typeof(TokenomicsLimits) || property.DeclaringType == typeof(TokenomicsLimitActions)
+        var errorKey = property.DeclaringType == typeof(LimitsAndBudgets) || property.DeclaringType == typeof(ExceededActions)
             ? $"limits:{workload ?? model ?? "default"}:{property.Name}" : property.Name;
+        if (name == nameof(TokenomicsSettings.ModelHierarchy)) {
+            var models = RoutingModels;
+            var hierarchyEntries = HierarchyDestinations;
+            var hierarchyModels = hierarchyEntries.Select(group => group[0].Model).ToList();
+            return @<div class="config-newhost-field tokenomics-hierarchy @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <ConfigurationHelp Section="Tokenomics" Topic="ModelHierarchy">
+                        <span class="form-label">Model Hierarchy</span>
+                    </ConfigurationHelp>
+                </div>
+                <div class="tokenomics-hierarchy-list" role="list" aria-label="Model fallback order">
+                @for (var index = 0; index < hierarchyModels.Count; index++)
+                {
+                            var position = index;
+                            var hierarchyModel = hierarchyModels[position];
+                            var selectedApis = hierarchyEntries[position].Select(entry => FormatValue(entry.APIName)).ToArray();
+                            var catalogApis = ApisForRoutingModel(hierarchyModel);
+                            var hierarchyApis = catalogApis.Concat(selectedApis.Where(api => api.Length > 0)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                            <div class="tokenomics-hierarchy-row" role="listitem" @key="position">
+                                <span class="tokenomics-hierarchy-position">@(position + 1)</span>
+                                <div class="tokenomics-hierarchy-destination">
+                                <select class="form-select form-select-sm" value="@(models.Contains(hierarchyModel, StringComparer.OrdinalIgnoreCase) ? hierarchyModel : string.Empty)" aria-label="Hierarchy model @(position + 1)"
+                                    @key="(position, hierarchyModel, string.Join(';', models), string.Join(';', hierarchyModels))"
+                                        @onchange="@(args => SetHierarchyModelAsync(position, args))">
+                                    @if (!models.Contains(hierarchyModel, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <option value="" disabled>Select an assigned model</option>
+                                    }
+                                    @foreach (var candidate in models.Where(candidate => string.Equals(candidate, hierarchyModel, StringComparison.OrdinalIgnoreCase)
+                                        || !hierarchyModels.Contains(candidate, StringComparer.OrdinalIgnoreCase)))
+                                    {
+                                        <option value="@candidate">@candidate</option>
+                                    }
+                                </select>
+                                <select class="form-select form-select-sm" multiple size="3" aria-label="Hierarchy APIs @(position + 1)"
+                                    @key="(position, hierarchyModel, string.Join(';', selectedApis), string.Join(';', hierarchyApis))"
+                                    @bind:get="selectedApis" @bind:set="@(values => SetHierarchyApiAsync(position, new ChangeEventArgs { Value = values }))">
+                                    <option value="">Keep request API</option>
+                                    @foreach (var apiName in hierarchyApis)
+                                    {
+                                        <option value="@apiName">@apiName@(!catalogApis.Contains(apiName, StringComparer.OrdinalIgnoreCase) ? " (not in catalog)" : "")</option>
+                                    }
+                                </select>
+                                </div>
+                                <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Move up" aria-label="Move @hierarchyModel up"
+                                    disabled="@(position == 0)" @onclick="@(() => MoveHierarchyModelAsync(position, position - 1))"><span class="bi bi-arrow-up" aria-hidden="true"></span></button>
+                                <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Move down" aria-label="Move @hierarchyModel down"
+                                    disabled="@(position == hierarchyModels.Count - 1)" @onclick="@(() => MoveHierarchyModelAsync(position, position + 1))"><span class="bi bi-arrow-down" aria-hidden="true"></span></button>
+                                <button type="button" class="btn btn-sm tokenomics-hierarchy-icon" title="Remove model" aria-label="Remove @hierarchyModel from hierarchy"
+                                    @onclick="@(() => RemoveHierarchyModelAsync(position))"><span class="bi bi-trash" aria-hidden="true"></span></button>
+                            </div>
+                }
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm" disabled="@(!models.Any(candidate => !hierarchyModels.Contains(candidate, StringComparer.OrdinalIgnoreCase)))" @onclick="AddHierarchyModelAsync">
+                            <span class="bi bi-plus-lg" aria-hidden="true"></span> Add model
+                </button>
+                @if (_fieldErrors.TryGetValue(property.Name, out var hierarchyError))
+                {
+                    <span class="small text-danger" role="alert">@hierarchyError</span>
+                }
+            </div>;
+        }
+        if (name == nameof(TokenomicsSettings.DefaultModel)) {
+            var models = RoutingModels;
+            return @<div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
+                <div class="config-setting-heading">
+                    <ConfigurationHelp Section="Tokenomics" Topic="DefaultModel">
+                        <label class="form-label" for="tokenomics-DefaultModel">Default Model</label>
+                    </ConfigurationHelp>
+                </div>
+                <select id="tokenomics-DefaultModel" class="form-select form-select-sm" value="@_options.DefaultModel" @key="string.Join(';', models)"
+                        @onchange="@(args => SetOptionAsync(property, args))">
+                    <option value="">Not configured</option>
+                    @if (!string.IsNullOrEmpty(_options.DefaultModel)
+                        && !models.Contains(_options.DefaultModel, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@_options.DefaultModel" disabled>@_options.DefaultModel (no host assigned)</option>
+                    }
+                    @foreach (var routingModel in models)
+                    {
+                        <option value="@routingModel">@routingModel</option>
+                    }
+                </select>
+                @if (_fieldErrors.TryGetValue(property.Name, out var modelError))
+                {
+                    <span class="small text-danger" role="alert">@modelError</span>
+                }
+            </div>;
+        }
         if (name == nameof(TokenomicsSettings.DefaultModelAPI)) {
-            var apiNames = RoutingApis.Select(api => api.Name)
-                .Concat(_options.ModelHostOptions.Values.SelectMany(hosts => hosts.Values)
-                    .SelectMany(host => host.APIs.Keys))
+            var apiNames = (_options.ModelHostOptions.TryGetValue(_options.DefaultModel, out var modelHosts)
+                ? modelHosts.Values.SelectMany(host => host.APIs.Keys).Select(LLMApiEnumParser.ToDisplayName)
+                : Enumerable.Empty<string>())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(apiName => apiName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return @<div class="config-newhost-field @(IsOptionChanged(property) ? "config-field-changed" : string.Empty)">
                 <div class="config-setting-heading">
@@ -1051,13 +1279,13 @@
                         <label class="form-label" for="tokenomics-DefaultModelAPI">Default Model API</label>
                     </ConfigurationHelp>
                 </div>
-                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@_options.DefaultModelAPI"
+                <select id="tokenomics-DefaultModelAPI" class="form-select form-select-sm" value="@FormatValue(_options.DefaultModelAPI)" @key="(_options.DefaultModel, string.Join(';', apiNames))"
                         aria-label="Default Model API" @onchange="@(args => SetOptionAsync(property, args))">
                     <option value="">Not configured</option>
-                    @if (!string.IsNullOrEmpty(_options.DefaultModelAPI)
-                        && !apiNames.Contains(_options.DefaultModelAPI, StringComparer.OrdinalIgnoreCase))
+                    @if (_options.DefaultModelAPI != LLMApiEnum.Unknown
+                        && !apiNames.Contains(FormatValue(_options.DefaultModelAPI), StringComparer.OrdinalIgnoreCase))
                     {
-                        <option value="@_options.DefaultModelAPI" disabled>@_options.DefaultModelAPI</option>
+                        <option value="@FormatValue(_options.DefaultModelAPI)" disabled>@FormatValue(_options.DefaultModelAPI)</option>
                     }
                     @foreach (var apiName in apiNames)
                     {
@@ -1071,7 +1299,7 @@
             </div>;
         }
         return @<TokenomicsOptionFieldWidget Name="@name"
-            Label="@(workload is null ? FieldLabel(name) : $"{(workload == "CriticalWorkload" ? "Privileged workload" : "Premium tenant")} {FieldLabel(property.Name)}")"
+            Label="@(workload is null ? FieldLabel(name) : $"{(workload == "CriticalWorkload" ? "Privileged workload" : "Premium workload")} {FieldLabel(property.Name)}")"
             Value="@FormatValue(property.GetValue(target), property.Name)" Step="@InputStep(property.PropertyType)"
             InputType="@(property.PropertyType == typeof(string) || property.Name == nameof(TokenomicsSettings.DelayDuration) ? "text" : "number")"
             Error="@(_fieldErrors.TryGetValue(errorKey, out var error) ? error : null)"

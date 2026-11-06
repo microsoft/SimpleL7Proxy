@@ -59,10 +59,10 @@
             @if (_capacityModels.Length == 0) { <p class="policy-note capacity-empty">No recorded capacity conditions in this selection.</p> }
         </article>
         <article class="tokenomics-card insight-card">
-            <div class="policy-card-heading"><h3>Queue Pressure by Tenant</h3><p>Requests with recorded queue-depth or queue-priority conditions</p></div>
+            <div class="policy-card-heading"><h3>Queue Pressure by Workload</h3><p>Requests with recorded queue-depth or queue-priority conditions</p></div>
             <div class="users-table-wrap">
                 <table class="users-table capacity-summary-table">
-                    <thead><tr><th scope="col">Tenant</th><th scope="col">Flagged requests</th><th scope="col">Avg. / Peak Depth</th><th scope="col">Max. Length</th></tr></thead>
+                    <thead><tr><th scope="col">Workload</th><th scope="col">Flagged requests</th><th scope="col">Avg. / Peak Depth</th><th scope="col">Max. Length</th></tr></thead>
                     <tbody>
                         @foreach (var tenant in _queueTenants)
                         {
@@ -137,7 +137,7 @@
         </div>
         <div class="users-table-wrap">
             <table class="users-table capacity-events-table">
-                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Tenant</th><th scope="col">Model (Before / After)</th><th scope="col">Condition</th><th scope="col">Priority</th><th scope="col">Action</th><th scope="col">Queue Depth / Wait</th><th scope="col">Policy Outcome</th><th scope="col">Final Recorded Status</th><th scope="col">Tokens</th><th scope="col">Details</th></tr></thead>
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Workload</th><th scope="col">Model (Before / After)</th><th scope="col">Condition</th><th scope="col">Priority</th><th scope="col">Action</th><th scope="col">Queue Depth / Wait</th><th scope="col">Policy Outcome</th><th scope="col">Final Recorded Status</th><th scope="col">Tokens</th><th scope="col">Details</th></tr></thead>
                 <tbody>
                     @foreach (var entry in _visibleEvents)
                     {
@@ -305,7 +305,7 @@
         var usage = outcome is not null && Text(outcome, "UsageAvailable") is { } available && bool.TryParse(available, out var captured) && captured;
         var input = usage ? Tokens(outcome!, "InputTokens") : null;
         var output = usage ? Tokens(outcome!, "OutputTokens") : null;
-        return new PressureRequest(group.Key, Field(first, "UserId"), Field(first, "Tenant"),
+        return new PressureRequest(group.Key, Field(first, "UserId"), Field(first, "Workload"),
             Text(first, "RequestedModel") ?? Text(first, "ModelBefore") ?? "Not captured",
             Text(outcome, "EffectiveModel") ?? Text(latest, "ModelAfter") ?? "Not captured", policies, latest,
             policies.Any(IsCapacity), policies.Any(IsQueue), policies.Any(IsQuota),
@@ -354,7 +354,7 @@
         }).ToArray();
         _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
         _visibleEvents = _filteredEvents.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
-        var csv = new StringBuilder("TimestampUtc,User,Tenant,RequestedModel,ModelBefore,ModelAfter,LatestSelectedModel,PriorityBefore,PriorityAfter,Condition,Action,PolicyOutcome,LatestPolicyOutcome,FinalRecordedStatus,Tokens,RequestLatencyMs,RequestedRetryAfterMs,CapacityUtilization,CapacityThreshold,QueueDepth,MaxQueueLength,HighDepthThreshold,QueueWaitMs,QuotaLimit,ConfiguredAction,MID,DecisionId,EvaluationSequence\r\n");
+        var csv = new StringBuilder("TimestampUtc,User,Workload,RequestedModel,ModelBefore,ModelAfter,LatestSelectedModel,PriorityBefore,PriorityAfter,Condition,Action,PolicyOutcome,LatestPolicyOutcome,FinalRecordedStatus,Tokens,RequestLatencyMs,RequestedRetryAfterMs,CapacityUtilization,CapacityThreshold,QueueDepth,MaxQueueLength,HighDepthThreshold,QueueWaitMs,QuotaLimit,ConfiguredAction,MID,DecisionId,EvaluationSequence\r\n");
         foreach (var entry in _filteredEvents) {
             string[] values = [entry.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
                 entry.Request.User, entry.Request.Tenant, entry.Request.Original, Field(entry.Fields, "ModelBefore"), Field(entry.Fields, "ModelAfter"),

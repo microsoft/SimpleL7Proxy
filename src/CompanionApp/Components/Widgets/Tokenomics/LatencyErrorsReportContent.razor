@@ -159,10 +159,10 @@
 
     <div class="tokenomics-insight-grid latency-bottom-grid">
         <article class="tokenomics-card insight-card">
-            <div class="policy-card-heading"><h3>Tenants by Errors and Throttling</h3><p>Rates use captured outcomes, not missing requests</p></div>
+            <div class="policy-card-heading"><h3>Workloads by Errors and Throttling</h3><p>Rates use captured outcomes, not missing requests</p></div>
             <div class="users-table-wrap">
                 <table class="users-table latency-summary-table">
-                    <thead><tr><th scope="col">Tenant</th><th scope="col">Requests / Outcomes</th><th scope="col">Errors / Rate</th><th scope="col">429s / Rate</th></tr></thead>
+                    <thead><tr><th scope="col">Workload</th><th scope="col">Requests / Outcomes</th><th scope="col">Errors / Rate</th><th scope="col">429s / Rate</th></tr></thead>
                     <tbody>
                         @foreach (var tenant in _tenants)
                         {
@@ -174,10 +174,10 @@
             </div>
         </article>
         <article class="tokenomics-card insight-card">
-            <div class="policy-card-heading"><h3>Latency by Tenant</h3><p>P50 / P95 / P99 latency in milliseconds</p></div>
+            <div class="policy-card-heading"><h3>Latency by Workload</h3><p>P50 / P95 / P99 latency in milliseconds</p></div>
             <div class="users-table-wrap">
                 <table class="users-table latency-summary-table">
-                    <thead><tr><th scope="col">Tenant</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Samples</th></tr></thead>
+                    <thead><tr><th scope="col">Workload</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Samples</th></tr></thead>
                     <tbody>
                         @foreach (var tenant in _tenants)
                         {
@@ -188,10 +188,10 @@
             </div>
         </article>
         <article class="tokenomics-card insight-card">
-            <div class="policy-card-heading"><h3>User-Level 429s</h3><p>User and tenant identity; one latest outcome per request</p></div>
+            <div class="policy-card-heading"><h3>User-Level 429s</h3><p>User and workload identity; one latest outcome per request</p></div>
             <div class="users-table-wrap">
                 <table class="users-table latency-summary-table">
-                    <thead><tr><th scope="col">User / Tenant</th><th scope="col">Requests / Outcomes</th><th scope="col">429s</th><th scope="col">Rate</th></tr></thead>
+                    <thead><tr><th scope="col">User / Workload</th><th scope="col">Requests / Outcomes</th><th scope="col">429s</th><th scope="col">Rate</th></tr></thead>
                     <tbody>
                         @foreach (var user in _users)
                         {
@@ -221,7 +221,7 @@
         </div>
         <div class="users-table-wrap">
             <table class="users-table latency-events-table">
-                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Tenant</th><th scope="col">Model</th><th scope="col">Status</th><th scope="col">Latency (ms)</th><th scope="col">Source</th><th scope="col">Policy-Requested Delay (ms)</th><th scope="col">Details</th></tr></thead>
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User / Workload</th><th scope="col">Model</th><th scope="col">Status</th><th scope="col">Latency (ms)</th><th scope="col">Source</th><th scope="col">Policy-Requested Delay (ms)</th><th scope="col">Details</th></tr></thead>
                 <tbody>
                     @foreach (var row in _visibleRows)
                     {
@@ -368,7 +368,7 @@
         var latestPolicy = policies.LastOrDefault();
         var outcome = records.LastOrDefault(fields => Text(fields, "RecordKind") == "RequestOutcome");
         var delayRecord = policies.LastOrDefault(fields => fields.ContainsKey("RetryAfterMs"));
-        return new RequestResult(group.Key, Identity(records, "UserId"), Identity(records, "Tenant"),
+        return new RequestResult(group.Key, Identity(records, "UserId"), Identity(records, "Workload"),
             Text(outcome, "EffectiveModel") ?? Text(latestPolicy, "ModelAfter") ?? "Not captured",
             outcome is null ? null : Time(outcome), Status(outcome), DurationField(outcome, "LatencyMs"),
             Field(outcome, "OutcomeSource"), Field(outcome, "BackendResponseReceived"), Field(outcome, "OutcomeId"),
@@ -492,7 +492,7 @@
         }).ToArray();
         _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
         _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
-        var csv = new StringBuilder("TimestampUtc,User,Tenant,Model,StatusCode,LatencyMs,OutcomeSource,BackendResponseReceived,LatestPolicyDecision,PolicyRequestedDelayMs,DelayEvaluationTimestampUtc,BackendRetryAfter,ThrottleTimestampUtc,WakeTimestampUtc,Error,MID,OutcomeId\r\n");
+        var csv = new StringBuilder("TimestampUtc,User,Workload,Model,StatusCode,LatencyMs,OutcomeSource,BackendResponseReceived,LatestPolicyDecision,PolicyRequestedDelayMs,DelayEvaluationTimestampUtc,BackendRetryAfter,ThrottleTimestampUtc,WakeTimestampUtc,Error,MID,OutcomeId\r\n");
         foreach (var row in _filteredRows) {
             string[] values = [row.OutcomeTime?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured",
                 row.User, row.Tenant, row.Model, row.Status?.ToString(CultureInfo.InvariantCulture) ?? "Not captured",
