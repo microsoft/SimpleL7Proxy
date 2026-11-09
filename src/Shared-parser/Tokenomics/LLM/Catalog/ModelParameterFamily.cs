@@ -7,5 +7,7 @@ public enum ModelParameterFamily
     Classic,
     Gpt5,
     Reasoning,
-    Decision
+    Decision,
+    Gpt6,
+    Anthropic
 }

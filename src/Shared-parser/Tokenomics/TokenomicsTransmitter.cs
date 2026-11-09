@@ -64,6 +64,11 @@ public sealed class TokenomicsTransmitter
             RunTransmissionLoopAsync(_transmissionLoopCts.Token);
     }
 
+    public bool IsRunning()
+    {
+        return _started != 0;
+    }
+
     private async Task RunTransmissionLoopAsync(
         CancellationToken cancellationToken)
     {

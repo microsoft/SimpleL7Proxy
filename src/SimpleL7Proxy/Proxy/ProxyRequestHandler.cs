@@ -400,7 +400,7 @@ public partial class ProxyRequestHandler
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
                         _options.TokenomicsEnable ? incomingRequest.EffectiveModel ?? "N/A" : "-",
-                        pr.StreamingProcessor,
+                        pr.StreamingProcessorName,
                         conlen,
                         incomingRequest.DequeueTime.ToLocalTime(),
                         proxyLatency,

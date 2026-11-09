@@ -17,8 +17,8 @@ public sealed class ValidModel {
         if (modelName.Value.AsSpan().IsWhiteSpace()) {
             throw new ArgumentException("The model name must not be empty or whitespace.", nameof(name));
         }
-        if (apiFormat is not (LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIResponses or LLMApiEnum.AnthropicMessages)) {
-            throw new ArgumentOutOfRangeException(nameof(apiFormat), apiFormat, "Unsupported model API format.");
+        if (!Enum.IsDefined(apiFormat)) {
+            throw new ArgumentOutOfRangeException(nameof(apiFormat), apiFormat, "Undefined model API format.");
         }
 
         Name = modelName;

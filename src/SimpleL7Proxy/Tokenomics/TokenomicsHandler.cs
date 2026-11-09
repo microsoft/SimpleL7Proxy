@@ -132,12 +132,9 @@ public sealed class TokenomicsHandler : IConfigChangeSubscriber
     }
 
 
-    public LLMApiEnum ModelApiName(string path) =>
-        LLMApiEnumParser.TryParsePath(path, out var api) ? api : LLMApiEnum.Unknown;
-
     public LLMApiEnum UpdateModelPath(string model, string originalPath, string? hostKey = null)
     {
-        return ModelApiName(originalPath);
+        return RequestTransformer.ModelApiName(originalPath);
     }
 
     public async Task<ModelOverrideEnum> ProcessRequestAsync(RequestData data)

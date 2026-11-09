@@ -35,6 +35,7 @@ public sealed class StreamProcessorFactory
     // Constants for processor selection logic
     public const string DEFAULT_PROCESSOR = "DefaultStream";
     public const string STREAM_PROCESSOR = "DefaultStream";
+    public const string MAP_STREAM_PROCESSOR = "MapStreamProcessor";
     private static readonly string[] PROCESSOR_SUFFIXES = ["Processor", "Parser"];
     private const string TOKEN_PROCESSOR_HEADER = "TOKENPROCESSOR";
     private const string EVENT_STREAM_MEDIA = "text/event-stream";
@@ -134,16 +135,11 @@ public sealed class StreamProcessorFactory
     /// <param name="resolvedProcessorName">The selected processor name.</param>
     /// <param name="streaming">Whether model mapping reads and writes SSE instead of JSON.</param>
     /// <returns>A model mapping processor or the processor selected by the existing lookup.</returns>
-    public IStreamProcessor GetStreamProcessor(string processorName, ValidModel sourceModel,
+    public IStreamProcessor GetMapStreamProcessor( ValidModel sourceModel,
         ValidModel targetModel, out string resolvedProcessorName, bool streaming = false)
     {
         ArgumentNullException.ThrowIfNull(sourceModel);
         ArgumentNullException.ThrowIfNull(targetModel);
-
-        if (sourceModel.Name == targetModel.Name && sourceModel.ApiFormat == targetModel.ApiFormat)
-        {
-            return GetStreamProcessor(processorName, out resolvedProcessorName);
-        }
 
         resolvedProcessorName = "ModelMapping";
         return new ModelMappingProcessor(sourceModel, targetModel, streaming);

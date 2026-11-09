@@ -45,6 +45,6 @@ func start --dotnet-isolated --no-build --script-root bin/output
 
 ```bash
 curl "http://localhost:7071/api/process?url=http://localhost:3000/file/openAI.txt&processor=MultiLineAllUsage"
-curl "http://localhost:7071/api/process?url=http://localhost:3000/file/openAI.txt&sourceModel=gpt-4o.Completions&targetModel=claude-sonnet-4-5.Messages"
+curl "http://localhost:7071/api/process?url=http://localhost:3000/file-stream/openAI.txt&sourceModel=gpt-4o.Completions&targetModel=claude-sonnet-4-5.Messages"
 
 ```

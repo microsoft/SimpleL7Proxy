@@ -3,13 +3,47 @@ using System.Collections.Immutable;
 
 using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Usage;
+using static SharedParser.Tokenomics.LLM.Catalog.ModelParameterFamily;
 
 namespace SharedParser.Tokenomics.LLM.Models;
 
 public static class ModelMap
 {
+    private static readonly FrozenDictionary<
+        (ModelParameterFamily Source, ModelParameterFamily Destination),
+        (FrozenSet<string> FieldsToRemove, FrozenDictionary<string, string> FieldsToRename)> ParameterTransitions =
+        new Dictionary<
+            (ModelParameterFamily Source, ModelParameterFamily Destination),
+            (FrozenSet<string> FieldsToRemove, FrozenDictionary<string, string> FieldsToRename)>
+        {
+            [(Classic,   Gpt5)]      = (FieldRemovalMap.ClassicToReasoning,   FieldRenameMap.ClassicToReasoning),
+            [(Classic,   Reasoning)] = (FieldRemovalMap.ClassicToReasoning,   FieldRenameMap.ClassicToReasoning),
+            [(Classic,   Gpt6)]      = (FieldRemovalMap.ClassicToGpt6,        FieldRenameMap.ClassicToReasoning),
+            [(Classic,   Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Gpt5,      Classic)]   = (FieldRemovalMap.Gpt5ToClassic,        FieldRenameMap.ReasoningToClassic),
+            [(Gpt5,      Reasoning)] = (FieldRemovalMap.Gpt5ToReasoning,      FieldRenameMap.Empty),
+            [(Gpt5,      Gpt6)]      = (FieldRemovalMap.Empty,                FieldRenameMap.Empty),
+            [(Gpt5,      Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Reasoning, Classic)]   = (FieldRemovalMap.ReasoningToClassic,   FieldRenameMap.ReasoningToClassic),
+            [(Reasoning, Gpt5)]      = (FieldRemovalMap.Empty,                FieldRenameMap.Empty),
+            [(Reasoning, Gpt6)]      = (FieldRemovalMap.Empty,                FieldRenameMap.Empty),
+            [(Reasoning, Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Gpt6,      Classic)]   = (FieldRemovalMap.Gpt5ToClassic,        FieldRenameMap.ReasoningToClassic),
+            [(Gpt6,      Gpt5)]      = (FieldRemovalMap.ClassicToReasoning,   FieldRenameMap.Empty),
+            [(Gpt6,      Reasoning)] = (FieldRemovalMap.Gpt6ToReasoning,      FieldRenameMap.Empty),
+            [(Gpt6,      Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Anthropic, Classic)]   = (FieldRemovalMap.AnthropicToClassic,   FieldRenameMap.AnthropicToClassic),
+            [(Anthropic, Gpt5)]      = (FieldRemovalMap.AnthropicToReasoning, FieldRenameMap.AnthropicToReasoning),
+            [(Anthropic, Reasoning)] = (FieldRemovalMap.AnthropicToReasoning, FieldRenameMap.AnthropicToReasoning),
+            [(Anthropic, Gpt6)]      = (FieldRemovalMap.AnthropicToClassic,   FieldRenameMap.AnthropicToGpt6)
+        }.ToFrozenDictionary();
+
     /// <summary>
-    /// Gets the field removal and rename maps for a model transition.
+    /// Gets scalar field removal and rename maps, not API wire-format conversion.
     /// </summary>
     public static (FrozenSet<string> FieldsToRemove, FrozenDictionary<string, string> FieldsToRename) Get(
         string sourceModel,
@@ -18,23 +52,20 @@ public static class ModelMap
         var sourceFamily = GetFamily(sourceModel);
         var destinationFamily = GetFamily(destinationModel);
 
-        return (sourceFamily, destinationFamily) switch
+        if (sourceFamily == destinationFamily
+            || sourceFamily is ModelParameterFamily.Unknown or ModelParameterFamily.Decision
+            || destinationFamily is ModelParameterFamily.Unknown or ModelParameterFamily.Decision)
         {
-            (ModelParameterFamily.Classic, ModelParameterFamily.Gpt5) =>
-                (FieldRemovalMap.ClassicToReasoning, FieldRenameMap.ClassicToReasoning),
-            (ModelParameterFamily.Classic, ModelParameterFamily.Reasoning) =>
-                (FieldRemovalMap.ClassicToReasoning, FieldRenameMap.ClassicToReasoning),
-            (ModelParameterFamily.Gpt5, ModelParameterFamily.Classic) =>
-                (FieldRemovalMap.Gpt5ToClassic, FieldRenameMap.ReasoningToClassic),
-            (ModelParameterFamily.Gpt5, ModelParameterFamily.Reasoning) =>
-                (FieldRemovalMap.Gpt5ToReasoning, FieldRenameMap.Empty),
-            (ModelParameterFamily.Reasoning, ModelParameterFamily.Classic) =>
-                (FieldRemovalMap.ReasoningToClassic, FieldRenameMap.ReasoningToClassic),
-            _ => (FieldRemovalMap.Empty, FieldRenameMap.Empty)
-        };
+            return (FieldRemovalMap.Empty, FieldRenameMap.Empty);
+        }
+
+        return ParameterTransitions.TryGetValue((sourceFamily, destinationFamily), out var transition)
+            ? transition
+            : throw new NotSupportedException($"Unsupported model parameter transition: {sourceFamily} -> {destinationFamily}.");
     }
 
-    private static ModelParameterFamily GetFamily(string model)
+    /// <summary>Classifies a model ID by its scalar request-parameter family.</summary>
+    public static ModelParameterFamily GetFamily(string model)
     {
         if (string.IsNullOrWhiteSpace(model))
         {
@@ -43,6 +74,32 @@ public static class ModelMap
 
         ReadOnlySpan<char> modelName = model.AsSpan().Trim();
 
+        foreach (var prefix in new[] { "us.", "eu.", "apac.", "global." })
+        {
+            if (modelName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                modelName = modelName[prefix.Length..];
+                break;
+            }
+        }
+
+        if (modelName.StartsWith("anthropic.", StringComparison.OrdinalIgnoreCase))
+        {
+            modelName = modelName["anthropic.".Length..];
+        }
+
+        if (IsModel(modelName, "claude-2")
+            || IsModel(modelName, "claude-3")
+            || IsModel(modelName, "claude-instant")
+            || IsModel(modelName, "claude-opus")
+            || IsModel(modelName, "claude-sonnet")
+            || IsModel(modelName, "claude-haiku")
+            || IsModel(modelName, "claude-fable")
+            || IsModel(modelName, "claude-mythos"))
+        {
+            return ModelParameterFamily.Anthropic;
+        }
+
         if (IsModel(modelName, "decision-1")
             || IsModel(modelName, "decision1")
             || IsModel(modelName, "jev"))
@@ -50,19 +107,25 @@ public static class ModelMap
             return ModelParameterFamily.Decision;
         }
 
+        if (IsModel(modelName, "gpt-6"))
+        {
+            return ModelParameterFamily.Gpt6;
+        }
+
         if (IsModel(modelName, "gpt-5"))
         {
             return ModelParameterFamily.Gpt5;
         }
 
-        if (IsModel(modelName, "o3") || IsModel(modelName, "o4-mini"))
+        if (IsModel(modelName, "o1") || IsModel(modelName, "o3") || IsModel(modelName, "o4-mini"))
         {
             return ModelParameterFamily.Reasoning;
         }
 
-        if (IsModel(modelName, "gpt-4")
+        if (IsModel(modelName, "gpt-3.5")
+            || IsModel(modelName, "gpt-4")
             || IsModel(modelName, "gpt-4o")
-            || IsModel(modelName, "gpt-4.1"))
+            || IsModel(modelName, "chatgpt-4o"))
         {
             return ModelParameterFamily.Classic;
         }
@@ -74,7 +137,7 @@ public static class ModelMap
     {
         return model.Equals(canonicalName, StringComparison.OrdinalIgnoreCase)
             || (model.Length > canonicalName.Length
-                && model[canonicalName.Length] == '-'
+                && (model[canonicalName.Length] == '-' || model[canonicalName.Length] == '.')
                 && model.StartsWith(canonicalName, StringComparison.OrdinalIgnoreCase));
     }
 

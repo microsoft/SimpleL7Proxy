@@ -1,5 +1,6 @@
 //#define LLM_CACHE_UPSTREAM_RESPONSE
 
+using System.Globalization;
 #if LLM_CACHE_UPSTREAM_RESPONSE
 using System.Collections.Concurrent;
 using System.Net;
@@ -47,7 +48,7 @@ public class process
 #if LLM_CACHE_UPSTREAM_RESPONSE
         if (explicitProcessor.Value.Equals("ReSeTCaChe", StringComparison.OrdinalIgnoreCase))
         {
-            await _responseCacheLock.WaitAsync();
+            await _responseCacheLock.WaitAsync(req.HttpContext.RequestAborted);
             try
             {
                 _responseCache.Clear();
@@ -81,17 +82,49 @@ public class process
 
         _logger.LogInformation("Streaming from {Url}", url.Value);
 
+        using var upstreamResponse = await GetUpstreamResponseAsync(uri, req.HttpContext.RequestAborted);
+        upstreamResponse.EnsureSuccessStatusCode();
+
+        var mediaType = new NonNullString(upstreamResponse.Content.Headers.ContentType?.MediaType ?? string.Empty);
+        var streaming = mediaType.Value.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase);
+        var processor = ResolveProcessor(explicitProcessor, validatedSourceModel, validatedTargetModel,
+            upstreamResponse, mediaType.Value, streaming, out var resolvedName);
+
+        try
+        {
+            _logger.LogInformation("Content-Type: {ContentType}, processor selected: {Processor}",
+                upstreamResponse.Content.Headers.ContentType?.ToString() ?? "(missing)", resolvedName);
+
+            req.HttpContext.Response.ContentType =
+                resolvedName == "ModelMapping"
+                    ? streaming ? "text/event-stream; charset=utf-8" : "application/json; charset=utf-8"
+                    : upstreamResponse.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+
+            await processor.CopyToAsync(upstreamResponse.Content, req.HttpContext.Response.Body, debug: false);
+            TrackProcessorStats(processor, upstreamResponse);
+        }
+        finally
+        {
+            if (!string.Equals(resolvedName, StreamProcessorFactory.DEFAULT_PROCESSOR, StringComparison.OrdinalIgnoreCase))
+                processor.Dispose();
+        }
+
+        return new EmptyResult();
+    }
+
+    private static async Task<HttpResponseMessage> GetUpstreamResponseAsync(Uri uri, CancellationToken cancellationToken)
+    {
 #if LLM_CACHE_UPSTREAM_RESPONSE
         if (!_responseCache.TryGetValue(uri, out var cachedResponse))
         {
-            await _responseCacheLock.WaitAsync();
+            await _responseCacheLock.WaitAsync(cancellationToken);
             try
             {
                 if (!_responseCache.TryGetValue(uri, out cachedResponse))
                 {
-                    using var fetchedResponse = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                    using var fetchedResponse = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                     fetchedResponse.EnsureSuccessStatusCode();
-                    var body = await fetchedResponse.Content.ReadAsByteArrayAsync();
+                    var body = await fetchedResponse.Content.ReadAsByteArrayAsync(cancellationToken);
                     cachedResponse = (body, fetchedResponse.StatusCode,
                         fetchedResponse.Headers.Select(header => new KeyValuePair<string, string[]>(header.Key, header.Value.ToArray())).ToArray(),
                         fetchedResponse.Content.Headers.Select(header => new KeyValuePair<string, string[]>(header.Key, header.Value.ToArray())).ToArray());
@@ -103,7 +136,7 @@ public class process
                 _responseCacheLock.Release();
             }
         }
-        using var upstreamResponse = new HttpResponseMessage(cachedResponse.StatusCode)
+        var upstreamResponse = new HttpResponseMessage(cachedResponse.StatusCode)
         {
             Content = new ByteArrayContent(cachedResponse.Body)
         };
@@ -111,47 +144,41 @@ public class process
             upstreamResponse.Headers.TryAddWithoutValidation(header.Key, header.Value);
         foreach (var header in cachedResponse.ContentHeaders)
             upstreamResponse.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        return upstreamResponse;
 #else
-        using var upstreamResponse = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+        return await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 #endif
-        upstreamResponse.EnsureSuccessStatusCode();
+    }
 
-        var mediaType = new NonNullString(upstreamResponse.Content.Headers.ContentType?.MediaType ?? string.Empty);
+    private IStreamProcessor ResolveProcessor(NonNullString explicitProcessor, ValidModel? validatedSourceModel,
+        ValidModel? validatedTargetModel, HttpResponseMessage upstreamResponse, string mediaType,
+        bool streaming, out string resolvedName)
+    {
+        if (validatedSourceModel is not null && validatedTargetModel is not null &&
+            (validatedSourceModel.Name.Value != validatedTargetModel.Name.Value ||
+             validatedSourceModel.ApiFormat != validatedTargetModel.ApiFormat))
+        {
+            return _processorFactory.GetMapStreamProcessor(validatedSourceModel, validatedTargetModel, out resolvedName, streaming);
+        }
+
         var processorName = !explicitProcessor.Value.AsSpan().IsWhiteSpace()
-            ? explicitProcessor
-            : new NonNullString(StreamProcessorFactory.DetermineStreamProcessor(upstreamResponse, mediaType.Value));
+            ? explicitProcessor.Value
+            : StreamProcessorFactory.DetermineStreamProcessor(upstreamResponse, mediaType);
+        return _processorFactory.GetStreamProcessor(processorName, out resolvedName);
+    }
 
-        var streaming = mediaType.Value.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase);
-        string resolvedName;
-        var processor = validatedSourceModel is not null && validatedTargetModel is not null
-            ? _processorFactory.GetStreamProcessor(processorName.Value, validatedSourceModel, validatedTargetModel, out resolvedName, streaming)
-            : _processorFactory.GetStreamProcessor(processorName.Value, out resolvedName);
-        _logger.LogInformation("Content-Type: {ContentType}, processor selected: {Processor}",
-            upstreamResponse.Content.Headers.ContentType?.ToString() ?? "(missing)", resolvedName);
-
-        req.HttpContext.Response.ContentType =
-            resolvedName == "ModelMapping"
-                ? streaming ? "text/event-stream; charset=utf-8" : "application/json; charset=utf-8"
-                : upstreamResponse.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-
-        await processor.CopyToAsync(upstreamResponse.Content, req.HttpContext.Response.Body, debug: false);
-
+    private void TrackProcessorStats(IStreamProcessor processor, HttpResponseMessage upstreamResponse)
+    {
         var stats = new Dictionary<string, string>(_baseStats);
         processor.GetStats(stats, upstreamResponse.Headers);
 
-        if (stats.Count > 0)
+        var telemetry = new EventTelemetry("StreamProcessor.Stats");
+        foreach (var kvp in stats)
         {
-            var telemetry = new EventTelemetry("StreamProcessor.Stats");
-            foreach (var kvp in stats)
-            {
-                // Console.WriteLine($"[Stats] {kvp.Key}: {kvp.Value}");
-                telemetry.Properties[kvp.Key] = kvp.Value;
-                if (double.TryParse(kvp.Value, out var metric))
-                    _telemetryClient.GetMetric(kvp.Key).TrackValue(metric);
-            }
-            _telemetryClient.TrackEvent(telemetry);
+            telemetry.Properties[kvp.Key] = kvp.Value;
+            if (double.TryParse(kvp.Value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var metric))
+                _telemetryClient.GetMetric(kvp.Key).TrackValue(metric);
         }
-
-        return new EmptyResult();
+        _telemetryClient.TrackEvent(telemetry);
     }
 }

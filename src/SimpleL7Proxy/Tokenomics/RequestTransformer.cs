@@ -1,17 +1,16 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
-using SimpleL7Proxy.Tokenomics;
 using System.Collections.Frozen;
 using SharedParser.Tokenomics.LLM.Models;
+using SharedParser.Tokenomics.LLM.Catalog;
 
-namespace SimpleL7Proxy.Tokenomics.Models;
-public class ModelSwapper
-{
-    private readonly ILogger<ModelSwapper> _logger;
+namespace SimpleL7Proxy.Tokenomics;
+public class RequestTransformer {
+    private readonly ILogger<RequestTransformer> _logger;
     private readonly TokenomicsHandler _tokenomicsHandler;
 
-    public ModelSwapper(ILogger<ModelSwapper> logger, TokenomicsHandler tokenomicsHandler)
+    public RequestTransformer(ILogger<RequestTransformer> logger, TokenomicsHandler tokenomicsHandler)
     {
         _logger = logger;
         _tokenomicsHandler = tokenomicsHandler;
@@ -29,7 +28,13 @@ public class ModelSwapper
     }
 
     /// <summary>
-    /// Single parse: extracts model, word count, and captures all top-level field offsets.
+    /// Detects the API format from the request path, returning Unknown for unrecognized paths.
+    /// </summary>
+    public static LLMApiEnum ModelApiName(string path) =>
+        LLMApiEnumParser.TryParsePath(path, out var api) ? api : LLMApiEnum.Unknown;
+
+    /// <summary>
+    /// Extracts the model and word count without collecting rewrite metadata.
     /// </summary>
     public static ModelParseResult ParseModel(ReadOnlyMemory<byte> bodyBytes)
     {
@@ -42,92 +47,82 @@ public class ModelSwapper
 
         try
         {
-            using var doc = JsonDocument.Parse(bodyBytes);
-            var root = doc.RootElement;
-
-            if (root.ValueKind != JsonValueKind.Object)
+            var reader = new Utf8JsonReader(bodyBytes.Span);
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
                 return result;
 
             int wordCount = 0;
-            foreach (var prop in root.EnumerateObject())
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
             {
-                // Capture field offset
-                var fieldStart = bodyBytes.Span.IndexOf(Encoding.UTF8.GetBytes($"\"{prop.Name}\""));
-                var rawValue = prop.Value.GetRawText();
-                var fieldEnd = bodyBytes.Span[(fieldStart + prop.Name.Length + 2)..].IndexOf(Encoding.UTF8.GetBytes("}")) + fieldStart + prop.Name.Length + 2;
-
-                if (fieldStart >= 0)
+                bool isModel = reader.ValueTextEquals("model"u8);
+                reader.Read();
+                if (reader.TokenType == JsonTokenType.String)
                 {
-                    result.TopLevelFields.Add((prop.Name, fieldStart, fieldEnd));
+                    var value = reader.GetString() ?? "";
+                    if (isModel)
+                        result.SourceModel = value;
+                    wordCount += CountWords(value);
                 }
-
-                // Track model value offset specially
-                if (prop.Name == "model" && prop.Value.ValueKind == JsonValueKind.String)
-                {
-                    result.SourceModel = prop.Value.GetString();
-                    var modelLocation = prop.Value.GetRawText();
-                    result.ModelValueOffset = FindOffset(bodyBytes.Span, modelLocation);
-                }
-
-                // Count words
-                if (prop.Value.ValueKind == JsonValueKind.String)
-                {
-                    wordCount += CountWords(prop.Value.GetString() ?? "");
-                }
+                reader.Skip();
             }
+            reader.Read();
             result.WordCount = wordCount;
         }
         catch (JsonException)
         {
-            // Leave result in partially-parsed state
+            result.SourceModel = null;
         }
 
         return result;
     }
 
     /// <summary>
-    /// Merges using pre-captured offsets and field transforms.
-    /// Single pass: copy original, skip removed fields, replace model value.
+    /// Returns unchanged bodies directly; rewrites top-level fields using JSON token boundaries.
     /// </summary>
     public static ReadOnlyMemory<byte> MergeModel(
         string? sourceModel,
         string newModel,
         ModelParseResult parseResult)
     {
+        if (sourceModel == newModel && parseResult.SourceModel == newModel)
+            return parseResult.OriginalBodyBytes;
+
+        if (string.IsNullOrWhiteSpace(parseResult.SourceModel))
+            return parseResult.OriginalBodyBytes;
+
         var (fieldsToRemove, fieldsToRename) = !string.IsNullOrWhiteSpace(parseResult.SourceModel)
             ? ModelMap.Get(parseResult.SourceModel, newModel)
             : (FrozenSet<string>.Empty, FrozenDictionary<string, string>.Empty);
 
-        if (sourceModel == newModel && fieldsToRemove.Count == 0 && fieldsToRename.Count == 0)
-            return parseResult.OriginalBodyBytes;
-
         var buffer = new ArrayBufferWriter<byte>(parseResult.OriginalBodyBytes.Length + newModel.Length + 16);
         var originalSpan = parseResult.OriginalBodyBytes.Span;
-        int pos = 0;
-        var newModelBytes = Encoding.UTF8.GetBytes($"\"{newModel}\"");
-
-        while (pos < originalSpan.Length)
+        var reader = new Utf8JsonReader(originalSpan);
+        reader.Read();
+        using (var writer = new Utf8JsonWriter(buffer))
         {
-            // Replace model value
-            if (parseResult.ModelValueOffset.HasValue && pos == parseResult.ModelValueOffset.Value.Start)
+            writer.WriteStartObject();
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
             {
-                buffer.Write(newModelBytes);
-                pos = parseResult.ModelValueOffset.Value.End;
-                continue;
-            }
+                var name = reader.GetString()!;
+                reader.Read();
+                int valueStart = checked((int)reader.TokenStartIndex);
+                reader.Skip();
+                int valueEnd = checked((int)reader.BytesConsumed);
 
-            // Skip fields marked for removal
-            var fieldToRemove = parseResult.TopLevelFields.FirstOrDefault(f => pos >= f.Start && pos < f.End && fieldsToRemove.Contains(f.Name));
-            if (fieldToRemove.Name != null)
-            {
-                pos = fieldToRemove.End;
-                continue;
-            }
+                if (name == "model")
+                {
+                    writer.WriteString(name, newModel);
+                    continue;
+                }
 
-            var span = buffer.GetSpan(1);
-            span[0] = originalSpan[pos];
-            buffer.Advance(1);
-            pos++;
+                if (fieldsToRemove.Contains(name))
+                    continue;
+
+                writer.WritePropertyName(fieldsToRename.TryGetValue(name, out var renamed) ? renamed : name);
+                writer.WriteRawValue(originalSpan[valueStart..valueEnd], skipInputValidation: true);
+            }
+            reader.Read();
+            writer.WriteEndObject();
         }
 
         return buffer.WrittenMemory;
@@ -178,7 +173,7 @@ public class ModelSwapper
         ModelOverrideEnum modelOverride,
         string modelOverrideName)
     {
-        // 1. Parse once: model, word count, all field offsets
+        // 1. Parse once: model and word count
         var parseResult = ParseModel(bodyBytes);
         request.WordCount = parseResult.WordCount;
 

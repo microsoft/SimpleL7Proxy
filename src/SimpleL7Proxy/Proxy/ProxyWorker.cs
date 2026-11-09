@@ -12,7 +12,6 @@ using SimpleL7Proxy.Events;
 using SharedParser.Tokenomics.LLM.Catalog;
 using SharedParser.Tokenomics.LLM.Usage;
 using SharedParser.Tokenomics.LLM.Models;
-using SimpleL7Proxy.Tokenomics.Models;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
@@ -371,14 +370,16 @@ public class ProxyWorker : IConfigChangeSubscriber
                 if (_options.TokenomicsEnable && bodyBytes.Length > 0)
                 {
                     // Parse and evaluate the request once, then reuse the transformed body for failover attempts.
-                    var parseResult = ModelSwapper.ParseModel(bodyBytes);
-                    request.OriginalAPIName = _wrkCntxt.TokenomicsHandler.ModelApiName(request.Path);
+                    var parseResult = RequestTransformer.ParseModel(bodyBytes);
+
+                    request.OriginalAPIName = RequestTransformer.ModelApiName(request.Path);
                     request.WordCount = parseResult.WordCount;
                     request.OriginalModel = parseResult.SourceModel ?? "unknown";
                     request.EffectiveModel = parseResult.SourceModel ?? request.Headers["S7P-Model-Override"] ?? "unknown";
                     request.EffectiveAPIName = request.OriginalAPIName;
                     request.Workload = request.Headers["S7P-Workload"] ?? "unknown";
                     request.IsPremiumWorkload = request.Headers["S7P-Premium-Workload"]?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+
                     var PremiumTenant = bool.TryParse(request.Headers[Constants.TokenizerPremiumTenant], out var premiumTenant) && premiumTenant;
                     var EnterpriseTenant = bool.TryParse(request.Headers[Constants.TokenizerEnterpriseTenant], out var enterpriseTenant) && enterpriseTenant;
                     request.IsPremiumWorkload = PremiumTenant || EnterpriseTenant || request.IsPremiumWorkload;
@@ -400,16 +401,17 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                     if (request.Debug)
                     {
-                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
-                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
+                        _logger.LogInformation("[ValidateModel:{Guid}] Source {SourceModel}, Target {TargetModel} Override: {Override} BodyLength: {BodyLength}",
+                            request.Guid, parseResult.SourceModel, request.EffectiveModel, request.Headers["S7P-Model-Override"] ?? "(none)", bodyBytes.Length);
                     }
 
-                    bodyBytes = ModelSwapper.MergeModel(parseResult.SourceModel, request.EffectiveModel, parseResult);
+                    bodyBytes = RequestTransformer.MergeModel(parseResult.SourceModel, request.EffectiveModel, parseResult);
                     request.ModelReplaced = request.EffectiveModel != request.OriginalModel;
 
                     // if (request.Headers["S7PDEBUGBODY"] is { } debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
                     // {
                     //     var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
+                    //     _logger.LogInformation("[ValidateModel:{Guid}] Debug body: {BodyString}", request.Guid, bodyString);
                     // }
                 }
             }
@@ -671,31 +673,42 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                                 string resp_mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
 
-                                _logger.LogDebug("[GetProxyResponseAsync:{Guid}] Processor: {Processor}, MediaType: {MediaType}",
-                                    request.Guid, pr.StreamingProcessor, resp_mediaType);
+                                bool streaming = string.Equals(resp_mediaType,"text/event-stream", StringComparison.OrdinalIgnoreCase);
 
                                 // Determine stream processor
-                                if (string.Equals(host.Config.Processor, "AutoDetect", StringComparison.OrdinalIgnoreCase))
+                                if (streaming &&
+                                    (request.EffectiveModel != request.OriginalModel || request.EffectiveAPIName != request.OriginalAPIName) &&
+                                    !string.IsNullOrWhiteSpace(request.EffectiveModel) &&
+                                    !string.IsNullOrWhiteSpace(request.OriginalModel))
+                                {
+                                    pr.StreamingProcessorName = StreamProcessorFactory.MAP_STREAM_PROCESSOR;
+                                }
+                                else if (string.Equals(host.Config.Processor, "AutoDetect", StringComparison.OrdinalIgnoreCase))
                                 {
                                     // REVIEW: Resolve the effective request model to a provider, then its token processor.
                                     // Providers added without a processor assignment retain the unknown-provider fallback.
-                                    pr.StreamingProcessor = ModelMap.TokenProcessorByProvider.TryGetValue(
+                                    pr.StreamingProcessorName = ModelMap.TokenProcessorByProvider.TryGetValue(
                                         ModelMap.GetUsageProvider(request.EffectiveModel), out var tokenProcessor)
                                         ? tokenProcessor
                                         : ModelMap.TokenProcessorByProvider[UsageProvider.Unknown];
                                 }
-                                else if (string.Equals(host.Config.Processor, "APIMResponseHeader", StringComparison.OrdinalIgnoreCase))
+                                else if (host.Config.DirectMode &&
+                                    !string.Equals(host.Config.Processor, "APIMResponseHeader", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    pr.StreamingProcessor = StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, resp_mediaType);
+                                    pr.StreamingProcessorName = host.Config.Processor;
                                 }
                                 else
                                 {
-                                    pr.StreamingProcessor = host.Config.DirectMode
-                                        ? host.Config.Processor
-                                        : StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, resp_mediaType);
+                                    pr.StreamingProcessorName = StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, resp_mediaType);
                                 }
 
-                                requestState = $"{(host.Config.DirectMode ? "Direct Mode Processor" : "Stream Proxy Response")} : {pr.StreamingProcessor}";
+                                if (_logger.IsEnabled(LogLevel.Debug))
+                                {
+                                    _logger.LogDebug("[GetProxyResponseAsync:{Guid}] Processor: {Processor}, MediaType: {MediaType}",
+                                        request.Guid, pr.StreamingProcessorName, resp_mediaType);
+                                }
+
+                                requestState = $"{(host.Config.DirectMode ? "Direct Mode Processor" : "Stream Proxy Response")} : {pr.StreamingProcessorName}";
                                 await CaptureResponseStream(proxyResponse, request, pr).ConfigureAwait(false);
                                 requestState = "Finalize Proxy Response";
                             }
@@ -1074,7 +1087,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             StatusCode = recordedStatusCode,
             Body = errorBytes,
             BodyResponseMessage = errorResponse,
-            StreamingProcessor = StreamProcessorFactory.DEFAULT_PROCESSOR,
+            StreamingProcessorName = StreamProcessorFactory.DEFAULT_PROCESSOR,
             Headers = errorHeaders,
             ContentHeaders = new WebHeaderCollection
             {
@@ -1440,11 +1453,11 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// </summary>
     /// <param name="request">The incoming request data</param>
     /// <param name="proxyResponse">The HTTP response from the backend</param>
-    /// <param name="processWith">The name of the processor to use for streaming</param>
+    /// <param name="processorName">The name of the processor to use for streaming</param>
     private async Task StreamResponseAsync(RequestData request, ProxyData pr)
     {
         //ProxyEvent requestSummary = request.EventData;
-        string processWith = pr.StreamingProcessor ?? StreamProcessorFactory.DEFAULT_PROCESSOR;
+        string processorName = pr.StreamingProcessorName ?? StreamProcessorFactory.DEFAULT_PROCESSOR;
         var proxyResponse = pr.BodyResponseMessage;
 
         if (proxyResponse == null)
@@ -1453,31 +1466,24 @@ public class ProxyWorker : IConfigChangeSubscriber
             return;
         }
 
-        LLMApiEnum? sourceFormat = request.EffectiveAPIName switch
-        {
-            LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIChatCompletionsVision
-                or LLMApiEnum.GeminiOpenAICompatible or LLMApiEnum.CohereOpenAICompatible => LLMApiEnum.OpenAIChatCompletions,
-            LLMApiEnum.OpenAIResponses or LLMApiEnum.OpenAIResponsesVision => LLMApiEnum.OpenAIResponses,
-            LLMApiEnum.AnthropicMessages or LLMApiEnum.AnthropicMessagesVision => LLMApiEnum.AnthropicMessages,
-            _ => null
-        };
-        LLMApiEnum? targetFormat = request.OriginalAPIName switch
-        {
-            LLMApiEnum.OpenAIChatCompletions or LLMApiEnum.OpenAIChatCompletionsVision
-                or LLMApiEnum.GeminiOpenAICompatible or LLMApiEnum.CohereOpenAICompatible => LLMApiEnum.OpenAIChatCompletions,
-            LLMApiEnum.OpenAIResponses or LLMApiEnum.OpenAIResponsesVision => LLMApiEnum.OpenAIResponses,
-            LLMApiEnum.AnthropicMessages or LLMApiEnum.AnthropicMessagesVision => LLMApiEnum.AnthropicMessages,
-            _ => null
-        };
         bool streaming = string.Equals(proxyResponse.Content?.Headers.ContentType?.MediaType,
             "text/event-stream", StringComparison.OrdinalIgnoreCase);
         string resolvedProcessor;
-        IStreamProcessor processor = sourceFormat.HasValue && targetFormat.HasValue
-            && !string.IsNullOrWhiteSpace(request.EffectiveModel) && !string.IsNullOrWhiteSpace(request.OriginalModel)
-            ? _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processWith,
-                new ValidModel(request.EffectiveModel, sourceFormat.Value),
-                new ValidModel(request.OriginalModel, targetFormat.Value), out resolvedProcessor, streaming)
-            : _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processWith, out resolvedProcessor);
+        IStreamProcessor processor;
+        
+        if (processorName == StreamProcessorFactory.MAP_STREAM_PROCESSOR)
+        {
+
+            processor = _wrkCntxt.StreamProcessorFactory.GetMapStreamProcessor(
+                new ValidModel(request.EffectiveModel, request.EffectiveAPIName),
+                new ValidModel(request.OriginalModel, request.OriginalAPIName),
+                out resolvedProcessor, streaming);
+        }
+        else
+        {
+            processor = _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processorName, out resolvedProcessor);
+        }
+
         MemoryStream? memoryBuffer = null;
         
         try
