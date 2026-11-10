@@ -23,6 +23,7 @@ public class process
     private readonly StreamProcessorFactory _processorFactory;
     private readonly TelemetryClient _telemetryClient;
     private static readonly HttpClient _httpClient = new();
+
 #if LLM_CACHE_UPSTREAM_RESPONSE
     private static readonly ConcurrentDictionary<Uri, (byte[] Body, HttpStatusCode StatusCode,
         KeyValuePair<string, string[]>[] Headers, KeyValuePair<string, string[]>[] ContentHeaders)> _responseCache = new();
@@ -45,6 +46,7 @@ public class process
     public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post")] HttpRequest req)
     {
         var explicitProcessor = new NonNullString(req.Query["processor"].FirstOrDefault() ?? string.Empty);
+
 #if LLM_CACHE_UPSTREAM_RESPONSE
         if (explicitProcessor.Value.Equals("ReSeTCaChe", StringComparison.OrdinalIgnoreCase))
         {
@@ -60,6 +62,7 @@ public class process
             return new OkObjectResult("Response cache cleared.");
         }
 #endif
+
         var url = new NonNullString(req.Query["url"].FirstOrDefault() ?? string.Empty);
         if (!Uri.TryCreate(url.Value, UriKind.Absolute, out var uri))
             return new BadRequestObjectResult("Missing or invalid 'url' query parameter.");

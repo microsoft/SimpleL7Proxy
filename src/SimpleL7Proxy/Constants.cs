@@ -26,7 +26,7 @@ public static class Constants
     public const string TokenizerComplianceRequired = "S7PComplianceRequired";
     public const string TokenizerBudgetExceeded = "S7PBudgetExceeded";
 
-    public const string VERSION = "2.3.1";
+    public const string VERSION = "2.3.0";
 
     public const int AnyPriority = -1;
 
