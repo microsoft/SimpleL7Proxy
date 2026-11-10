@@ -10,7 +10,7 @@ using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Tokenomics;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
@@ -399,8 +399,8 @@ public partial class ProxyRequestHandler
                         statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
-                        _options.TokenomicsEnable ? incomingRequest.Model ?? "N/A" : "-",
-                        pr.StreamingProcessor,
+                        _options.TokenomicsEnable ? incomingRequest.EffectiveModel ?? "N/A" : "-",
+                        pr.StreamingProcessorName,
                         conlen,
                         incomingRequest.DequeueTime.ToLocalTime(),
                         proxyLatency,
@@ -431,7 +431,7 @@ public partial class ProxyRequestHandler
                             pr.StatusCode,
                             DateTime.UtcNow - incomingRequest.EnqueueTime,
                             pr.BackendHostname,
-                            incomingRequest.Model ?? "unknown",
+                            incomingRequest.EffectiveModel ?? "unknown",
                             incomingRequest.BackendAttempts,
                             incomingRequest.LifetimeBackendAttempts,
                             pr.UsageStats);
@@ -488,7 +488,7 @@ public partial class ProxyRequestHandler
                     {
                         incomingRequest.TokenomicsSummary.PrepForExceptionStats(
                             HttpStatusCode.TooManyRequests, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
-                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            incomingRequest.EffectiveModel, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
                             e.Message);
                     }
 
@@ -540,7 +540,7 @@ public partial class ProxyRequestHandler
                     {
                         incomingRequest.TokenomicsSummary.PrepForExceptionStats(
                             HttpStatusCode.Forbidden, DateTime.UtcNow - incomingRequest.EnqueueTime, "Policy", false,
-                            incomingRequest.Model, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
+                            incomingRequest.EffectiveModel, incomingRequest.BackendAttempts, incomingRequest.LifetimeBackendAttempts,
                             e.Message);
                     }
 

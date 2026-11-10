@@ -22,7 +22,7 @@ public sealed partial class PolicyScenarioIntegrationTests
     {
         var timeout = TimeSpan.FromSeconds(45);
         var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
         Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
@@ -128,7 +128,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         var timeout = TimeSpan.FromSeconds(45);
         var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
 
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
         Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
@@ -347,7 +347,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         const int retryAfterMs = 5000;
         var timeout = TimeSpan.FromSeconds(45);
         var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
         Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");

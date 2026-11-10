@@ -6,13 +6,13 @@
     <div class="users-heading">
         <h3>Top Users by Token Usage</h3>
         <div class="section-tabs compact-tabs" aria-label="Table grouping">
-            <span class="selected">Users</span><span>Tenants</span><span>Models</span>
+            <span class="selected">Users</span><span>Workloads</span><span>Models</span>
         </div>
         <button class="export-button" type="button" disabled title="Export is a placeholder">↓ Export</button>
     </div>
     <div class="users-table-wrap">
         <table class="users-table">
-            <thead><tr><th>#</th><th>User</th><th>Tenant</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cached Tokens</th><th>Spend (USD)</th><th>Quota Used</th><th>Trend</th></tr></thead>
+            <thead><tr><th>#</th><th>User</th><th>Workload</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cached Tokens</th><th>Spend (USD)</th><th>Quota Used</th><th>Trend</th></tr></thead>
             <tbody>
                 @foreach (var user in Snapshot.Users)
                 {

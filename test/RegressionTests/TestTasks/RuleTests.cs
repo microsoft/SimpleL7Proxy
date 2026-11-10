@@ -764,14 +764,21 @@ public sealed class RuleTests : IRegressionTestMetadata
         var configPath = Path.Combine(AppContext.BaseDirectory, "configs", "profile-config.json");
         Assert.IsTrue(File.Exists(configPath), $"Missing profile config: {configPath}");
 
+        var profiles = new SharedParser.Profiles.UserProfiles();
+        Assert.IsTrue(profiles.TryParse(File.ReadAllText(configPath), "userId",
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance), profiles.Error);
         using var document = JsonDocument.Parse(File.ReadAllText(configPath));
         var parsedRuleSets = 0;
 
         foreach (var profile in document.RootElement.EnumerateArray())
         {
-            if (profile.TryGetProperty("rules", out var rules))
+            if (profile.TryGetProperty("userId", out var userId)
+                && (profile.TryGetProperty("S7PRules", out var rules) || profile.TryGetProperty("rules", out rules)))
             {
-                var config = RuleConfigParser.ParseRules(rules.GetRawText());
+                Assert.IsTrue(profiles.Rules.TryGetValue(userId.GetString()!, out var config),
+                    $"Rules were not resolved for profile {userId.GetString()}.");
+                Assert.AreEqual(rules.GetArrayLength(), config.Rules.Count,
+                    $"Not all rules were resolved for profile {userId.GetString()}.");
                 Assert.IsTrue(config.Rules.Count > 0);
                 parsedRuleSets++;
             }

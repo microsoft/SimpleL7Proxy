@@ -47,7 +47,7 @@ public sealed class ImageSyncComponentStateTests
         state.SelectedForSynchronization = true;
 
         Assert.IsFalse(state.NeedsSynchronization);
-        Assert.IsNull(state.GetSynchronizationVersion());
+        Assert.AreEqual("v2.3.0", state.GetSynchronizationVersion());
     }
 
     [TestMethod]
@@ -105,6 +105,11 @@ public sealed class ImageSyncComponentStateTests
         Assert.AreEqual("v2.4.0", state.CurrentVersion);
         Assert.AreEqual("v2.4.0", state.SelectedVersion);
         Assert.IsFalse(state.NeedsSynchronization);
+        Assert.IsNull(state.GetSynchronizationVersion());
+
+        state.SelectedForSynchronization = true;
+
+        Assert.AreEqual("v2.4.0", state.GetSynchronizationVersion());
     }
 
     [TestMethod]

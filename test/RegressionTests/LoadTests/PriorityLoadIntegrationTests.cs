@@ -54,7 +54,7 @@ public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
         }
 
         var nullServerScript = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         Assert.IsTrue(File.Exists(nullServerScript), $"Null server script was not copied to {nullServerScript}.");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly was not found at {proxyAssembly}.");
 

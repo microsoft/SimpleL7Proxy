@@ -62,39 +62,47 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(Model);
         // bool cacheHit = true;
 
-        if (!_metricsCache.TryGetValue((UserId, Model), out var metric))
+        try
         {
-            // cacheHit = false;
-            // Build new URL
-            UriBuilder ub = new UriBuilder(_metricsServerUri);
-            ub.Query = $"u={Uri.EscapeDataString(UserId)}&m={Uri.EscapeDataString(Model)}";
-
-            var resp = await httpClient.GetAsync(ub.Uri);
-            if (resp.IsSuccessStatusCode)
+            if (!_metricsCache.TryGetValue((UserId, Model), out var metric))
             {
-                var content = await resp.Content.ReadAsStringAsync();
-                metric = JsonSerializer.Deserialize<ResponseMetric>(content);
-            }
-            else
-            {
-                metric = new();
+                // cacheHit = false;
+                // Build new URL
+                UriBuilder ub = new UriBuilder(_metricsServerUri);
+                ub.Query = $"u={Uri.EscapeDataString(UserId)}&m={Uri.EscapeDataString(Model)}";
+
+                var resp = await httpClient.GetAsync(ub.Uri);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var content = await resp.Content.ReadAsStringAsync();
+                    metric = JsonSerializer.Deserialize<ResponseMetric>(content);
+                }
+                else
+                {
+                    metric = new();
+                }
+
+                _metricsCache[(UserId, Model)] = metric;
+                DateTime expiresAt = DateTime.UtcNow.AddSeconds(5);
+
+                if (!_expiresAt.TryGetValue(expiresAt.ToString("O"), out var _hash))  // Use ISO format as key
+                {
+                    _hash = new HashSet<(string, string)>();
+                    _expiresAt[expiresAt.ToString("O")] = _hash;
+                }
+                _hash.Add((UserId, Model));
+
             }
 
-            _metricsCache[(UserId, Model)] = metric;
-            DateTime expiresAt = DateTime.UtcNow.AddSeconds(5);
+            // Console.WriteLine($"Cache hit: {cacheHit}. Cached metric: " + metric.ToString());
 
-            if (!_expiresAt.TryGetValue(expiresAt.ToString("O"), out var _hash))  // Use ISO format as key
-            {
-                _hash = new HashSet<(string, string)>();
-                _expiresAt[expiresAt.ToString("O")] = _hash;
-            }
-            _hash.Add((UserId, Model));
-
+            return metric;
         }
-
-        // Console.WriteLine($"Cache hit: {cacheHit}. Cached metric: " + metric.ToString());
-
-        return metric;
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[METRICS] Error fetching metric for UserId={UserId}, Model={Model}: {ex}");
+            return new ResponseMetric();
+        }
     }
 
     private async Task CleanupExpiredMetricsAsync(CancellationToken token)
@@ -139,7 +147,7 @@ public class LiveMetrics : IConfigChangeSubscriber, IHostedService, IDisposable
     }
 
     public long GetDailyTokenBalanceAsync(ResponseMetric pm)
-    { 
+    {
         return pm.DailyInputTokens + pm.DailyOutputTokens;
     }
 

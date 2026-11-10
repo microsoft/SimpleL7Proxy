@@ -7,6 +7,7 @@
 @rendermode InteractiveServer
 @inject CompanionApp.Components.Shared.UserPreferencesService Preferences
 @inject NavigationManager Navigation
+@inject IConfiguration Configuration
 @implements IDisposable
 
 <PageTitle>@(_selectedArea == "Deploy / Configure" ? "Admin" : _selectedArea ?? "Home")</PageTitle>
@@ -25,7 +26,7 @@
             (Name: "Test", Path: "test", Description: "Run tests against your proxy and review the results to investigate request behavior and failures."),
             (Name: "Explore", Path: "explore", Description: "Send requests and chat with models, review conversation history, and personalize your workspace."),
             (Name: "Analyze", Path: "analyze", Description: "Monitor proxy events, investigate behavior and failures, and review token usage and costs.")
-        })
+        }.Where(area => area.Name != "Test" || Configuration.GetValue<bool>("EnableTesting")))
         {
             <a class="home-area" href="@area.Path">
                 <span class="home-area-title">@area.Name</span>
@@ -64,6 +65,7 @@
                     {
                         <li><a class="home-area" href="url-tester"><span class="home-option-title">URL test</span><span class="home-option-description">Send URL requests and inspect responses.</span></a></li>
                         <li><a class="home-area" href="stress-test"><span class="home-option-title">Stress test</span><span class="home-option-description">Run stress tests against the configured server.</span></a></li>
+                        <li><a class="home-area" href="metrics-stress-test"><span class="home-option-title">Metrics server stress test</span><span class="home-option-description">Measure metrics endpoint throughput and total request time.</span></a></li>
                         <li><a class="home-area" href="abort-test"><span class="home-option-title">Abort test</span><span class="home-option-description">Test rapid client disconnects.</span></a></li>
                     }
                     else if (_selectedArea == "Deploy / Configure")

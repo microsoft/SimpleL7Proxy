@@ -1,0 +1,164 @@
+Tuesday, Nov 17 | All times ET
+
+Time (ET)           Session                                                                                   Level           Topics	Signups
+1:00 PM - 2:30 PM   Microsoft Ignite opening keynote                                                          Foundational    
+                    Security, Frontier Transformation, Agent Platform, Cloud & AI, Microsoft IQ, Copilot	
+5:00 PM - 5:45 PM   Bring agentic operations to Oracle and SAP on Azure                                       Intermediate    Cloud & AI	
+5:00 PM - 5:45 PM   Build and scale the next generation of AI agents in Microsoft Foundry                     Advanced        Agent Platform	
+5:00 PM - 5:45 PM   GitHub, the agent native engineering system                                               Foundational    Agent Platform	
+5:00 PM - 5:45 PM   How partners lead secure AI transformation with Microsoft Security                        Intermediate    Security, Cloud & AI	
+5:00 PM - 5:45 PM   Inside Azure engineering: Lessons from our own frontier transformation                    Intermediate    Cloud & AI	
+5:00 PM - 5:45 PM   Lost in San Francisco: Build AI agents that find their way                                Advanced        Agent Platform, Cloud & AI, Other	
+5:00 PM - 5:45 PM   No cloud required: Build AI apps with SQL Server on Azure Local                           Foundational    Cloud & AI	
+5:00 PM - 5:45 PM   Optimize data, security, and AI with AMD on Azure                                         Foundational    Cloud & AI	
+5:00 PM - 5:45 PM   The Partner Path to Growth: Turning AI Ambition into Customer Impact                      Intermediate    Cloud & AI	
+5:00 PM - 5:45 PM   What's new in Copilot Studio                                                              Foundational    Agent Platform	
+5:00 PM - 6:00 PM   AI infrastructure from cloud to edge                                                      Intermediate    Cloud & AI	
+6:15 PM - 7:00 PM   Build AI-native with Azure's agentic application platform                                 Intermediate    Cloud & AI	
+6:15 PM - 7:00 PM   Build your self-improving AI Platform with Microsoft Foundry                              Advanced        Agent Platform	
+6:15 PM - 7:00 PM   Building a model for software development from the ground up                              Intermediate    Agent Platform	
+6:15 PM - 7:00 PM   FinOps for AI: Partner Playbook for Building AI Solutions and Services                    Foundational    Agent Platform, Cloud & AI, Agentic Business Applications	
+6:15 PM - 7:00 PM   In Their Words: Building Government AI With Partners                                      Intermediate    Cloud & AI	
+6:15 PM - 7:00 PM   Partner Practice Evolution: Building Software and Agents at AI Speed                      Intermediate    Cloud & AI	
+6:15 PM - 7:00 PM   Power accelerated computing on Azure with NVIDIA                                          Advanced        Cloud & AI	
+6:15 PM - 7:00 PM   Ship more software with parallel agents in the GitHub Copilot app                         Advanced        Agent Platform	
+6:15 PM - 7:00 PM   Sovereign cloud mythbusters: Separating fact from fiction                                 Advanced        Cloud & AI	
+6:15 PM - 7:00 PM   What should you build when you can build anything?                                        Intermediate    Agent Platform	
+6:15 PM - 7:00 PM   What's new and what's next in Azure Storage                                               Advanced        Cloud & AI	
+7:30 PM - 8:15 PM   Agentic Engineering at Scale: How Replit Enables Shipping Safely                          Foundational    Agent Platform	
+7:30 PM - 8:15 PM   Build, Monetize, and Grow: The CSP Partner Agent Opportunity                              Intermediate    Cloud & AI	
+7:30 PM - 8:15 PM   Deploy and run AI models and agents on Kubernetes                                         Intermediate    Cloud & AI	
+7:30 PM - 8:15 PM   How Azure Networking is ready for the next generation of AI solutions                     Advanced        Cloud & AI	
+7:30 PM - 8:15 PM   Inside Azure Maia: Purpose-built for AI inference at scale                                Advanced        Cloud & AI	
+7:30 PM - 8:15 PM   Inside Copilot code review: From context to approval                                      Intermediate    Agent Platform	
+7:30 PM - 8:15 PM   Observability across the stack for modern operations                                      Intermediate    Cloud & AI	
+7:30 PM - 8:15 PM   Operationalizing physical intelligence                                                    Intermediate    Agent Platform	
+7:30 PM - 8:15 PM   The Accessibility AI Flywheel: Ask, Act, Automate, Build                                  Advanced        Frontier Transformation, Agent Platform, Cloud & AI, Copilot	
+7:30 PM - 8:15 PM   The intelligence layer for the self-improving SDLC                                        Not specified   Agent Platform	
+
+Wednesday, Nov 18 
+
+12:00 PM - 1:30 PM  Ignite Frontier Transformation                                                            Not specified   Frontier Transformation, Cloud & AI, Agentic Business Applications, Copilot, MAICPP	
+12:00 PM - 12:45 PM Microsoft and SAP bring a connected system of intelligence                                Foundational    Cloud & AI	
+12:00 PM - 12:45 PM Navigating the AI revolution                                                              Foundational    Cloud & AI	
+12:00 PM - 12:45 PM Rethink modernization with agents and code intelligence                                   Intermediate    Cloud & AI	
+12:00 PM - 12:45 PM Scale agents, not risk: Governance and FinOps for the enterprise                          Intermediate    Agent Platform	
+12:00 PM - 12:45 PM Turn enterprise data in a durable advantage with Microsoft AI models                      Intermediate    Agent Platform	
+1:15 PM - 2:00 PM   Apps and agents: Business process transformation in Copilot Studio                        Intermediate    Agent Platform	
+1:15 PM - 2:00 PM   Frontier tuning: Optimize AI agents for real-world business outcomes                      Intermediate    Agent Platform	
+1:15 PM - 2:00 PM   How SThree is reimagining recruitment with human-led AI                                   Intermediate    Agent Platform	
+1:15 PM - 2:00 PM   Inside Azure with Mark Russinovich                                                        Advanced        Cloud & AI	
+1:15 PM - 2:00 PM   Operate a global AKS fleet across regions, edge, and sovereign clouds                     Intermediate    Cloud & AI	
+1:15 PM - 2:00 PM   Scaling Azure infrastructure: From intelligence into enterprise impact                    Intermediate    Cloud & AI	
+1:15 PM - 2:00 PM   Trust at scale: Governance lessons from Microsoft                                         Intermediate    Agent Platform	
+2:30 PM - 3:15 PM   AI-Powered Factories at Scale: Lessons from Rockwell Automation                           Advanced        Cloud & AI	
+2:30 PM - 3:15 PM   Architect reliable and secure agentic AI at scale                                         Intermediate    Agent Platform	
+2:30 PM - 3:15 PM   Build the future of software on Microsoft                                                 Foundational    Cloud & AI	
+2:30 PM - 3:15 PM   From traces to better agents: The Foundry improvement loop                                Intermediate    Agent Platform	
+2:30 PM - 3:15 PM   Meet your sovereign cloud goals with Dell and Azure Local                                 Intermediate    Cloud & AI	
+2:30 PM - 3:15 PM   Partner Opportunity: Sovereignty in Every Modernization Conversation                      Foundational    Agent Platform, Cloud & AI	
+2:30 PM - 3:15 PM   Put AI agents to work in Azure cloud operations                                           Intermediate    Cloud & AI	
+2:30 PM - 3:15 PM   Token economics: Get more from your production AI budget                                  Intermediate    Agent Platform	
+2:30 PM - 3:15 PM   Unlock more value from your business apps with GitHub Copilot SDK                         Intermediate    Agent Platform	
+4:45 PM - 5:30 PM   Accelerating Java, .NET, and database modernization with agents                           Advanced        Cloud & AI	
+4:45 PM - 5:30 PM   AI-powered resiliency for modern workloads with Mark Russinovich                          Advanced        Cloud & AI	
+4:45 PM - 5:30 PM   Designing an agent harness that orchestrates models                                       Advanced        Agent Platform	
+4:45 PM - 5:30 PM   From open weights to workload: Operationalizing at enterprise scale                       Intermediate    Agent Platform	
+4:45 PM - 5:30 PM   Humans, agents, and a game plan: AI governance with GitHub Enterprise                     Advanced        Agent Platform	
+4:45 PM - 5:30 PM   Modernize Windows Server apps with no code rewrite to App Service                         Intermediate    Cloud & AI	
+4:45 PM - 5:30 PM   Secure and manage AI workloads at enterprise scale with AI Gateway                        Intermediate    Cloud & AI	
+4:45 PM - 5:30 PM   Sovereign by design with smarter AI on Azure Local                                        Foundational    Cloud & AI	
+6:00 PM - 6:45 PM   Agents in production: Observe, evaluate, and optimize with Foundry                        Foundational    Agent Platform	
+6:00 PM - 6:45 PM   Cobalt 200: Delivering Azure's best performance and efficiency                            Advanced        Cloud & AI	
+6:00 PM - 6:45 PM   Grow Your Agentic Practice on the Agent Platform and Microsoft IQ                         Intermediate    Cloud & AI	
+6:00 PM - 6:45 PM   Hack the harness: Customize and secure GitHub Copilot SDK agents                          Advanced        Agent Platform	
+6:00 PM - 6:45 PM   Learning from disruption: Resilience against force majeure                                Intermediate    Cloud & AI	
+6:00 PM - 6:45 PM   Move from complexity to opportunity with ArrowSphere and AI Agents                        Foundational    Agent Platform	
+6:00 PM - 6:45 PM   Pick the right harness to build your agents with using Copilot Studio                     Intermediate    Agent Platform	
+6:00 PM - 6:45 PM   Run secure agent loops in production with isolated sandboxes at scale                     Intermediate    Cloud & AI	
+7:15 PM - 8:00 PM   Architecting for end-to-end resiliency on Azure                                           Advanced        Cloud & AI	
+7:15 PM - 8:00 PM   Building sovereign private cloud for mission-critical environments                        Advanced        Cloud & AI	
+7:15 PM - 8:00 PM   From 2 days to 45 minutes: Bradesco’s agentic AI transformation                           Advanced        Agent Platform	
+7:15 PM - 8:00 PM   From tool to teammate: Persistent agents for shared processes in Copilot Studio           Intermediate    Agent Platform	
+7:15 PM - 8:00 PM   Learn how partners scale use case GTM with Marketplace                                    Intermediate    Cloud & AI, Copilot, MAICPP	
+7:15 PM - 8:00 PM   Plan and execute mainframe modernization on your terms                                    Intermediate    Cloud & AI	
+7:15 PM - 8:00 PM   The trust foundation for the next era of intelligence                                     Intermediate    Agent Platform	
+
+Thursday, Nov 19
+
+12:00 PM - 12:45 PM Accelerate your move to PostgreSQL with AI-assisted migration                             Not specified   Cloud & AI	
+12:00 PM - 12:45 PM Beyond the Pilot: Turning Copilot & Agents into Business Value                            Intermediate    Agent Platform	
+12:00 PM - 12:45 PM Build sovereign AI with Azure Local and Foundry Local                                     Intermediate    Cloud & AI	
+12:00 PM - 12:45 PM From Cloud to AI: Zurich’s Resilient Enterprise Blueprint                                 Advanced        Cloud & AI, Copilot	
+12:00 PM - 12:45 PM Inside Microsoft: How we scale expertise with Foundry agents                              Intermediate    Agent Platform	
+12:00 PM - 12:45 PM Master AI spend management with Agent 365: Govern your AI budget                          Intermediate    Agent Platform	
+12:00 PM - 12:45 PM Modernize with AI to expand your practice and unlock customer growth                      Foundational    Cloud & AI	
+12:00 PM - 12:45 PM Scale AI for enterprise value with lessons from Chevron                                   Intermediate    Agent Platform	
+12:00 PM - 12:45 PM Video AI at scale with Microsoft Foundry                                                  Advanced        Agent Platform	
+1:15 PM - 2:00 PM   Agentic AI in action: Reimagining software engineering at scale                           Intermediate    Agent Platform	
+1:15 PM - 2:00 PM   Build as a team with GitHub Copilot tailored to your workflow                             Advanced        Agent Platform	
+1:15 PM - 2:00 PM   Delivering AI innovation at scale with Open Source and Azure                              Foundational    Cloud & AI	
+1:15 PM - 2:00 PM   Modernize faster with AI-powered discovery, planning, and execution                       Advanced        Cloud & AI	
+1:15 PM - 2:00 PM   Partners: Turn Data and AI Readiness into Business Growth                                 Intermediate    Cloud & AI	
+1:15 PM - 2:00 PM   Scale your AI practice from AI curiosity to frontier transformation                       Intermediate    Cloud & AI	
+1:15 PM - 2:00 PM   What’s new and what’s next for Windows Server                                             Intermediate    Cloud & AI	
+1:15 PM - 2:00 PM   Your agent works. Now make it enterprise-ready.                                           Intermediate    Agent Platform	
+2:30 PM - 3:15 PM   Accelerating Partner Growth with Secure AI Foundation                                     Foundational    Cloud & AI, Agentic Business Applications	
+2:30 PM - 3:15 PM   Build AI-powered Microsoft Fabric workflows with GitHub Copilot                           Foundational    Cloud & AI	
+2:30 PM - 3:15 PM   Govern AI everywhere: From open frameworks to enterprise control                          Advanced        Agent Platform	
+2:30 PM - 3:15 PM   Manage GitHub Copilot spending and understand team adoption                               Intermediate    Agent Platform	
+2:30 PM - 3:15 PM   Modernize legacy integration with Azure Logic Apps                                        Intermediate    Cloud & AI	
+2:30 PM - 3:15 PM   The evolution of Azure infrastructure for AI models, apps, and agents                     Intermediate    Cloud & AI	
+2:30 PM - 3:15 PM   Unlocking the Partner Opportunity with the New Copilot                                    Foundational    Agent Platform, Agentic Business Applications, Copilot	
+2:30 PM - 3:15 PM   Visual Studio governance for the agentic era                                              Advanced        Agent Platform	
+4:30 PM - 5:15 PM   Adaptive Digital Thread: Turning PLM into an AI-Powered Eng Platform                      Advanced        Agent Platform	
+4:30 PM - 5:15 PM   AI runs on data. Is your storage architecture ready?                                      Advanced        Cloud & AI	
+4:30 PM - 5:15 PM   From VMware to Hyper-V: Hyperscale virtualization in your datacenter                      Intermediate    Cloud & AI	
+4:30 PM - 5:15 PM   Getting the most out of GitHub Copilot and Azure DevOps                                   Advanced        Agent Platform	
+4:30 PM - 5:15 PM   Govern, secure, and operate anywhere with Azure Arc                                       Intermediate    Cloud & AI	
+4:30 PM - 5:15 PM   How much should you own? Choosing the right agent architecture                            Intermediate    Agent Platform	
+4:30 PM - 5:15 PM   Plan, migrate, operate Linux estates with Azure and GitHub Copilot                        Intermediate    Cloud & AI	
+4:30 PM - 5:15 PM   Rogue agents? Not on my watch                                                             Intermediate    Cloud & AI	
+4:30 PM - 5:15 PM   Run on it, Build on it: Digital Natives Scaling with M365                                 Intermediate    Cloud & AI	
+5:45 PM - 6:30 PM   Architecting your workloads for maximum compute flexibility                               Intermediate    Cloud & AI	
+5:45 PM - 6:30 PM   Content-aware agents with Content Understanding/Document Intelligence                     Intermediate    Agent Platform	
+5:45 PM - 6:30 PM   Give every agent a boss and build a scalable AI services practice                         Foundational    Agent Platform	
+5:45 PM - 6:30 PM   Operate AI at enterprise scale with Microsoft Foundry                                     Advanced        Agent Platform	
+5:45 PM - 6:30 PM   Reimagine cloud and AI platforms for the Frontier Enterprise                              Foundational    Cloud & AI	
+5:45 PM - 6:30 PM   Scale agentic AI: Transforming enterprise operations at Celanese                          Intermediate    Cloud & AI	
+5:45 PM - 6:30 PM   Scott and Mark learn to... live again                                                     Intermediate    Agent Platform	
+7:00 PM - 7:45 PM   Agentic automation: How Copilot Studio blends workflows and agents                        Intermediate    Agent Platform	
+7:00 PM - 7:45 PM   Always-on agentic security platform for code security                                     Advanced        Agent Platform	
+7:00 PM - 7:45 PM   Beyond the AI demo: What it takes to make it work                                         Advanced        Agent Platform, Cloud & AI	
+7:00 PM - 7:45 PM   Building a Repeatable SMB Frontier Practice for CSPs                                      Foundational    Cloud & AI	
+7:00 PM - 7:45 PM   From SQL to AI: Partner Opportunity in SMB Database Modernization                         Foundational    Cloud & AI	
+7:00 PM - 7:45 PM   Running AI workloads efficiently on Azure general compute                                 Intermediate    Cloud & AI	
+7:00 PM - 7:45 PM   Securing coding agents and their code                                                     Advanced        Agent Platform	
+7:00 PM - 7:45 PM   The next evolution of AI FinOps: From cost to value                                       Intermediate    Agent Platform	
+8:15 PM - 9:00 PM   Agentic incident management: Lessons from production AIOps                                Intermediate    Cloud & AI	
+8:15 PM - 9:00 PM   How does the next wave of quantum impact scientific discovery?                            Intermediate    Cloud & AI	
+8:15 PM - 9:00 PM   Production-ready Microsoft Foundry agents with Azure AI Landing Zones                     Advanced        Agent Platform	
+8:15 PM - 9:00 PM   Red Hat on Azure: Advancing unified hybrid cloud together                                 Foundational    Cloud & AI	
+8:15 PM - 9:00 PM   Run open-weight models, post-training, and agents on AKS                                  Advanced        Cloud & AI	
+8:15 PM - 9:00 PM   Secure by default. Azure's multilayered embedded security capabilities                    Intermediate    Cloud & AI	
+8:15 PM - 9:00 PM   Secure the CI pipeline: Practical defenses for GitHub Actions                             Advanced        Agent Platform	
+8:15 PM - 9:00 PM   Understand Copilot Studio's GitHub Copilot harness: Behind the scenes                     Intermediate    Agent Platform	
+8:15 PM - 9:00 PM   Voice agents in Microsoft Foundry: Prototype to production in 45 mins                     Intermediate    Agent Platform	
+8:15 PM - 9:00 PM   Your AI-Powered Partnership: The E2E Partner Experience                                   Intermediate    Cloud & AI, MAICPP	
+8:15 PM - 9:00 PM   Your Roadmap to Business Central CSP Partner Growth                                       Intermediate    Frontier Transformation, Cloud & AI	
+
+Friday, Nov 20
+
+Time (ET)           Session                                                                                   Level           Topics	Signups
+12:00 PM - 12:45 PM Developer's guide to Copilot Studio - Why and How                                         Not specified   Agent Platform	
+12:00 PM - 12:45 PM Scale operations, not toil, with your AI SRE teammate                                     Intermediate    Cloud & AI	
+12:00 PM - 12:45 PM The backlog problem gets worse with AI. Here's how to fix it.                             Advanced        Agent Platform	
+12:00 PM - 12:45 PM Trusted code at scale, from legacy to AI                                                  Intermediate    Agent Platform	
+1:15 PM - 2:00 PM   AI for frontline workers: Guidance in the flow of work                                    Advanced        Agent Platform	
+1:15 PM - 2:00 PM   Bring GitHub Copilot where you work                                                       Advanced        Agent Platform	
+1:15 PM - 2:00 PM   From models to infrastructure: Confidential AI at Hyperscale on Azure                     Intermediate    Cloud & AI	
+1:15 PM - 3:15 PM   Japan Wrap-up Session                                                                     Intermediate    Agent Platform, Microsoft IQ	
+1:15 PM - 2:00 PM   Model to mission: Azure Infra for agentic enterprise                                      Intermediate    Cloud & AI	
+2:30 PM - 3:15 PM   Build portable applications with Adaptive Apps                                            Advanced        Cloud & AI	
+2:30 PM - 3:15 PM   Build private, responsive on-device AI agents with Foundry                                Advanced        Agent Platform	
+2:30 PM - 3:15 PM   Hand off the task or take the keyboard in VS Code                                         Advanced        Agent Platform	

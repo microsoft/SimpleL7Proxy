@@ -1,0 +1,254 @@
+@namespace CompanionApp.Components.Widgets.SystemOne
+@using System.Text.Json.Nodes
+
+<section class="systemone-editor" aria-label="SystemOne request">
+    <label class="form-label" for="systemone-state">State</label>
+    <textarea id="systemone-state" class="form-control form-control-sm" rows="4"
+              @bind:get="State" @bind:set="@(value => StateChanged.InvokeAsync(value))" @bind:event="onchange"></textarea>
+
+    <div class="systemone-heading">
+        <strong>Questions</strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="AddQuestion">
+            <span class="bi bi-plus-lg" aria-hidden="true"></span> Add question
+        </button>
+    </div>
+    @foreach (var question in _questions)
+    {
+        <div class="systemone-question" @key="question">
+            <div class="systemone-question-heading">
+                <div>
+                    <label class="form-label" for="@(question.Id + "-name")">Name</label>
+                    <input id="@(question.Id + "-name")" class="form-control form-control-sm"
+                           @bind:get="question.Name" @bind:set="@(value => UpdateName(question, value))" @bind:event="onchange" />
+                </div>
+                <div>
+                    <label class="form-label" for="@(question.Id + "-type")">Type</label>
+                    <select id="@(question.Id + "-type")" class="form-select form-select-sm"
+                            @bind:get="question.Type" @bind:set="@(value => UpdateType(question, value))">
+                        <option value="noul">Noul (yes/no)</option>
+                        <option value="choice">Choice</option>
+                        <option value="score">Score</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger systemone-icon" title="Remove question"
+                        aria-label="Remove question" @onclick="@(() => RemoveQuestion(question))">
+                    <span class="bi bi-trash" aria-hidden="true"></span>
+                </button>
+            </div>
+            <label class="form-label" for="@(question.Id + "-instructions")">Instructions</label>
+            <textarea id="@(question.Id + "-instructions")" class="form-control form-control-sm" rows="2"
+                      @bind:get="question.Instructions" @bind:set="@(value => UpdateInstructions(question, value))" @bind:event="onchange"></textarea>
+            @if (question.Type == "noul")
+            {
+                <div class="systemone-noul">
+                    <div>
+                        <label class="form-label" for="@(question.Id + "-yes")">Yes criteria (optional)</label>
+                        <textarea id="@(question.Id + "-yes")" class="form-control form-control-sm" rows="2"
+                                  @bind:get="question.Yes" @bind:set="@(value => UpdateNoul(question, true, value))" @bind:event="onchange"></textarea>
+                    </div>
+                    <div>
+                        <label class="form-label" for="@(question.Id + "-no")">No criteria (optional)</label>
+                        <textarea id="@(question.Id + "-no")" class="form-control form-control-sm" rows="2"
+                                  @bind:get="question.No" @bind:set="@(value => UpdateNoul(question, false, value))" @bind:event="onchange"></textarea>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="systemone-heading">
+                    <strong>@(question.Type == "score" ? "Score levels" : "Choices")</strong>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(question.Criteria.Count >= (question.Type == "score" ? 10 : 255))"
+                            @onclick="@(() => AddCriterion(question))">
+                        <span class="bi bi-plus-lg" aria-hidden="true"></span> @(question.Type == "score" ? "Add level" : "Add choice")
+                    </button>
+                </div>
+                @foreach (var criterion in question.Criteria)
+                {
+                    <div class="systemone-criterion" @key="criterion">
+                        @if (question.Type == "choice")
+                        {
+                            <div>
+                                <label class="form-label" for="@(criterion.Id + "-name")">Choice name</label>
+                                <input id="@(criterion.Id + "-name")" class="form-control form-control-sm"
+                                       @bind:get="criterion.Name" @bind:set="@(value => UpdateCriterion(criterion, true, value))" @bind:event="onchange" />
+                            </div>
+                        }
+                        <div class="systemone-description">
+                            <label class="form-label" for="@(criterion.Id + "-description")">@(question.Type == "score" ? $"Level {question.Criteria.IndexOf(criterion)}" : "Description (optional)")</label>
+                            <textarea id="@(criterion.Id + "-description")" class="form-control form-control-sm" rows="2"
+                                      @bind:get="criterion.Description" @bind:set="@(value => UpdateCriterion(criterion, false, value))" @bind:event="onchange"></textarea>
+                        </div>
+                        @if (question.Type == "score")
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-secondary systemone-icon" title="Move level up" aria-label="Move level up"
+                                    disabled="@(question.Criteria.IndexOf(criterion) == 0)" @onclick="@(() => MoveCriterion(question, criterion, -1))">
+                                <span class="bi bi-arrow-up" aria-hidden="true"></span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary systemone-icon" title="Move level down" aria-label="Move level down"
+                                    disabled="@(question.Criteria.IndexOf(criterion) == question.Criteria.Count - 1)" @onclick="@(() => MoveCriterion(question, criterion, 1))">
+                                <span class="bi bi-arrow-down" aria-hidden="true"></span>
+                            </button>
+                        }
+                        <button type="button" class="btn btn-sm btn-outline-danger systemone-icon" title="Remove criterion" aria-label="Remove criterion"
+                                @onclick="@(() => RemoveCriterion(question, criterion))">
+                            <span class="bi bi-trash" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                }
+            }
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="text-danger mt-2" role="alert">@_error</div>
+    }
+</section>
+
+@code {
+    [Parameter] public string State { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+    [Parameter] public EventCallback<string> QuestionsChanged { get; set; }
+    [Parameter] public EventCallback<string> ValidationChanged { get; set; }
+
+    private readonly List<QuestionDraft> _questions = new() { new() { Name = "question1" } };
+    private string _error = string.Empty;
+
+    private sealed class QuestionDraft
+    {
+        public string Id { get; } = "systemone-" + Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = string.Empty;
+        public string Type { get; set; } = "noul";
+        public string Instructions { get; set; } = string.Empty;
+        public string Yes { get; set; } = string.Empty;
+        public string No { get; set; } = string.Empty;
+        public List<CriterionDraft> Criteria { get; } = new();
+    }
+
+    private sealed class CriterionDraft
+    {
+        public string Id { get; } = "systemone-" + Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+
+    private async Task PublishAsync()
+    {
+        var questions = new JsonObject();
+        _error = _questions.Count == 0 ? "Add at least one question." : string.Empty;
+        foreach (var question in _questions)
+        {
+            if (string.IsNullOrWhiteSpace(question.Name) || questions.ContainsKey(question.Name))
+            {
+                _error = "Question names must be non-empty and unique.";
+                continue;
+            }
+
+            var body = new JsonObject { ["type"] = question.Type };
+            if (!string.IsNullOrWhiteSpace(question.Instructions))
+            {
+                body["instructions"] = question.Instructions;
+            }
+            if (question.Type == "noul")
+            {
+                var criteria = new JsonObject();
+                if (!string.IsNullOrWhiteSpace(question.Yes)) criteria["true"] = question.Yes;
+                if (!string.IsNullOrWhiteSpace(question.No)) criteria["false"] = question.No;
+                if (criteria.Count > 0) body["criteria"] = criteria;
+            }
+            else if (question.Type == "choice")
+            {
+                var criteria = new JsonObject();
+                foreach (var criterion in question.Criteria)
+                {
+                    if (string.IsNullOrWhiteSpace(criterion.Name) || criteria.ContainsKey(criterion.Name))
+                    {
+                        _error = "Choice names must be non-empty and unique within each question.";
+                        continue;
+                    }
+                    criteria[criterion.Name] = criterion.Description;
+                }
+                if (question.Criteria.Count is < 1 or > 255) _error = "Choice questions require 1 to 255 choices.";
+                body["criteria"] = criteria;
+            }
+            else
+            {
+                var criteria = new JsonArray();
+                foreach (var criterion in question.Criteria) criteria.Add(criterion.Description);
+                if (question.Criteria.Count is < 1 or > 10) _error = "Score questions require 1 to 10 ordered levels.";
+                body["criteria"] = criteria;
+            }
+            questions[question.Name] = body;
+        }
+        await QuestionsChanged.InvokeAsync(questions.ToJsonString());
+        await ValidationChanged.InvokeAsync(_error);
+    }
+
+    private async Task AddQuestion()
+    {
+        var suffix = _questions.Count + 1;
+        while (_questions.Any(question => question.Name == $"question{suffix}")) suffix++;
+        _questions.Add(new QuestionDraft { Name = $"question{suffix}" });
+        await PublishAsync();
+    }
+
+    private async Task RemoveQuestion(QuestionDraft question)
+    {
+        _questions.Remove(question);
+        await PublishAsync();
+    }
+
+    private async Task UpdateName(QuestionDraft question, string value)
+    {
+        question.Name = value;
+        await PublishAsync();
+    }
+
+    private async Task UpdateType(QuestionDraft question, string value)
+    {
+        question.Type = value;
+        if (value != "noul" && question.Criteria.Count == 0) question.Criteria.Add(new CriterionDraft());
+        await PublishAsync();
+    }
+
+    private async Task UpdateInstructions(QuestionDraft question, string value)
+    {
+        question.Instructions = value;
+        await PublishAsync();
+    }
+
+    private async Task UpdateNoul(QuestionDraft question, bool yes, string value)
+    {
+        if (yes) question.Yes = value;
+        else question.No = value;
+        await PublishAsync();
+    }
+
+    private async Task AddCriterion(QuestionDraft question)
+    {
+        question.Criteria.Add(new CriterionDraft());
+        await PublishAsync();
+    }
+
+    private async Task RemoveCriterion(QuestionDraft question, CriterionDraft criterion)
+    {
+        question.Criteria.Remove(criterion);
+        await PublishAsync();
+    }
+
+    private async Task UpdateCriterion(CriterionDraft criterion, bool name, string value)
+    {
+        if (name) criterion.Name = value;
+        else criterion.Description = value;
+        await PublishAsync();
+    }
+
+    private async Task MoveCriterion(QuestionDraft question, CriterionDraft criterion, int direction)
+    {
+        var index = question.Criteria.IndexOf(criterion);
+        var target = index + direction;
+        if (target < 0 || target >= question.Criteria.Count) return;
+        question.Criteria.RemoveAt(index);
+        question.Criteria.Insert(target, criterion);
+        await PublishAsync();
+    }
+}

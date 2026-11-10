@@ -42,7 +42,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         }
 
         var stressSettings = PolicyStressSettings.FromEnvironment();
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
 
         var runId = $"stress-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..39];
