@@ -50,6 +50,19 @@
                         <li>Set <code>CompanionApp:Authentication:Provider</code> to <code>GitHub</code> and add approved accounts to <code>AllowedUsers</code>, <code>AllowedOrganizations</code>, or <code>AllowedTeams</code>.</li>
                         <li>Set <code>CompanionApp:Authentication:Enabled</code> to <code>true</code>. For a deployed app, replace <code>http://localhost:5259</code> with its exact public URL in both GitHub fields.</li>
                     </ol>
+                    <p class="authentication-provider-subheading">Container App overrides</p>
+                    <table class="authentication-settings-table">
+                        <thead><tr><th>Environment variable</th><th>Value</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>CompanionApp__Authentication__Enabled</code></td><td><code>true</code></td></tr>
+                            <tr><td><code>CompanionApp__Authentication__Provider</code></td><td><code>Github</code></td></tr>
+                            <tr><td><code>CompanionApp__Authentication__Github__ClientId</code></td><td>The OAuth app client ID from GitHub</td></tr>
+                            <tr><td><code>CompanionApp__Authentication__Github__ClientSecret</code></td><td>The OAuth app client secret from GitHub</td></tr>
+                            <tr><td><code>CompanionApp__Authentication__Github__AllowedUsers__0</code></td><td>Your GitHub login, for example <code>userhandle1</code></td></tr>
+                            <tr><td><code>CompanionApp__Authentication__Github__AllowedUsers__1</code></td><td>Another GitHub login, for example <code>userhandle2</code></td></tr>
+                        </tbody>
+                    </table>
+                    <p>Store the client secret as a Container App secret, not as a plain manual environment value. Register the deployed callback URL as <code>https://&lt;companion-host&gt;/signin-github</code>.</p>
                     <p>Need more detail? Follow GitHub's <a href="https://docs.github.com/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app" target="_blank" rel="noopener noreferrer">official OAuth app setup guide</a>.</p>
                     <p class="authentication-restart-note">I've made these changes. Restart Companion App for them to take effect.</p>
                     <button type="button" class="btn btn-dark" data-dismiss-authentication-warning>

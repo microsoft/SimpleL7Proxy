@@ -241,6 +241,35 @@ article.content {
     color: #57534e;
 }
 
+.authentication-provider-subheading {
+    margin: 1rem 0 0.5rem;
+    color: #292524;
+    font-weight: 700;
+}
+
+.authentication-settings-table {
+    width: 100%;
+    margin: 0 0 0.9rem;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.authentication-settings-table th,
+.authentication-settings-table td {
+    border: 1px solid #d6d3d1;
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.authentication-settings-table th {
+    background: #f5f5f4;
+}
+
+.authentication-settings-table code {
+    overflow-wrap: anywhere;
+}
+
 .authentication-restart-note {
     margin: 1rem 0 0.75rem;
     color: #57534e;

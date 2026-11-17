@@ -72,6 +72,15 @@ Canonical, **copy-paste-ready** configuration blocks for common deployment shape
 <tr>
 <td width="33%" valign="top">
 
+### Configure Companion Authentication
+
+Protect **Companion App** with GitHub, Google, or OAuth2 bearer tokens; configure provider registration, Container App overrides, allowlists, callbacks, and session behavior.
+
+[Configure Companion Authentication →](configure-companion-authentication.md)
+
+</td>
+<td width="33%" valign="top">
+
 ### LLM Simulator
 
 Stand up a local **mock backend** to exercise the proxy without any cloud deployment — the included null server needs only **Python** and no extra dependencies.
@@ -79,6 +88,8 @@ Stand up a local **mock backend** to exercise the proxy without any cloud deploy
 [LLM Simulator →](llm-simulator.md)
 
 </td>
+</tr>
+<tr>
 <td width="33%" valign="top">
 
 ### Customize a Token Provider

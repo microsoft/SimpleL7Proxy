@@ -32,6 +32,13 @@ Use .NET 10 or Docker.
 
 The proxy is now installed and needs to be configured.  The quickest way is to navigate to the CompanionApp and then configure it.  The URL can be found in the **Azure portal** but was also provided after the completion of the **deploy.sh** script.
 
+After initial deployment, the Companion app will warn you if you have not setup authentication to protect the interface.  
+
+The recommented approach is to add github as a auth provider by following the onscreen prompts.
+
+Once protected, you can follow the quick guides below for your scenario.
+
+
 <table><tr><td width="50%">
 
 1. Nagivate to the configuration screen and selects hosts to configure it.
