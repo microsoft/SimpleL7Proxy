@@ -1,6 +1,99 @@
 ﻿@namespace CompanionApp.Components.Layout
 @inherits LayoutComponentBase
 @inject CompanionApp.Components.Shared.UserPreferencesService Preferences
+@inject IConfiguration Configuration
+
+@if (_showAuthenticationWarning)
+{
+    <div class="authentication-warning-backdrop" role="presentation" data-authentication-warning
+         data-authentication-provider="@Configuration["CompanionApp:Authentication:Provider"]">
+        <section class="authentication-warning" role="alertdialog" aria-modal="true" aria-labelledby="authentication-warning-title" aria-describedby="authentication-warning-description">
+            <div class="authentication-warning-summary">
+                <button type="button" class="btn-close authentication-warning-close" aria-label="Dismiss authentication warning"
+                        data-dismiss-authentication-warning></button>
+                <p class="authentication-warning-kicker">Authentication is not configured</p>
+                <h2 id="authentication-warning-title">Companion App is unauthenticated</h2>
+                <p id="authentication-warning-description">
+                    Choose an authentication method below to protect its configuration and deployment features.
+                </p>
+            </div>
+            <h3 class="authentication-provider-heading">Authentication setup</h3>
+            <div class="authentication-provider-tabs" role="tablist" aria-label="Authentication method">
+                <button type="button" role="tab" class="authentication-provider-tab active" data-authentication-tab="None"
+                        aria-selected="true" aria-controls="authentication-tab-none">None</button>
+                <button type="button" role="tab" class="authentication-provider-tab" data-authentication-tab="GitHub"
+                        aria-selected="false" aria-controls="authentication-tab-github">GitHub</button>
+                <button type="button" role="tab" class="authentication-provider-tab" data-authentication-tab="Google"
+                        aria-selected="false" aria-controls="authentication-tab-google">Google</button>
+                <button type="button" role="tab" class="authentication-provider-tab" data-authentication-tab="OAuth2"
+                        aria-selected="false" aria-controls="authentication-tab-oauth2">OAuth2</button>
+            </div>
+
+            <section id="authentication-tab-none" class="authentication-provider-panel" role="tabpanel" data-authentication-panel="None">
+                <h3>No authentication</h3>
+                <p>Anyone who can reach Companion App can use its configuration and deployment features without identity checks.</p>
+                <p>Continue only for trusted local use. Do not expose this deployment to untrusted networks.</p>
+                <button type="button" class="btn btn-dark" data-dismiss-authentication-warning>
+                    Continue unauthenticated
+                </button>
+            </section>
+            <section id="authentication-tab-github" class="authentication-provider-panel" role="tabpanel" data-authentication-panel="GitHub" hidden>
+                    <h3>GitHub</h3>
+                    <p>Best for users who already have access to the repository.</p>
+                    <ol>
+                        <li>In GitHub, open your profile menu, select <strong>Settings</strong>, then select <strong>Developer settings</strong>. You can also use <a href="https://github.com/settings/developers" target="_blank" rel="noopener noreferrer">GitHub Developer settings directly</a>.</li>
+                        <li>Select <strong>OAuth Apps</strong>, then <strong>New OAuth App</strong>. Enter <code>CompanionApp</code> as the application name.</li>
+                        <li>Set the homepage URL to <code>http://localhost:5259</code> for local use. Set the authorization callback URL to <code>http://localhost:5259/signin-github</code>.</li>
+                        <li>The application description is optional. Leave <strong>Enable Device Flow</strong> and <strong>Webhook</strong> off. They are not used by Companion App.</li>
+                        <li>Register the application. Copy its client ID, then generate a new client secret.</li>
+                        <li>Set <code>CompanionApp__Authentication__GitHub__ClientId</code> and <code>CompanionApp__Authentication__GitHub__ClientSecret</code> in the app environment or secret store.</li>
+                        <li>Set <code>CompanionApp:Authentication:Provider</code> to <code>GitHub</code> and add approved accounts to <code>AllowedUsers</code>, <code>AllowedOrganizations</code>, or <code>AllowedTeams</code>.</li>
+                        <li>Set <code>CompanionApp:Authentication:Enabled</code> to <code>true</code>. For a deployed app, replace <code>http://localhost:5259</code> with its exact public URL in both GitHub fields.</li>
+                    </ol>
+                    <p>Need more detail? Follow GitHub's <a href="https://docs.github.com/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app" target="_blank" rel="noopener noreferrer">official OAuth app setup guide</a>.</p>
+                    <p class="authentication-restart-note">I've made these changes. Restart Companion App for them to take effect.</p>
+                    <button type="button" class="btn btn-dark" data-dismiss-authentication-warning>
+                        I've made these changes
+                    </button>
+                </section>
+                <section id="authentication-tab-google" class="authentication-provider-panel" role="tabpanel" data-authentication-panel="Google" hidden>
+                    <h3>Google</h3>
+                    <p>Use Google OpenID Connect when the deployment is intended for Google accounts.</p>
+                    <ol>
+                        <li>Create a Google OAuth client and register <code>/signin-google</code> as the callback path.</li>
+                        <li>Set <code>CompanionApp:Authentication:Provider</code> to <code>Google</code>.</li>
+                        <li>Configure the client ID and client secret through environment variables or a secret store.</li>
+                        <li>Restrict access with <code>AllowedUsers</code> or <code>AllowedDomains</code>.</li>
+                        <li>Set <code>Enabled</code> to <code>true</code>.</li>
+                    </ol>
+                    <p class="authentication-restart-note">I've made these changes. Restart Companion App for them to take effect.</p>
+                    <button type="button" class="btn btn-dark" data-dismiss-authentication-warning>
+                        I've made these changes
+                    </button>
+                </section>
+                <section id="authentication-tab-oauth2" class="authentication-provider-panel" role="tabpanel" data-authentication-panel="OAuth2" hidden>
+                    <h3>OAuth2 bearer token</h3>
+                    <p>Use this mode when callers already provide a JWT bearer token.</p>
+                    <ol>
+                        <li>Set <code>CompanionApp:Authentication:Provider</code> to <code>OAuth2</code>.</li>
+                        <li>Configure the token issuer, metadata address, and accepted audiences.</li>
+                        <li>Keep signature, issuer, audience, and lifetime validation enabled.</li>
+                        <li>Send the token in <code>Authorization: Bearer &lt;token&gt;</code> or the configured header.</li>
+                        <li>Set <code>Enabled</code> to <code>true</code>.</li>
+                    </ol>
+                    <p class="authentication-restart-note">I've made these changes. Restart Companion App for them to take effect.</p>
+                    <button type="button" class="btn btn-dark" data-dismiss-authentication-warning>
+                        I've made these changes
+                    </button>
+                </section>
+        </section>
+    </div>
+    <div class="authentication-status" data-authentication-status hidden>
+        <strong>Authentication: None</strong>
+        <span>Companion App is unauthenticated.</span>
+        <button type="button" data-show-authentication-warning>Review setup</button>
+    </div>
+}
 
 <div class="page">
     <div class="sidebar">
@@ -30,9 +123,21 @@
 </div>
 
 @code {
+    private bool _showAuthenticationWarning;
+
+    protected override void OnInitialized()
+    {
+        _showAuthenticationWarning = !Configuration.GetValue<bool>("CompanionApp:Authentication:Enabled");
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && await Preferences.LoadAsync())
+        if (!firstRender)
+        {
+            return;
+        }
+
+        if (await Preferences.LoadAsync())
         {
             StateHasChanged();
         }
