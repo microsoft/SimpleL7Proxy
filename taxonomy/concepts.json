@@ -850,10 +850,10 @@
     },
     {
       "id": "c-user-id",
-      "name": "User ID",
+      "name": "Profile Record ID",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "Unique identifier extracted from a configurable request header and used to look up the user profile record.",
+      "definition": "Identifier stored in the profile JSON field named by UserIDFieldName. With profiles enabled, the proxy looks it up using the value of the incoming header named by UserProfileHeader. UniqueUserHeaders separately builds the queue-accounting identity.",
       "key_settings": ["UserIDFieldName"],
       "default_value": "userId",
       "related_concept_ids": ["c-user-profile"],
