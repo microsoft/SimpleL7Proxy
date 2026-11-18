@@ -1,6 +1,6 @@
 using System.Text;
 using SimpleL7Proxy.StreamProcessor;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SimpleL7Proxy.Test;
 

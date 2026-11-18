@@ -1,0 +1,327 @@
+using System.Collections.Frozen;
+using System.Collections.Immutable;
+
+using SharedParser.Tokenomics.LLM.Catalog;
+using SharedParser.Tokenomics.LLM.Usage;
+using static SharedParser.Tokenomics.LLM.Catalog.ModelParameterFamily;
+
+namespace SharedParser.Tokenomics.LLM.Models;
+
+public static class ModelMap
+{
+    private static readonly FrozenDictionary<
+        (ModelParameterFamily Source, ModelParameterFamily Destination),
+        (FrozenSet<string> FieldsToRemove, FrozenDictionary<string, string> FieldsToRename)> ParameterTransitions =
+        new Dictionary<
+            (ModelParameterFamily Source, ModelParameterFamily Destination),
+            (FrozenSet<string> FieldsToRemove, FrozenDictionary<string, string> FieldsToRename)>
+        {
+            [(Classic,   Gpt5)]      = (FieldRemovalMap.ClassicToReasoning,   FieldRenameMap.ClassicToReasoning),
+            [(Classic,   Reasoning)] = (FieldRemovalMap.ClassicToReasoning,   FieldRenameMap.ClassicToReasoning),
+            [(Classic,   Gpt6)]      = (FieldRemovalMap.ClassicToGpt6,        FieldRenameMap.ClassicToReasoning),
+            [(Classic,   Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Gpt5,      Classic)]   = (FieldRemovalMap.Gpt5ToClassic,        FieldRenameMap.ReasoningToClassic),
+            [(Gpt5,      Reasoning)] = (FieldRemovalMap.Gpt5ToReasoning,      FieldRenameMap.Empty),
+            [(Gpt5,      Gpt6)]      = (FieldRemovalMap.Empty,                FieldRenameMap.Empty),
+            [(Gpt5,      Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Reasoning, Classic)]   = (FieldRemovalMap.ReasoningToClassic,   FieldRenameMap.ReasoningToClassic),
+            [(Reasoning, Gpt5)]      = (FieldRemovalMap.Empty,                FieldRenameMap.Empty),
+            [(Reasoning, Gpt6)]      = (FieldRemovalMap.Empty,                FieldRenameMap.Empty),
+            [(Reasoning, Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Gpt6,      Classic)]   = (FieldRemovalMap.Gpt5ToClassic,        FieldRenameMap.ReasoningToClassic),
+            [(Gpt6,      Gpt5)]      = (FieldRemovalMap.ClassicToReasoning,   FieldRenameMap.Empty),
+            [(Gpt6,      Reasoning)] = (FieldRemovalMap.Gpt6ToReasoning,      FieldRenameMap.Empty),
+            [(Gpt6,      Anthropic)] = (FieldRemovalMap.ToAnthropic,          FieldRenameMap.ClassicToAnthropic),
+
+            [(Anthropic, Classic)]   = (FieldRemovalMap.AnthropicToClassic,   FieldRenameMap.AnthropicToClassic),
+            [(Anthropic, Gpt5)]      = (FieldRemovalMap.AnthropicToReasoning, FieldRenameMap.AnthropicToReasoning),
+            [(Anthropic, Reasoning)] = (FieldRemovalMap.AnthropicToReasoning, FieldRenameMap.AnthropicToReasoning),
+            [(Anthropic, Gpt6)]      = (FieldRemovalMap.AnthropicToClassic,   FieldRenameMap.AnthropicToGpt6)
+        }.ToFrozenDictionary();
+
+    /// <summary>
+    /// Gets scalar field removal and rename maps, not API wire-format conversion.
+    /// </summary>
+    public static (FrozenSet<string> FieldsToRemove, FrozenDictionary<string, string> FieldsToRename) Get(
+        string sourceModel,
+        string destinationModel)
+    {
+        var sourceFamily = GetFamily(sourceModel);
+        var destinationFamily = GetFamily(destinationModel);
+
+        if (sourceFamily == destinationFamily
+            || sourceFamily is ModelParameterFamily.Unknown or ModelParameterFamily.Decision
+            || destinationFamily is ModelParameterFamily.Unknown or ModelParameterFamily.Decision)
+        {
+            return (FieldRemovalMap.Empty, FieldRenameMap.Empty);
+        }
+
+        return ParameterTransitions.TryGetValue((sourceFamily, destinationFamily), out var transition)
+            ? transition
+            : throw new NotSupportedException($"Unsupported model parameter transition: {sourceFamily} -> {destinationFamily}.");
+    }
+
+    /// <summary>Classifies a model ID by its scalar request-parameter family.</summary>
+    public static ModelParameterFamily GetFamily(string model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return ModelParameterFamily.Unknown;
+        }
+
+        ReadOnlySpan<char> modelName = model.AsSpan().Trim();
+
+        foreach (var prefix in new[] { "us.", "eu.", "apac.", "global." })
+        {
+            if (modelName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                modelName = modelName[prefix.Length..];
+                break;
+            }
+        }
+
+        if (modelName.StartsWith("anthropic.", StringComparison.OrdinalIgnoreCase))
+        {
+            modelName = modelName["anthropic.".Length..];
+        }
+
+        if (IsModel(modelName, "claude-2")
+            || IsModel(modelName, "claude-3")
+            || IsModel(modelName, "claude-instant")
+            || IsModel(modelName, "claude-opus")
+            || IsModel(modelName, "claude-sonnet")
+            || IsModel(modelName, "claude-haiku")
+            || IsModel(modelName, "claude-fable")
+            || IsModel(modelName, "claude-mythos"))
+        {
+            return ModelParameterFamily.Anthropic;
+        }
+
+        if (IsModel(modelName, "decision-1")
+            || IsModel(modelName, "decision1")
+            || IsModel(modelName, "jev"))
+        {
+            return ModelParameterFamily.Decision;
+        }
+
+        if (IsModel(modelName, "gpt-6"))
+        {
+            return ModelParameterFamily.Gpt6;
+        }
+
+        if (IsModel(modelName, "gpt-5"))
+        {
+            return ModelParameterFamily.Gpt5;
+        }
+
+        if (IsModel(modelName, "o1") || IsModel(modelName, "o3") || IsModel(modelName, "o4-mini"))
+        {
+            return ModelParameterFamily.Reasoning;
+        }
+
+        if (IsModel(modelName, "gpt-3.5")
+            || IsModel(modelName, "gpt-4")
+            || IsModel(modelName, "gpt-4o")
+            || IsModel(modelName, "chatgpt-4o"))
+        {
+            return ModelParameterFamily.Classic;
+        }
+
+        return ModelParameterFamily.Unknown;
+    }
+
+    private static bool IsModel(ReadOnlySpan<char> model, ReadOnlySpan<char> canonicalName)
+    {
+        return model.Equals(canonicalName, StringComparison.OrdinalIgnoreCase)
+            || (model.Length > canonicalName.Length
+                && (model[canonicalName.Length] == '-' || model[canonicalName.Length] == '.')
+                && model.StartsWith(canonicalName, StringComparison.OrdinalIgnoreCase));
+    }
+
+
+
+    public readonly record struct UsageFieldMap(
+    ImmutableArray<string> PromptTokens,
+    ImmutableArray<string> CachedTokens,
+    ImmutableArray<string> CompletionTokens,
+    ImmutableArray<string> TotalTokens,
+    ImmutableArray<string> ReasoningTokens,
+    ImmutableArray<string> CacheCreationTokens,
+    bool AddCacheTokensToPrompt,
+    bool AddReasoningTokensToCompletion);
+
+    private static readonly FrozenDictionary<string, UsageProvider> UsageProviderByModel =
+        new Dictionary<string, UsageProvider>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["gpt-"] = UsageProvider.OpenAI,
+            ["chatgpt-"] = UsageProvider.OpenAI,
+            ["o1"] = UsageProvider.OpenAI,
+            ["o3"] = UsageProvider.OpenAI,
+            ["o4"] = UsageProvider.OpenAI,
+            ["mistral-"] = UsageProvider.OpenAI,
+            ["ministral-"] = UsageProvider.OpenAI,
+            ["codestral-"] = UsageProvider.OpenAI,
+            ["deepseek-"] = UsageProvider.OpenAI,
+            ["grok-"] = UsageProvider.OpenAI,
+
+            ["claude-"] = UsageProvider.Anthropic,
+
+            ["gemini-"] = UsageProvider.Gemini,
+            ["models/gemini-"] = UsageProvider.Gemini,
+
+            ["command-"] = UsageProvider.Cohere,
+            ["c4ai-"] = UsageProvider.Cohere,
+
+            ["decision-1"] = UsageProvider.SystemOne,
+            ["decision1"] = UsageProvider.SystemOne,
+            ["jev"] = UsageProvider.SystemOne,
+
+            ["amazon.nova"] = UsageProvider.Bedrock,
+            ["anthropic.claude"] = UsageProvider.Bedrock,
+            ["us.anthropic.claude"] = UsageProvider.Bedrock,
+            ["eu.anthropic.claude"] = UsageProvider.Bedrock,
+            ["apac.anthropic.claude"] = UsageProvider.Bedrock,
+            ["cohere.command"] = UsageProvider.Bedrock,
+            ["meta.llama3"] = UsageProvider.Bedrock,
+            ["meta.llama4"] = UsageProvider.Bedrock,
+            ["mistral.mistral"] = UsageProvider.Bedrock
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Maps usage providers to registered token processors for automatic selection.</summary>
+    // REVIEW: Explicit provider assignments allow independent processor selection later.
+    // The current Tokenomics parser supports all listed usage schemas, including unknown-model fallback.
+    public static readonly FrozenDictionary<UsageProvider, string> TokenProcessorByProvider =
+        new Dictionary<UsageProvider, string>
+        {
+            [UsageProvider.Unknown] = "Tokenomics",
+            [UsageProvider.OpenAI] = "Tokenomics",
+            [UsageProvider.Anthropic] = "Tokenomics",
+            [UsageProvider.Gemini] = "Tokenomics",
+            [UsageProvider.Bedrock] = "Tokenomics",
+            [UsageProvider.Cohere] = "Tokenomics",
+            [UsageProvider.SystemOne] = "Tokenomics"
+        }.ToFrozenDictionary();
+
+    private static readonly FrozenDictionary<UsageProvider, UsageFieldMap> UsageFields =
+        new Dictionary<UsageProvider, UsageFieldMap>
+        {
+            [UsageProvider.OpenAI] = new(
+                ["usage.prompt_tokens", "usage.input_tokens"],
+                ["usage.prompt_tokens_details.cached_tokens", "usage.input_tokens_details.cached_tokens"],
+                ["usage.completion_tokens", "usage.output_tokens"],
+                ["usage.total_tokens"],
+                ["usage.completion_tokens_details.reasoning_tokens", "usage.output_tokens_details.reasoning_tokens"],
+                ["usage.input_tokens_details.cache_write_tokens"],
+                false,
+                false),
+
+            [UsageProvider.Anthropic] = new(
+                ["message.usage.input_tokens", "usage.input_tokens"],
+                ["message.usage.cache_read_input_tokens", "usage.cache_read_input_tokens"],
+                ["message.usage.output_tokens", "usage.output_tokens"],
+                [],
+                [],
+                ["message.usage.cache_creation_input_tokens", "usage.cache_creation_input_tokens"],
+                true,
+                false),
+
+            [UsageProvider.Gemini] = new(
+                ["usageMetadata.promptTokenCount"],
+                ["usageMetadata.cachedContentTokenCount"],
+                ["usageMetadata.candidatesTokenCount"],
+                ["usageMetadata.totalTokenCount"],
+                ["usageMetadata.thoughtsTokenCount"],
+                [],
+                false,
+                true),
+
+            [UsageProvider.Bedrock] = new(
+                [
+                    "usage.inputTokens",
+                "metadata.usage.inputTokens",
+                "amazon-bedrock-invocationMetrics.inputTokenCount"
+                ],
+                [
+                    "usage.cacheReadInputTokens",
+                "metadata.usage.cacheReadInputTokens"
+                ],
+                [
+                    "usage.outputTokens",
+                "metadata.usage.outputTokens",
+                "amazon-bedrock-invocationMetrics.outputTokenCount"
+                ],
+                [
+                    "usage.totalTokens",
+                "metadata.usage.totalTokens"
+                ],
+                [],
+                [
+                    "usage.cacheWriteInputTokens",
+                "metadata.usage.cacheWriteInputTokens"
+                ],
+                false,
+                false),
+
+            [UsageProvider.SystemOne] = new(
+                ["usage.input_tokens"],
+                [],
+                ["usage.output_tokens"],
+                [],
+                [],
+                [],
+                false,
+                false),
+
+            [UsageProvider.Cohere] = new(
+                [
+                    "usage.billed_units.input_tokens",
+                "meta.billed_units.input_tokens",
+                "delta.usage.billed_units.input_tokens"
+                ],
+                [],
+                [
+                    "usage.billed_units.output_tokens",
+                "meta.billed_units.output_tokens",
+                "delta.usage.billed_units.output_tokens"
+                ],
+                [],
+                [],
+                [],
+                false,
+                false)
+        }.ToFrozenDictionary();
+
+    public static UsageProvider GetUsageProvider(string model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return UsageProvider.Unknown;
+        }
+
+        ReadOnlySpan<char> modelName = model.AsSpan().Trim();
+        var provider = UsageProvider.Unknown;
+        var matchedLength = 0;
+
+        foreach (var entry in UsageProviderByModel)
+        {
+            if (entry.Key.Length > matchedLength &&
+                modelName.StartsWith(entry.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                provider = entry.Value;
+                matchedLength = entry.Key.Length;
+            }
+        }
+
+        return provider;
+    }
+
+    public static bool TryGetUsageFields(
+        UsageProvider provider,
+        out UsageFieldMap fields)
+    {
+        return UsageFields.TryGetValue(provider, out fields);
+    }
+}

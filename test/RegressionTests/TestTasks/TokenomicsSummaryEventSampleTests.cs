@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Tokenomics;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SimpleL7Proxy.Test;
 
@@ -43,7 +43,7 @@ public sealed class TokenomicsSummaryEventSampleTests : IRegressionTestMetadata 
                 requestId: $"sample-request-{i + 1:D4}",
                 evaluationSequence: 1,
                 userId: $"sample-user-{userIndex + 1:D2}",
-                tenant: $"sample-tenant-{userIndex / 5 + 1}",
+                workload: $"sample-tenant-{userIndex / 5 + 1}",
                 requestedModel: models[modelIndex],
                 modelBefore: models[modelIndex],
                 priorityBefore: 2,
@@ -143,8 +143,9 @@ public sealed class TokenomicsSummaryEventSampleTests : IRegressionTestMetadata 
         Assert.AreEqual(50, records.Count(record => record["RecordKind"] == "PolicyDecision"));
         Assert.AreEqual(20, records.Select(record => record["UserId"]).Distinct().Count());
         Assert.IsTrue(records.GroupBy(record => record["UserId"]).All(group => group.Count() == 50));
-        Assert.AreEqual(4, records.Select(record => record["Tenant"]).Distinct().Count());
-        Assert.IsTrue(records.GroupBy(record => record["Tenant"]).All(group => group.Count() == 250));
+        Assert.AreEqual(4, records.Select(record => record["Workload"]).Distinct().Count());
+        Assert.IsTrue(records.GroupBy(record => record["Workload"]).All(group => group.Count() == 250));
+        Assert.IsTrue(records.All(record => !record.ContainsKey("Tenant")));
         CollectionAssert.AreEquivalent(models, records.Select(record => record["RequestedModel"]).Distinct().ToArray());
         Assert.IsTrue(records.GroupBy(record => record["RequestedModel"]).All(group => group.Count() == 250));
         CollectionAssert.AreEquivalent(

@@ -2,7 +2,7 @@ using System.Net;
 using System.Globalization;
 using System.Threading;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Tokenomics.Llm;
+using SharedParser.Tokenomics.LLM.Usage;
 
 namespace SimpleL7Proxy.Tokenomics;
 
@@ -15,7 +15,7 @@ public sealed class TokenomicsSummaryEvent : ProxyEvent
     public TokenomicsSummaryEvent() : base(24)
     {
     }
-    public TokenomicsSummaryEvent( string requestId, int evaluationSequence, string userId, string tenant, 
+    public TokenomicsSummaryEvent( string requestId, int evaluationSequence, string userId, string workload, 
         string requestedModel,  string modelBefore,  int priorityBefore,  string policyCondition,  
         TokenActionEnum policyAction) : base(24)
     {
@@ -31,7 +31,7 @@ public sealed class TokenomicsSummaryEvent : ProxyEvent
         this["EvaluationSequence"] = Format(evaluationSequence);
         this["TimestampUtc"] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         this["UserId"] = userId;
-        this["Tenant"] = tenant;
+        this["Workload"] = workload;
         this["RequestedModel"] = requestedModel;
         this["ModelBefore"] = modelBefore;
         this["ModelAfter"] = modelBefore;

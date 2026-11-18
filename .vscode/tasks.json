@@ -520,6 +520,44 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "temporary validate investigator enabled host APIs",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"refs=(); for assembly in src/CompanionApp/bin/Debug/net10.0/*.dll /usr/share/dotnet/shared/Microsoft.AspNetCore.App/10.0.*/*.dll; do refs+=(\"-r:$assembly\"); done; printf '%s\\n' 'open System' 'open System.IO' 'open System.Text' 'open System.Reflection' 'open Microsoft.Extensions.Configuration' 'open CompanionApp.Components.Shared' 'open CompanionApp.Components.Pages' 'let config = ConfigurationBuilder().AddJsonStream(new MemoryStream(Encoding.UTF8.GetBytes(\"\"\"{\"apis\":[{\"id\":\"allowed\",\"displayName\":\"Allowed\"},{\"id\":\"disabled-host\",\"displayName\":\"Disabled host\"},{\"id\":\"disabled-assignment\",\"displayName\":\"Disabled assignment\"},{\"id\":\"missing-host\",\"displayName\":\"Missing host\"},{\"id\":\"unassigned\",\"displayName\":\"Unassigned\"}],\"vision-models\":{\"apis\":[{\"id\":\"vision-api\",\"displayName\":\"Vision API\"}]}}\"\"\"))).Build()' 'let page = InvestigatorPage()' 'let flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic' 'let property name = typeof<InvestigatorPage>.GetProperty(name, flags)' 'let set name value = (property name).SetValue(page, value)' 'let setField name value = typeof<InvestigatorPage>.GetField(name, flags).SetValue(page, value)' 'set \"ChatCatalog\" (ModelDefaults(config))' 'set \"VisionCatalog\" (VisionModelCatalog(config))' 'set \"SelectedModel\" \"model\"' 'let routing = SimpleL7Proxy.Tokenomics.TokenomicsSettings()' 'let hosts = System.Collections.Generic.Dictionary<string, SimpleL7Proxy.Tokenomics.TokenomicsHostOptions>()' 'for host, api, enabled in [\"Host_active\", \"allowed\", true; \"Host_disabled\", \"disabled-host\", true; \"Host_off\", \"disabled-assignment\", false; \"Host_missing\", \"missing-host\", true; \"Host_vision\", \"vision-api\", true] do' '    let options = SimpleL7Proxy.Tokenomics.TokenomicsHostOptions()' '    options.Enabled <- enabled' '    options.APIs.Add(api, SimpleL7Proxy.Tokenomics.TokenomicsApiOptions())' '    hosts.Add(host, options)' 'routing.ModelHostOptions.Add(\"model\", hosts)' 'let setting section name value = AppConfigurationScaffoldSetting(\"Warm:\" + section + \":\" + name, \"Warm\", section, name, \"\", value)' 'let settings = [| setting \"Tokenomics\" \"Options\" (routing.ToString()); setting \"Hosts\" \"Host_active\" \"host=active\"; setting \"Hosts\" \"Host_disabled\" \"host=disabled;enabled=false\"; setting \"Hosts\" \"Host_off\" \"host=off;enabled=true\"; setting \"Hosts\" \"vision\" \"host=vision;enabled=true\" |]' 'settings.[1].DraftValue <- \"enabled=false\"' 'settings.[2].DraftValue <- \"enabled=true\"' 'setField \"_routingSettings\" settings' 'let ids () = ((property \"AvailableApiOptions\").GetValue(page) :?> System.Collections.IEnumerable) |> Seq.cast<obj> |> Seq.map (fun option -> option.GetType().GetProperty(\"Id\").GetValue(option) :?> string) |> Set.ofSeq' 'let check name expected = if ids() <> Set.ofList expected then failwithf \"%s: unexpected APIs %A\" name (ids()) else printfn \"PASS: %s\" name' 'check \"enabled hosts only; omitted enabled defaults true; aliases; drafts ignored; chat and vision\" [\"allowed\"; \"vision-api\"]' 'set \"SelectedModel\" \"unconfigured-model\"' 'check \"unconfigured model has no fallback\" []' 'set \"SelectedModel\" \"model\"' 'hosts.[\"Host_active\"].Enabled <- false' 'hosts.[\"Host_vision\"].Enabled <- false' 'setField \"_routingSettings\" [| setting \"Tokenomics\" \"Options\" (routing.ToString()); settings.[1]; settings.[2]; settings.[3]; settings.[4] |]' 'check \"all assignments disabled produces empty API list\" []' 'setField \"_showOnlyModelApis\" false' 'check \"unchecked shows complete chat and vision catalog\" [\"allowed\"; \"disabled-host\"; \"disabled-assignment\"; \"missing-host\"; \"unassigned\"; \"vision-api\"]' 'set \"SelectedApi\" \"disabled-host\"' 'setField \"_showOnlyModelApis\" true' 'typeof<InvestigatorPage>.GetMethod(\"EnsureSelectedApi\", flags).Invoke(page, [| null |]) |> ignore' 'if (property \"SelectedApi\").GetValue(page) :?> string <> \"\" then failwith \"Invalid API selection was retained\"' 'printfn \"PASS: invalid selection cleared\"' 'printfn \"ALL INVESTIGATOR FILTER CHECKS PASSED\"' ';;' | dotnet fsi --readline- --quiet \"${refs[@]}\""
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "temporary validate investigator compiled filter",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"refs=(); for assembly in src/CompanionApp/bin/Debug/net10.0/*.dll /usr/share/dotnet/shared/Microsoft.AspNetCore.App/10.0.*/*.dll; do refs+=(\"-r:$assembly\"); done; dotnet fsi \"${refs[@]}\" --exec /tmp/investigator-host-filter-check.fsx"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "validate LLM Post conversion",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--no-cache",
+				"--file",
+				"test/ManualTests/LLMPostChecks.cs"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
 		}
 	]
 }

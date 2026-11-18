@@ -1,7 +1,10 @@
 @namespace CompanionApp.Components.Shared
 @using SimpleL7Proxy.Tokenomics
+@using SharedParser.Tokenomics.LLM.Catalog
 @inject AppConfigurationScaffoldService AppConfiguration
 @inject IJSRuntime JS
+@inject ModelDefaults ChatCatalog
+@inject VisionModelCatalog VisionCatalog
 
 @if (SingleHost is { } singleHost)
 {
@@ -29,12 +32,11 @@ else
             {
                 <th scope="col">APIs</th>
                 <th scope="col">Models</th>
-                <th scope="col">Tokenomics</th>
             }
         </tr>
     </thead>
     <tbody>
-        @foreach (var setting in Hosts)
+        @foreach (var setting in Hosts.Where(setting => !setting.IsDeleted))
         {
             var tokenomicsHostOptions = TokenomicsEnabled ? HostTokenomicsOptions(setting) : null;
             <tr class="config-host-row @(setting.IsChanged ? "config-row-changed" : string.Empty)" @key="setting.Key"
@@ -67,9 +69,9 @@ else
                             }
                             else if (tokenomicsHostOptions?.APIs.Count > 0)
                             {
-                                @foreach (var api in tokenomicsHostOptions.APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                @foreach (var api in tokenomicsHostOptions.APIs.OrderBy(api => LLMApiEnumParser.ToDisplayName(api.Key), StringComparer.OrdinalIgnoreCase))
                                 {
-                                    <span class="badge config-tokenomics-api-badge">@TokenomicsApiBadge(api.Key)</span>
+                                    <span class="badge config-tokenomics-api-badge">@TokenomicsApiBadge(LLMApiEnumParser.ToDisplayName(api.Key))</span>
                                 }
                             }
                             else
@@ -78,11 +80,27 @@ else
                             }
                         </div>
                     </td>
-                    <td>@HostModelCount(setting)</td>
-                    <td>
-                        <span class="badge @TokenomicsHostStatusClass(tokenomicsHostOptions)">
-                            @TokenomicsHostStatus(tokenomicsHostOptions)
-                        </span>
+                    <td class="config-host-models-cell">
+                        @{
+                            var hostModels = ModelsForHost(setting);
+                        }
+                        @if (_tokenomicsOptionsError is not null)
+                        {
+                            <span class="text-danger small">Unavailable</span>
+                        }
+                        else if (hostModels.Count == 0)
+                        {
+                            <span class="text-muted">—</span>
+                        }
+                        else
+                        {
+                            <div class="config-tokenomics-api-badges">
+                                @foreach (var modelId in hostModels)
+                                {
+                                    <span class="badge config-tokenomics-api-badge">@modelId</span>
+                                }
+                            </div>
+                        }
                     </td>
                 }
             </tr>
@@ -103,22 +121,62 @@ else
         }
         return !string.Equals(NewHostValue(field.Name), loadedValue, StringComparison.Ordinal);
     }).Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-    var dialogTokenomicsHostOptions = TokenomicsEnabled ? HostTokenomicsOptions(_editingHost) : null;
+    var hostModelSelectionChanged = TokenomicsEnabled
+        && _tokenomicsOptionsError is null
+        && HostModelSelectionChanged(_editingHost?.DraftName ?? string.Empty);
+    var hostModelChoices = HostModelChoices;
+    var availableModelGroups = hostModelChoices
+        .Where(model => !_selectedHostModels.Contains(model.Id))
+        .GroupBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    var selectedHostModelChoices = hostModelChoices
+        .Where(model => _selectedHostModels.Contains(model.Id))
+        .ToList();
+    foreach (var modelId in _selectedHostModels.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+    {
+        if (selectedHostModelChoices.Any(model => string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase)))
+        {
+            continue;
+        }
+
+        selectedHostModelChoices.Add(new ModelInfo
+        {
+            Id = modelId,
+            Provider = "Configured",
+            DisplayName = modelId
+        });
+    }
     RenderFragment hostDialog = @<div class="config-modal-backdrop config-modal-backdrop-top" @onclick="CancelNewHost">
         <div class="config-modal config-newhost-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="@(_editingHost is null ? "New host" : "Edit host")">
             <div class="config-modal-header">
                 <div>
-                    <h2 class="h5 mb-0">@(_editingHost is null ? "New host" : "Edit host")</h2>
-                    @if (!string.IsNullOrEmpty(HostDocsUrl))
+                    <h2 class="h5 mb-0">@(_editingHost is null ? "New Host" : "Edit Host")</h2>
+                    <p class="config-host-subtitle mb-0">Configure the connection, authentication, and routing settings for this backend host.</p>
+                </div>
+                <div class="config-host-header-controls">
+                    <label class="form-check form-switch mb-0 config-host-enabled">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                               checked='@(!string.Equals(NewHostValue("enabled"), "false", StringComparison.OrdinalIgnoreCase))'
+                               @onchange='args => SetNewHostBool("enabled", args)' />
+                        <span>Enabled</span>
+                    </label>
+                    @if (_editingHost is not null)
                     {
-                        <a class="small" href="@HostDocsUrl" target="_blank" rel="noopener">Backend host settings reference</a>
+                        <div class="config-host-identity">
+                            <strong>@_editingHost.DraftName</strong>
+                            <span class="badge">@(string.IsNullOrEmpty(NewHostValue("mode")) ? "APIM" : NewHostValue("mode").ToUpperInvariant())</span>
+                        </div>
                     }
                 </div>
                 <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelNewHost"></button>
             </div>
             <div class="config-newhost-body">
-                <section class="config-host-editor-section config-host-editor-basic" aria-labelledby="host-basic-settings-heading">
-                    <h3 id="host-basic-settings-heading" class="config-host-editor-static-heading">Basic Settings</h3>
+                <details class="config-host-editor-section config-host-editor-basic" open="@(_editingHost is null)">
+                    <summary class="config-host-editor-summary">
+                        <span><span class="bi bi-hdd-network me-2" aria-hidden="true"></span>Connection &amp; Routing</span>
+                        <span class="bi bi-chevron-down" aria-hidden="true"></span>
+                    </summary>
                     <div class="config-newhost-grid">
                         <div class="config-newhost-field @(!string.Equals(_newHostName, _editingHost?.Name ?? string.Empty, StringComparison.Ordinal) ? "config-field-changed" : string.Empty)">
                             <div class="config-setting-heading">
@@ -193,33 +251,122 @@ else
                             </div>
                         }
                     </div>
-                </section>
+                </details>
 
-                <details class="config-host-editor-section config-host-editor-collapsible">
+                @if (TokenomicsEnabled)
+                {
+                    <details class="config-tokenomics-host-summary config-host-model-details @(hostModelSelectionChanged ? "config-field-changed" : string.Empty)">
+                        <summary class="config-host-editor-summary">
+                            <span><span class="bi bi-diagram-3 me-2" aria-hidden="true"></span>Supported models</span>
+                            <span class="bi bi-chevron-down" aria-hidden="true"></span>
+                        </summary>
+                        <div class="config-tokenomics-host-summary-heading">
+                            <div>
+                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Supported models</h3>
+                                <span class="small text-muted">Models already assigned to this host are listed here. Newly selected models accept their standard APIs.</span>
+                            </div>
+                            <span class="small text-muted">@_selectedHostModels.Count selected</span>
+                        </div>
+
+                        @if (_tokenomicsOptionsError is not null)
+                        {
+                            <div class="alert alert-warning py-2 mb-0" role="status">@_tokenomicsOptionsError</div>
+                        }
+                        else
+                        {
+                            <div class="config-host-model-add">
+                                <label class="visually-hidden" for="host-model-add">Add a supported model</label>
+                                <select id="host-model-add" @key="_modelPickerVersion" class="form-select form-select-sm" value=""
+                                        disabled="@(availableModelGroups.Count == 0)" @onchange="AddHostModel">
+                                    <option value="">@(availableModelGroups.Count == 0 ? "All models selected" : "Add a model...")</option>
+                                    @foreach (var group in availableModelGroups)
+                                    {
+                                        <optgroup label="@group.Key">
+                                            @foreach (var model in group)
+                                            {
+                                                <option value="@model.Id">@HostModelOptionLabel(model)</option>
+                                            }
+                                        </optgroup>
+                                    }
+                                </select>
+                            </div>
+                            @if (selectedHostModelChoices.Count == 0)
+                            {
+                                <div class="config-tokenomics-host-empty">No models selected.</div>
+                            }
+                            else
+                            {
+                                <ul class="config-host-model-selected" aria-label="Selected models">
+                                    @foreach (var model in selectedHostModelChoices)
+                                    {
+                                        var modelId = model.Id;
+                                        var previewApis = PreviewApisForModel(modelId);
+                                        <li>
+                                            <span class="config-host-model-name">
+                                                <strong>@model.DisplayName</strong>
+                                                @if (!string.Equals(model.DisplayName, modelId, StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <span class="text-muted">@modelId</span>
+                                                }
+                                            </span>
+                                            <span class="config-tokenomics-api-badges">
+                                                @if (previewApis.Count == 0)
+                                                {
+                                                    <span class="text-muted">No standard APIs</span>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var api in previewApis)
+                                                    {
+                                                        <span class="badge config-tokenomics-api-badge">@api</span>
+                                                    }
+                                                }
+                                            </span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" aria-label="Remove @model.DisplayName" @onclick="() => RemoveHostModel(modelId)">Remove</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            <p class="config-host-model-note mb-0">Existing assignments keep their current API settings. Change path handling on Model &amp; API Routing.</p>
+                        }
+                    </details>
+                }
+
+                <details class="config-host-editor-section config-host-editor-collapsible" open>
                     <summary class="config-host-editor-summary">
-                        <span>Authentication &amp; Headers</span>
+                        <span class="config-host-section-title"><span class="bi bi-lock-fill" aria-hidden="true"></span><span>Authentication<small>Choose how the proxy authenticates with this host.</small></span></span>
                         <span class="bi bi-chevron-down" aria-hidden="true"></span>
                     </summary>
                     <div class="config-host-editor-section-body">
                         <div class="config-auth-section">
-                    <div class='config-newhost-field config-auth-toggle @(changedFields.Contains("usemi") ? "config-field-changed" : string.Empty)'>
-                        <div class="config-setting-heading">
-                            <ConfigurationHelp Section="Hosts" Topic="Token authentication" HelpTopic="Authentication">
-                                <label class="form-label">use token auth</label>
-                            </ConfigurationHelp>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" checked="@IsTokenAuth" @onchange="SetTokenAuth" />
-                        </div>
-                    </div>
+                    <fieldset class="config-host-auth-options">
+                        <legend class="visually-hidden">Authentication method</legend>
+                        <label class="form-check">
+                            <input class="form-check-input" type="radio" name="host-authentication" checked="@IsTokenAuth"
+                                   @onchange='() => SetTokenAuth(new ChangeEventArgs { Value = "token" })' />
+                            <span>Managed Identity / Token</span>
+                        </label>
+                        <label class="form-check">
+                            <input class="form-check-input" type="radio" name="host-authentication" checked='@(NewHostValue("__authMode") == "key")'
+                                   @onchange='() => SetTokenAuth(new ChangeEventArgs { Value = "key" })' />
+                            <span>API Key</span>
+                        </label>
+                        <label class="form-check">
+                            <input class="form-check-input" type="radio" name="host-authentication" checked='@(NewHostValue("__authMode") == "none")'
+                                   @onchange='() => SetTokenAuth(new ChangeEventArgs { Value = "none" })' />
+                            <span>None (no authentication)</span>
+                        </label>
+                    </fieldset>
                     <div class="config-auth-columns">
-                        <div class="config-auth-col @(IsTokenAuth ? string.Empty : "config-auth-dim")">
-                            <div class="config-auth-subheading">Token auth</div>
+                        @if (IsTokenAuth)
+                        {
+                        <div class="config-auth-col config-host-auth-settings">
+                            <div class="config-auth-subheading">Managed Identity / Token Settings</div>
                             <div class="config-auth-fields">
                                 <div class='config-newhost-field @(changedFields.Contains("authprovider") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <ConfigurationHelp Section="Hosts" Topic="authprovider">
-                                            <label class="form-label">auth provider</label>
+                                            <label class="form-label">Auth provider</label>
                                         </ConfigurationHelp>
                                     </div>
                                     <select class="form-select form-select-sm" value='@NewHostValue("authprovider")' disabled="@(!IsTokenAuth)"
@@ -238,7 +385,7 @@ else
                                 <div class='config-newhost-field @(changedFields.Contains("audience") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <ConfigurationHelp Section="Hosts" Topic="audience">
-                                            <label class="form-label">audience</label>
+                                            <label class="form-label">Audience</label>
                                         </ConfigurationHelp>
                                     </div>
                                      <input class="form-control form-control-sm" @bind:get='@(NewHostValue("audience"))' disabled="@(!IsTokenAuth)"
@@ -246,13 +393,16 @@ else
                                 </div>
                             </div>
                         </div>
-                        <div class="config-auth-col @(IsTokenAuth ? "config-auth-dim" : string.Empty)">
-                            <div class="config-auth-subheading">Key based auth</div>
+                        }
+                        else if (NewHostValue("__authMode") == "key")
+                        {
+                        <div class="config-auth-col config-host-auth-settings">
+                            <div class="config-auth-subheading">API Key Settings</div>
                             <div class="config-auth-fields">
                                 <div class='config-newhost-field @(changedFields.Contains("api-key-header") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <ConfigurationHelp Section="Hosts" Topic="api-key-header">
-                                            <label class="form-label">api-key-header</label>
+                                            <label class="form-label">API key header</label>
                                         </ConfigurationHelp>
                                     </div>
                                      <input class="form-control form-control-sm" placeholder="api-key" @bind:get='@(NewHostValue("api-key-header"))' disabled="@IsTokenAuth"
@@ -261,27 +411,62 @@ else
                                 <div class='config-newhost-field @(changedFields.Contains("api-key") ? "config-field-changed" : string.Empty)'>
                                     <div class="config-setting-heading">
                                         <ConfigurationHelp Section="Hosts" Topic="api-key">
-                                            <label class="form-label">api-key</label>
+                                            <label class="form-label">API key</label>
                                         </ConfigurationHelp>
                                     </div>
-                                     <input class="form-control form-control-sm" @bind:get='@(NewHostValue("api-key"))' disabled="@IsTokenAuth"
+                                     <input type="password" autocomplete="off" class="form-control form-control-sm" @bind:get='@(NewHostValue("api-key"))' disabled="@IsTokenAuth"
                                          @bind:set='@(value => SetNewHostValue("api-key", value))' @bind:event="oninput" />
                                 </div>
                             </div>
                         </div>
+                        }
                     </div>
                         </div>
                     </div>
                 </details>
 
-                <details class="config-host-editor-section config-host-editor-collapsible">
+                <details class="config-host-editor-section config-host-editor-collapsible" open>
                     <summary class="config-host-editor-summary">
-                        <span>Priorities</span>
+                        <span class="config-host-section-title"><span class="bi bi-bar-chart-fill" aria-hidden="true"></span><span>Token Processing<small>Select how token usage from this host should be processed for reporting, limits, and budgets.</small></span></span>
+                        <span class="bi bi-chevron-down" aria-hidden="true"></span>
+                    </summary>
+                    <div class="config-host-editor-section-body config-host-token-grid">
+                        <div class='config-newhost-field @(changedFields.Contains("processor") ? "config-field-changed" : string.Empty)'>
+                            <label class="form-label" for="host-token-processor">Token metrics processor</label>
+                            <select id="host-token-processor" class="form-select form-select-sm" value='@NewHostValue("processor")'
+                                    @onchange='args => SetNewHostValue("processor", args.Value?.ToString())'>
+                                <option value="">Default</option>
+                                @* REVIEW: Selection policies resolved by ProxyWorker independently of host mode. *@
+                                <option value="AutoDetect">auto-detect</option>
+                                <option value="APIMResponseHeader">APIM Response Header</option>
+                                @if (!string.IsNullOrEmpty(NewHostValue("processor"))
+                                    && !string.Equals(NewHostValue("processor"), "AutoDetect", StringComparison.OrdinalIgnoreCase)
+                                    && !string.Equals(NewHostValue("processor"), "APIMResponseHeader", StringComparison.OrdinalIgnoreCase)
+                                    && !(HostChoices("processor") ?? Array.Empty<string>()).Contains(NewHostValue("processor"), StringComparer.OrdinalIgnoreCase))
+                                {
+                                    <option value='@NewHostValue("processor")'>@NewHostValue("processor")</option>
+                                }
+                                @foreach (var processor in HostChoices("processor") ?? Array.Empty<string>())
+                                {
+                                    <option value="@processor">@processor</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="config-host-token-note">
+                            <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                            <span>The selected token processor determines how token usage returned by this backend is interpreted.</span>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="config-host-editor-section config-host-editor-collapsible" open>
+                    <summary class="config-host-editor-summary">
+                        <span class="config-host-section-title"><span class="bi bi-list-task" aria-hidden="true"></span><span>Priorities<small>Specify the priority group and which request priorities this host can accept.</small></span></span>
                         <span class="bi bi-chevron-down" aria-hidden="true"></span>
                     </summary>
                     <div class="config-host-editor-section-body">
                         <div class="config-newhost-grid config-priorities-grid">
-                            @foreach (var field in PriorityHostFields)
+                            @foreach (var field in PriorityHostFields.Where(field => field.Name != "processor"))
                             {
                                 <div class='config-newhost-field @(changedFields.Contains(field.Name) ? "config-field-changed" : string.Empty) @(string.Equals(field.Name, "acceptablePriorities", StringComparison.OrdinalIgnoreCase) ? "config-priority-field-wide" : string.Empty)'>
                                     <div class="config-setting-heading">
@@ -336,71 +521,17 @@ else
                         </div>
                     </div>
                 </details>
-
-                @if (TokenomicsEnabled)
-                {
-                    <section class="config-tokenomics-host-summary" aria-labelledby="tokenomics-host-summary-heading">
-                        <div class="config-tokenomics-host-summary-heading">
-                            <div>
-                                <h3 id="tokenomics-host-summary-heading" class="h6 mb-0">Tokenomics</h3>
-                                <span class="small text-muted">Tokenomics host settings</span>
-                            </div>
-                        </div>
-
-                        @if (_tokenomicsOptionsError is not null)
-                        {
-                            <div class="alert alert-warning py-2 mb-0" role="status">@_tokenomicsOptionsError</div>
-                        }
-                        else if (_editingHost is null || dialogTokenomicsHostOptions is null)
-                        {
-                            <div class="config-tokenomics-host-empty">No Tokenomics host settings configured.</div>
-                        }
-                        else
-                        {
-                            <div class="config-tokenomics-host-facts">
-                                <span><strong>Models</strong> @HostModelCount(_editingHost)</span>
-                                <span><strong>APIs</strong> @dialogTokenomicsHostOptions.APIs.Count</span>
-                            </div>
-                            @if (dialogTokenomicsHostOptions.APIs.Count > 0)
-                            {
-                                <div class="table-responsive">
-                                    <table class="table table-sm align-middle config-tokenomics-host-api-table mb-0">
-                                        <thead>
-                                            <tr>
-                                                <th scope="col">Model</th>
-                                                <th scope="col">API</th>
-                                                <th scope="col">Path handling</th>
-                                                <th scope="col">Effective path</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var model in _tokenomicsOptions.ModelHostOptions
-                                                .Where(model => model.Value.ContainsKey(_editingHost.DraftName))
-                                                .OrderBy(model => model.Key, StringComparer.OrdinalIgnoreCase))
-                                            {
-                                                @foreach (var api in model.Value[_editingHost.DraftName].APIs.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
-                                                {
-                                                var definition = TokenomicsApiDefinitionFor(api.Key);
-                                                <tr>
-                                                    <td>@model.Key</td>
-                                                    <td>
-                                                        <span class="badge config-tokenomics-api-badge me-2">@definition.Badge</span>
-                                                        <span>@api.Key</span>
-                                                    </td>
-                                                    <td>@TokenomicsPathModeLabel(definition, api.Value)</td>
-                                                    <td class="font-monospace text-break">@TokenomicsEffectivePath(definition, api.Value)</td>
-                                                </tr>
-                                                }
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
-                            }
-                        }
-                    </section>
-                }
             </div>
             <div class="config-newhost-footer">
+                @if (_editingHost is not null && SingleHost is null)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-danger me-auto"
+                            disabled="@(_tokenomicsOptionsError is not null)"
+                            title="@(_tokenomicsOptionsError is not null ? "Fix the tokenomics configuration before deleting this host." : "Stage host deletion until Save changes.")"
+                            @onclick="DeleteHostAsync">
+                        <span class="bi bi-trash me-1" aria-hidden="true"></span>Delete host
+                    </button>
+                }
                 <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelNewHost">Cancel</button>
                 <button type="button" class="btn btn-sm btn-primary" disabled="@string.IsNullOrWhiteSpace(_newHostName)" @onclick="CommitNewHost">@(_editingHost is null ? "Add host" : "Save")</button>
             </div>
@@ -469,6 +600,79 @@ else
         justify-content: flex-end;
         margin-bottom: 0.5rem;
     }
+    .config-host-model-add { margin-bottom: 0.65rem; }
+    .config-host-model-add .form-select { width: 100%; }
+    .config-host-model-selected {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    .config-host-model-selected li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem 0.7rem;
+        margin: 0;
+        padding: 0.45rem 0.65rem;
+        border: 1px solid #d6e4f5;
+        border-radius: 6px;
+        background: #fff;
+    }
+    .config-host-model-name { display: flex; flex: 1 1 10rem; flex-direction: column; min-width: 0; }
+    .config-host-model-selected .config-tokenomics-api-badges { flex: 1 1 12rem; max-width: none; }
+    .config-host-model-name span { overflow-wrap: anywhere; }
+    .config-host-model-selected .btn { flex: 0 0 auto; margin-left: auto; }
+    .config-host-model-note { margin-top: 0.55rem; color: #596c96; font-size: 0.78rem; }
+    .config-newhost-modal { color: #071c61; }
+    .config-newhost-modal .config-modal-header { gap: 1.25rem; padding: 1rem 1.5rem; }
+    .config-newhost-modal .config-modal-header h2 { color: #071c61; letter-spacing: 0; }
+    .config-newhost-modal .config-host-subtitle { margin-top: .25rem; color: #526695; font-size: .85rem; }
+    .config-newhost-modal .config-host-header-controls { display: flex; align-items: center; gap: 1rem; margin-left: auto; flex-shrink: 0; }
+    .config-newhost-modal .config-host-enabled { display: flex; align-items: center; gap: .65rem; padding: 0; white-space: nowrap; }
+    .config-newhost-modal .config-host-enabled .form-check-input { float: none; margin: 0; width: 2.4rem; height: 1.3rem; border-radius: 2rem; }
+    .config-newhost-modal .config-host-enabled .form-check-input:checked { background-color: #299747; border-color: #299747; }
+    .config-newhost-modal .config-host-identity { display: flex; align-items: center; gap: .75rem; padding: .55rem .85rem; border-radius: 6px; background: #ededf3; color: #313749; overflow-wrap: anywhere; }
+    .config-newhost-modal .config-host-identity .badge { background: #ded8f4; color: #4a4386; }
+    .config-newhost-modal .config-newhost-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 1rem 1.5rem; }
+    .config-newhost-modal .config-host-editor-section { margin-bottom: 1rem; border-color: #d3def3; background: #fafbfd; border-radius: 6px; }
+    .config-newhost-modal .config-host-editor-basic { padding: 0; }
+    .config-newhost-modal .config-host-editor-basic > .config-newhost-grid { padding: 1rem 1.25rem; }
+    .config-newhost-modal .config-host-editor-summary { padding: 1rem 1.25rem; font-size: .95rem; }
+    .config-newhost-modal .config-host-section-title { display: flex; align-items: flex-start; gap: 1rem; min-width: 0; }
+    .config-newhost-modal .config-host-section-title > .bi { color: #007aff; font-size: 1.2rem; transform: none; }
+    .config-newhost-modal .config-host-section-title small { display: block; margin-top: .25rem; color: #526695; font-size: .8rem; font-weight: 400; }
+    .config-newhost-modal .config-host-editor-section-body { border: 0; background: transparent; padding: .25rem 1.25rem 1.25rem; }
+    .config-newhost-modal .config-newhost-field { padding: 0; border-radius: 4px; background: transparent; box-shadow: none; }
+    .config-newhost-modal .config-newhost-field.config-field-changed { background: rgba(255, 204, 0, .1); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, .18); }
+    .config-newhost-modal .config-newhost-field .form-label { color: #071c61; text-transform: none; letter-spacing: 0; font-size: .85rem; font-weight: 400; }
+    .config-newhost-modal .form-control, .config-newhost-modal .form-select { min-width: 0; border-color: #ccd6e8; border-radius: 5px; }
+    .config-newhost-modal .config-host-auth-options { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; margin: 0 0 1rem; }
+    .config-newhost-modal .config-host-auth-options .form-check { display: flex; align-items: center; gap: .75rem; margin: 0; padding: 0; }
+    .config-newhost-modal .config-host-auth-options .form-check-input { float: none; margin: 0; flex-shrink: 0; border-radius: 50%; }
+    .config-newhost-modal .config-auth-columns { display: block; }
+    .config-newhost-modal .config-host-auth-settings { padding: 1rem; border: 1px solid #d7e4f9; border-radius: 6px; background: #edf3fb; }
+    .config-newhost-modal .config-auth-subheading { margin-bottom: .75rem; color: #071c61; text-transform: none; letter-spacing: 0; }
+    .config-newhost-modal .config-auth-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+    .config-newhost-modal .config-host-token-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 1.5rem; }
+    .config-newhost-modal .config-host-token-note { display: flex; align-items: flex-start; gap: .75rem; padding: 1rem; border: 1px solid #d7e4f9; border-radius: 6px; background: #edf3fb; color: #1452aa; font-size: .8rem; }
+    .config-newhost-modal .config-priorities-grid { grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: 2rem; }
+    .config-newhost-modal .config-priority-field-wide { grid-column: auto; }
+    .config-newhost-modal .config-newhost-footer { display: flex; align-items: center; gap: .75rem; flex-shrink: 0; padding: 1rem 1.5rem; border-top: 1px solid #dce2ed; }
+    .config-newhost-modal .config-newhost-footer > .btn-outline-secondary { margin-left: auto; }
+    .config-newhost-modal .config-newhost-footer .btn { min-height: 2.4rem; border-radius: 6px; padding: .5rem 1.5rem; }
+    @@media (max-width: 700px) {
+        .config-newhost-modal .config-modal-header { flex-wrap: wrap; padding: 1rem; }
+        .config-newhost-modal .config-modal-header > div:first-child { flex: 1 1 70%; }
+        .config-newhost-modal .config-host-header-controls { order: 2; flex: 1 1 100%; margin-left: 0; flex-wrap: wrap; }
+        .config-newhost-modal .config-newhost-body { padding: .75rem; }
+        .config-newhost-modal .config-host-identity { max-width: 100%; flex-wrap: wrap; }
+        .config-newhost-modal .config-auth-fields, .config-newhost-modal .config-host-token-grid, .config-newhost-modal .config-priorities-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+        .config-newhost-modal .config-newhost-footer { padding: .75rem; flex-wrap: wrap; }
+        .config-newhost-modal .config-newhost-footer .btn { padding: .5rem .85rem; }
+    }
 </style>
 
 @code {
@@ -485,6 +689,8 @@ else
 
     [Parameter] public EventCallback<string> OnHostSaved { get; set; }
 
+    [Parameter] public EventCallback OnChanged { get; set; }
+
     private ElementReference _singleHostDialog;
 
     private bool _showNewHostDialog;
@@ -496,6 +702,9 @@ else
     private TokenomicsSettings _tokenomicsOptions = new();
     private string? _observedTokenomicsDraft;
     private string? _tokenomicsOptionsError;
+    private readonly HashSet<string> _selectedHostModels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _loadedHostModels = new(StringComparer.OrdinalIgnoreCase);
+    private int _modelPickerVersion;
 
     private string HostDocsUrl => AppConfiguration.HostFieldsDocUrl;
 
@@ -598,6 +807,9 @@ else
             _newHostFields[field.Name] = field.Kind == "bool" ? field.Default : string.Empty;
         }
 
+        _newHostFields["processor"] = "AutoDetect";
+        _newHostFields["__authMode"] = "none";
+        LoadSelectedHostModels(null);
         _showNewHostDialog = true;
         _focusNewHostName = true;
     }
@@ -615,6 +827,9 @@ else
                 ? field.Default
                 : current;
         }
+        _newHostFields["__authMode"] = IsTokenAuth ? "token"
+            : string.IsNullOrWhiteSpace(NewHostValue("api-key")) ? "none" : "key";
+        LoadSelectedHostModels(setting.DraftName);
         _showNewHostDialog = true;
         _focusNewHostName = true;
     }
@@ -628,6 +843,50 @@ else
         }
         _showNewHostDialog = false;
         _editingHost = null;
+    }
+
+    private async Task DeleteHostAsync()
+    {
+        if (_editingHost is not { } host || SingleHost is not null || _tokenomicsOptionsError is not null)
+        {
+            return;
+        }
+
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete {host.DraftName} and its model-routing assignments? This is staged until Save changes and can be undone with Reset all."))
+        {
+            return;
+        }
+
+        if (TokenomicsOptionsSetting is { } optionsSetting)
+        {
+            var aliases = HostAliases(host);
+            var routingChanged = false;
+            foreach (var model in _tokenomicsOptions.ModelHostOptions.Keys.ToList())
+            {
+                var hosts = _tokenomicsOptions.ModelHostOptions[model];
+                foreach (var key in hosts.Keys.Where(aliases.Contains).ToList())
+                {
+                    hosts.Remove(key);
+                    routingChanged = true;
+                }
+
+                if (hosts.Count == 0)
+                {
+                    _tokenomicsOptions.ModelHostOptions.Remove(model);
+                    routingChanged = true;
+                }
+            }
+
+            if (routingChanged)
+            {
+                optionsSetting.DraftValue = _tokenomicsOptions.ToString();
+                _observedTokenomicsDraft = optionsSetting.DraftValue;
+            }
+        }
+
+        host.IsDeleted = true;
+        await OnChanged.InvokeAsync();
+        await CancelNewHost();
     }
 
     private string NewHostValue(string name) =>
@@ -692,8 +951,11 @@ else
     // Token (managed identity/OAuth) and key auth are mutually exclusive in the dialog.
     private bool IsTokenAuth => string.Equals(NewHostValue("usemi"), "true", StringComparison.OrdinalIgnoreCase);
 
-    private void SetTokenAuth(ChangeEventArgs args) =>
-        _newHostFields["usemi"] = args.Value is bool on && on ? "true" : "false";
+    private void SetTokenAuth(ChangeEventArgs args)
+    {
+        _newHostFields["__authMode"] = args.Value?.ToString() ?? "none";
+        _newHostFields["usemi"] = NewHostValue("__authMode") == "token" ? "true" : "false";
+    }
 
     // authprovider choices come from the proxy's AuthProviderClass setting (comma-delimited),
     // reduced to simple class names; falls back to the proxy default when unset.
@@ -769,7 +1031,7 @@ else
         var parts = new List<string>();
         foreach (var field in HostFieldSchema)
         {
-            if (isToken && (string.Equals(field.Name, "api-key", StringComparison.OrdinalIgnoreCase)
+            if ((isToken || NewHostValue("__authMode") == "none") && (string.Equals(field.Name, "api-key", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(field.Name, "api-key-header", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
@@ -849,7 +1111,295 @@ else
             await OnHostCreated.InvokeAsync(host);
         }
 
+        ApplyHostModels(_editingHost?.DraftName ?? name);
+        await OnChanged.InvokeAsync();
         await CancelNewHost();
+    }
+
+    private void LoadSelectedHostModels(string? hostName)
+    {
+        _selectedHostModels.Clear();
+        _loadedHostModels.Clear();
+        _modelPickerVersion = 0;
+        if (string.IsNullOrWhiteSpace(hostName) || _editingHost is null || _tokenomicsOptionsError is not null)
+        {
+            return;
+        }
+
+        var aliases = HostAliases(_editingHost);
+        foreach (var (model, hosts) in _tokenomicsOptions.ModelHostOptions)
+        {
+            if (hosts.Keys.Any(key => aliases.Contains(key)))
+            {
+                _selectedHostModels.Add(model);
+                _loadedHostModels.Add(model);
+            }
+        }
+    }
+
+    private static string HostModelOptionLabel(ModelInfo model) =>
+        string.Equals(model.DisplayName, model.Id, StringComparison.OrdinalIgnoreCase)
+            ? model.DisplayName
+            : $"{model.DisplayName} ({model.Id})";
+
+    private IReadOnlyList<ModelInfo> HostModelChoices
+    {
+        get
+        {
+            var choices = new Dictionary<string, ModelInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var model in ChatCatalog.ListModels())
+            {
+                if (!string.IsNullOrWhiteSpace(model.Id))
+                {
+                    choices[model.Id] = model;
+                }
+            }
+
+            foreach (var model in VisionCatalog.ListModels())
+            {
+                if (!string.IsNullOrWhiteSpace(model.Id) && !choices.ContainsKey(model.Id))
+                {
+                    choices[model.Id] = new ModelInfo
+                    {
+                        Id = model.Id,
+                        Provider = model.Provider,
+                        DisplayName = model.DisplayName
+                    };
+                }
+            }
+
+            foreach (var modelId in TokenomicsModelIds())
+            {
+                if (!choices.ContainsKey(modelId))
+                {
+                    choices[modelId] = new ModelInfo
+                    {
+                        Id = modelId,
+                        Provider = "Configured",
+                        DisplayName = modelId
+                    };
+                }
+            }
+
+            return choices.Values
+                .OrderBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(model => model.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(model => model.Id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private IEnumerable<string> TokenomicsModelIds() =>
+        _tokenomicsOptions.ModelHierarchy.Values
+            .SelectMany(models => models)
+            .Select(entry => entry.Model)
+            .Concat([_tokenomicsOptions.DefaultModel])
+            .Concat(_tokenomicsOptions.ModelCostPerToken.Keys)
+            .Concat(_tokenomicsOptions.ModelHostOptions.Keys)
+            .Select(model => model.Trim())
+            .Where(model => model.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private void AddHostModel(ChangeEventArgs args)
+    {
+        var modelId = args.Value?.ToString()?.Trim() ?? string.Empty;
+        if (modelId.Length == 0 || !_selectedHostModels.Add(modelId))
+        {
+            return;
+        }
+
+        _modelPickerVersion++;
+    }
+
+    private void RemoveHostModel(string modelId) => _selectedHostModels.Remove(modelId);
+
+    private bool HostModelSelectionChanged(string hostName)
+    {
+        var assigned = AssignedModelsForEditingHost();
+        return assigned.Count != _selectedHostModels.Count
+            || assigned.Any(model => !_selectedHostModels.Contains(model));
+    }
+
+    private IReadOnlyList<string> PreviewApisForModel(string modelId)
+    {
+        if (_loadedHostModels.Contains(modelId)
+            && _editingHost is not null
+            && _tokenomicsOptions.ModelHostOptions.TryGetValue(modelId, out var hosts))
+        {
+            var aliases = HostAliases(_editingHost);
+            var match = hosts.FirstOrDefault(entry => aliases.Contains(entry.Key));
+            if (!string.IsNullOrEmpty(match.Key) && match.Value.APIs.Count > 0)
+            {
+                return match.Value.APIs.Keys
+                    .Select(LLMApiEnumParser.ToDisplayName)
+                    .OrderBy(api => api, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+
+        return StandardApisForModel(modelId);
+    }
+
+    private List<string> StandardApisForModel(string model) =>
+        ChatCatalog.ApisForModel(model)
+            .Select(api => api.DisplayName)
+            .Concat(VisionCatalog.ApisForModel(model).Select(api => api.DisplayName))
+            .Where(api => !string.IsNullOrWhiteSpace(api))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private void ApplyHostModels(string hostName)
+    {
+        if (!TokenomicsEnabled
+            || _tokenomicsOptionsError is not null
+            || TokenomicsOptionsSetting is not { } setting
+            || string.IsNullOrWhiteSpace(hostName)
+            || !HostModelSelectionChanged(hostName))
+        {
+            return;
+        }
+
+        var aliases = _editingHost is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { hostName }
+            : HostAliases(_editingHost);
+        aliases.Add(hostName);
+
+        foreach (var model in _tokenomicsOptions.ModelHostOptions.Keys.ToList())
+        {
+            if (_selectedHostModels.Contains(model))
+            {
+                continue;
+            }
+
+            var hosts = _tokenomicsOptions.ModelHostOptions[model];
+            foreach (var key in hosts.Keys.Where(key => aliases.Contains(key)).ToList())
+            {
+                hosts.Remove(key);
+            }
+
+            if (hosts.Count == 0)
+            {
+                _tokenomicsOptions.ModelHostOptions.Remove(model);
+            }
+        }
+
+        var writeKey = PreferredHostKey(hostName);
+        foreach (var model in _selectedHostModels)
+        {
+            if (!_tokenomicsOptions.ModelHostOptions.TryGetValue(model, out var hosts))
+            {
+                hosts = new Dictionary<string, TokenomicsHostOptions>(StringComparer.OrdinalIgnoreCase);
+                _tokenomicsOptions.ModelHostOptions[model] = hosts;
+            }
+
+            if (hosts.Keys.Any(key => aliases.Contains(key)))
+            {
+                continue;
+            }
+
+            var hostOptions = new TokenomicsHostOptions();
+            foreach (var apiName in StandardApisForModel(model))
+            {
+                if (!LLMApiEnumParser.TryParse(apiName, out var api))
+                {
+                    continue;
+                }
+                hostOptions.APIs[api] = new TokenomicsApiOptions
+                {
+                    PassThrough = false,
+                    OverridePath = false,
+                    Path = null
+                };
+            }
+
+            hosts[writeKey] = hostOptions;
+        }
+
+        setting.DraftValue = _tokenomicsOptions.ToString();
+        _observedTokenomicsDraft = setting.DraftValue;
+    }
+
+    private HashSet<string> HostAliases(AppConfigurationScaffoldSetting setting)
+    {
+        var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddHostAlias(aliases, setting.DraftName);
+        AddHostAlias(aliases, setting.Name);
+        var colon = setting.Key.LastIndexOf(':');
+        if (colon >= 0 && colon < setting.Key.Length - 1)
+        {
+            AddHostAlias(aliases, setting.Key[(colon + 1)..]);
+        }
+
+        AddHostAlias(aliases, HostFieldValue(setting, "host"));
+        return aliases;
+    }
+
+    private static void AddHostAlias(HashSet<string> aliases, string? value)
+    {
+        var alias = value?.Trim() ?? string.Empty;
+        if (alias.Length == 0)
+        {
+            return;
+        }
+
+        aliases.Add(alias);
+        if (alias.StartsWith("Host_", StringComparison.OrdinalIgnoreCase) && alias.Length > 5)
+        {
+            aliases.Add(alias[5..]);
+        }
+        else if (alias.StartsWith("Host-", StringComparison.OrdinalIgnoreCase) && alias.Length > 5)
+        {
+            aliases.Add(alias[5..]);
+        }
+        else if (!alias.StartsWith("Host", StringComparison.OrdinalIgnoreCase))
+        {
+            aliases.Add($"Host_{alias}");
+        }
+    }
+
+    private HashSet<string> AssignedModelsForEditingHost()
+    {
+        if (_editingHost is null)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ModelsForHost(_editingHost).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string PreferredHostKey(string fallback)
+    {
+        if (_editingHost is not null)
+        {
+            var aliases = HostAliases(_editingHost);
+            foreach (var hosts in _tokenomicsOptions.ModelHostOptions.Values)
+            {
+                foreach (var key in hosts.Keys)
+                {
+                    if (aliases.Contains(key))
+                    {
+                        return key;
+                    }
+                }
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(fallback) ? _editingHost?.DraftName ?? string.Empty : fallback;
+    }
+
+    private IReadOnlyList<string> ModelsForHost(AppConfigurationScaffoldSetting setting)
+    {
+        if (_tokenomicsOptionsError is not null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var aliases = HostAliases(setting);
+        return _tokenomicsOptions.ModelHostOptions
+            .Where(entry => entry.Value.Keys.Any(key => aliases.Contains(key)))
+            .Select(entry => entry.Key)
+            .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void LoadTokenomicsOptions()
@@ -883,16 +1433,6 @@ else
         _tokenomicsOptionsError = "Tokenomics:Options could not be parsed.";
     }
 
-    private static string ApiPathMode(TokenomicsApiDefinition definition, TokenomicsApiOptions options)
-    {
-        if (options.PassThrough)
-        {
-            return "preserve";
-        }
-
-        return options.OverridePath ? "override" : "default";
-    }
-
     private TokenomicsHostOptions? HostTokenomicsOptions(AppConfigurationScaffoldSetting? setting)
     {
         if (setting is null || _tokenomicsOptionsError is not null)
@@ -900,22 +1440,17 @@ else
             return null;
         }
 
+        var aliases = HostAliases(setting);
         var modelHosts = _tokenomicsOptions.ModelHostOptions.Values
-            .Where(hosts => hosts.ContainsKey(setting.DraftName))
-            .Select(hosts => hosts[setting.DraftName])
+            .SelectMany(hosts => hosts.Where(entry => aliases.Contains(entry.Key)))
+            .Select(entry => entry.Value)
             .ToList();
         return modelHosts.Count == 0 ? null : new TokenomicsHostOptions {
             Enabled = modelHosts.Any(options => options.Enabled),
             APIs = modelHosts.SelectMany(options => options.APIs)
-                .GroupBy(api => api.Key, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(api => api.Key)
+                .ToDictionary(group => group.Key, group => group.First().Value)
         };
-    }
-
-    private int HostModelCount(AppConfigurationScaffoldSetting setting)
-    {
-        return _tokenomicsOptions.ModelHostOptions.Count(entry =>
-            entry.Value.ContainsKey(setting.DraftName));
     }
 
     private static TokenomicsApiDefinition TokenomicsApiDefinitionFor(string apiName) =>
@@ -938,27 +1473,6 @@ else
             ? "text-bg-light border"
             : options.Enabled ? "text-bg-success" : "text-bg-secondary";
 
-    private static string TokenomicsPathModeLabel(
-        TokenomicsApiDefinition definition,
-        TokenomicsApiOptions options) => ApiPathMode(definition, options) switch
-    {
-        "preserve" => "PassThru",
-        "default" => "Default API Spec Path",
-        _ => "Overridden Path"
-    };
-
-    private static string TokenomicsEffectivePath(
-        TokenomicsApiDefinition definition,
-        TokenomicsApiOptions options)
-    {
-        if (options.PassThrough)
-        {
-            return "Incoming request path";
-        }
-
-        return options.OverridePath ? options.Path ?? string.Empty : definition.DefaultPath;
-    }
-
     protected override void OnParametersSet()
     {
         LoadTokenomicsOptions();
@@ -974,7 +1488,9 @@ else
             // Config-driven list columns; fall back to the union of all fields.
             if (AppConfiguration.HostListColumns.Count > 0)
             {
-                return AppConfiguration.HostListColumns;
+                return AppConfiguration.HostListColumns
+                    .Where(column => !string.Equals(column, "path", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
             }
 
             var keys = new List<string>();
@@ -990,6 +1506,7 @@ else
             }
 
             return keys
+                .Where(key => !string.Equals(key, "path", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(key =>
                 {
                     var index = Array.FindIndex(HostColumnOrder, column => string.Equals(column, key, StringComparison.OrdinalIgnoreCase));
@@ -1137,7 +1654,7 @@ else
                 await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/AdminConfigurationPage.razor.js");
                 await module.InvokeVoidAsync("open", _singleHostDialog);
             }
-            else
+            else if (_editingHost is null)
             {
                 await _newHostNameInput.FocusAsync();
             }

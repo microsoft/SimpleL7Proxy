@@ -48,7 +48,7 @@ public sealed record TokenomicsDashboardSnapshot {
         IsSampleData = true,
         SnapshotLabel = "Sample snapshot · Nov 10, 2024",
         TimePeriods = ["Last 7 days", "Last 30 days"],
-        Tenants = ["All tenants", "Contoso", "Fabrikam"],
+        Tenants = ["All workloads", "Contoso", "Fabrikam"],
         UserFilters = ["All users", "sam", "alex"],
         ModelFilters = ["All models", "gpt-4o", "claude-3-5"],
         Metrics = [
@@ -119,7 +119,7 @@ public sealed record TokenomicsDashboardSnapshot {
         IsSampleData = false,
         SnapshotLabel = "Waiting for data...",
         TimePeriods = [],
-        Tenants = ["All tenants"],
+        Tenants = ["All workloads"],
         UserFilters = ["All users"],
         ModelFilters = ["All models"],
         Metrics = [
@@ -198,7 +198,7 @@ public sealed class TokenomicsDashboardStore : IDisposable {
         var baseSnapshot = GetSnapshot(period);
         
         // If no filters or all filters are "All", return unfiltered snapshot
-        if (string.IsNullOrEmpty(tenantFilter) || tenantFilter == "All tenants") {
+        if (string.IsNullOrEmpty(tenantFilter) || tenantFilter == "All workloads") {
             tenantFilter = null;
         }
         if (string.IsNullOrEmpty(userFilter) || userFilter == "All users") {
@@ -238,7 +238,7 @@ public sealed class TokenomicsDashboardStore : IDisposable {
 
         var routingRequestIds = baseSnapshot.RoutingEvents.GroupBy(fields => fields["MID"], StringComparer.Ordinal)
             .Where(group => group.Any(fields =>
-                    (tenantFilter == null || fields.GetValueOrDefault("Tenant") == tenantFilter)
+                    (tenantFilter == null || fields.GetValueOrDefault("Workload") == tenantFilter)
                     && (userFilter == null || fields.GetValueOrDefault("UserId") == userFilter))
                 && (modelFilter == null || group.Any(fields =>
                     fields.GetValueOrDefault("RequestedModel") == modelFilter
@@ -254,7 +254,7 @@ public sealed class TokenomicsDashboardStore : IDisposable {
             Models = filteredModels,
             RoutingEvents = baseSnapshot.RoutingEvents.Where(fields => routingRequestIds.Contains(fields["MID"])).ToImmutableArray(),
             PolicyDecisions = baseSnapshot.PolicyDecisions.Where(fields =>
-                (tenantFilter == null || fields.GetValueOrDefault("Tenant") == tenantFilter)
+                (tenantFilter == null || fields.GetValueOrDefault("Workload") == tenantFilter)
                 && (userFilter == null || fields.GetValueOrDefault("UserId") == userFilter)
                 && (modelFilter == null || new[] { "RequestedModel", "ModelBefore", "ModelAfter" }
                     .Any(key => fields.GetValueOrDefault(key) == modelFilter))).ToImmutableArray()

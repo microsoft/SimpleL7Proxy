@@ -7,9 +7,36 @@ namespace CompanionApp.Startup;
 
 internal static class CompanionAppStartup
 {
-    internal static void AddModelConfigFiles(WebApplicationBuilder builder)
+    internal static async Task AddModelConfigFiles(WebApplicationBuilder builder)
     {
-        builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
+        var chatModelsUrl = builder.Configuration["CompanionApp:ChatModelsUrl"];
+        if (string.IsNullOrWhiteSpace(chatModelsUrl))
+        {
+            builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
+        }
+        else
+        {
+            if (!Uri.TryCreate(chatModelsUrl, UriKind.Absolute, out var chatModelsUri))
+            {
+                throw new InvalidOperationException("CompanionApp:ChatModelsUrl must be an absolute file://, http://, or https:// URL.");
+            }
+
+            if (chatModelsUri.IsFile)
+            {
+                builder.Configuration.AddJsonFile(chatModelsUri.LocalPath, optional: false, reloadOnChange: true);
+            }
+            else if (string.Equals(chatModelsUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(chatModelsUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                using var stream = new MemoryStream(await httpClient.GetByteArrayAsync(chatModelsUri));
+                builder.Configuration.AddJsonStream(stream);
+            }
+            else
+            {
+                throw new InvalidOperationException("CompanionApp:ChatModelsUrl must use file://, http://, or https://.");
+            }
+        }
         builder.Configuration.AddJsonFile(
             $"chat-models.{builder.Environment.EnvironmentName}.json",
             optional: true,

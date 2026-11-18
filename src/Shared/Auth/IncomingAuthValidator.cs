@@ -2,7 +2,7 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
-namespace SimpleL7Proxy.Config;
+namespace Shared.Auth;
 
 public sealed class IncomingAuthValidator
 {

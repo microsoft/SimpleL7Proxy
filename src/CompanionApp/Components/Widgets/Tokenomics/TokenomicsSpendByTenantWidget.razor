@@ -3,7 +3,7 @@
 @using CompanionApp.Tokenomics
 
 <article class="tokenomics-card insight-card">
-    <h3>Spend by Tenant</h3>
+    <h3>Spend by Workload</h3>
     @if (Snapshot.TenantSpend.IsEmpty)
     {
         <p>@(Snapshot.HasPriceData ? "No priced token usage in this time range." : "Spend unavailable: no price data.")</p>

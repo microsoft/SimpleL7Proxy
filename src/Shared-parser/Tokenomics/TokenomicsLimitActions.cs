@@ -4,7 +4,7 @@ using SimpleL7Proxy.Extensions;
 
 namespace SimpleL7Proxy.Tokenomics;
 
-public class TokenomicsLimitActions
+public class ExceededActions
 {
     /// <summary>Gets or sets the hourly-quota action for other workloads.</summary>
     public TokenActionEnum HourlyLimitAction { get; set; } = TokenActionEnum.DowngradeModel;

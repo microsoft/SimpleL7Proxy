@@ -1,6 +1,7 @@
 @namespace CompanionApp.Components.Widgets.TokenomicsConfiguration
 @using CompanionApp.Components.Shared
 @using SimpleL7Proxy.Tokenomics
+@using SharedParser.Tokenomics.LLM.Catalog
 
 @if (IsSummary)
 {
@@ -18,24 +19,14 @@ else
     <section id="tokenomics-panel-routing" class="tokenomics-tab-panel" aria-label="Model routing settings">
         <div class="tokenomics-routing-pane">
             <div class="tokenomics-routing-settings-grid">
-                <section class="tokenomics-routing-settings-panel" aria-labelledby="tokenomics-routing-general-heading">
-                    <h4 id="tokenomics-routing-general-heading">General Settings</h4>
+                <section class="tokenomics-routing-settings-panel" aria-label="Default model">
                     <div class="tokenomics-routing-field-grid">
-                        @foreach (var name in NumericNames)
-                        {
-                            @if (name == nameof(TokenomicsSettings.DefaultModel))
-                            {
-                                <div class="d-grid gap-2 align-content-start">
-                                    @FieldContent(name)
-                                    @FieldContent(nameof(TokenomicsSettings.DefaultModelAPI))
-                                </div>
-                            }
-                            else
-                            {
-                                @FieldContent(name)
-                            }
-                        }
+                        @FieldContent(nameof(TokenomicsSettings.DefaultModel))
+                        @FieldContent(nameof(TokenomicsSettings.DefaultModelAPI))
                     </div>
+                </section>
+                <section class="tokenomics-routing-settings-panel tokenomics-routing-hierarchy-panel" aria-label="Model hierarchy">
+                    @FieldContent(nameof(TokenomicsSettings.ModelHierarchy))
                 </section>
                 <section class="tokenomics-routing-settings-panel" aria-labelledby="tokenomics-routing-fallback-heading">
                     <h4 id="tokenomics-routing-fallback-heading">Fallback Behavior</h4>
@@ -130,7 +121,7 @@ else
                     @if (SelectedModel is null)
                     {
                         <div class="tokenomics-routing-empty tokenomics-routing-empty-large">
-                            Configure a default model, model hierarchy, or model price before assigning hosts.
+                            No models have host assignments.
                         </div>
                     }
                     else
@@ -170,7 +161,7 @@ else
                                     var modelHostOptions = OptionsForModelHost(SelectedModel, hostKey);
                                     var modelApis = modelHostOptions?.APIs
                                         ?? OptionsForHost(hostKey)?.APIs
-                                        ?? new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase);
+                                        ?? new Dictionary<LLMApiEnum, TokenomicsApiOptions>();
                                     var changed = IsHostSelectionChanged(SelectedModel, hostKey, allowed);
                                     <section class="tokenomics-routing-host-row @(allowed ? "is-allowed" : null) @(changed ? "config-field-changed" : null)" @key="host.Key">
                                         <div class="tokenomics-routing-host-row-main">
@@ -183,9 +174,9 @@ else
                                             <div class="tokenomics-routing-api-badges">
                                                 @if (modelApis.Count > 0)
                                                 {
-                                                    @foreach (var api in modelApis.OrderBy(api => api.Key, StringComparer.OrdinalIgnoreCase))
+                                                    @foreach (var api in modelApis.OrderBy(api => LLMApiEnumParser.ToDisplayName(api.Key), StringComparer.OrdinalIgnoreCase))
                                                     {
-                                                        <span class="badge tokenomics-routing-api-badge">@ApiBadge(api.Key)</span>
+                                                        <span class="badge tokenomics-routing-api-badge">@ApiBadge(LLMApiEnumParser.ToDisplayName(api.Key))</span>
                                                     }
                                                 }
                                                 else
@@ -245,7 +236,8 @@ else
                                 </div>
                                 @foreach (var api in Apis)
                                 {
-                                    var apiOptions = modelHostOptions?.APIs.TryGetValue(api.Name, out var configuredApi) == true
+                                    var apiOptions = LLMApiEnumParser.TryParse(api.Name, out var apiIdentity)
+                                        && modelHostOptions?.APIs.TryGetValue(apiIdentity, out var configuredApi) == true
                                         ? configuredApi
                                         : null;
                                     var pathMode = apiOptions is null ? "default" : PathMode(api, apiOptions);
@@ -335,6 +327,7 @@ else
         .Concat(ModelHostOptions.Values
             .SelectMany(hosts => hosts.Values)
             .SelectMany(options => options.APIs.Keys)
+            .Select(LLMApiEnumParser.ToDisplayName)
             .Where(apiName => !ApiDefinitions.Any(api => string.Equals(api.Name, apiName, StringComparison.OrdinalIgnoreCase)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(apiName => apiName, StringComparer.OrdinalIgnoreCase)
@@ -387,10 +380,12 @@ else
     private void SetApiSearch(ChangeEventArgs args) =>
         _apiSearch = args.Value?.ToString() ?? string.Empty;
 
-    private int HostCountForApi(string api) => HostOptions.Values.Count(options => options.APIs.ContainsKey(api));
+    private int HostCountForApi(string api) => LLMApiEnumParser.TryParse(api, out var apiIdentity)
+        ? HostOptions.Values.Count(options => options.APIs.ContainsKey(apiIdentity)) : 0;
 
     private bool HostSupportsApi(string host, string api) =>
-        OptionsForHost(host)?.APIs.ContainsKey(api) == true;
+        LLMApiEnumParser.TryParse(api, out var apiIdentity)
+        && OptionsForHost(host)?.APIs.ContainsKey(apiIdentity) == true;
 
     private async Task SetHostApiAsync(string host, ApiDefinition api, ChangeEventArgs args)
     {

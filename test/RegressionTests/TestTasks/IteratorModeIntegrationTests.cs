@@ -43,7 +43,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
         var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
 
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
         Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
@@ -156,7 +156,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         var config = IteratorTestLocalConfig.Load();
         var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
         var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
         Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
@@ -279,7 +279,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         var config = IteratorTestLocalConfig.Load();
         var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
         var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
-        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
+        var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "proxy-runtime", "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
         Assert.IsTrue(File.Exists(streamServerPath), $"Stream server not found: {streamServerPath}");
@@ -665,7 +665,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            WorkingDirectory = AppContext.BaseDirectory,
+            WorkingDirectory = Path.GetDirectoryName(proxyAssembly)!,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

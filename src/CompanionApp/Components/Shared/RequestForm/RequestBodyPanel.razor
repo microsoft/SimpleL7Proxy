@@ -1,6 +1,7 @@
 @namespace CompanionApp.Components.Shared
 @using Microsoft.AspNetCore.Components
 @using CompanionApp.Components.Shared
+@using SharedParser.Tokenomics.LLM.Catalog
 
 <div class="chat-body-panel rounded border p-3 mb-3">
     <ModelPanel @ref="Panel"
@@ -104,43 +105,14 @@
             ? endpointPath!
             : ModelCatalog.ResolveEndpointPath(template);
 
-        if (endpoint.Contains("/responses", StringComparison.OrdinalIgnoreCase))
+        if (LLMApiEnumParser.TryParsePath(endpoint, out var api))
         {
-            return "openai-responses";
+            return LLMApiEnumParser.ToId(api);
         }
 
-        if (endpoint.Contains("/messages", StringComparison.OrdinalIgnoreCase))
-        {
-            return "anthropic-messages";
-        }
-
-        if (endpoint.Contains("generateContent", StringComparison.OrdinalIgnoreCase))
-        {
-            return "gemini-generate-content";
-        }
-
-        if (endpoint.Contains("/v2/chat", StringComparison.OrdinalIgnoreCase))
-        {
-            return "cohere-v2-chat";
-        }
-
-        if (endpoint.Contains("/compatibility/", StringComparison.OrdinalIgnoreCase))
-        {
-            return "cohere-openai-chat";
-        }
-
-        if (template.Provider == "Google Gemini")
-        {
-            return "gemini-openai-chat";
-        }
-
-        if (template.Provider == "Cohere")
-        {
-            return endpoint.Contains("/v1/chat", StringComparison.OrdinalIgnoreCase)
-                ? "cohere-v1-chat"
-                : "cohere-openai-chat";
-        }
-
-        return "openai-chat";
+        var defaultEndpoint = ModelCatalog.ResolveEndpointPath(template with { EndpointPath = null });
+        return LLMApiEnumParser.TryParsePath(defaultEndpoint, out api)
+            ? LLMApiEnumParser.ToId(api)
+            : LLMApiEnumParser.ToId(LLMApiEnum.OpenAIChatCompletions);
     }
 }

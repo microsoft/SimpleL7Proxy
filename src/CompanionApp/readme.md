@@ -2,7 +2,11 @@
 
 CompanionApp is a .NET Blazor application that is meant to be deployed as a container app.  On startup, it completes setup for a proxy by creating the configuration settings.  It is also meant to be usued to configure the running settings.  When not needed, it is safe to stop the service and the proxy will continue operation uninterrupted.
 
-Once deployed, you can follow the quick guides below for your scenario.
+After initial deployment, the Companion app will warn you if you have not setup authentication to protect the interface.  
+
+The recommented approach is to add github as a auth provider by following the onscreen prompts.
+
+Once protected, you can follow the quick guides below for your scenario.
 
 <table>
 <thead>

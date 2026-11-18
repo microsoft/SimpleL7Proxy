@@ -460,7 +460,16 @@
                                                         <ConfigurationHelp Section='@(setting.Key.Contains(":Security:", StringComparison.OrdinalIgnoreCase) ? "Security" : setting.Section)' Topic="@setting.Name">@setting.Key</ConfigurationHelp>
                                                     </td>
                                                     <td class="font-monospace text-break">@DisplayLoadedValue(setting.LoadedValue)</td>
-                                                    <td class="font-monospace text-break">@DisplayLoadedValue(setting.DraftValue)</td>
+                                                    <td class="font-monospace text-break">
+                                                        @if (setting.IsDeleted)
+                                                        {
+                                                            <span class="badge text-bg-danger">Delete host</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @DisplayLoadedValue(setting.DraftValue)
+                                                        }
+                                                    </td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -470,7 +479,7 @@
                         }
                         else if (IsHostSection)
                         {
-                            <HostSectionEditor Hosts="SelectedSettings" Settings="Settings" Label="@Label" OnHostCreated="AddCreatedHost" />
+                            <HostSectionEditor Hosts="SelectedSettings" Settings="Settings" Label="@Label" OnHostCreated="AddCreatedHost" OnChanged="StateHasChanged" />
                         }
                         else if (IsProxyRuntimeSection)
                         {
@@ -1087,7 +1096,7 @@
         CloseSection();
         Settings = _allSettings
             .Where(setting => string.Equals(setting.Label, Label ?? string.Empty, StringComparison.Ordinal))
-            .Select(setting => setting with { DraftValue = setting.LoadedValue, IsNew = false })
+            .Select(setting => setting with { IsNew = false })
             .ToList();
         // Older labels predate Tokenomics, so stage only its missing keys for the normal Update flow.
         var existingKeys = Settings

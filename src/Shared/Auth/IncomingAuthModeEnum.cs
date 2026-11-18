@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.Config
+namespace Shared.Auth
 {
     public enum IncomingAuthModeEnum
     {

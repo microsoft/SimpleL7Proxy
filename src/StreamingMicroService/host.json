@@ -1,6 +1,10 @@
 {
     "version": "2.0",
     "logging": {
+        "logLevel": {
+            "Function.process": "Warning",
+            "Function.process.User": "Warning"
+        },
         "applicationInsights": {
             "samplingSettings": {
                 "isEnabled": true,

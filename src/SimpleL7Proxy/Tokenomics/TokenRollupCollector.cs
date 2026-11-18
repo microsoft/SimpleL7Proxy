@@ -122,6 +122,10 @@ public sealed class TokenRollupCollector : BackgroundService, IConfigChangeSubsc
 
         var replicaId = string.IsNullOrWhiteSpace(_options.ReplicaName) ? "DEV" : _options.ReplicaName!;
         var httpClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(10) };
+
+        if ( _transmitter?.IsRunning() == true )
+            return;
+
         _transmitter = new TokenomicsTransmitter(metricsServerUri, replicaId, httpClient);
     }
 

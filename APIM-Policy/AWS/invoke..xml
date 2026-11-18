@@ -1,0 +1,96 @@
+<policies>
+	<inbound>
+		<base />
+		<set-variable name="awsAccessKey" value="{{AWS_ACCESS_KEY_ID}}" />
+		<set-variable name="awsSecretKey" value="{{AWS_SECRET_ACCESS_KEY}}" />
+		<set-variable name="awsSessionToken" value="" />
+		<set-variable name="awsRegion" value="us-east-1" />
+		<set-variable name="awsService" value="bedrock" />
+		<set-variable name="awsModelId" value="us.anthropic.claude-opus-4-5-20251101-v1:0" />
+		<set-variable name="awsDateTime" value='@(DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ"))' />
+		<set-variable name="awsHost" value='@("bedrock-runtime." + (string)context.Variables["awsRegion"] + ".amazonaws.com")' />
+		<set-variable name="awsPath" value='@("/model/" + Uri.EscapeDataString((string)context.Variables["awsModelId"]) + "/invoke")' />
+		<set-backend-service backend-id="aws" />
+		<set-method>POST</set-method>
+		<rewrite-uri template='@((string)context.Variables["awsPath"])' copy-unmatched-params="false" />
+		<set-header name="Content-Type" exists-action="override">
+			<value>application/json</value>
+		</set-header>
+		<set-header name="Host" exists-action="override">
+			<value>@((string)context.Variables["awsHost"])</value>
+		</set-header>
+		<set-header name="X-Amz-Date" exists-action="override">
+			<value>@((string)context.Variables["awsDateTime"])</value>
+		</set-header>
+		<set-header name="X-Amz-Content-Sha256" exists-action="delete" />
+		<choose>
+			<when condition='@(!string.IsNullOrEmpty((string)context.Variables["awsSessionToken"]))'>
+				<set-header name="X-Amz-Security-Token" exists-action="override">
+					<value>@((string)context.Variables["awsSessionToken"])</value>
+				</set-header>
+			</when>
+			<otherwise>
+				<set-header name="X-Amz-Security-Token" exists-action="delete" />
+			</otherwise>
+		</choose>
+		<set-header name="Authorization" exists-action="override">
+			<value>@{
+				string accessKey = (string)context.Variables["awsAccessKey"];
+				string secretKey = (string)context.Variables["awsSecretKey"];
+				string sessionToken = (string)context.Variables["awsSessionToken"];
+				string region = (string)context.Variables["awsRegion"];
+				string service = (string)context.Variables["awsService"];
+				string datetime = (string)context.Variables["awsDateTime"];
+				string date = datetime.Substring(0, 8);
+				string host = (string)context.Variables["awsHost"];
+				string path = (string)context.Variables["awsPath"];
+				string canonicalPath = string.Join("/", path.Split('/').Select(segment => Uri.EscapeDataString(segment)));
+				byte[] payload = context.Request.Body == null ? new byte[0] : context.Request.Body.As&lt;byte[]&gt;(preserveContent: true);
+
+				using (var sha = System.Security.Cryptography.SHA256.Create()) {
+					string payloadHash = BitConverter.ToString(sha.ComputeHash(payload)).Replace("-", "").ToLowerInvariant();
+					string canonicalHeaders = "content-type:application/json\nhost:" + host + "\nx-amz-date:" + datetime + "\n";
+					string signedHeaders = "content-type;host;x-amz-date";
+					if (!string.IsNullOrEmpty(sessionToken)) {
+						canonicalHeaders += "x-amz-security-token:" + sessionToken + "\n";
+						signedHeaders += ";x-amz-security-token";
+					}
+					string canonicalRequest = string.Join("\n", "POST", canonicalPath, "", canonicalHeaders, signedHeaders, payloadHash);
+					string credentialScope = date + "/" + region + "/" + service + "/aws4_request";
+					string canonicalRequestHash = BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(canonicalRequest))).Replace("-", "").ToLowerInvariant();
+					string stringToSign = string.Join("\n", "AWS4-HMAC-SHA256", datetime, credentialScope, canonicalRequestHash);
+
+					byte[] dateKey;
+					using (var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes("AWS4" + secretKey))) {
+						dateKey = hmac.ComputeHash(Encoding.UTF8.GetBytes(date));
+					}
+					byte[] regionKey;
+					using (var hmac = new System.Security.Cryptography.HMACSHA256(dateKey)) {
+						regionKey = hmac.ComputeHash(Encoding.UTF8.GetBytes(region));
+					}
+					byte[] serviceKey;
+					using (var hmac = new System.Security.Cryptography.HMACSHA256(regionKey)) {
+						serviceKey = hmac.ComputeHash(Encoding.UTF8.GetBytes(service));
+					}
+					byte[] signingKey;
+					using (var hmac = new System.Security.Cryptography.HMACSHA256(serviceKey)) {
+						signingKey = hmac.ComputeHash(Encoding.UTF8.GetBytes("aws4_request"));
+					}
+					using (var hmac = new System.Security.Cryptography.HMACSHA256(signingKey)) {
+						string signature = BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(stringToSign))).Replace("-", "").ToLowerInvariant();
+						return "AWS4-HMAC-SHA256 Credential=" + accessKey + "/" + credentialScope + ", SignedHeaders=" + signedHeaders + ", Signature=" + signature;
+					}
+				}
+			}</value>
+		</set-header>
+	</inbound>
+	<backend>
+		<base />
+	</backend>
+	<outbound>
+		<base />
+	</outbound>
+	<on-error>
+		<base />
+	</on-error>
+</policies>

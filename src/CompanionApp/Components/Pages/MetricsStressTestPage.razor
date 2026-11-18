@@ -1,0 +1,245 @@
+@page "/metrics-stress-test"
+@namespace CompanionApp.Components.Pages
+@rendermode InteractiveServer
+@implements IDisposable
+@using System.Diagnostics
+
+<PageTitle>Metrics server stress test</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <h1 class="h4 mb-0">Metrics server stress test</h1>
+</SectionContent>
+
+<div class="metrics-load">
+    <form class="metrics-load-inputs" @onsubmit="RunAsync" @onsubmit:preventDefault>
+        <div>
+            <label class="form-label" for="metrics-load-url">Metrics server URL</label>
+            <input id="metrics-load-url" class="form-control" type="url" required @bind="_url" disabled="@_running" placeholder="https://metrics.example.com/stats" />
+        </div>
+        <div>
+            <label class="form-label" for="metrics-load-concurrency">Concurrent requests</label>
+            <input id="metrics-load-concurrency" class="form-control" type="number" min="1" max="2000" required @bind="_concurrency" disabled="@_running" />
+        </div>
+        <div>
+            <label class="form-label" for="metrics-load-total">Total requests</label>
+            <input id="metrics-load-total" class="form-control" type="number" min="1" max="10000000" required @bind="_total" disabled="@_running" />
+        </div>
+        <div class="d-flex gap-2 align-items-end">
+            <button type="submit" class="btn btn-primary" disabled="@(_running || !RendererInfo.IsInteractive)">Run test</button>
+            <button type="button" class="btn btn-outline-danger" disabled="@(!_running || _cancellation?.IsCancellationRequested == true)" @onclick="Stop">Stop</button>
+        </div>
+    </form>
+
+    <p class="mt-3 mb-3" role="status">@_status</p>
+    @if (_validationError is not null)
+    {
+        <p class="text-danger" role="alert">@_validationError</p>
+    }
+
+    <dl class="metrics-load-summary">
+        <div><dt>Total time</dt><dd>@_elapsed.TotalSeconds.ToString("N3") <small>s</small></dd></div>
+        <div><dt>Completed</dt><dd>@_completed.ToString("N0") / @_target.ToString("N0")</dd></div>
+        <div><dt>Successful</dt><dd>@_successful.ToString("N0")</dd></div>
+        <div><dt>Failed</dt><dd>@_failed.ToString("N0")</dd></div>
+        <div><dt>Canceled</dt><dd>@_canceled.ToString("N0")</dd></div>
+        <div><dt>Average requests/s</dt><dd>@(_elapsed.TotalSeconds > 0 ? (_completed / _elapsed.TotalSeconds).ToString("N1") : "0")</dd></div>
+    </dl>
+
+    <section class="metrics-load-chart" aria-labelledby="metrics-load-chart-heading">
+        <h2 id="metrics-load-chart-heading" class="h6">Completed requests per second</h2>
+        <svg viewBox="0 0 800 260" role="img" aria-labelledby="metrics-load-chart-title" preserveAspectRatio="xMidYMid meet">
+            <title id="metrics-load-chart-title">Completed requests per second over elapsed test time, including failed requests</title>
+            <line x1="65" y1="20" x2="65" y2="220" stroke="currentColor" />
+            <line x1="65" y1="220" x2="780" y2="220" stroke="currentColor" />
+            <line x1="65" y1="120" x2="780" y2="120" stroke="currentColor" opacity="0.15" />
+            <text x="56" y="25" text-anchor="end">@_chartMaximum.ToString("N0")</text>
+            <text x="56" y="125" text-anchor="end">@((_chartMaximum / 2).ToString("N0"))</text>
+            <text x="56" y="224" text-anchor="end">0</text>
+            <text x="65" y="246">0 s</text>
+            <text x="780" y="246" text-anchor="end">@_elapsed.TotalSeconds.ToString("N2") s</text>
+            @if (_chartPoints.Length > 0)
+            {
+                <polyline points="@_chartPoints" fill="none" stroke="#087e8b" stroke-width="2.5" />
+            }
+        </svg>
+        @if (_target == 0)
+        {
+            <p class="text-muted small">No test results.</p>
+        }
+    </section>
+    <details class="mt-3">
+        <summary>Details</summary>
+        <p class="small mt-2">GET requests originate from the Companion App server. Responses are read completely. Redirects and retries are disabled; each request has a 30-second timeout. Successful requests return HTTP 2xx. The graph includes successful and failed completions, excludes canceled requests, and averages longer runs into at most 120 time intervals.</p>
+        @if (_lastError is not null)
+        {
+            <p class="text-danger small">Last failure: @_lastError</p>
+        }
+    </details>
+</div>
+
+<style>
+    .metrics-load { max-width: 90rem; min-width: 0; }
+    .metrics-load-inputs { display: grid; grid-template-columns: minmax(15rem, 3fr) repeat(2, minmax(10rem, 1fr)) auto; gap: 1rem; align-items: end; }
+    .metrics-load-inputs > div { min-width: 0; }
+    .metrics-load-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding-block: 1rem; border-block: 1px solid var(--bs-border-color, #dee2e6); }
+    .metrics-load-summary dt { font-size: 0.875rem; font-weight: 400; color: var(--bs-secondary-color, #595959); }
+    .metrics-load-summary dd { margin: 0.25rem 0 0; font-size: 1.25rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .metrics-load-summary small { font-size: 0.875rem; }
+    .metrics-load-chart { padding-top: 1rem; }
+    .metrics-load-chart svg { display: block; width: 100%; aspect-ratio: 800 / 260; overflow: visible; }
+    .metrics-load-chart text { fill: currentColor; font-size: 12px; }
+    @@media (max-width: 1100px) { .metrics-load-inputs { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metrics-load-inputs > div:first-child { grid-column: 1 / -1; } }
+    @@media (max-width: 575.98px) { .metrics-load-inputs { grid-template-columns: minmax(0, 1fr); } .metrics-load-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metrics-load-chart text { font-size: 20px; } }
+</style>
+
+@code {
+    private string _url = string.Empty;
+    private int _concurrency = 10;
+    private int _total = 1000;
+    private int _target;
+    private bool _running;
+    private bool _disposed;
+    private int _completed;
+    private int _successful;
+    private int _failed;
+    private int _canceled;
+    private TimeSpan _elapsed;
+    private string _status = "Ready.";
+    private string? _validationError;
+    private string? _lastError;
+    private string _chartPoints = string.Empty;
+    private double _chartMaximum = 1;
+    private CancellationTokenSource? _cancellation;
+
+    private async Task RunAsync() {
+        if (_running || _disposed) return;
+        _validationError = null;
+        if (!Uri.TryCreate(_url.Trim(), UriKind.Absolute, out var endpoint)
+            || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps)
+            || !string.IsNullOrEmpty(endpoint.UserInfo) || !string.IsNullOrEmpty(endpoint.Fragment)) {
+            _validationError = "Enter an absolute HTTP or HTTPS endpoint URL without embedded credentials or a fragment.";
+            return;
+        }
+        if (_concurrency < 1 || _concurrency > 2000 || _total < 1 || _total > 10000000) {
+            _validationError = "Concurrent requests must be 1-2,000 and total requests must be 1-10,000,000.";
+            return;
+        }
+
+        _running = true;
+        _target = _total;
+        _completed = _successful = _failed = _canceled = 0;
+        _elapsed = TimeSpan.Zero;
+        _lastError = null;
+        _chartPoints = string.Empty;
+        _chartMaximum = 1;
+        _status = "Running...";
+        using var cancellation = new CancellationTokenSource();
+        _cancellation = cancellation;
+        var token = cancellation.Token;
+        var concurrency = Math.Min(_concurrency, _target);
+        var target = _target;
+        var gate = new object();
+        var buckets = new Dictionary<int, int>();
+        var next = 0;
+        var successful = 0;
+        var failed = 0;
+        var canceled = 0;
+        string? lastError = null;
+        using var handler = new SocketsHttpHandler { AllowAutoRedirect = false, MaxConnectionsPerServer = concurrency, UseCookies = false };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        var stopwatch = Stopwatch.StartNew();
+
+        var workers = Enumerable.Range(0, concurrency).Select(_ => Task.Run(async () => {
+            while (!token.IsCancellationRequested && Interlocked.Increment(ref next) <= target) {
+                var success = false;
+                string? error = null;
+                try {
+                    using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    requestTimeout.CancelAfter(TimeSpan.FromSeconds(30));
+                    using var response = await client.GetAsync(endpoint, HttpCompletionOption.ResponseHeadersRead, requestTimeout.Token);
+                    await response.Content.CopyToAsync(Stream.Null, requestTimeout.Token);
+                    success = response.IsSuccessStatusCode;
+                    if (!success) error = $"HTTP {(int)response.StatusCode}";
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) {
+                    lock (gate) { canceled++; }
+                    break;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or System.IO.IOException) {
+                    error = ex is OperationCanceledException ? "Request timed out after 30 seconds." : ex.Message;
+                }
+                lock (gate) {
+                    if (success) successful++;
+                    else { failed++; lastError = error; }
+                    var second = (int)stopwatch.Elapsed.TotalSeconds;
+                    buckets[second] = buckets.GetValueOrDefault(second) + 1;
+                }
+            }
+        })).ToArray();
+        var allWorkers = Task.WhenAll(workers);
+
+        try {
+            while (!allWorkers.IsCompleted) {
+                await Task.WhenAny(allWorkers, Task.Delay(250));
+                if (_disposed) break;
+                lock (gate) {
+                    _successful = successful;
+                    _failed = failed;
+                    _canceled = canceled;
+                    _lastError = lastError;
+                    _completed = successful + failed;
+                    _elapsed = stopwatch.Elapsed;
+                    UpdateChart(buckets);
+                }
+                StateHasChanged();
+            }
+            await allWorkers;
+            _status = token.IsCancellationRequested ? "Stopped." : "Completed.";
+        }
+        catch (Exception ex) {
+            _status = "Test stopped because of an unexpected error.";
+            _lastError = ex.Message;
+        }
+        finally {
+            stopwatch.Stop();
+            _elapsed = stopwatch.Elapsed;
+            lock (gate) {
+                _successful = successful;
+                _failed = failed;
+                _canceled = canceled;
+                _completed = successful + failed;
+                if (lastError is not null) _lastError = lastError;
+                UpdateChart(buckets);
+            }
+            _running = false;
+            _cancellation = null;
+        }
+    }
+
+    private void UpdateChart(Dictionary<int, int> buckets) {
+        var duration = Math.Max(_elapsed.TotalSeconds, 0.001);
+        var interval = Math.Max(1, (int)Math.Ceiling(duration / 120));
+        var rates = new List<(double Start, double End, double Rate)>();
+        for (var start = 0; start < duration; start += interval) {
+            var end = Math.Min(start + interval, duration);
+            var count = 0;
+            for (var second = start; second < start + interval; second++) count += buckets.GetValueOrDefault(second);
+            rates.Add((start, end, count / (end - start)));
+        }
+        _chartMaximum = Math.Max(1, Math.Ceiling(rates.Max(sample => sample.Rate)));
+        _chartPoints = string.Join(" ", rates.SelectMany(sample => new[] {
+            FormattableString.Invariant($"{65 + 715 * sample.Start / duration:F2},{220 - 200 * sample.Rate / _chartMaximum:F2}"),
+            FormattableString.Invariant($"{65 + 715 * sample.End / duration:F2},{220 - 200 * sample.Rate / _chartMaximum:F2}")
+        }));
+    }
+
+    private void Stop() {
+        _status = "Stopping...";
+        _cancellation?.Cancel();
+    }
+
+    public void Dispose() {
+        _disposed = true;
+        _cancellation?.Cancel();
+    }
+}

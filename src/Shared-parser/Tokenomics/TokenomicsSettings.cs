@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using SimpleL7Proxy.Extensions;
+using SharedParser.Tokenomics.LLM.Catalog;
 
 namespace SimpleL7Proxy.Tokenomics;
 
@@ -8,22 +9,22 @@ namespace SimpleL7Proxy.Tokenomics;
 public class TokenomicsSettings
 {
     /// <summary>Gets or sets the default token limits and USD budgets, serialized using their unprefixed property names.</summary>
-    public TokenomicsLimits DefaultLimits { get; set; } = new();
+    public LimitsAndBudgets DefaultLimitsAndBudgets { get; set; } = new();
     /// <summary>Gets or sets default actions, serialized using their unprefixed property names.</summary>
-    public TokenomicsLimitActions DefaultLimitActions { get; set; } = new();
-    /// <summary>Gets or sets premium workload limits, serialized as PremiumWorkloadLimits.Field=value.</summary>
-    public TokenomicsLimits PremiumWorkloadLimits { get; set; } = new();
-    /// <summary>Gets or sets premium workload actions, serialized as PremiumWorkloadLimitActions.Field=value.</summary>
-    public TokenomicsLimitActions PremiumWorkloadLimitActions { get; set; } = new();
-    /// <summary>Gets or sets critical workload limits, serialized as CriticalWorkloadLimits.Field=value.</summary>
-    public TokenomicsLimits CriticalWorkloadLimits { get; set; } = new();
-    /// <summary>Gets or sets critical workload actions, serialized as CriticalWorkloadLimitActions.Field=value.</summary>
-    public TokenomicsLimitActions CriticalWorkloadLimitActions { get; set; } = new();
+    public ExceededActions DefaultExceededActions { get; set; } = new();
+    /// <summary>Gets or sets premium workload limits, serialized as PremiumLimitsAndBudgets.Field=value.</summary>
+    public LimitsAndBudgets PremiumLimitsAndBudgets { get; set; } = new();
+    /// <summary>Gets or sets premium workload actions, serialized as PremiumExceedActions.Field=value.</summary>
+    public ExceededActions PremiumExceedActions { get; set; } = new();
+    /// <summary>Gets or sets privileged workload limits, serialized as PrivilegedLimitsAndBudgets.Field=value.</summary>
+    public LimitsAndBudgets PrivilegedLimitsAndBudgets { get; set; } = new();
+    /// <summary>Gets or sets privileged workload actions, serialized as PrivilegedExceedActions.Field=value.</summary>
+    public ExceededActions PrivilegedExceedActions { get; set; } = new();
 
 
     /// <summary>Gets or sets token limits and USD budgets keyed by model name.</summary>
-    public Dictionary<string, TokenomicsLimits> ModelLimits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public Dictionary<string, TokenomicsLimitActions> ModelLimitActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, LimitsAndBudgets> ModelLimitsAndBudgets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ExceededActions> ModelExceedActions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets or sets the delay duration in milliseconds.</summary>
     public int DelayDuration { get; set; } = (int)TimeSpan.FromSeconds(10).TotalMilliseconds;
@@ -37,17 +38,17 @@ public class TokenomicsSettings
     public int CriticalPriority { get; set; }=1;
     public int HighPriority { get; set; }=2;
 
-    /// <summary>Gets or sets the tenant used when a request does not provide one.</summary>
-    public string DefaultTenant { get; set; } = "Contoso";
+    /// <summary>Gets or sets the default workload used when a request does not provide one.</summary>
+    public string DefaultWorkload { get; set; } = "Contoso";
 
     /// <summary>Gets or sets the default model name; an empty value leaves it unconfigured.</summary>
     public string DefaultModel { get; set; } = string.Empty;
-    public string DefaultModelAPI { get; set; } = string.Empty;
+    public LLMApiEnum DefaultModelAPI { get; set; } = LLMApiEnum.Unknown;
 
     /// <summary>Gets or sets input, cached-input, and output USD prices per token for each priced model; unlisted models are excluded from spend totals.</summary>
     public Dictionary<string, ModelTokenPricing> ModelCostPerToken { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Gets or sets model lists keyed by hierarchy prefix.</summary>
-    public Dictionary< string, List<string>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, List<ModelHierarchyEntry>> ModelHierarchy { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, TokenomicsHostOptions> HostOptions { get; set; } = new();
     
@@ -120,8 +121,8 @@ public class TokenomicsSettings
     /// <summary>
     /// Applies recognized comma- or semicolon-separated key=value pairs. Unprefixed limit and action
     /// keys target defaults; workload keys use their container name, such as
-    /// CriticalWorkloadLimitActions.DailyLimitAction=bypass or PremiumWorkloadLimits.DailyTokenLimit=5000.
-    /// Model overrides retain ModelLimits=model=Field:value and ModelLimitActions=model=Field:value syntax.
+    /// PrivilegedExceedActions.DailyLimitAction=bypass or PremiumLimitsAndBudgets.DailyTokenLimit=5000.
+    /// Model overrides use ModelLimitsAndBudgets=model=Field:value and ModelExceedActions=model=Field:value syntax.
     /// Omitted or invalid fields retain their existing values. Invalid entries are skipped and reported
     /// in IgnoredFields; a failed compound entry cannot apply partial changes. Returns false only for
     /// empty input or input that cannot be split into entries.
@@ -253,8 +254,8 @@ public class TokenomicsSettings
             return TryParseModelHostOptions(value);
         }
 
-        if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)
-            || key.Equals(nameof(ModelLimitActions), StringComparison.OrdinalIgnoreCase)) {
+        if (key.Equals(nameof(ModelLimitsAndBudgets), StringComparison.OrdinalIgnoreCase)
+            || key.Equals(nameof(ModelExceedActions), StringComparison.OrdinalIgnoreCase)) {
             if (!TrySplitKeyValue(value, out var encodedModel, out var encodedFields)) {
                 return false;
             }
@@ -265,16 +266,16 @@ public class TokenomicsSettings
             }
 
             object modelOptions;
-            if (key.Equals(nameof(ModelLimits), StringComparison.OrdinalIgnoreCase)) {
-                if (!ModelLimits.TryGetValue(model, out var limits)) {
-                    limits = new TokenomicsLimits();
-                    ModelLimits[model] = limits;
+            if (key.Equals(nameof(ModelLimitsAndBudgets), StringComparison.OrdinalIgnoreCase)) {
+                if (!ModelLimitsAndBudgets.TryGetValue(model, out var limits)) {
+                    limits = new LimitsAndBudgets();
+                    ModelLimitsAndBudgets[model] = limits;
                 }
                 modelOptions = limits;
             } else {
-                if (!ModelLimitActions.TryGetValue(model, out var actions)) {
-                    actions = new TokenomicsLimitActions();
-                    ModelLimitActions[model] = actions;
+                if (!ModelExceedActions.TryGetValue(model, out var actions)) {
+                    actions = new ExceededActions();
+                    ModelExceedActions[model] = actions;
                 }
                 modelOptions = actions;
             }
@@ -298,14 +299,27 @@ public class TokenomicsSettings
         if (dotIndex >= 0) {
             var scope = SettableProperties.FirstOrDefault(property =>
                 property.Name.Equals(key[..dotIndex], StringComparison.OrdinalIgnoreCase)
-                && (property.Name is nameof(PremiumWorkloadLimits) or nameof(PremiumWorkloadLimitActions)
-                    or nameof(CriticalWorkloadLimits) or nameof(CriticalWorkloadLimitActions)));
+                && (property.Name is nameof(PremiumLimitsAndBudgets) or nameof(PremiumExceedActions)
+                    or nameof(PrivilegedLimitsAndBudgets) or nameof(PrivilegedExceedActions)));
             return scope?.GetValue(this) is { } target
                 && TryParseScalar(key[(dotIndex + 1)..], value, target);
         }
 
         if (key.Equals(nameof(ModelHierarchy), StringComparison.OrdinalIgnoreCase)) {
             return TryParseHierarchy(value);
+        }
+
+        if (key.Equals(nameof(DefaultModelAPI), StringComparison.OrdinalIgnoreCase)) {
+            var apiName = Uri.UnescapeDataString(value);
+            if (apiName.Length == 0) {
+                DefaultModelAPI = LLMApiEnum.Unknown;
+                return true;
+            }
+            if (!LLMApiEnumParser.TryParse(apiName, out var api)) {
+                return false;
+            }
+            DefaultModelAPI = api;
+            return true;
         }
 
         if (key.Equals(nameof(DelayDuration), StringComparison.OrdinalIgnoreCase)) {
@@ -363,7 +377,7 @@ public class TokenomicsSettings
     private static bool TryParseHostOptionValue(string encodedOptions, out TokenomicsHostOptions hostOptions) {
         hostOptions = null!;
         bool? enabled = null;
-        var apis = new Dictionary<string, TokenomicsApiOptions>(StringComparer.OrdinalIgnoreCase);
+        var apis = new Dictionary<LLMApiEnum, TokenomicsApiOptions>();
         foreach (var optionPart in encodedOptions.Split('|', StringSplitOptions.TrimEntries)) {
             var optionFields = optionPart.Split(':', 5, StringSplitOptions.None);
             if (optionFields.Length == 2 &&
@@ -378,8 +392,7 @@ public class TokenomicsSettings
 
             if (optionFields.Length is >= 3 and <= 5 &&
                 optionFields[0].Equals("Api", StringComparison.OrdinalIgnoreCase)) {
-                var apiName = Uri.UnescapeDataString(optionFields[1]);
-                if (string.IsNullOrWhiteSpace(apiName) ||
+                if (!LLMApiEnumParser.TryParse(Uri.UnescapeDataString(optionFields[1]), out var apiName) ||
                     !bool.TryParse(optionFields[2], out var firstFlag) ||
                     apis.ContainsKey(apiName)) {
                     return false;
@@ -487,7 +500,7 @@ public class TokenomicsSettings
     }
 
     private bool TryParseHierarchy(string value) {
-        var hierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var hierarchy = new Dictionary<string, List<ModelHierarchyEntry>>(StringComparer.OrdinalIgnoreCase);
         var hierarchyIndex = 0;
 
                 while (hierarchyIndex < value.Length) {
@@ -520,16 +533,29 @@ public class TokenomicsSettings
                         return false;
                     }
 
-                    var models = new List<string>();
+                    var models = new List<ModelHierarchyEntry>();
                     var encodedModels = value[(hierarchyIndex + 1)..closeBracketIndex].Trim();
                     if (encodedModels.Length > 0) {
                         foreach (var encodedModel in encodedModels.Split(',', StringSplitOptions.TrimEntries)) {
-                            var model = Uri.UnescapeDataString(encodedModel);
+                            var fields = encodedModel.Split('|');
+                            if (fields.Length > 2) {
+                                return false;
+                            }
+                            var model = Uri.UnescapeDataString(fields[0]);
                             if (string.IsNullOrWhiteSpace(model)) {
                                 return false;
                             }
 
-                            models.Add(model);
+                            var apiName = LLMApiEnum.Unknown;
+                            if (fields.Length == 2 && fields[1].Length > 0
+                                && !LLMApiEnumParser.TryParse(Uri.UnescapeDataString(fields[1]), out apiName)) {
+                                return false;
+                            }
+
+                            models.Add(new ModelHierarchyEntry {
+                                Model = model,
+                                APIName = apiName
+                            });
                         }
                     }
 
@@ -616,9 +642,9 @@ public class TokenomicsSettings
             ? target.GetType().GetProperty(key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
             : typeof(TokenomicsSettings).GetProperty(key,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-            ?? typeof(TokenomicsLimits).GetProperty(key,
+            ?? typeof(LimitsAndBudgets).GetProperty(key,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-            ?? typeof(TokenomicsLimitActions).GetProperty(key,
+            ?? typeof(ExceededActions).GetProperty(key,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
         if (property?.SetMethod is null) {
             return false;
@@ -654,8 +680,8 @@ public class TokenomicsSettings
                 return false;
             }
 
-        property.SetValue(target ?? (property.DeclaringType == typeof(TokenomicsLimits) ? (object)DefaultLimits
-            : property.DeclaringType == typeof(TokenomicsLimitActions) ? DefaultLimitActions : this), parsedValue);
+        property.SetValue(target ?? (property.DeclaringType == typeof(LimitsAndBudgets) ? (object)DefaultLimitsAndBudgets
+            : property.DeclaringType == typeof(ExceededActions) ? DefaultExceededActions : this), parsedValue);
         return true;
     }
 
@@ -667,25 +693,25 @@ public class TokenomicsSettings
                 continue;
             }
 
-            if (property.Name == nameof(DefaultLimits)) {
-                foreach (var limitProperty in typeof(TokenomicsLimits).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
-                    parts.Add($"{limitProperty.Name}={FormatScalar(limitProperty.GetValue(DefaultLimits)!)}");
+            if (property.Name == nameof(DefaultLimitsAndBudgets)) {
+                foreach (var limitProperty in typeof(LimitsAndBudgets).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                    parts.Add($"{limitProperty.Name}={FormatScalar(limitProperty.GetValue(DefaultLimitsAndBudgets)!)}");
                 }
-            } else if (property.Name == nameof(DefaultLimitActions)) {
-                foreach (var actionProperty in typeof(TokenomicsLimitActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
-                    parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultLimitActions)!)}");
+            } else if (property.Name == nameof(DefaultExceededActions)) {
+                foreach (var actionProperty in typeof(ExceededActions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+                    parts.Add($"{actionProperty.Name}={FormatScalar(actionProperty.GetValue(DefaultExceededActions)!)}");
                 }
-            } else if (property.PropertyType == typeof(TokenomicsLimits)
-                || property.PropertyType == typeof(TokenomicsLimitActions)) {
+            } else if (property.PropertyType == typeof(LimitsAndBudgets)
+                || property.PropertyType == typeof(ExceededActions)) {
                 var scope = property.GetValue(this)
                     ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
                 foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                     parts.Add($"{property.Name}.{field.Name}={FormatScalar(field.GetValue(scope)!)}");
                 }
-            } else if (property.Name is nameof(ModelLimits) or nameof(ModelLimitActions)) {
-                var modelOptions = property.Name == nameof(ModelLimits)
-                    ? ModelLimits.Select(entry => (Model: entry.Key, Value: (object)entry.Value))
-                    : ModelLimitActions.Select(entry => (Model: entry.Key, Value: (object)entry.Value));
+            } else if (property.Name is nameof(ModelLimitsAndBudgets) or nameof(ModelExceedActions)) {
+                var modelOptions = property.Name == nameof(ModelLimitsAndBudgets)
+                    ? ModelLimitsAndBudgets.Select(entry => (Model: entry.Key, Value: (object)entry.Value))
+                    : ModelExceedActions.Select(entry => (Model: entry.Key, Value: (object)entry.Value));
                 foreach (var entry in modelOptions) {
                     if (string.IsNullOrWhiteSpace(entry.Model) || entry.Value is null) {
                         throw new InvalidOperationException($"{property.Name} model names and values cannot be null or whitespace.");
@@ -694,7 +720,10 @@ public class TokenomicsSettings
                         .Select(field => $"{field.Name}:{FormatScalar(field.GetValue(entry.Value)!)}");
                     parts.Add($"{property.Name}={Uri.EscapeDataString(entry.Model)}={string.Join("|", fields)}");
                 }
-            } else if (property.Name is nameof(DefaultTenant) or nameof(DefaultModel) or nameof(DefaultModelAPI)) {
+            } else if (property.Name == nameof(DefaultModelAPI)) {
+                parts.Add($"{property.Name}={Uri.EscapeDataString(DefaultModelAPI == LLMApiEnum.Unknown
+                    ? string.Empty : LLMApiEnumParser.ToDisplayName(DefaultModelAPI))}");
+            } else if (property.Name is nameof(DefaultWorkload) or nameof(DefaultModel)) {
                 parts.Add($"{property.Name}={Uri.EscapeDataString((string?)property.GetValue(this) ?? string.Empty)}");
             } else if (property.Name == nameof(DelayDuration)) {
                 parts.Add($"{property.Name}={FormatDelayDuration()}");
@@ -753,7 +782,9 @@ public class TokenomicsSettings
 
     private string FormatHierarchy() {
         return string.Join(", ", ModelHierarchy.Select(entry =>
-            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(Uri.EscapeDataString))}]"));
+            $"{Uri.EscapeDataString(entry.Key)}: [{string.Join(", ", entry.Value.Select(destination =>
+                $"{Uri.EscapeDataString(destination.Model)}|{Uri.EscapeDataString(destination.APIName == LLMApiEnum.Unknown
+                    ? string.Empty : LLMApiEnumParser.ToDisplayName(destination.APIName))}"))}]"));
     }
 
     private void FormatHostOptions(List<string> parts) {
@@ -798,7 +829,7 @@ public class TokenomicsSettings
             $"{nameof(TokenomicsHostOptions.Enabled)}:{hostOptions.Enabled.ToString().ToLowerInvariant()}"
         };
         foreach (var (apiName, apiOptions) in hostOptions.APIs) {
-            if (string.IsNullOrWhiteSpace(apiName) || apiOptions is null) {
+            if (apiName == LLMApiEnum.Unknown || !Enum.IsDefined(apiName) || apiOptions is null) {
                 throw new InvalidOperationException(
                     $"{settingName} API names and option values cannot be null or whitespace.");
             }
@@ -806,7 +837,7 @@ public class TokenomicsSettings
             var passThrough = apiOptions.PassThrough;
             var overridePath = !passThrough && apiOptions.OverridePath && apiOptions.Path is not null;
             var apiPart =
-                $"Api:{Uri.EscapeDataString(apiName)}:{passThrough.ToString().ToLowerInvariant()}:{overridePath.ToString().ToLowerInvariant()}";
+                $"Api:{Uri.EscapeDataString(LLMApiEnumParser.ToDisplayName(apiName))}:{passThrough.ToString().ToLowerInvariant()}:{overridePath.ToString().ToLowerInvariant()}";
             if (overridePath) {
                 apiPart += $":{Uri.EscapeDataString(apiOptions.Path!)}";
             }
@@ -831,32 +862,32 @@ public class TokenomicsSettings
     private TokenomicsSettings CloneForParse() {
         var clone = (TokenomicsSettings)MemberwiseClone();
         foreach (var property in SettableProperties.Where(property =>
-            property.PropertyType == typeof(TokenomicsLimits) || property.PropertyType == typeof(TokenomicsLimitActions))) {
+            property.PropertyType == typeof(LimitsAndBudgets) || property.PropertyType == typeof(ExceededActions))) {
             var source = property.GetValue(this)
                 ?? throw new InvalidOperationException($"{property.Name} cannot be null.");
-            object scope = property.PropertyType == typeof(TokenomicsLimits)
-                ? new TokenomicsLimits() : new TokenomicsLimitActions();
+            object scope = property.PropertyType == typeof(LimitsAndBudgets)
+                ? new LimitsAndBudgets() : new ExceededActions();
             foreach (var field in property.PropertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
                 field.SetValue(scope, field.GetValue(source));
             }
             property.SetValue(clone, scope);
         }
-        clone.ModelLimits = ModelLimits.ToDictionary(entry => entry.Key, entry => new TokenomicsLimits {
+        clone.ModelLimitsAndBudgets = ModelLimitsAndBudgets.ToDictionary(entry => entry.Key, entry => new LimitsAndBudgets {
             MonthlyTokenLimit = entry.Value.MonthlyTokenLimit,
             DailyTokenLimit = entry.Value.DailyTokenLimit,
             HourlyTokenLimit = entry.Value.HourlyTokenLimit,
             HourlyBudgetUsd = entry.Value.HourlyBudgetUsd,
             DailyBudgetUsd = entry.Value.DailyBudgetUsd,
             MonthlyBudgetUsd = entry.Value.MonthlyBudgetUsd
-        }, ModelLimits.Comparer);
-        clone.ModelLimitActions = ModelLimitActions.ToDictionary(entry => entry.Key, entry => new TokenomicsLimitActions {
+        }, ModelLimitsAndBudgets.Comparer);
+        clone.ModelExceedActions = ModelExceedActions.ToDictionary(entry => entry.Key, entry => new ExceededActions {
             HourlyLimitAction = entry.Value.HourlyLimitAction,
             DailyLimitAction = entry.Value.DailyLimitAction,
             MonthlyLimitAction = entry.Value.MonthlyLimitAction,
             HourlyBudgetExceededAction = entry.Value.HourlyBudgetExceededAction,
             DailyBudgetExceededAction = entry.Value.DailyBudgetExceededAction,
             MonthlyBudgetExceededAction = entry.Value.MonthlyBudgetExceededAction
-        }, ModelLimitActions.Comparer);
+        }, ModelExceedActions.Comparer);
         clone.ModelCostPerToken = new Dictionary<string, ModelTokenPricing>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in ModelCostPerToken) {
             clone.ModelCostPerToken[pair.Key] = new ModelTokenPricing {
@@ -866,9 +897,12 @@ public class TokenomicsSettings
             };
         }
 
-        clone.ModelHierarchy = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        clone.ModelHierarchy = new Dictionary<string, List<ModelHierarchyEntry>>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in ModelHierarchy) {
-            clone.ModelHierarchy[pair.Key] = [.. pair.Value];
+            clone.ModelHierarchy[pair.Key] = pair.Value.Select(destination => new ModelHierarchyEntry {
+                Model = destination.Model,
+                APIName = destination.APIName
+            }).ToList();
         }
 
         clone.HostOptions = new Dictionary<string, TokenomicsHostOptions>(HostOptions.Comparer);
@@ -890,7 +924,7 @@ public class TokenomicsSettings
     }
 
     private static TokenomicsHostOptions CloneHostOptions(TokenomicsHostOptions hostOptions) {
-        var clonedApis = new Dictionary<string, TokenomicsApiOptions>(hostOptions.APIs.Comparer);
+        var clonedApis = new Dictionary<LLMApiEnum, TokenomicsApiOptions>(hostOptions.APIs.Comparer);
         foreach (var (apiName, apiOptions) in hostOptions.APIs) {
             clonedApis[apiName] = new TokenomicsApiOptions {
                 PassThrough = apiOptions.PassThrough,

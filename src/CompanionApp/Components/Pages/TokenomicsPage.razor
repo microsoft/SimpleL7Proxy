@@ -47,7 +47,7 @@
                     }
                 </div>
             </div>
-            <label><span class="visually-hidden">Tenant</span><select aria-label="Tenant" @onchange="(ChangeEventArgs e) => SelectTenant((string?)e.Value)">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
+            <label><span class="visually-hidden">Workload</span><select aria-label="Workload" @onchange="(ChangeEventArgs e) => SelectTenant((string?)e.Value)">@foreach (var tenant in _snapshot.Tenants) { <option>@tenant</option> }</select></label>
             <label><span class="visually-hidden">User</span><select aria-label="User" @onchange="(ChangeEventArgs e) => SelectUser((string?)e.Value)">@foreach (var user in _snapshot.UserFilters) { <option>@user</option> }</select></label>
             <label><span class="visually-hidden">Model</span><select aria-label="Model" @onchange="(ChangeEventArgs e) => SelectModel((string?)e.Value)">@foreach (var model in _snapshot.ModelFilters) { <option>@model</option> }</select></label>
             <span class="tokenomics-appconfig-label" title="Current App Configuration label">

@@ -13,6 +13,7 @@
 
 <div class="tests-workspace">
     <nav class="nav nav-tabs tests-tabs" aria-label="Test type">
+        <a class="nav-link" href="metrics-stress-test">Metrics server stress test</a>
         <button class="nav-link @(ActiveTest == UrlTest ? "active" : string.Empty)" type="button"
                 aria-selected="@(ActiveTest == UrlTest)" @onclick="() => SelectTest(UrlTest)">
             URL test

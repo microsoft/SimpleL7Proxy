@@ -59,7 +59,7 @@ public sealed class ImageSyncComponentState(string name, string repositoryName)
     }
 
     public string? GetSynchronizationVersion() =>
-        SelectedForSynchronization && NeedsSynchronization ? SelectedVersion : null;
+        SelectedForSynchronization ? SelectedVersion : null;
 
     public void Refresh(
         IReadOnlyDictionary<string, string> sourceDigests,

@@ -162,7 +162,7 @@
                         <tr>
                             <th scope="col">Time (UTC)</th>
                             <th scope="col">User</th>
-                            <th scope="col">Tenant</th>
+                            <th scope="col">Workload</th>
                             <th scope="col">Model (Before / After)</th>
                             <th scope="col">Condition</th>
                             <th scope="col">Action</th>
@@ -179,7 +179,7 @@
                             <tr>
                                 <td title="@Field(decision, "TimestampUtc")">@TimeLabel(decision)</td>
                                 <td>@Field(decision, "UserId")</td>
-                                <td>@Field(decision, "Tenant")</td>
+                                <td>@Field(decision, "Workload")</td>
                                 <td>@Field(decision, "ModelBefore")<br />@Field(decision, "ModelAfter")</td>
                                 <td>@Field(decision, "PolicyCondition")</td>
                                 <td>@Field(decision, "PolicyAction")</td>
@@ -294,7 +294,7 @@
         _breakdowns = [
             BuildBreakdown("Policy Actions by Condition", "Top conditions across all action evaluations", "PolicyCondition", true),
             BuildBreakdown("Decisions by Model", "Latest policy outcome by requested model", "RequestedModel", false),
-            BuildBreakdown("Decisions by Tenant", "Latest policy outcome by tenant", "Tenant", false)
+            BuildBreakdown("Decisions by Workload", "Latest policy outcome by workload", "Workload", false)
         ];
         UpdateRows();
     }
@@ -373,10 +373,10 @@
             .ToImmutableArray();
         _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
         _visibleDecisions = _filteredDecisions.Skip(_pageIndex * PageSize).Take(PageSize).ToImmutableArray();
-        var csv = new StringBuilder("TimestampUtc,UserId,Tenant,RequestedModel,ModelBefore,ModelAfter,PriorityBefore,PriorityAfter,PolicyCondition,PolicyAction,Decision,ConfiguredAction,Tokens,PolicyVersion,Limits,OverrideFlags,MID,DecisionId,EvaluationSequence,BackendCallAllowed,LocalStatusCode,RetryAfterMs\r\n");
+        var csv = new StringBuilder("TimestampUtc,UserId,Workload,RequestedModel,ModelBefore,ModelAfter,PriorityBefore,PriorityAfter,PolicyCondition,PolicyAction,Decision,ConfiguredAction,Tokens,PolicyVersion,Limits,OverrideFlags,MID,DecisionId,EvaluationSequence,BackendCallAllowed,LocalStatusCode,RetryAfterMs\r\n");
         foreach (var fields in _filteredDecisions) {
             var values = new[] {
-                Field(fields, "TimestampUtc"), Field(fields, "UserId"), Field(fields, "Tenant"),
+                Field(fields, "TimestampUtc"), Field(fields, "UserId"), Field(fields, "Workload"),
                 Field(fields, "RequestedModel"), Field(fields, "ModelBefore"), Field(fields, "ModelAfter"),
                 Field(fields, "PriorityBefore"), Field(fields, "PriorityAfter"), Field(fields, "PolicyCondition"),
                 Field(fields, "PolicyAction"), Outcome(fields.GetValueOrDefault("Decision")),

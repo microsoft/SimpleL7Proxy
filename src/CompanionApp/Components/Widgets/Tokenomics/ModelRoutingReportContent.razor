@@ -167,7 +167,7 @@
         </div>
         <div class="users-table-wrap">
             <table class="users-table routing-events-table">
-                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User</th><th scope="col">Tenant</th><th scope="col">Requested Model</th><th scope="col">Selected Model</th><th scope="col">Substitution</th><th scope="col">Reason</th><th scope="col">Status</th><th scope="col">Tokens</th><th scope="col">Latency (ms)</th><th scope="col">Est. Cost (USD)</th><th scope="col">Details</th></tr></thead>
+                <thead><tr><th scope="col">Time (UTC)</th><th scope="col">User</th><th scope="col">Workload</th><th scope="col">Requested Model</th><th scope="col">Selected Model</th><th scope="col">Substitution</th><th scope="col">Reason</th><th scope="col">Status</th><th scope="col">Tokens</th><th scope="col">Latency (ms)</th><th scope="col">Est. Cost (USD)</th><th scope="col">Details</th></tr></thead>
                 <tbody>
                     @foreach (var row in _visibleRows)
                     {
@@ -329,7 +329,7 @@
         var output = Usage(outcome) ? Amount(outcome, "OutputTokens") : null;
         var permissionRecord = records.LastOrDefault(fields => fields.ContainsKey("ModelReplacementAllowed"));
         return new RoutingRequest(group.Key, Time(latest), Text(first, "UserId") ?? "Not captured",
-            Text(first, "Tenant") ?? "Not captured", original, selected,
+            Text(first, "Workload") ?? "Not captured", original, selected,
             Text(changingDecision, "PolicyAction") ?? "Not captured",
             Text(changingDecision, "PolicyCondition") ?? "Not captured",
             Text(latestDecision, "Decision") ?? "Not captured", Text(changingDecision, "DecisionId") ?? "Not captured",
@@ -410,7 +410,7 @@
         }).ToArray();
         _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
         _visibleRows = _filteredRows.Skip(_pageIndex * PageSize).Take(PageSize).ToArray();
-        var csv = new StringBuilder("TimestampUtc,User,Tenant,RequestedModel,SelectedModel,Substitution,Permission,Condition,Action,RuleAction,ExactRule,PermissionReason,PolicyOutcome,Status,Tokens,LatencyMs,RequestedCostEstimateUsd,SelectedCostEstimateUsd,SelectionSource,MID,DecisionId\r\n");
+        var csv = new StringBuilder("TimestampUtc,User,Workload,RequestedModel,SelectedModel,Substitution,Permission,Condition,Action,RuleAction,ExactRule,PermissionReason,PolicyOutcome,Status,Tokens,LatencyMs,RequestedCostEstimateUsd,SelectedCostEstimateUsd,SelectionSource,MID,DecisionId\r\n");
         foreach (var row in _filteredRows) {
             string[] cells = [row.Timestamp?.ToString("O", CultureInfo.InvariantCulture) ?? "Not captured", row.User, row.Tenant,
                 row.Original, row.Selected, SubstitutionLabel(row), PermissionLabel(row.Permission), row.Condition, row.Action, RuleLabel(row.Action),

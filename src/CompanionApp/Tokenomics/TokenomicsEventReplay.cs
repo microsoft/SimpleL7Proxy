@@ -167,8 +167,8 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         var prices = modelPricing ?? ImmutableDictionary<string, ModelTokenPricing>.Empty;
         var hasPriceData = prices.Count > 0;
         Func<IReadOnlyDictionary<string, string>, int?> quotaLimit = fields => {
-            var limits = tokenomicsSettings?.ModelLimits.TryGetValue(Model(fields), out var modelLimits) == true
-                ? modelLimits : tokenomicsSettings?.DefaultLimits;
+            var limits = tokenomicsSettings?.ModelLimitsAndBudgets.TryGetValue(Model(fields), out var modelLimits) == true
+                ? modelLimits : tokenomicsSettings?.DefaultLimitsAndBudgets;
             return period switch {
                 TokenomicsPeriod.Hourly => limits?.HourlyTokenLimit,
                 TokenomicsPeriod.Daily => limits?.DailyTokenLimit,
@@ -192,9 +192,11 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             TokenomicsPeriod.Monthly => windowStart!.Value.AddMonths(1),
             _ => null
         };
-        IReadOnlyList<ImmutableDictionary<string, string>> summaries = _received;
+        IReadOnlyList<ImmutableDictionary<string, string>> summaries = _received.Select(fields =>
+            fields.ContainsKey("Workload") || !fields.TryGetValue("Tenant", out var workload)
+                ? fields : fields.SetItem("Workload", workload)).ToArray();
         if (windowStart is { } startUtc && windowEnd is { } endUtc) {
-            summaries = _received.Where(fields =>
+            summaries = summaries.Where(fields =>
                 DateTimeOffset.TryParse(fields.GetValueOrDefault("TimestampUtc"), culture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp)
                 && timestamp >= startUtc
@@ -231,7 +233,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             .GroupBy(fields => fields["MID"], StringComparer.Ordinal).Select(group => group.Last()).ToArray();
         var hasQuotaData = outcomes.Any(fields => quotaLimit(fields) is > 0);
         var outcomesByModel = outcomes.ToLookup(Model, StringComparer.Ordinal);
-        var outcomesByUser = outcomes.ToLookup(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Tenant")));
+        var outcomesByUser = outcomes.ToLookup(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Workload")));
         var decisions = summaries.Where(fields => fields["RecordKind"] == "PolicyDecision")
             .DistinctBy(fields => fields.GetValueOrDefault("DecisionId") is { Length: > 0 } id
                 ? id : $"{fields["MID"]}:{fields.GetValueOrDefault("EvaluationSequence")}:{fields["PolicyAction"]}").ToArray();
@@ -353,7 +355,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
             start = end;
             return (Name: name, Tokens: Number(tokens), Share: share.ToString("F1", culture) + "%", Color: modelColors[index % modelColors.Length]);
         }).ToImmutableArray();
-        var users = summaries.Select(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Tenant")))
+        var users = summaries.Select(fields => (Name: Identity(fields, "UserId"), Tenant: Identity(fields, "Workload")))
             .Distinct().Select(user => {
                 var usage = outcomesByUser[user].ToArray();
                 return (user.Name, user.Tenant, Total: usage.Sum(Total), Input: usage.Sum(fields => Tokens(fields, "InputTokens")),
@@ -372,7 +374,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
                     Color: "user-blue", Sparkline: "");
             }).ToImmutableArray();
         var tenantSpendValues = outcomes
-            .GroupBy(fields => Identity(fields, "Tenant"), StringComparer.Ordinal)
+            .GroupBy(fields => Identity(fields, "Workload"), StringComparer.Ordinal)
             .Select(group => (Name: group.Key, Amount: group.Sum(spend)))
             .OrderByDescending(tenant => tenant.Amount)
             .ThenBy(tenant => tenant.Name, StringComparer.Ordinal)
@@ -389,7 +391,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
                 .ToImmutableArray()
             : [];
         var tenantQuotaValues = outcomes
-            .GroupBy(fields => Identity(fields, "Tenant"), StringComparer.Ordinal)
+            .GroupBy(fields => Identity(fields, "Workload"), StringComparer.Ordinal)
             .Select(group => (Name: group.Key, Tokens: group.Sum(Total),
                 HasQuotaData: group.Any(fields => quotaLimit(fields) is > 0),
                 QuotaPercent: group.Where(fields => quotaLimit(fields) is > 0)
@@ -428,7 +430,7 @@ public sealed class TokenomicsEventReplay : BackgroundService {
         return new TokenomicsDashboardSnapshot {
             SnapshotLabel = snapshotLabel,
             TimePeriods = [periodLabel ?? (_options.FileName is null ? "Retained events" : "Replay to date")],
-            Tenants = summaries.Select(fields => Identity(fields, "Tenant")).Distinct().Order(StringComparer.Ordinal).Prepend("All tenants").ToImmutableArray(),
+            Tenants = summaries.Select(fields => Identity(fields, "Workload")).Distinct().Order(StringComparer.Ordinal).Prepend("All workloads").ToImmutableArray(),
             UserFilters = users.Select(user => user.Name).Distinct().Prepend("All users").ToImmutableArray(),
             ModelFilters = modelNames.Prepend("All models").ToImmutableArray(),
             Metrics = [

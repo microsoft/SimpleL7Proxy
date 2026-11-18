@@ -1,0 +1,59 @@
+.systemone-editor {
+    padding-top: 12px;
+    min-width: 0;
+}
+
+.systemone-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 12px 0 8px;
+    flex-wrap: wrap;
+}
+
+.systemone-question {
+    border-top: 1px solid #c5d2e3;
+    padding: 12px 0;
+}
+
+.systemone-question-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px;
+    align-items: end;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.systemone-noul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.systemone-criterion {
+    display: flex;
+    align-items: end;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.systemone-criterion > div {
+    flex: 1 1 120px;
+    min-width: 0;
+}
+
+.systemone-icon {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+}
+
+@media (max-width: 480px) {
+    .systemone-noul {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

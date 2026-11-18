@@ -45,6 +45,10 @@ This does not start a proxy or disable its authentication. Existing browser pref
 
 Model definitions are loaded from [chat-models.json](chat-models.json) and [vision-models.json](vision-models.json). Their Development variants override APIs, models, templates, and defaults for local work. Check that the selected model or deployment name and endpoint path exist on your backend; editing the proxy base URL does not change those values.
 
+Set `CompanionApp:ChatModelsUrl` in [appsettings.json](appsettings.json), or the `CompanionApp__ChatModelsUrl` environment variable, to replace the base chat catalog. An empty value keeps the local file. Use `file:///absolute/path/chat-models.json` for another local file or `https://example.com/chat-models.json` for a remote catalog (`http://` is also supported). Do not combine schemes as `file://https://...`.
+
+HTTP catalogs are fetched once at startup with a 30-second timeout; restart the app to fetch changes. File sources retain change watching. An invalid URL, failed download, or invalid JSON stops startup without falling back to the default file. Environment-specific chat overrides still apply after the selected base catalog; vision catalog loading is unchanged.
+
 ## Send and inspect requests
 
 1. Open the test page and select the API path, method, model, and request body required by the endpoint.

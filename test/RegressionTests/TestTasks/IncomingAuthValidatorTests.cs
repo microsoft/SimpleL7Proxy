@@ -1,6 +1,6 @@
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
-using SimpleL7Proxy.Config;
+using Shared.Auth;
 using System.Security.Cryptography;
 
 namespace SimpleL7Proxy.Test;
