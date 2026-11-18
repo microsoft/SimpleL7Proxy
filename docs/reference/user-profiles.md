@@ -26,7 +26,7 @@ Configure user profiles using these environment variables. For detailed variable
 | **UseProfiles** | Enable user profile functionality | false |
 | **UserConfigUrl** | URL or file path to fetch user configuration | `""` (not set) |
 | **SuspendedUserConfigUrl** | URL or file path to fetch list of explicitly suspended users | `""` (not set) |
-| **UserIDFieldName** | JSON field name in the user profile config file used as the unique user identifier | userId |
+| **UserIDFieldName** | JSON field that stores the profile record ID used for profile lookup | userId |
 | **UserProfileHeader** | Incoming header containing the ID used to look up a profile, not serialized JSON | X-UserProfile |
 | **UniqueUserHeaders** | Header values combined for queue accounting; separate from profile lookup | X-UserID |
 | **UserConfigRequired** | Reject a missing profile header when profiles are enabled | false |
