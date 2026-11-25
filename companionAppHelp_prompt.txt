@@ -1,0 +1,16 @@
+Create clear, accurate help documentation explaining Tokenomics in the CompanionApp.
+
+Start by reading COPILOT_LEARNINGS.md and the existing documentation conventions. Inspect the documentation structure to find the canonical place for this help content and the relevant Tokenomics pages, source code, configuration, and tests. Preserve the project’s existing terminology and reader-focused tone.
+
+Use Playwright to inspect the running CompanionApp:
+1. Reuse an existing development instance if available; otherwise start it using the project’s supported local workflow.
+2. Visit every navigable CompanionApp page once to understand the navigation and locate Tokenomics-related screens.
+3. Explore each relevant Tokenomics screen, tab, dialog, help link, and safe interaction. Record what the UI actually shows: labels, explanations, defaults, units, controls, validation, and navigation.
+4. Do not save configuration changes, trigger deployments, or perform destructive or external actions. If a screen cannot be reached or a behavior cannot be safely checked, say so rather than assuming.
+5. If Playwright is unavailable or the app cannot be opened, stop and report the blocker. Do not claim to have inspected the UI.
+
+Use the UI as evidence of what users see, and verify behavioral claims against the implementation and existing tests. Explain Tokenomics in terms of what a user is trying to do: what the controls mean, how settings affect usage or costs, and how to verify the result. Distinguish displayed estimates from actual billing, and clearly identify unavailable or unrecorded data. Never invent defaults, units, behavior, or guarantees.
+
+Write the documentation in the appropriate existing location. Follow the repository’s documentation standards: lead with the answer and TL;DR; make defaults, units, and configuration references easy to find; organize sections around reader tasks; include an annotated end-to-end diagram and a concrete worked example where the implementation supports them; use concise prose and appropriate troubleshooting callouts. Keep examples valid and grounded in the code.
+
+After writing, verify every link and technical claim against the UI or implementation. Run the smallest relevant documentation checks, and use Playwright to confirm any UI paths or labels cited in the doc. Report the file changed, pages inspected, validation performed, and any remaining uncertainty.
