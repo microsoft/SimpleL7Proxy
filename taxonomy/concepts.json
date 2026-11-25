@@ -1291,7 +1291,7 @@
       "key_settings": ["HealthProbeSidecar"],
       "ports": { "proxy": 8000, "sidecar": 9000 },
       "related_concept_ids": ["c-liveness-endpoint", "c-readiness-endpoint", "c-startup-endpoint"],
-      "docs": ["reference/health-endpoints.md", "how-to/deploy-sidecar.md"]
+      "docs": ["reference/health-endpoints.md", "Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-health-probe-implementations",
@@ -1302,7 +1302,7 @@
       "code_files": ["HealthProbe/ProbeServer.cs", "HealthProbe-python/probe_server.py"],
       "key_settings": ["HEALTHPROBE_PORT"],
       "related_concept_ids": ["c-sidecar-mode", "c-liveness-endpoint", "c-readiness-endpoint", "c-startup-endpoint"],
-      "docs": ["reference/health-endpoints.md", "how-to/deploy-sidecar.md"]
+      "docs": ["reference/health-endpoints.md", "Legacy/deploy-sidecar.md"]
     },
 
     {
@@ -1479,7 +1479,7 @@
       "domain_id": "d08",
       "definition": "Deployment pattern that integrates the Container Apps environment with a Virtual Network. In the Bicep deployment, PRIVATE_NETWORK_DEPLOYMENT controls whether a newly created environment is internal; network integration alone does not guarantee that all dependencies are private.",
       "related_concept_ids": ["c-managed-identity"],
-      "docs": ["concepts/architecture.md", "how-to/deploy-container-apps.md"]
+      "docs": ["concepts/architecture.md", "Legacy/deploy-container-apps.md"]
     },
 
     {
@@ -1488,7 +1488,7 @@
       "domain_id": "d09",
       "definition": "Primary hosting platform for SimpleL7Proxy. Provides ingress, auto-scaling, managed identity, and revision management.",
       "related_concept_ids": ["c-sidecar-deployment", "c-container-image"],
-      "docs": ["how-to/deploy-container-apps.md", "how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-container-apps.md", "Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-container-image",
@@ -1497,7 +1497,7 @@
       "definition": "Docker image pushed to Azure Container Registry (ACR) and deployed to Azure Container Apps.",
       "key_settings": ["ACR", "REGISTRY_SERVER"],
       "related_concept_ids": ["c-azure-container-apps"],
-      "docs": ["how-to/deploy-container-apps.md", "how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-container-apps.md", "Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-sidecar-deployment",
@@ -1507,7 +1507,7 @@
       "key_settings": ["HealthProbeSidecar"],
       "ports": { "proxy": 8000, "health_probe": 9000 },
       "related_concept_ids": ["c-sidecar-mode", "c-azure-container-apps"],
-      "docs": ["how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-parameters-file",
@@ -1516,7 +1516,7 @@
       "definition": "Local parameter file consumed by the VNet provisioning script for Azure target, network, and subnet values.",
       "path": "deployment/interactive/VNet/deploy.parameters.example.sh",
       "related_concept_ids": ["c-vnet-deployment"],
-      "docs": ["how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-companion-app-deployment-setup",
@@ -1525,7 +1525,7 @@
       "domain_id": "d09",
       "definition": "The CompanionApp offers simple and advanced deployment setup, validates deployment parameters, and generates Bicep bundles, staged Portal/ARM templates, or Standalone deployment artifacts.",
       "related_concept_ids": ["c-azure-container-apps", "c-managed-identity", "c-parameters-file"],
-      "docs": ["how-to/deploy-container-apps.md"]
+      "docs": ["Legacy/custom-package.md"]
     },
     {
       "id": "c-apim-integration",

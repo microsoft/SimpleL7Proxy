@@ -21,6 +21,7 @@ This guide starts the proxy and verifies that it is accepting HTTP requests.
 ## Clone the repo
 ```bash
 git clone https://github.com/microsoft/SimpleL7Proxy.git
+cd SimpleL7Proxy
 ```
 
 ## Run from Source
@@ -33,12 +34,6 @@ dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 
 ## Run in Docker
 
-For docker you can use the published image from `publicnvmacr`:
-
-```bash
-
-## Run in Docker
-
 **Run the published image from the public Azure Container Registry.**
 
 ```bash
@@ -46,7 +41,6 @@ export Port=8000
 
 docker run --env Port="${Port}" --publish ${Port}:${Port} \
   publicnvmacr.azurecr.io/simplel7proxy:v2.3.0
-
 ```
 
 
@@ -62,9 +56,9 @@ curl -i http://localhost:8000/readiness
 - `/liveness` returns `200 OK` when the proxy process is running.
 - `/readiness` returns `503 Service Unavailable` until an eligible backend is configured.
 
-![Proxy listening on the configured port](port-only.png)
+![Proxy listening on the configured port](../getting-started/port-only.png)
 
 Press `Ctrl+C` in the first terminal to stop the proxy.
 
 
-[← Back to Choose Your Setup](README.md#2-choose-where-to-run)
+[← Back to Contributing](../contributing/README.md)

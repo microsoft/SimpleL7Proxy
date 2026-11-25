@@ -569,7 +569,7 @@ Expand for links to guides on App Configuration setup, local development, timeou
 <summary><strong>Related Documentation</strong></summary>
 
 - [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) - Hot-reload setup with App Configuration.
-- [Run SimpleL7Proxy Locally](../getting-started/local.md) - Local setup and minimum configuration.
+- [Run SimpleL7Proxy Locally](../getting-started-developer/README.md) - Local setup and minimum configuration.
 - [TIMEOUTS.md](timeouts.md) - TTL, Timeout, and AsyncTimeout behavior.
 - [LOAD_BALANCING.md](load-balancing.md) - Load balancing and iteration behavior.
 

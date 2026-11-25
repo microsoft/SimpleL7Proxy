@@ -5,7 +5,7 @@ Automate CompanionApp deployment to Azure App Service using the Azure CLI. This 
 ## Before you begin
 - Azure Cloud Shell or local Azure CLI installation
 - Azure CLI + Bash + `jq`
-- The included [CompanionApp package](artifacts/companion-app-appservice.zip)
+- The CompanionApp package at `src/CompanionApp/artifacts/companion-app-appservice.zip`; build it with `make-zip.sh` in `src/CompanionApp` if it is not present.
 
 ## 1. Sign in
 

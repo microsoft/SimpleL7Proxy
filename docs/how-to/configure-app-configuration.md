@@ -4,7 +4,7 @@ SimpleL7Proxy can read settings from **Container App environment variables** or 
 
 App Configuration is a dedicated service for managing configurations and keeps a labeled copy of the settings in a central store. Operators can view and change values, maintain separate values for each environment, and review the history of each key.
 
-To set up App Configuration, run [deploy.sh](../../deployment/README.md#app-configuration) and select **7) App Configuration**. This creates the store, copies the proxy's current and default values under the selected label, grants the Container App managed identity read access, and adds the store endpoint and label to the Container App.
+The [prebuilt deployment](../../deployment/README.md) creates and seeds App Configuration. The [interactive deployment](../Legacy/interactive-deployment.md#running-through-the-deployment) can also create the store and connect it to the proxy in step 7.
 
 The deployment script connects the proxy through its managed identity and `AZURE_APPCONFIG_ENDPOINT`, so the Container App does not need to store a connection string. The proxy also supports `AZURE_APPCONFIG_CONNECTION_STRING` when a managed identity setup is not available.
 
@@ -82,7 +82,7 @@ These Container App environment variables tell each replica how to connect to Ap
 
 ## Before Changing Settings
 
-App Configuration must be deployed and connected to the proxy first. Follow the [App Configuration deployment steps](../../deployment/README.md#app-configuration) to configure the deployment variables and run step 7.
+App Configuration must be deployed and connected to the proxy first. Follow the [prebuilt deployment guide](../../deployment/README.md) or the [interactive deployment steps](../Legacy/interactive-deployment.md#running-through-the-deployment).
 
 After step 7 completes, return here to change and verify settings in Configuration explorer.
 
@@ -112,7 +112,7 @@ az appconfig kv list --name "$APPCONFIG_NAME" --auth-mode login \
     --label "$APPCONFIG_LABEL" --query "[].{Key:key,Value:value}" -o table
 ```
 
-After choosing a key, copy its full name from Configuration explorer or the CLI output. This example uses `Warm:CircuitBreaker:ErrorThreshold`, which is visible in the screenshot:
+After choosing a key, copy its full name from Configuration explorer or the CLI output. This example uses `Warm:CircuitBreaker:ErrorThreshold`:
 
 ```bash
 SETTING_KEY="Warm:CircuitBreaker:ErrorThreshold"
@@ -195,5 +195,5 @@ az containerapp logs show --name "$CONTAINER_APP_NAME" --resource-group "$CONTAI
 | Document | What it covers |
 |---|---|
 | [Configuration Settings](../reference/configuration.md) | Proxy setting names, defaults, and reload behavior |
-| [Container Deployment](deploy-container-apps.md) | Container App deployment and runtime configuration |
+| [Container Deployment](../getting-started/container-apps.md) | Container App deployment and runtime configuration |
 | [Deployment Guide](../../deployment/README.md) | Deployment script prerequisites and steps |

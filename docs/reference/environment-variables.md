@@ -58,7 +58,7 @@ For production deployments, the following variables MUST also be set:
 | `APPINSIGHTS_CONNECTIONSTRING` | REQUIRED for production observability |
 
 > [!TIP]
-> For a full annotated walkthrough of minimum setup and local development options, see [Run SimpleL7Proxy Locally](../getting-started/local.md). For copy-paste production configurations, see [Common Scenarios](../how-to/common-scenarios.md).
+> For a full annotated walkthrough of minimum setup and local development options, see [Run SimpleL7Proxy Locally](../getting-started-developer/README.md). For copy-paste production configurations, see [Common Scenarios](../how-to/common-scenarios.md).
 
 ## Basic Configuration
 

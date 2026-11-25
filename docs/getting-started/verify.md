@@ -5,13 +5,13 @@ Confirm that the proxy is healthy and that a request reaches a configured backen
 ## TL;DR
 
 - Call `/liveness` to verify the process.
-- Call `/readiness` to verify that a backend is eligible.
-- Send a request and confirm that the response contains `BackendHost`.
+- Call `/readiness` to verify that the proxy is ready.
+- Send a request in [Investigator](companionapp-investigator.md) and confirm the backend response.
 
 | Signal | Expected value | Meaning |
 |--------|----------------|---------|
 | `/liveness` | `200 OK` | The proxy process is alive |
-| `/readiness` | `200 OK` | At least one backend can receive traffic |
+| `/readiness` | `200 OK` | Startup, backend, and queue health checks passed |
 | `BackendHost` | Backend URL | The request passed through the proxy |
 
 ## Check Health
@@ -19,22 +19,22 @@ Confirm that the proxy is healthy and that a request reaches a configured backen
 **Readiness is the required signal before sending a proxied request.**
 
 ```bash
-curl -i http://localhost:8000/liveness
-curl -i http://localhost:8000/readiness
-curl -i http://localhost:8000/startup
+PROXY_URL="https://<proxy-url>"
+curl -i "$PROXY_URL/liveness"
+curl -i "$PROXY_URL/readiness"
+curl -i "$PROXY_URL/startup"
 ```
 
+Replace `<proxy-url>` with the proxy URL from the deployment output. For local development, use `http://localhost:8000` instead.
+
 > [!WARNING]
-> A successful liveness response with failed readiness means the process is running but no backend is currently eligible.
+> A successful liveness response with failed readiness means the process is running but is not ready. Check startup, backend health, and event or blob queue backlogs.
 
 ## Send a Request
 
-**Confirm both the final status and the proxy response headers.**
+**Send a request in [Investigator](companionapp-investigator.md) and confirm the final status.**
 
-```bash
-curl -i http://localhost:8000/your/path
-# Expect a BackendHost response header.
-```
+For a command-line check, use a request from the [endpoint](connect-endpoint.md) or [APIM](connect-apim.md) guide. For the simulator, adapt a request from the [simulator guide](../../test/LLMSimulator/Readme.md) to the proxy URL. Inspect the response headers for `BackendHost`.
 
 > [!TIP]
 > Also inspect `x-Request-Worker`, `x-Request-Queue-Duration`, and `x-Request-Process-Duration` when diagnosing latency.
@@ -45,6 +45,6 @@ curl -i http://localhost:8000/your/path
 - [ ] `/readiness` returns `200 OK`.
 - [ ] The request returns the expected backend response.
 - [ ] `BackendHost` identifies the selected backend.
-- [ ] `eventslog.json` contains the request event.
+- [ ] If file event logging is enabled, `eventslog.json` contains the request event.
 
 See [Health Endpoints](../reference/health-endpoints.md) and [Headers and Status Codes](../reference/headers-and-status-codes.md) for exact behavior.

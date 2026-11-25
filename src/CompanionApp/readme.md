@@ -11,7 +11,7 @@ Once protected, you can follow the quick guides below for your scenario.
 <table>
 <thead>
 <tr>
-<th width="33%"><a href="delpoyment.md">Deployment</a></th>
+<th width="33%"><a href="../../deployment/README.md">Deployment</a></th>
 <th width="33%"><a href="configuration.md">Configuration updates</a></th>
 <th width="33%"><a href="testing.md">Request testing</a></th>
 </tr>
@@ -22,7 +22,7 @@ Once protected, you can follow the quick guides below for your scenario.
 <td valign="top"><a href="img/image-2.png"><img src="img/image-2.png" alt="Proxy Configuration editor showing staged changes" width="100%"></a></td>
 <td valign="top"><a href="img/image.png"><img src="img/image.png" alt="Investigator request editor with model selection" width="100%"></a></td>
 </tr>
-<tr><td><a href="delpoyment.md#deployment-prerequisites">Prepare and deploy SimpleL7Proxy</a></td>
+<tr><td><a href="../../deployment/README.md#before-you-begin">Prepare and deploy SimpleL7Proxy</a></td>
 <td><a href="configuration.md#configuration-prerequisites">Change an existing proxy's settings</a></td>
 <td><a href="testing.md#request-testing-prerequisites">Send requests and inspect results</a></td>
 </tr>
@@ -138,7 +138,7 @@ az login
 export AZURE_TOKEN_CREDENTIALS=AzureCliCredential
 ```
 
-The `export` command tells `DefaultAzureCredential` to use your Azure CLI identity. It doesn't grant any permissions. Check the [deployment guide](delpoyment.md#check-your-azure-permissions), [configuration prerequisites](configuration.md#configuration-prerequisites), or [request-testing prerequisites](testing.md#request-testing-prerequisites) for the roles your workflow needs.
+The `export` command tells `DefaultAzureCredential` to use your Azure CLI identity. It doesn't grant any permissions. Check the [deployment guide](../../deployment/README.md#before-you-begin), [configuration prerequisites](configuration.md#configuration-prerequisites), or [request-testing prerequisites](testing.md#request-testing-prerequisites) for the roles your workflow needs.
 
 If you host CompanionApp in Azure with a managed identity, do not set `AZURE_TOKEN_CREDENTIALS=AzureCliCredential`.
 
@@ -185,7 +185,7 @@ The launch profiles set `ASPNETCORE_ENVIRONMENT=Development`. Restart CompanionA
 
 ## Deploy SimpleL7Proxy
 
-The [Deploy SimpleL7Proxy](delpoyment.md#deployment-prerequisites) guide walks you through the prerequisites and Azure roles, then shows you how to deploy, verify, and troubleshoot your setup.
+The [Deploy SimpleL7Proxy](../../deployment/README.md) guide walks you through the prerequisites and Azure roles, then shows you how to deploy, verify, and troubleshoot your setup.
 
 ## Update Azure App Configuration
 

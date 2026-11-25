@@ -24,7 +24,7 @@ This document provides canonical, copy-paste-ready configuration blocks for comm
 ## Scope & Applicability
 
 **In scope:** Copy-paste configuration blocks for the most common operational scenarios.
-**Out of scope:** Infrastructure provisioning (see [CONTAINER_DEPLOYMENT.md](deploy-container-apps.md)); App Configuration seeding (see [AZURE_APP_CONFIGURATION.md](configure-app-configuration.md)).
+**Out of scope:** Infrastructure provisioning (see [Azure Container Apps](../getting-started/container-apps.md)); App Configuration seeding (see [AZURE_APP_CONFIGURATION.md](configure-app-configuration.md)).
 **Dependencies:** [BACKEND_HOSTS.md](../reference/backend-hosts.md), [CONFIGURATION_SETTINGS.md](../reference/configuration.md).
 
 ---
@@ -208,7 +208,7 @@ IgnoreSSLCert=true
 ```
 
 > [!TIP]
-> For local setup and IDE integration, see [Run SimpleL7Proxy Locally](../getting-started/local.md) and [Development](../contributing/development.md).
+> For local setup and IDE integration, see [Run SimpleL7Proxy Locally](../getting-started-developer/README.md) and [Development](../contributing/development.md).
 
 ---
 

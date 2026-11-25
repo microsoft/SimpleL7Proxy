@@ -86,4 +86,4 @@ curl -i "http://localhost:8000/openai/deployments/<deployment>/chat/completions?
 > [!WARNING]
 > Repeated probe failures usually indicate an incorrect probe path, subscription key, token audience, or APIM authorization policy. The APIM host remains unavailable until its probes succeed.
 
-[Back to backend selection](README.md#3-connect-a-backend)
+[Back to Run SimpleL7Proxy](README.md#2-connect)

@@ -61,4 +61,4 @@ curl -i "http://localhost:8000/openai/deployments/<deployment>/chat/completions?
 > [!WARNING]
 > A `401` or `403` from the model request indicates an invalid API key, an incorrect token audience, or a missing role assignment. Readiness can still succeed in direct mode because direct hosts are not actively probed.
 
-[Back to backend selection](README.md#3-connect-a-backend)
+[Back to Run SimpleL7Proxy](README.md#2-connect)

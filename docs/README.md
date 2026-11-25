@@ -15,7 +15,7 @@
 | | | | |
 |---|---|---|---|
 | | [Connect APIM](getting-started/connect-apim.md) | [Connect Endpoint](getting-started/connect-endpoint.md) | [Connect LLM Simulator](getting-started/connect-llm-simulator.md) |
-| | [Container Apps](getting-started/container-apps.md) | [Overview](getting-started/README.md) | [Run Locally](getting-started/local.md) |
+| | [Container Apps](getting-started/container-apps.md) | [Overview](getting-started/README.md) | |
 | | [Verify](getting-started/verify.md) | | |
 
 ## How-to Guides
@@ -23,7 +23,7 @@
 | | | | |
 |---|---|---|---|
 | | [App Configuration](how-to/configure-app-configuration.md) | [Common Scenarios](how-to/common-scenarios.md) | [Configure Backends](how-to/configure-backends.md) |
-| | [Configure Security](how-to/configure-security.md) | [Deploy Container Apps](how-to/deploy-container-apps.md) | [Deploy Sidecar](how-to/deploy-sidecar.md) |
+| | [Configure Security](how-to/configure-security.md) | | |
 | | [LLM Simulator](how-to/llm-simulator.md) | [Overview](how-to/README.md) | [Customize Token Provider](how-to/customize-token-provider.md) |
 
 ## Reference
@@ -59,7 +59,11 @@
 | | | | |
 |---|---|---|---|
 | | [Architecture](contributing/architecture.md) | [Development](contributing/development.md) | [Overview](contributing/README.md) |
-| | [Testing](contributing/testing.md) | | |
+| | [Testing](contributing/testing.md) | [Developer Getting Started](getting-started-developer/README.md) | |
+
+## Legacy Deployment Paths
+
+See [Alternative Deployment Paths](Legacy/README.md) for interactive, custom-package, and older deployment guides.
 
 ## Internal
 

@@ -43,7 +43,7 @@ cd simplel7proxy-deployment
 
 5. Set the subscription and deploy:
 
-![alt text](cloudshell.png)
+![Azure Cloud Shell in Bash mode with a command to select the subscription ID](cloudshell.png)
 
 Once the bash shell opens, set your subscription and deploy.  If you see powershell, switch to bash.
 
@@ -64,7 +64,10 @@ If the deployment is successful, the script prints the URL's for :
 
 ## Secure the proxy
 
-After initial setup, the companion app is unsecured and open to the internet.  Ensure that you [secure](https://learn.microsoft.com/en-us/azure/container-apps/secure-deployment#identity-and-access-management) the Companion App or shut it down when not in use as it will default to open access to the internet.  It is not recommended to leave it unsecured.
+> [!WARNING]
+> The prebuilt deployment starts with the proxy and Companion App unlocked and publicly accessible. Unauthorized users could send requests or change configuration. Running them without access controls is not recommended.
+
+Companion App reminds you in each browser session while its authentication is disabled. Follow the on-screen instructions to configure authentication, and [protect proxy requests](https://github.com/microsoft/SimpleL7Proxy/blob/main/docs/how-to/configure-security.md). You can also [restrict Container App access](https://learn.microsoft.com/en-us/azure/container-apps/secure-deployment#identity-and-access-management) or stop Companion App when it is not in use.
 
 ## Configure the proxy
 

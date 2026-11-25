@@ -212,8 +212,8 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 
 | Document | SHALL Discuss | Notes |
 |----------|---|---------|
-| [Run SimpleL7Proxy Locally](../getting-started/local.md) | Essential | Local setup uses basic configuration |
-| [CONTAINER_DEPLOYMENT.md](../how-to/deploy-container-apps.md) | Essential + Common | Initial deployment checklist |
+| [Run SimpleL7Proxy Locally](../getting-started-developer/README.md) | Essential | Local setup uses basic configuration |
+| [Container Deployment](../Legacy/deploy-container-apps.md) | Essential + Common | Legacy deployment checklist |
 | [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) | Essential + Common | Seed script outputs both |
 | [CONFIGURATION_SETTINGS.md](configuration.md) | All three (with labels) | Complete reference — the authoritative source |
 | [ADVANCED_CONFIGURATION.md](advanced-configuration.md) | Advanced only | Deep-dive: priority mapping, header validation, user throttling |
