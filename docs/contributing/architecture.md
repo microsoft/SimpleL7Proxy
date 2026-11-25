@@ -27,7 +27,7 @@ SimpleL7Proxy is a Layer 7 reverse proxy with configurable backend selection. It
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  Backend Selection (IteratorFactory)                                        │
 │  1. Filter hosts by request path (specific vs catch-all)                    │
-│  2. Create iterator based on LoadBalanceMode (roundrobin/latency/random)    │
+│  2. Order matched legacy hosts with LoadBalanceMode                          │
 │  3. For each host: check circuit breaker → send request → handle response   │
 └─────────────────────────────────────────────────────────────────────────────┘
                    │

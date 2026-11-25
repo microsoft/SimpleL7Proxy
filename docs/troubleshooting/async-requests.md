@@ -13,10 +13,10 @@
 Client sends request with S7PAsyncMode header
     │
     ▼
-Proxy processes normally → if processing exceeds AsyncTriggerTimeout:
+Proxy processes normally → if async eligibility and trigger/queue conditions allow:
     │
     ▼
-Proxy returns 202 immediately
+Proxy returns 202 if async eligibility and queue conditions allow the upgrade
     │ (blob URI + SB topic in response body)
     ▼
 AsyncWorker writes response → Blob Storage
@@ -29,19 +29,20 @@ Status update written → Service Bus topic
 
 ## Step 1 — Verify async is enabled
 
-All three must be true for async to activate:
+These conditions are required for an async upgrade; response timing and blob queue pressure also affect whether the request is released with a 202:
 
 | Condition | Setting | Env Var |
 |-----------|---------|---------|
 | System switch on | `AsyncModeEnabled=true` | `AsyncModeEnabled` |
-| Request header present | Header name = `AsyncClientRequestHeader` (default `S7PAsyncMode`) | set on request |
-| User profile has async config | Profile field `async-config` contains blob container + SB topic | — |
+| Request header opts in | Header name = `AsyncClientRequestHeader` (default `S7PAsyncMode`); value parses as `true` | set on request |
+| User profile has valid async config | Enabled profile field `async-config` contains blob container + SB topic | — |
+| Blob writer available | Async mode has a configured, available blob writer | `AsyncBlobStorageConfig` |
 
 ---
 
 ## Step 2 — Check the trigger timeout
 
-`AsyncTriggerTimeout` (default 10 s) is the time a request must be in flight before async kicks in. If the backend responds in under 10 s, the request is returned **synchronously** — this is normal.
+`AsyncTriggerTimeout` (default 10 s) is the minimum time a request must be in flight before an async upgrade may occur. If the backend responds in under 10 s, the request is returned **synchronously** — this is normal. Blob queue pressure can also prevent an otherwise eligible upgrade.
 
 To force a request to go async sooner, reduce `AsyncTriggerTimeout`:
 
@@ -111,12 +112,12 @@ This line must appear **after** `Response.Close()`. Without it, the blob will be
 
 ## Symptom: async request times out with no blob
 
-`AsyncTimeout` (default 30 min) is the maximum async request lifetime. After this, the request is abandoned. If the backend takes longer than 30 min, increase `AsyncTimeout`.
+`AsyncTimeout` (default 30 min) is the cancellation timeout for each backend attempt made by an async-enabled request. The request TTL is checked separately. If a backend attempt needs more time, increase `AsyncTimeout`.
 
 | Setting | Env Var | App Config key |
 |---------|---------|----------------|
-| Max async lifetime (ms) | `AsyncTimeout=<ms>` | `Warm:Async:Timeout` |
-| Async request TTL after upgrade | `AsyncTTLSecs=<s>` | `Warm:Async:TTLSecs` |
+| Per-attempt backend cancellation timeout (ms) | `AsyncTimeout=<ms>` | `Warm:Async:Timeout` |
+| Default TTL when async expiration is recalculated | `AsyncTTLSecs=<s>` | `Warm:Async:TTLSecs` |
 
 ---
 

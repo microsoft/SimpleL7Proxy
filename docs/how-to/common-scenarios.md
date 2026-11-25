@@ -136,7 +136,7 @@ APPINSIGHTS_CONNECTIONSTRING=<your-connection-string>
 ```
 
 > [!NOTE]
-> `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) resets the request TTL when async processing starts. Configure blob deletion separately with an Azure Storage lifecycle policy.
+> `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) is used when the async worker recalculates request expiration; a supplied `S7PTTL` takes precedence, and relative TTL is measured from enqueue. Configure blob deletion separately with an Azure Storage lifecycle policy.
 
 > [!TIP]
 > For the full async configuration reference, including the `async-config` user profile field format, see [AsyncOperation.md](../concepts/async-processing.md).
@@ -219,7 +219,7 @@ IgnoreSSLCert=true
 | Proxy starts | `curl http://localhost:{Port}/health` | `200 OK` |
 | Backend probed | Proxy startup log | Backend URL in active host list |
 | Circuit breaker opens | Send `CBErrorThreshold` failures within `CBTimeslice` s | `503`; host excluded from rotation |
-| Async mode | Send request with `S7PAsyncMode: true` header after `AsyncTriggerTimeout` | `202 Accepted` with blob URIs in body |
+| Async mode | Send an eligible long-running request with `S7PAsyncMode: true`; allow for `AsyncTriggerTimeout` and blob queue pressure | `202 Accepted` with blob URIs when the upgrade conditions are met |
 | Multi-region failover | Stop one backend host | Traffic routes to remaining hosts within `PollInterval` ms |
 | Request rejected (app ID) | Send request with app ID absent from `auth.json` | `403 Forbidden` |
 | Request rejected (header) | Send request missing a `RequiredHeaders` entry | `417 Expectation Failed` |

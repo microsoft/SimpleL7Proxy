@@ -74,7 +74,7 @@ The proxy can load balance across multiple backends, but we only need a single b
 - `mode`: How the proxy connects to the endpoint. Use `direct` for this setup or `apim` for the optional APIM setup.
 - `usemi=true, audience=<audience>` **[if using managed identity]**
 - `api-key=<api-key>;api-key-header=api-key` **[if using API-key authentication]**
-- `Processor=MultiLineAllUsage`: The token processing algorithm. See [Reference](#reference) **[direct mode]**
+- `Processor=Tokenomics`: The response processor for supported JSON and SSE usage and safety extraction. See [Reference](#reference) **[direct mode]**
 - Other optional fields are explained in [backend host settings](../reference/backend-hosts.md).
 
 ### Direct Host 
@@ -82,7 +82,7 @@ The proxy can load balance across multiple backends, but we only need a single b
 If the proxy will connect to the LLM endpoint directly, it is called a direct host.  Combine the above values to construct the setting.  
 
 ```bash
-export Host1="host=https://<endpoint>.openai.azure.com;mode=direct;api-key=<api-key>,api-key-header=<headername>"
+export Host1="host=https://<endpoint>.openai.azure.com;mode=direct;processor=Tokenomics;api-key=<api-key>;api-key-header=<headername>"
 ```
 
 ### APIM Mode
@@ -95,12 +95,12 @@ export Host1="host=https://<apim-name>.azure-api.net;mode=apim;probe=/status-012
 
 APIM can route to multiple models, so it needs to return the appropriate processor for the selected model. The included APIM policy already does this.  
 
-If you choose not to use the included policy, set the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block to `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`:
+If you choose not to use the included policy, set the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block to `Tokenomics`:
 
 ```xml
 <outbound>
     <set-header name="TOKENPROCESSOR" exists-action="override">
-        <value><!-- OpenAI | AllUsage-2 | MultiLineAllUsage --></value>
+        <value>Tokenomics</value>
     </set-header>
     ...
 </outbound>
@@ -225,12 +225,12 @@ requests
 
 ## Send data to additional sinks
 
-Set `EVENT_LOGGERS` to one or more of `appinsights`, `eventhub`, or `file` (comma-separated). See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all options.
+Set `EVENT_LOGGERS` to one or more of `eventhub`, `file`, or a supported custom logger (comma-separated). Application Insights is configured separately with `APPINSIGHTS_CONNECTIONSTRING`. See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all options.
 
 <details>
 <summary>Event Hubs</summary>
 
-Set `EVENT_LOGGERS=eventhub` and `EVENTHUB_CONNECTIONSTRING` to enable the Event Hubs sink. The proxy emits the same JSON envelope it writes to the file log, so every token field is present in the event body.
+Set `EVENT_LOGGERS=eventhub` and `EVENTHUB_CONNECTIONSTRING` to enable the Event Hubs sink. The proxy emits the same JSON envelope it writes to the file log; usage fields are present when extracted from the response.
 
 **Capture to a storage account:** Enable the Event Hubs Capture feature on the hub to land events as Avro files in Azure Blob Storage automatically. This gives you a durable, queryable archive without building a consumer.
 
@@ -255,7 +255,7 @@ Other tools that work directly with Event Hubs or Blob-captured data include Fab
 <details>
 <summary>Local File</summary>
 
-If `EVENT_LOGGERS=file` (the default), token data appears in `eventslog.json` immediately, with no ingestion delay. This is useful for a quick sanity check before querying Application Insights.
+Set `EVENT_LOGGERS=file` to write token data to `eventslog.json` for a quick local check before querying Application Insights.
 
 If the proxy is deployed to Azure Container Apps, the file is written inside the container. Use the ACA console to inspect it: in the Azure portal, open the container app → **Containers** → **Console**, then run the `jq` command below. For a more durable setup, ACA supports mounting an Azure Files share as a volume — configure a storage mount in the container app and set the proxy's working directory to that path so `eventslog.json` persists across container restarts.
 
@@ -277,7 +277,7 @@ Expected output per OpenAI request:
 <details>
 <summary>None</summary>
 
-If `EVENT_LOGGERS` is not set or is set to an empty value, telemetry is turned off and nothing is captured. Requests are still proxied normally, but no token data, request events, or usage metrics are written anywhere. Set at least one logger before running this POC.
+Set `EVENT_LOGGERS=none` to disable ProxyEvent sinks. Requests are still proxied normally; Application Insights remains a separate telemetry channel.
 
 </details>
 
@@ -306,7 +306,7 @@ Use `acceptablePriorities` to route priority-1 to a "premium" backend and priori
 <details>
 <summary>Increase concurrency</summary>
 
-Raise `Workers` and send a larger burst. Watch `eventslog.json` — every line should have a `Usage.Total_Tokens` entry. Missing entries indicate the stream was closed before the final usage chunk arrived, which is common if a real backend is configured without `processor=OpenAI`.
+Raise `Workers` and send a larger burst. Watch `eventslog.json` — requests with usage data should have a `Usage.Total_Tokens` entry. Missing usage may mean the response did not include it or the configured processor did not recognize its schema.
 
 </details>
 
@@ -319,10 +319,10 @@ Raise `Workers` and send a larger burst. Watch `eventslog.json` — every line s
 
 | Setting | Value in this POC | Unit | Set in | Takes effect |
 | :--- | :--- | :--- | :--- | :--- |
-| `processor=` | `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage` | — | `Host1` env var | proxy restart |
+| `processor=` | `Tokenomics` | — | `Host1` env var or `TOKENPROCESSOR` response header | proxy restart or per response |
 | `X-UserID` header | caller-supplied string | — | request header | per request |
 | `APPINSIGHTS_CONNECTIONSTRING` | App Insights connection string | — | env var | proxy restart |
-| `EVENT_LOGGERS` | `appinsights`, `eventhub`, `file` (comma-separated) | — | env var | proxy restart |
+| `EVENT_LOGGERS` | `eventhub`, `file`, `none`, or supported custom logger (comma-separated) | — | env var | proxy restart |
 
 > [!NOTE]
 > For APIM topology, `processor=` is set via the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block — not in the `Host1` string.
@@ -361,9 +361,10 @@ The `processor=` value on the backend host determines which usage fields are ext
 
 | Provider | `processor=` value | Usage fields logged |
 |----------|--------------------|---------------------|
-| Azure OpenAI / OpenAI | `OpenAI` | `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, `Usage.Total_Tokens` |
-| Anthropic | `AllUsage-2` | `Usage.Input_Tokens`, `Usage.Output_Tokens` |
-| Google Gemini | `MultiLineAllUsage` | `Usage.PromptTokenCount`, `Usage.CandidatesTokenCount`, `Usage.TotalTokenCount` |
+| Supported JSON/SSE providers | `Tokenomics` | Normalized usage fields, cached-input tokens, and available safety signals |
+| Azure OpenAI / OpenAI (legacy processor) | `OpenAI` | `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, `Usage.Total_Tokens` |
+| Anthropic (legacy processor) | `AllUsage-2` | `Usage.Input_Tokens`, `Usage.Output_Tokens` |
+| Google Gemini (legacy processor) | `MultiLineAllUsage` | `Usage.PromptTokenCount`, `Usage.CandidatesTokenCount`, `Usage.TotalTokenCount` |
 
 Every request also includes: `S7P_RequestId` (correlation ID), `S7P_Priority` (queue assigned), `BackendHost` (URL that served the request).
 

@@ -13,7 +13,7 @@ SimpleL7Proxy and APIM have separate responsibilities connected by request and r
 | :--- | :--- |
 | SimpleL7Proxy | Maps the caller's configured priority key to a number, orders the request in its priority queue, and forwards the number to APIM in `x-S7PPriority`. |
 | APIM policy | Reads `x-S7PPriority`, filters `listBackends` by `acceptablePriorities`, and retries within the eligible backend set. |
-| SimpleL7Proxy + APIM | When APIM returns `429` with `S7PREQUEUE: true` and a retry delay, the proxy places the request back in its queue instead of returning the throttle response to the caller. |
+| SimpleL7Proxy + APIM | When APIM returns `429` with `S7PREQUEUE: true` and a retry delay, the proxy can place the request back in its queue if the MultiPass attempt cap has not been reached. |
 
 Configuring only the proxy provides priority queue ordering but not priority-aware backend selection inside APIM. Configuring only APIM can filter backends when a client supplies the priority header, but it does not provide the proxy's queueing and requeue behavior.
 
@@ -368,7 +368,7 @@ See [POC-OpenAI-Failover.md](openai-failover.md) for the full failover walkthrou
 
 ### Requeue on exhaustion
 
-**What matters:** set `requeue: true` for a priority level so that when the retry budget is exhausted the policy returns `429 + S7PREQUEUE: true`, signalling SimpleL7Proxy to re-enqueue the request rather than surface an error.
+**What matters:** set `requeue: true` for a priority level so that when the APIM retry budget is exhausted the policy returns `429 + S7PREQUEUE: true`. SimpleL7Proxy re-enqueues the request only if its MultiPass attempt cap has not been reached.
 
 ```xml
 cfg["3"] = new JObject { { "retryCount", 1 }, { "requeue", true } };
@@ -676,7 +676,7 @@ Once the basic tests pass, a few variations are worth exploring:
 
 - **Restrict Backend B to priority-2 only** (`acceptablePriorities: [2]`) and send a priority-3 request. With no backend accepting `3`, you'll see a `503` — useful if you want to enforce hard tier boundaries with no shared fallback.
 - **Add a PTU backend at priority 1** and a PAYGO backend at priorities 1–3. Priority-1 requests will prefer the PTU backend; only when it's throttled will the policy fall back to PAYGO — the standard cost-optimized pattern for Azure OpenAI deployments.
-- **Set `requeue: true` for priority-3** and `retryCount: 0`. When the shared backend is throttled and retries are exhausted, the policy returns `429 + S7PREQUEUE: true`, which tells SimpleL7Proxy to re-enqueue the request rather than return an error to the caller.
+- **Set `requeue: true` for priority-3** and `retryCount: 0`. When the shared backend is throttled and APIM retries are exhausted, the policy returns `429 + S7PREQUEUE: true`; SimpleL7Proxy re-enqueues the request if its MultiPass attempt cap has not been reached.
 - **Use `LimitConcurrency`** to cap how many simultaneous requests each backend handles. Combine with different concurrency caps per tier to simulate a PTU deployment with a fixed token budget.
 
 </details>

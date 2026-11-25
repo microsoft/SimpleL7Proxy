@@ -20,7 +20,7 @@ Standard fields include a correlation ID (`S7P_RequestId`), the backend that han
 
 ### How are tokens counted for streaming responses?
 
-Standard gateways struggle to count tokens in Server-Sent Events streams because the usage data often only appears in the final chunk. For hosts configured with `processor=OpenAI`, the proxy's stream processor parses the response on the fly — without buffering it — and extracts `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, and `Usage.Total_Tokens`.
+For hosts configured with `processor=Tokenomics`, the proxy extracts usage from supported JSON and Server-Sent Events responses without buffering the full response. Captured data can include cached-input tokens and safety signals; usage may be unavailable when the response does not report it. `processor=OpenAI` remains available for OpenAI-specific processing.
 
 ### Can I plug in my own telemetry backend?
 

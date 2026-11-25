@@ -4,7 +4,7 @@ Connect SimpleL7Proxy directly to a model endpoint without an API Management gat
 
 ## TL;DR
 
-- Set `Host1` with `mode=direct` and `processor=OpenAI`.
+- Set `Host1` with `mode=direct` and `processor=Tokenomics` when token usage extraction is needed.
 - Authenticate with an API key or the proxy's managed identity.
 - Verify `/readiness`, then send a model request and check `BackendHost`.
 
@@ -14,7 +14,7 @@ Connect SimpleL7Proxy directly to a model endpoint without an API Management gat
 
 ```bash
 export AZURE_OPENAI_API_KEY="<api-key>"
-export Host1="host=https://<resource-name>.openai.azure.com;mode=direct;processor=OpenAI;api-key=${AZURE_OPENAI_API_KEY}"
+export Host1="host=https://<resource-name>.openai.azure.com;mode=direct;processor=Tokenomics;api-key=${AZURE_OPENAI_API_KEY}"
 dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 ```
 
@@ -30,7 +30,7 @@ dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 The role assignment belongs on the model resource that receives the request, not on the user account, virtual machine, or Container App resource itself. When the proxy runs in Azure Container Apps, select the system-assigned or user-assigned identity attached to that Container App as the role member.
 
 ```bash
-export Host1="host=https://<resource-name>.openai.azure.com;mode=direct;processor=OpenAI;usemi=true;audience=https://cognitiveservices.azure.com"
+export Host1="host=https://<resource-name>.openai.azure.com;mode=direct;processor=Tokenomics;usemi=true;audience=https://cognitiveservices.azure.com"
 dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 ```
 

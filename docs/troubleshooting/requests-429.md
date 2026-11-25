@@ -70,7 +70,7 @@ The circuit response does not prove that every backend circuit is open. The admi
 | Backend response | Proxy behavior | Observable result |
 |------------------|----------------|-------------------|
 | `429` without `S7PREQUEUE: true` | Records the attempt and tries the next available host | A later host can succeed; if all attempts exhaust with `429`, the client receives an error summary with attempt and timing evidence |
-| `429` with `S7PREQUEUE: true` | Records the retry delay, continues trying hosts, then requeues after attempts exhaust | The worker releases the request for delayed retry; the client can later receive success or another terminal result |
+| `429` with `S7PREQUEUE: true` | Records the retry delay, continues trying hosts, then requeues after attempts exhaust if the MultiPass attempt cap has not been reached | The worker releases the request for delayed retry; the client can later receive success or another terminal result |
 
 For requeue, the proxy chooses the shortest eligible delay from `retry-after-ms` in milliseconds or `Retry-After` in seconds. If neither is usable, it defaults to `1000` ms. Requeue remains bounded by the request TTL, so repeated throttling can eventually produce `412` instead of a client-visible `429`.
 

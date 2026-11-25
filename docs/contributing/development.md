@@ -134,7 +134,7 @@ Stream request/response events to Azure Event Hub for centralized logging and an
 | `EVENTHUB_CONNECTIONSTRING` | `""` | Event Hub connection string |
 | `EVENTHUB_NAME` | `""` | Event Hub name |
 | `EVENTHUB_NAMESPACE` | `""` | Event Hub namespace |
-| `EVENT_LOGGERS` | `file` | Comma-separated list of event sinks (file, eventhub) |
+| `EVENT_LOGGERS` | `none` | Comma-separated list of event sinks (file, eventhub, none) |
 
 ### Setup
 
@@ -146,7 +146,7 @@ dotnet run
 ```
 
 > [!NOTE]
-> Event Hub is optional. The default is to write events to a local file only (`EVENT_LOGGERS=file`).
+> Event sinks are disabled by default. Set `EVENT_LOGGERS=file` for a local event file, or `EVENT_LOGGERS=file,eventhub` to enable both sinks.
 
 ---
 

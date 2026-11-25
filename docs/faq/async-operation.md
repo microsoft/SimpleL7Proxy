@@ -16,11 +16,11 @@ No. Async changes how the client waits for and retrieves the result; it does not
 
 ### How does a request enter async mode?
 
-Three conditions must be true: `AsyncModeEnabled=true` for the proxy, the user's profile must allow async and name a Blob container and Service Bus topic, and the request must send the configured async header. Fast requests still complete synchronously.
+Async mode must be enabled with an available blob writer, the selected user profile must contain valid enabled async settings with a Blob container and Service Bus topic, and the request header must parse as `true`. Fast requests remain synchronous; response timing and blob queue pressure also affect whether the client receives a 202.
 
 ### What happens after the async trigger timeout?
 
-When an opted-in request runs longer than `AsyncTriggerTimeout`, the proxy returns `202 Accepted`. Processing continues, response data is written to Azure Blob Storage, and lifecycle status is published through Azure Service Bus.
+When an eligible opted-in request exceeds `AsyncTriggerTimeout` and queue pressure allows the upgrade, the proxy may return `202 Accepted`. Processing continues, response data is written to Azure Blob Storage, and lifecycle status is published through Azure Service Bus.
 
 ### When should I keep requests synchronous?
 

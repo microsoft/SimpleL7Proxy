@@ -31,19 +31,19 @@ To configure a backend host for an OpenAI/Foundry deployment, use the connection
 
 **Key Requirements:**
 *   **`host`**: Your Azure OpenAI Endpoint (e.g., `https://my-resource.openai.azure.com`).
-*   **`processor=OpenAI`**: required for OpenAI/Foundry backends. Tells the proxy to parse the streaming JSON response and extract token usage metrics.
+*   **Optional `processor=Tokenomics`**: enables supported JSON and SSE usage extraction, including cached-input and safety signals when present. `processor=OpenAI` remains available for OpenAI-specific processing, including Batch API detection.
 *   **`usemi=true`** (Optional but Recommended): Uses Managed Identity to authenticate with AI Foundry, eliminating API Key management.
 
 **Configuration Examples:**
 
 *   **Direct Mode (No Probes):**
     ```bash
-    Host1="host=https://my-ai-resource.openai.azure.com;mode=direct;processor=OpenAI;usemi=true"
+    Host1="host=https://my-ai-resource.openai.azure.com;mode=direct;processor=Tokenomics;usemi=true"
     ```
 
 *   **Standard Mode (With Probes):**
     ```bash
-    Host1="host=https://my-ai-resource.openai.azure.com;processor=OpenAI;usemi=true;probe=/openai/deployments/gpt-4/status"
+    Host1="host=https://my-ai-resource.openai.azure.com;processor=Tokenomics;usemi=true;probe=/openai/deployments/gpt-4/status"
     ```
 
 ### 3. Routing deployments
@@ -65,7 +65,7 @@ The proxy transparently forwards URL paths. Clients should target the proxy as i
 <summary>Advanced Feature Details</summary>
 
 ### Token Usage Tracking
-By enabling `processor=OpenAI`, the proxy inspects the Server-Sent Events (SSE) stream. It captures the `usage` object (often sent in the final event of a stream) and logs it to Application Insights.
+By enabling `processor=Tokenomics`, the proxy inspects supported JSON and Server-Sent Events (SSE) responses and records usage when the response provides it. Captured metrics can include prompt, completion, cached-input, and safety data.
 *   **Benefit**: You get precise chargeback data (`Prompt_Tokens`, `Completion_Tokens`) even for streaming chat applications.
 
 ### Rate Limiting & Prioritization
@@ -73,6 +73,6 @@ You can map specific users (via `User Profiles`) to specific backend deployments
 *   **Scenario**: "Gold" users get routed to `Host1` (PTU/Dedicated capacity), while "Silver" users track to `Host2` (Pay-Go/Standard).
 
 ### OpenAI Batch API Support
-The proxy detects Batch API requests. The `OpenAIProcessor` can identify batch job submissions and handle them as long-running async operations, so the proxy doesn't block waiting for a large batch to complete.
+The proxy detects Batch API requests. The `OpenAI` processor can identify batch job submissions and handle them as long-running async operations, so the proxy doesn't block waiting for a large batch to complete. Use `processor=OpenAI` for this behavior.
 
 </details>

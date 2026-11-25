@@ -30,7 +30,7 @@ Configure user profiles using these environment variables. For detailed variable
 | **UserProfileHeader** | Incoming header containing the ID used to look up a profile, not serialized JSON | X-UserProfile |
 | **UniqueUserHeaders** | Header values combined for queue accounting; separate from profile lookup | X-UserID |
 | **UserConfigRequired** | Reject a missing profile header when profiles are enabled | false |
-| **UserPriorityThreshold** | Threshold (0.0-1.0) for user priority calculations. If a user's active requests exceed this ratio of the total queue, their requests are deprioritized. | 0.1 |
+| **UserPriorityThreshold** | Threshold (0.0-1.0) for a user's tracked share of active requests. It affects secondary queue priority, not the primary mapped tier; the active value requires restart to change. | 0.1 |
 
 ## User Suspension
 

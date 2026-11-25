@@ -1,6 +1,6 @@
 # Async Operation Configuration
 
-**The proxy can process requests asynchronously, returning a 202 immediately and delivering results via Azure Blob Storage with status updates over Azure Service Bus.**
+**The proxy can return an eligible long-running request with 202 and complete it in the background, storing results in Azure Blob Storage and publishing status updates over Azure Service Bus.**
 
 **TL;DR:**
 - Set `AsyncModeEnabled=true`, configure `AsyncBlobStorageConfig` and `AsyncSBConfig`
@@ -16,9 +16,9 @@ For the complete list of Async-related environment variables and their default v
 | `AsyncModeEnabled` | Cold | `false` | Master switch for async processing |
 | `AsyncClientRequestHeader` | Warm | `S7PAsyncMode` | Request header clients send to opt in |
 | `AsyncClientConfigFieldName` | Warm | `async-config` | User profile field containing client async config |
-| `AsyncTimeout` | Warm | `1800000` (30 min) | Max async request lifetime (ms) |
-| `AsyncTriggerTimeout` | Warm | `10000` (10 s) | Time before a request upgrades to async (ms) |
-| `AsyncTTLSecs` | Warm | `86400` (24 h) | Request TTL applied when async processing starts (seconds) |
+| `AsyncTimeout` | Warm | `1800000` (30 min) | Per-attempt backend cancellation timeout for async-enabled requests, including before the 202 response is sent (ms) |
+| `AsyncTriggerTimeout` | Warm | `10000` (10 s) | Minimum elapsed time before an eligible request may upgrade to async (ms) |
+| `AsyncTTLSecs` | Warm | `86400` (24 h) | Default TTL used when the async worker recalculates expiration; a supplied `S7PTTL` takes precedence (seconds) |
 | `AsyncBlobStorageConfig` | Cold | `uri=https://mystorageaccount.blob.core.windows.net,mi=true` | Composite blob storage connection |
 | `AsyncBlobWorkerCount` | Cold | `2` | Number of background blob write workers |
 | `AsyncSBConfig` | Cold | `cs=...,ns=...,q=requeststatus,mi=false` | Composite Service Bus connection |
@@ -30,7 +30,7 @@ For the complete list of Async-related environment variables and their default v
 
 ## Enabling Async Mode
 
-Async must be enabled in three places: the **proxy** (system-wide), the **user profile** (per-client), and the **request** (per-call header).
+Async handling requires the **proxy** to be enabled with an available blob writer, valid enabled settings in the selected **user profile**, and a **request** header parsed as `true`. These conditions are necessary but do not guarantee an upgrade: response timing and blob queue pressure also affect whether the client receives a 202.
 
 ```bash
 AsyncModeEnabled=true
@@ -40,8 +40,8 @@ AsyncTimeout=1800000
 AsyncClientConfigFieldName=async-config
 ```
 
-- **AsyncTriggerTimeout**: Fast requests complete normally. After this timeout, the request upgrades to async — a 202 response is returned immediately with details on how to retrieve the result.
-- **AsyncTimeout**: Maximum time an async request is allowed to run before the proxy abandons it.
+- **AsyncTriggerTimeout**: Fast requests complete normally. Once the delay elapses, an eligible request can be released with a 202 response and continue in the background.
+- **AsyncTimeout**: Per-attempt backend cancellation timeout for async-enabled requests, including before the 202 response is sent.
 
 ## Azure Service Bus Configuration
 

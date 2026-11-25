@@ -122,7 +122,7 @@ Use these settings to control what the proxy strips, forwards, or adds on behalf
 | <small>`Request:Priority:PriorityKeys`</small> | <small>`PriorityKeys`</small> | <small>`high,medium,low`</small> | Priority key values callers can send in the priority header. Paired by position with `PriorityValues`. |
 | <small>`Request:Priority:PriorityValues`</small> | <small>`PriorityValues`</small> | <small>`1,2,3`</small> | Priority level for each key in `PriorityKeys`. |
 | <small>`Request:Headers:PriorityKeyHeader`</small> | <small>`PriorityKeyHeader`</small> | <small>`S7PPriorityKey`</small> | Header name callers use to send their priority key. |
-| <small>`Request:Priority:GreedyUserThreshold`</small> | <small>`UserPriorityThreshold`</small> | <small>`0.1`</small> | Maximum queue share a single user can hold (0.1 = 10%). Prevents one caller from monopolizing the queue. |
+| <small>`Request:Priority:GreedyUserThreshold`</small> | <small>`UserPriorityThreshold`</small> | <small>`0.1`</small> | Threshold for a user's tracked share of active requests; below-threshold users receive a secondary queue-priority preference. The active threshold requires restart to change. |
 | <small>`Request:DefaultTTLSecs`</small> | <small>`DefaultTTLSecs`</small> | <small>`300`</small> | How long (in seconds) a queued request is kept before it expires and is dropped. |
 | <small>`Request:Headers:TimeoutHeader`</small> | <small>`TimeoutHeader`</small> | <small>`S7PTimeout`</small> | Header name callers can use to override the per-request backend timeout. |
 | <small>`Request:Headers:TTLHeader`</small> | <small>`TTLHeader`</small> | <small>`S7PTTL`</small> | Header name callers can use to override the TTL for their queued request. |
@@ -374,8 +374,8 @@ The proxy polls each backend to determine which endpoints are healthy before rou
 | <small>`Server:PollInterval`</small> | <small>`PollInterval`</small> | <small>`15000`</small> | How often (in ms) the proxy checks each backend endpoint's health. Default = every 15 seconds. |
 | <small>`Server:PollTimeout`</small> | <small>`PollTimeout`</small> | <small>`3000`</small> | How long (in ms) the proxy waits for a health-check response before marking the endpoint unhealthy. Default = 3 seconds. |
 | <small>`CircuitBreaker:SuccessRate`</small> | <small>`SuccessRate`</small> | <small>`80`</small> | Minimum percentage of successful responses required for an endpoint to receive traffic. Below 80%, the endpoint is skipped. |
-| <small>`LoadBalancing:Mode`</small> | <small>`LoadBalanceMode`</small> | <small>`latency`</small> | Endpoint selection strategy. Options: `latency` (prefer fastest), `roundrobin`, or `random`. |
-| <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`SinglePass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts, capped by `MaxAttempts`. |
+| <small>`LoadBalancing:Mode`</small> | <small>`LoadBalanceMode`</small> | <small>`latency`</small> | Matched legacy-host ordering: `roundrobin`, `latency`, `timetofirstbyte`, `prioritygroup`, or `random`. Named routes preserve configured host order. |
+| <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`MultiPass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts, capped by `MaxAttempts`. |
 | <small>`Request:DefaultTimeout`</small> | <small>`Timeout`</small> | <small>`1200000`</small> | How long (in ms) the proxy waits for a backend response before timing out. Default = 20 minutes. |
 | <small>`LoadBalancing:MultiPass:MaxAttempts`</small> | <small>`MaxAttempts`</small> | <small>`10`</small> | Maximum total backend attempts per request in `MultiPass`; set to `0` to disable the attempt-count limit. |
 
@@ -442,14 +442,14 @@ Log volume can be high under load. Use these settings to route specific event ca
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`file`</small> | Comma-delimited sink selector (`eventhub`, `file`, or custom class). See [OBSERVABILITY.md](../concepts/observability.md#event-logging-architecture). |
+| <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`none`</small> | Comma-delimited sink selector (`eventhub`, `file`, `none`, or custom class). See [Observability](../concepts/observability.md#event-logging-architecture). |
 | <small>`Logging:LogToEvents`</small> | <small>`LogToEvents`</small> | <small>`async, backend, probe, circuitbreaker, custom, exception, profile, proxy, enqueued, auth`</small> | Categories sent through event logger sinks. |
 | <small>`Logging:LogToAI`</small> | <small>`LogToAI`</small> | <small>`*`</small> | Categories sent to Application Insights. |
 | <small>`Logging:LogToConsole`</small> | <small>`LogToConsole`</small> | <small>`*,-custom`</small> | Categories written to console output. |
 | <small>`Logging:Level`</small> | <small>`LogLevel`</small> | <small>`Information`</small> | Minimum verbosity. Options: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`. |
 | <small>`Logging:LogDateTime`</small> | <small>`LogDateTime`</small> | <small>`false`</small> | Adds timestamps to console output. |
 | <small>`Logging:LogFileName`</small> | <small>`LogFileName`</small> | <small>`eventslog.json`</small> | File output path when `file` is in `EventLoggers`. Mount a persistent volume at this path to retain logs beyond the container's lifetime — this is the recommended way to extract file logs from a containerized deployment. |
-| <small>`Logging:LogToFile`</small> | <small>`LogToFile`</small> | <small>`false`</small> | Legacy fallback toggle when `EventLoggers` is not set. |
+| <small>`Logging:LogToFile`</small> | <small>`LogToFile`</small> | <small>`false`</small> | Legacy fallback toggle when `EventLoggers` is blank. |
 
 Example:
 ```
@@ -547,9 +547,9 @@ Expand to tune trigger timeouts, async request lifetime, worker counts, and the 
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Async:TriggerTimeout`</small> | <small>`AsyncTriggerTimeout`</small> | <small>`10000`</small> | How long (in ms) the proxy waits for a synchronous response before switching the request to async mode. Default = 10 seconds. |
-| <small>`Async:Timeout`</small> | <small>`AsyncTimeout`</small> | <small>`1800000`</small> | Maximum time (in ms) the proxy waits for the async backend to complete. Default = 30 minutes. |
-| <small>`Async:TTLSecs`</small> | <small>`AsyncTTLSecs`</small> | <small>`86400`</small> | Request TTL in seconds applied when async processing starts, replacing the synchronous expiration. |
+| <small>`Async:TriggerTimeout`</small> | <small>`AsyncTriggerTimeout`</small> | <small>`10000`</small> | Minimum time (ms) before an eligible request may upgrade from synchronous processing. Response timing and blob queue pressure also affect the upgrade. Default = 10 seconds. |
+| <small>`Async:Timeout`</small> | <small>`AsyncTimeout`</small> | <small>`1800000`</small> | Per-attempt backend cancellation timeout (ms) for async-enabled requests, including before the 202 response is sent. Default = 30 minutes. |
+| <small>`Async:TTLSecs`</small> | <small>`AsyncTTLSecs`</small> | <small>`86400`</small> | Default TTL (seconds) used when the async worker recalculates request expiration. A supplied `S7PTTL` takes precedence; relative TTL is measured from enqueue. |
 | <small>`Async:ClassNames`</small> | <small>`AsyncClassNames`</small> | <small>`""`</small> | Override the default storage and async handler classes with custom implementations. |
 | <small>`Request:Headers:AsyncMode`</small> | <small>`AsyncClientRequestHeader`</small> | <small>`S7PAsyncMode`</small> | Header callers can send to explicitly request async processing for their request. |
 | <small>`Async:ClientConfigFieldName`</small> | <small>`AsyncClientConfigFieldName`</small> | <small>`async-config`</small> | Field name in the user profile that carries per-user async configuration. |

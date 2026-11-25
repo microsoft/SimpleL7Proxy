@@ -61,7 +61,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 ### Load Balancing
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `LoadBalanceMode` | `LoadBalanceMode` | Warm | `latency` | `roundrobin`, `latency`, or `random` |
+| `LoadBalanceMode` | `LoadBalanceMode` | Warm | `latency` | `roundrobin`, `latency`, `timetofirstbyte`, `prioritygroup`, or `random` |
 
 ### Circuit Breaker
 | Env Var | Property | Mode | Default | Purpose |
@@ -113,9 +113,9 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | `AsyncBlobStorageConfig` | `AsyncBlobStorageConfig` | Cold | `""` | Blob storage connection string + auth method |
 | `AsyncSBConfig` | `AsyncSBConfig` | Cold | `""` | Service Bus connection string + queue name |
 | `AsyncBlobWorkerCount` | `AsyncBlobWorkerCount` | Cold | `2` | Worker threads for blob uploads |
-| `AsyncTimeout` | `AsyncTimeout` | Warm | `1800000` ms (30 min) | Max backend processing time in async mode |
-| `AsyncTTLSecs` | `AsyncTTLSecs` | Warm | `86400` s (24 h) | Request TTL applied when async processing starts |
-| `AsyncTriggerTimeout` | `AsyncTriggerTimeout` | Warm | `10000` ms | Delay before queued request converts to async |
+| `AsyncTimeout` | `AsyncTimeout` | Warm | `1800000` ms (30 min) | Per-attempt backend cancellation timeout for async-enabled requests |
+| `AsyncTTLSecs` | `AsyncTTLSecs` | Warm | `86400` s (24 h) | Default TTL used when the async worker recalculates request expiration; a supplied `S7PTTL` takes precedence |
+| `AsyncTriggerTimeout` | `AsyncTriggerTimeout` | Warm | `10000` ms | Minimum delay before an eligible request may upgrade to async |
 | `AsyncClientRequestHeader` | `AsyncClientRequestHeader` | Warm | `S7PAsyncMode` | Header clients use to enable async mode |
 | `AsyncClientConfigFieldName` | `AsyncClientConfigFieldName` | Warm | `async-config` | JSON field in async client config |
 | `AsyncClassNames` | `AsyncClassNames` | Cold | `""` | Comma-separated class names allowed in async requests |
@@ -144,7 +144,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | `DisallowedHeaders` | `DisallowedHeaders` | Warm | `[]` | Headers that must not be present |
 | `StripRequestHeaders` | `StripRequestHeaders` | Warm | `[]` | Headers stripped before forwarding to backend |
 | `StripResponseHeaders` | `StripResponseHeaders` | Warm | `[]` | Headers stripped from backend response |
-| `ValidateHeaders` | `ValidateHeaders` | Warm | `{}` | Header name → expected value validation map |
+| `ValidateHeaders` | `ValidateHeaders` | Warm | `[]` | JSON header-validation rules with inline values and optional mapped allowlist headers |
 | `LogHeaders` | `LogHeaders` | Warm | `[]` | Specific headers to log (if not using LogAll*) |
 | `LogAllRequestHeadersExcept` | `LogAllRequestHeadersExcept` | Warm | `["Authorization"]` | Headers excluded from full request logging |
 | `LogAllResponseHeadersExcept` | `LogAllResponseHeadersExcept` | Warm | `["Api-Key"]` | Headers excluded from full response logging |
@@ -156,7 +156,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | `PriorityKeys` | `PriorityKeys` | Warm | `["high","medium","low"]` | Known priority key values |
 | `PriorityValues` | `PriorityValues` | Warm | `[1,2,3]` | Priority levels assigned per key |
 | `PriorityKeyHeader` | `PriorityKeyHeader` | Warm | `S7PPriorityKey` | Header clients use to pass priority key |
-| `UserPriorityThreshold` | `UserPriorityThreshold` | Warm | `0.1` | Max fraction of queue a single user may occupy |
+| `UserPriorityThreshold` | `UserPriorityThreshold` | Warm | `0.1` | Threshold for a user's tracked share of active requests; affects secondary priority, but the active value requires restart |
 
 ### Health Probe (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
@@ -166,7 +166,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 ### Load Balancing (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `IterationMode` | `IterationMode` | Warm | `SinglePass` | `SinglePass` or `MultiPass` retry mode |
+| `IterationMode` | `IterationMode` | Warm | `MultiPass` | `SinglePass` or `MultiPass` retry mode |
 
 ### OAuth / Security (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
@@ -189,7 +189,7 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 | `EVENTHUB_STARTUP_SECONDS` | `EventHubStartupSeconds` | Cold | `10` s | Delay before Event Hub starts sending |
 | `EVENTHUB_MAX_RECONNECT_ATTEMPTS` | `EventHubMaxReconnectAttempts` | Cold | `5` | Max reconnect attempts on failure |
 | `EVENTHUB_MAX_UNDRAINED_EVENTS` | `EVENTHUB_MAX_UNDRAINED_EVENTS` | Cold | `10000` | Max buffered events before blocking |
-| `EVENT_LOGGERS` | `EVENT_LOGGERS` | Cold | `file` | Comma-separated list of event sinks (`file`, `eventhub`, `none`, or custom type) |
+| `EVENT_LOGGERS` | `EVENT_LOGGERS` | Cold | `none` | Comma-separated list of event sinks (`file`, `eventhub`, `none`, or custom type) |
 | `LOGFILE_NAME` | `LogFileName` | Cold | `eventslog.json` | Event log file path |
 | `LOGDATETIME` | `LogDateTime` | Cold | `false` | Prefix log entries with timestamp |
 | `LOG_LEVEL` | `LogLevel` | Hidden | `Information` | Log level (Debug, Information, Warning, Error) |

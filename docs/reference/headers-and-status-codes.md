@@ -52,7 +52,7 @@ When a backend returns `429`:
 | `true` | Record the request as eligible for delayed requeue, then continue trying available hosts |
 | absent / not `true` | Proxy tries the next backend host |
 
-After host attempts are exhausted, the proxy requeues if at least one backend returned `429` with `S7PREQUEUE: true`. It uses the **shortest** eligible delay from `retry-after-ms` (milliseconds) or `Retry-After` (seconds), defaulting to 1000 ms.
+After host attempts are exhausted, the proxy requeues if at least one backend returned `429` with `S7PREQUEUE: true` and the MultiPass attempt cap has not been reached. It uses the **shortest** eligible delay from `retry-after-ms` (milliseconds) or `Retry-After` (seconds), defaulting to 1000 ms.
 
 ---
 
@@ -117,7 +117,7 @@ Client request arrives
                         │
                         ├── Backend: AcceptableStatusCode ────────────► pass-through to client
                         ├── Backend: non-acceptable status ───────────► skip, try next host
-                        ├── Backend: 429 + S7PREQUEUE=true ───────────► collect; requeue after attempts exhaust
+                        ├── Backend: 429 + S7PREQUEUE=true ───────────► collect; requeue after attempts exhaust if cap remains
                         ├── Backend: 429 (no requeue) ────────────────► skip, try next host
                         └── Attempts exhausted ───────────────────────► 502 or 503 by failure type
 ```
