@@ -1,6 +1,9 @@
 # SimpleL7Proxy — Deployment (interactive)
 
-![Target architecture](../docs/concepts/architecture.png)
+![Target architecture](../concepts/architecture.png)
+
+> [!NOTE]
+> This is an alternative deployment path. For a new installation, start with the [prebuilt package](../../deployment/README.md).
 
 This is the **interactive deployment path** for SimpleL7Proxy. The deployment script
 lets you create a new installation or update an existing proxy to the latest version.
@@ -36,7 +39,7 @@ The configuration file drives all the scenarios.
 Create a local copy of the config file. If you have a previous installation, merge your existing environment variables into the new script.
 
 ```bash
-cd deployment
+cd deployment/interactive
 cp deploy.parameters.example.sh deploy.parameters.sh
 vi deploy.parameters.sh        # edit the values listed below
 ./deploy.sh                    # interactive menu
@@ -334,7 +337,7 @@ These settings are used by Steps 9 and 10 to create and deploy RequestAPI for as
 | Add a DNS record | Edit the DNS zone in the portal |
 | Tear it all down | `az group delete -n <NETWORK_RESOURCE_GROUP>` (and the others if separate) |
 
-See [DAY2_OPERATIONS.md](DAY2_OPERATIONS.md) for the full day-2 reference.
+See [DAY2_OPERATIONS.md](../../deployment/interactive/DAY2_OPERATIONS.md) for the full day-2 reference.
 
 ---
 
@@ -372,10 +375,10 @@ az network private-dns record-set list -g "${NETWORK_RESOURCE_GROUP}" -z "${DNS_
 
 ## References
 
-- [Day-2 Operations](DAY2_OPERATIONS.md)
-- [App Configuration keys](../docs/how-to/configure-app-configuration.md)
-- [Backend hosts](../docs/reference/backend-hosts.md)
-- [Health checking](../docs/reference/health-endpoints.md)
-- [Troubleshooting](../docs/troubleshooting/README.md)
-- [Configuration reference](../docs/reference/configuration.md)
-- [Advanced scenarios](../docs/contributing/development.md)
+- [Day-2 Operations](../../deployment/interactive/DAY2_OPERATIONS.md)
+- [App Configuration keys](../how-to/configure-app-configuration.md)
+- [Backend hosts](../reference/backend-hosts.md)
+- [Health checking](../reference/health-endpoints.md)
+- [Troubleshooting](../troubleshooting/README.md)
+- [Configuration reference](../reference/configuration.md)
+- [Advanced scenarios](../contributing/development.md)

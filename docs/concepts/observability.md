@@ -35,9 +35,9 @@ ProxyEvent.SendEvent()
 
 | Environment Variable | Default | Description |
 | :--- | :--- | :--- |
-| `EVENT_LOGGERS` | `file` | Comma-separated list of backends to enable: `file`, `eventhub`, or a fully-qualified type name. |
+| `EVENT_LOGGERS` | `none` | Comma-separated list of backends to enable: `file`, `eventhub`, `none`, or a fully-qualified type name. |
 | `LOGFILE_NAME` | `eventslog.json` | Output path for the local file logger. |
-| `LOGTOFILE` | `false` | **(Legacy)** When `EVENT_LOGGERS` is not set, `true` → `file`, `false` → `eventhub`. |
+| `LOGTOFILE` | `false` | **(Legacy)** When `EVENT_LOGGERS` is blank, `true` → `file`, `false` → `eventhub`. |
 | `EVENTHUB_CONNECTIONSTRING` | — | Connection string for Azure Event Hubs. |
 | `EVENTHUB_NAMESPACE` | — | Event Hub namespace for managed-identity auth (alternative to connection string). |
 | `EVENTHUB_NAME` | — | The specific Event Hub name to write to. |
@@ -60,7 +60,7 @@ EventHubName=proxy-events
 ```
 
 > [!NOTE]
-> **`LogToFile` is a legacy fallback, not an additional destination switch.** It is consulted only when `EventLoggers` is unset: true selects File and false selects Event Hub. An explicit `EventLoggers` value takes precedence; `none` disables event sinks, not the independently configured Application Insights channel.
+> **`LogToFile` is a legacy fallback, not an additional destination switch.** It is consulted only when `EventLoggers` is blank: true selects File and false selects Event Hub. An explicit `EventLoggers` value takes precedence; `none` disables event sinks, not the independently configured Application Insights channel.
 
 **Azure Event Hubs** (`eventhub`)
 - Streams events to Azure Event Hubs via `EventHubClient`.
@@ -209,7 +209,7 @@ Standard gateways cannot count tokens in streaming responses (Server-Sent Events
 SimpleL7Proxy uses a specialized **Stream Processor** to parse response bodies on-the-fly without buffering the full response (which would add latency).
 
 ### Extracted Metrics
-For requests routed to a host with `processor=OpenAI` configured, the following metrics are automatically extracted and logged:
+For requests routed to a host with `processor=Tokenomics` configured, usage is extracted from supported JSON and SSE responses without buffering the full response. Captured usage may include cached-input tokens and safety signals; usage may be unavailable when the response does not provide it.
 
 | Metric Field | Description |
 | :--- | :--- |

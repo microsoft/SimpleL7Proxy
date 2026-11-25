@@ -58,7 +58,7 @@ Because **direct** backends skip active probing, no latency data is available fo
 
 ### Queueing & Fairness
 
-All requests are filtered through a **priority queue** that ensures high priority work is favored over lower priority work.  At the same time, A flood of high-priority traffic can never **starve** out lower-priority requests, and no single user can **monopolize** a priority level at everyone else's expense.
+All requests are filtered through a **priority queue** that favors higher-priority work. `PriorityWorkers` assigns worker preferences rather than reserved pools, and per-user secondary queue priority favors users below their configured share of tracked active requests; neither mechanism guarantees capacity or caps a user's active requests.
 
 [See the FAQ →](../faq/queueing-fairness.md)
 

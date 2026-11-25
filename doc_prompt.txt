@@ -1,0 +1,5 @@
+Write a concise, reader-focused README homepage for this repository. First inspect the existing documentation structure and linked pages so every description, audience, and recommendation is accurate; do not invent features or deployment options.
+
+Use a welcoming opening that explains why teams put a proxy in front of AI services and the kinds of problems it addresses. Then include the existing introductory video thumbnails, followed by a “Where do you want to start?” section with a two-row, three-column navigation grid. The six paths should help readers understand the proxy, get it running, configure it, try a proof of concept, diagnose a problem, and develop or contribute. For each, provide a short description and identify its intended audience.
+
+After the grid, recommend the Failover POC for readers unsure where to begin, and link to the full documentation index. Preserve the existing links and image assets. Keep the tone practical and approachable, and avoid turning the homepage into a detailed setup guide.

@@ -5,7 +5,7 @@ Use these guides to complete a specific deployment or configuration task.
 ## TL;DR
 
 - Configure backends, custom token providers, App Configuration, or request security.
-- Deploy to Azure Container Apps or as a sidecar.
+- Deploy to Azure Container Apps using the prebuilt package.
 - Use common scenarios and the simulator for repeatable setups.
 
 ## Quick Topics
@@ -45,18 +45,18 @@ Reject or sanitize incoming requests before they enter the queue — enforce **r
 
 ### Deploy to Azure Container Apps
 
-Build a **Docker** image from the `src/` directory and deploy it to **Azure Container Apps**, where the proxy serves traffic on port **443** and exposes its health probes on port **9000**.
+Deploy the proxy and CompanionApp to **Azure Container Apps** using the prebuilt package.
 
-[Deploy to Azure Container Apps →](deploy-container-apps.md)
+[Deploy to Azure Container Apps →](../getting-started/container-apps.md)
 
 </td>
 <td width="33%" valign="top">
 
-### Deploy as a Sidecar
+### Alternative Deployment Paths
 
-Run the proxy as a **two-container** Container App: the **proxy** handles traffic while a separate **HealthProbe** sidecar answers liveness, readiness, and startup probes over shared `localhost` networking.
+Find interactive, custom-package, and older deployment guides.
 
-[Deploy as a Sidecar →](deploy-sidecar.md)
+[Alternative Deployment Paths →](../Legacy/README.md)
 
 </td>
 <td width="33%" valign="top">

@@ -17,7 +17,8 @@
     { "id": "d07", "name": "Configuration Management",   "description": "How settings reach the proxy and when they take effect." },
     { "id": "d08", "name": "Authentication and Security","description": "How the proxy authenticates to backends and restricts inbound callers." },
     { "id": "d09", "name": "Deployment Architecture",   "description": "How the proxy is packaged and run on Azure." },
-    { "id": "d10", "name": "Protocol and Headers",       "description": "Named HTTP signals that cross the client-proxy and proxy-backend boundaries." }
+    { "id": "d10", "name": "Protocol and Headers",       "description": "Named HTTP signals that cross the client-proxy and proxy-backend boundaries." },
+    { "id": "d11", "name": "Tokenomics",                 "description": "Model routing, usage accounting, policy decisions, and associated telemetry." }
   ],
 
   "subdomains": [
@@ -37,7 +38,10 @@
     { "id": "sd04-04", "domain_id": "d04", "name": "Priority Mapping" },
     { "id": "sd06-01", "domain_id": "d06", "name": "Event Model" },
     { "id": "sd06-02", "domain_id": "d06", "name": "Telemetry Sinks" },
-    { "id": "sd06-03", "domain_id": "d06", "name": "Health Endpoints" }
+    { "id": "sd06-03", "domain_id": "d06", "name": "Health Endpoints" },
+    { "id": "sd11-01", "domain_id": "d11", "name": "Policy and Limits" },
+    { "id": "sd11-02", "domain_id": "d11", "name": "Model and API Routing" },
+    { "id": "sd11-03", "domain_id": "d11", "name": "Usage and Metrics" }
   ],
 
   "concepts": [
@@ -48,7 +52,7 @@
       "code_file": "server.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-01",
-      "definition": "Accepts inbound HTTP connections and submits each request to the priority queue.",
+      "definition": "Accepts inbound HTTP requests and creates RequestData. /liveness, /readiness, and /startup are answered immediately; /health, /healthdetail, and /forcegc are queued as probe requests and bypass preprocessing, admission, and request validation. Ordinary requests pass through preprocessors, admission checks, authentication, profile enrichment, and header validation before queueing.",
       "key_settings": ["Port", "Workers"],
       "related_concept_ids": ["c-priority-queue", "c-enqueue", "c-validation-pipeline"],
       "docs": ["contributing/architecture.md", "reference/environment-variables.md"]
@@ -59,7 +63,7 @@
       "code_file": "RequestData.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-01",
-      "definition": "Runtime object holding all data for one inbound request: headers, body, path, assigned priority, and TTL expiry.",
+      "definition": "Per-request runtime state for the inbound request and its processing lifecycle: client context and streams, cached body bytes, headers, identity and priority, enqueue/expiry times, routing and attempt counters, event data, and optional async/background/recovery and Tokenomics state. Its computed RequestType distinguishes sync, async, background, background-check, and status-check flows.",
       "key_settings": [],
       "related_concept_ids": ["c-proxy-data", "c-enqueue"],
       "docs": ["contributing/architecture.md"]
@@ -70,7 +74,7 @@
       "code_file": "RequestLifecycleManager.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-01",
-      "definition": "Coordinates request state transitions, TTL expiry, completion, failure, and cleanup across synchronous and asynchronous processing.",
+      "definition": "Checks TTL before backend work and coordinates status transitions across request types. When async mode is enabled, it updates Service Bus status and async RequestAPI status; successful Async and completed background-check requests become Completed only after blob writes finish. Background submissions and unfinished background checks retain their separate polling lifecycle.",
       "key_settings": ["DefaultTTLSecs"],
       "related_concept_ids": ["c-request-data", "c-ttl", "c-async-mode"],
       "docs": ["contributing/architecture.md", "reference/timeouts.md"]
@@ -81,7 +85,7 @@
       "code_file": "RequestType.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-01",
-      "definition": "Execution modes used to route responses and background work.",
+      "definition": "Execution mode stored on RequestData to route responses and background work: Sync returns directly to the client; Async stores the response for later retrieval; AsyncBackground submits a backend batch operation; AsyncBackgroundCheck polls for its result; StatusCheck queries the request API without invoking the backend.",
       "values": ["Sync", "Async", "AsyncBackground", "AsyncBackgroundCheck", "StatusCheck"],
       "related_concept_ids": ["c-request-lifecycle-manager", "c-async-mode", "c-request-api"],
       "docs": ["concepts/async-processing.md"]
@@ -91,7 +95,7 @@
       "name": "Enqueue",
       "domain_id": "d01",
       "subdomain_id": "sd01-01",
-      "definition": "Submitting a RequestData into the priority queue. The TTL clock starts at this moment.",
+      "definition": "Submitting a RequestData to the priority queue. For ordinary requests, the enqueue timestamp is set immediately before expiration is calculated and queue admission is attempted; relative TTL uses that timestamp.",
       "key_settings": ["MaxQueueLength"],
       "related_concept_ids": ["c-ttl", "c-priority-queue", "c-max-queue-length", "c-validation-pipeline"],
       "docs": ["reference/headers-and-status-codes.md", "reference/timeouts.md"]
@@ -101,7 +105,7 @@
       "name": "Max Queue Length",
       "domain_id": "d01",
       "subdomain_id": "sd01-01",
-      "definition": "Hard cap on queued requests. Requests arriving when the queue is full receive 429 Too Many Requests.",
+      "definition": "Queue admission threshold for ordinary incoming requests. Enqueue rejects with 429 when the observed queue count reaches MaxQueueLength; concurrent ordinary admissions can pass the check simultaneously. Requeues are allowed to exceed the threshold.",
       "key_settings": ["MaxQueueLength"],
       "related_concept_ids": ["c-enqueue"],
       "docs": ["reference/environment-variables.md", "reference/headers-and-status-codes.md"]
@@ -112,7 +116,7 @@
       "code_file": "PriorityQueue.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-02",
-      "definition": "Sorted list ordered by priority level integer using binary-search insertion. Lower integer exits first.",
+      "definition": "Sorted list using binary-search insertion. Lower primary priority sorts first; within a priority, higher secondary priority sorts first, then enqueue time. An any-priority worker takes the first item; a preferred-priority worker uses a binary-search lookup and can take another priority when its preference is unavailable. Priority-0 requests can be handed directly to a waiting worker or dispatched ahead of other queued requests.",
       "key_settings": ["DefaultPriority"],
       "related_concept_ids": ["c-priority-level", "c-proxy-worker"],
       "docs": ["contributing/architecture.md", "reference/advanced-configuration.md"]
@@ -122,7 +126,7 @@
       "name": "Priority Level",
       "domain_id": "d01",
       "subdomain_id": "sd01-02",
-      "definition": "Integer assigned to every request. Lower number means higher dispatch precedence in the queue.",
+      "definition": "Integer assigned to every request. Lower numbers sort earlier in the queue, although preferred-priority workers can select another position.",
       "key_settings": ["PriorityValues", "DefaultPriority"],
       "related_concept_ids": ["c-priority-queue", "c-priority-mapping", "c-default-priority"],
       "docs": ["reference/advanced-configuration.md", "reference/environment-variables.md"]
@@ -143,7 +147,7 @@
       "name": "TTL (Time-to-Live)",
       "domain_id": "d01",
       "subdomain_id": "sd01-02",
-      "definition": "Wall-clock budget for the entire request lifecycle covering queue wait plus all retry attempts. Expiry returns 412.",
+      "definition": "Expiration timestamp for a request, based on a relative or absolute TTL. It is checked before backend attempts; an expired request follows the 412 path. Async upgrade can recalculate expiration, and an async attempt's cancellation timer uses AsyncTimeout rather than the remaining TTL.",
       "key_settings": ["DefaultTTLSecs"],
       "per_request_override_header": "S7PTTL",
       "unit": "seconds",
@@ -156,7 +160,7 @@
       "code_file": "ProxyWorker.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-03",
-      "definition": "Worker loop that dequeues a request and drives the backend selection, send, and response write cycle.",
+      "definition": "Processes one dequeued request: applies Tokenomics policy and model transformation before backend selection, iterates eligible hosts with circuit checks, timeouts, retries and optional async coordination, then captures and streams the response to the client or blob storage. Usage extraction and metrics recording happen while the response is streamed. ProxyRequestHandler owns the worker loop and request-level state transitions.",
       "key_settings": ["Workers"],
       "related_concept_ids": ["c-priority-queue", "c-backend-selection-pipeline"],
       "docs": ["contributing/architecture.md"]
@@ -166,7 +170,7 @@
       "name": "Workers",
       "domain_id": "d01",
       "subdomain_id": "sd01-03",
-      "definition": "Count of concurrent proxy workers. Cold setting; default 10 is for local testing only.",
+      "definition": "Count of ordinary proxy workers. WorkerFactory also creates a dedicated priority-0 probe worker. Cold setting; default is 10.",
       "key_settings": ["Workers"],
       "reload_type": "Cold",
       "default_value": 10,
@@ -179,7 +183,7 @@
       "code_file": "ProxyData.cs",
       "domain_id": "d01",
       "subdomain_id": "sd01-04",
-      "definition": "Runtime object holding a backend response: HTTP status code, response headers, and body.",
+      "definition": "Runtime object holding backend response status, response and content headers, the requested URL, backend host and latency, response time, and streaming/processor and usage metadata. The response body can be buffered bytes or an HttpResponseMessage retained for streaming; Dispose clears buffered bytes, disposes that response, and clears headers.",
       "key_settings": [],
       "related_concept_ids": ["c-request-data", "c-pass-through"],
       "docs": ["contributing/architecture.md"]
@@ -199,7 +203,7 @@
       "name": "Injected Response Headers",
       "domain_id": "d01",
       "subdomain_id": "sd01-04",
-      "definition": "HTTP headers the proxy appends to every successfully proxied response before returning to the client.",
+      "definition": "Diagnostic headers the proxy can attach to forwarded backend responses. Header stripping and response paths affect which headers are actually returned.",
       "header_names": [
         "Request-Queue-Duration",
         "Request-Process-Duration",
@@ -217,10 +221,10 @@
       "name": "Backend Host",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "A single upstream endpoint the proxy can forward requests to. Configured as Host1 through Host9.",
-      "key_settings": ["Host1","Host2","Host3","Host4","Host5","Host6","Host7","Host8","Host9"],
-      "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","authprovider","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter"],
-      "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker", "c-backend-token-provider"],
+      "definition": "An upstream endpoint or logical backend configured with a numeric Host1..N key or a named Host_ or Host- key. Numeric discovery stops at the first missing host.",
+      "key_settings": ["Host1"],
+      "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","authprovider","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter","acceptablepriorities","prioritygroup","via"],
+      "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker", "c-backend-token-provider", "c-backend-api-key", "c-host-priority-filter"],
       "docs": ["reference/backend-hosts.md", "reference/environment-variables.md"]
     },
     {
@@ -228,7 +232,7 @@
       "name": "Connection String Format",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Preferred per-host configuration using a semicolon-delimited key=value string. Only this format supports path, mode, usemi, processor, and other modern options.",
+      "definition": "Per-host configuration using semicolon- or comma-delimited key=value entries. The parser rejects unknown keys; path, mode, processor, and per-host authentication options are specified in this format.",
       "example": "host=https://api.example.com;probe=/health;path=/api;usemi=true",
       "related_concept_ids": ["c-legacy-format", "c-composite-connection-string"],
       "docs": ["reference/backend-hosts.md"]
@@ -238,7 +242,7 @@
       "name": "Legacy Format",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Deprecated per-variable host configuration. Cannot express path, mode, usemi, or other modern per-host options. Must not be used in new deployments.",
+      "definition": "Legacy separate HostN, Probe_pathN, and IPN configuration. Global UseOAuth and OAuthAudience environment variables also supply legacy authentication defaults; per-host options use the connection-string format.",
       "deprecated": true,
       "deprecated_vars": ["Probe_path1","Probe_path2","Probe_path3","IP1","IP2"],
       "related_concept_ids": ["c-connection-string-format"],
@@ -249,7 +253,7 @@
       "name": "Path Prefix",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "URL prefix configured on a host via the path connection string key. Requests whose URL starts with this prefix are routed to this host.",
+      "definition": "Path configured on a host for legacy host selection. Matching is case-insensitive; ordinary prefixes match at a path-segment boundary, while a trailing /* uses a string-prefix match. Query strings are excluded from matching. Named routes use their own prefix rules.",
       "connection_string_key": "path",
       "related_concept_ids": ["c-path-filter", "c-catch-all-host", "c-strip-prefix"],
       "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
@@ -259,7 +263,7 @@
       "name": "Catch-all Host",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "A host with path=/ or no path configured. Receives requests that match no specific-path host.",
+      "definition": "A legacy host with an empty path, /, or /*. It is considered when no specific-path host matches, before filtering by request priority; named routes take precedence.",
       "connection_string_key": "path",
       "related_concept_ids": ["c-path-prefix", "c-path-filter"],
       "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
@@ -269,7 +273,7 @@
       "name": "IP Override",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Forces all requests to a specific IP address, bypassing DNS resolution for that host.",
+      "definition": "The ipaddress connection-string value is used in the APIM-mode probe URL. Forwarded requests build their destination URL from the configured host, not this field. Separately, APPENDHOSTSFILE can append legacy IP entries to /etc/hosts.",
       "connection_string_key": "ipaddress",
       "related_concept_ids": ["c-backend-host"],
       "docs": ["reference/backend-hosts.md"]
@@ -290,9 +294,9 @@
       "name": "Processor",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Named stream processor applied to the backend response after receipt. The built-in OpenAI processor extracts token usage counts from SSE streams.",
+      "definition": "Named response stream processor configured on a host. ProxyWorker uses the configured processor for direct mode, supports AutoDetect, and can instead select response-header or model-mapping processing. OpenAI extracts token usage from supported responses.",
       "connection_string_key": "processor",
-      "known_values": ["OpenAI", "AllUsage", "DefaultStream", "MultiLineAllUsage", "AllUsage-2"],
+      "known_values": ["OpenAI", "AllUsage", "DefaultStream", "MultiLineAllUsage", "AllUsage-2", "Tokenomics"],
       "related_concept_ids": ["c-token-telemetry", "c-direct-mode"],
       "docs": ["reference/ai-foundry-integration.md", "concepts/observability.md"]
     },
@@ -302,18 +306,28 @@
       "code_file": "StreamProcessorFactory.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Selects and creates response stream processors by configured name, TOKENPROCESSOR response header, and media type, with DefaultStream fallback.",
-      "known_values": ["OpenAI", "AllUsage", "DefaultStream", "MultiLineAllUsage", "AllUsage-2"],
+      "definition": "Creates processors by name with DefaultStream fallback for unknown names or construction failures. Response-header detection reads TOKENPROCESSOR only on HTTP 200; absent a recognized override, DefaultStream is used, including for event streams.",
+      "known_values": ["OpenAI", "AllUsage", "DefaultStream", "MultiLineAllUsage", "AllUsage-2", "Tokenomics"],
       "default_value": "DefaultStream",
-      "related_concept_ids": ["c-processor", "c-token-telemetry", "c-streaming-microservice"],
+      "related_concept_ids": ["c-processor", "c-token-telemetry", "c-streaming-microservice", "c-response-format-mapping"],
       "docs": ["concepts/observability.md", "reference/ai-foundry-integration.md"]
+    },
+    {
+      "id": "c-response-format-mapping",
+      "name": "Response Format Mapping",
+      "code_file": "ModelMappingProcessor.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-02",
+      "definition": "Maps generated text and available response metadata between OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages formats. JSON and SSE use separate parsers and writers; the mapper requires a supported source and target format and does not preserve every provider-specific field.",
+      "related_concept_ids": ["c-stream-processor-factory", "c-api-catalog", "c-model-parameter-mapping"],
+      "docs": []
     },
     {
       "id": "c-direct-mode",
       "name": "Direct Mode",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Backend mode where the host is always treated as healthy. No probe is ever sent. In latency mode the host sorts first (0 ms average latency). Use for serverless or on-demand backends that must not be woken by probes.",
+      "definition": "Backend mode where no health probe is sent and the host's probe success rate is treated as healthy. With no latency samples its average probe latency is 0 ms; circuit-breaker checks still apply to requests.",
       "connection_string_key": "mode",
       "connection_string_value": "mode=direct",
       "related_concept_ids": ["c-health-poller", "c-processor", "c-backend-host"],
@@ -324,7 +338,7 @@
       "name": "Indirect Mode",
       "domain_id": "d02",
       "subdomain_id": "sd02-01",
-      "definition": "Logical backend mode where the proxy never calls or probes the host. The host must name an APIM-mode gateway through via and must belong to a named Path route.",
+      "definition": "Logical backend mode where the proxy never calls or probes the host. The host must name an APIM-mode gateway through via and belong to a named Path route. A gateway route selects that gateway when at least one configured logical host accepts the request priority.",
       "connection_string_key": "mode",
       "connection_string_value": "mode=indirect",
       "related_concept_ids": ["c-backend-host", "c-direct-mode"],
@@ -337,7 +351,7 @@
       "code_file": "EndpointMonitorService.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-02",
-      "definition": "Background loop that probes each configured host at PollInterval ms intervals and tracks rolling success rate and average latency.",
+      "definition": "Background loop that probes probeable registered hosts at PollInterval ms intervals and tracks their rolling success rate and latency. Direct-mode, indirect-mode, and hosts with empty or / probe paths are not probed.",
       "key_settings": ["PollInterval", "PollTimeout"],
       "related_concept_ids": ["c-probe-path", "c-success-rate", "c-active-pool", "c-average-latency"],
       "docs": ["reference/backend-hosts.md", "reference/health-endpoints.md"]
@@ -358,7 +372,7 @@
       "name": "Success Rate",
       "domain_id": "d02",
       "subdomain_id": "sd02-02",
-      "definition": "Rolling percentage of successful probe responses for a host. Hosts below the SuccessRate threshold are removed from the active pool until they recover.",
+      "definition": "Rolling percentage of successful probe responses for a probeable host after its first successful probe. Before that success, probe failures are ignored and the reported rate is 100%. The active-host health list uses the SuccessRate threshold.",
       "key_settings": ["SuccessRate"],
       "default_value": 80,
       "unit": "percent",
@@ -370,7 +384,7 @@
       "name": "Active Pool",
       "domain_id": "d02",
       "subdomain_id": "sd02-02",
-      "definition": "Set of backend hosts currently eligible to receive traffic, filtered by rolling success rate threshold.",
+      "definition": "The health monitor's list of registered hosts whose success rate meets the configured threshold. It drives health reporting and readiness; the request iterator resolves candidates from the host snapshot rather than this active list.",
       "key_settings": ["SuccessRate"],
       "related_concept_ids": ["c-success-rate", "c-health-poller", "c-circuit-breaker"],
       "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
@@ -380,7 +394,7 @@
       "name": "Average Latency",
       "domain_id": "d02",
       "subdomain_id": "sd02-02",
-      "definition": "Rolling average probe response time per host. Used to order hosts in latency load-balance mode. Direct-mode hosts report 0 ms and sort first.",
+      "definition": "Probe latency averaged over up to 50 samples. Probeable hosts add a penalty based on failed-probe rate; non-probeable hosts use the raw average, normally 0 ms when no samples have been recorded.",
       "key_settings": [],
       "related_concept_ids": ["c-health-poller", "c-latency-iterator"],
       "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
@@ -391,7 +405,7 @@
       "code_file": "BaseHostHealth.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-02",
-      "definition": "Runtime object holding a single host's health metrics: rolling success rate, average latency, and circuit breaker state.",
+      "definition": "Runtime object holding a host configuration, probe and request latency samples, and request error counts. Probeable and non-probeable subclasses calculate health differently; the associated HostConfig owns the circuit breaker.",
       "key_settings": [],
       "related_concept_ids": ["c-circuit-breaker", "c-success-rate", "c-average-latency"],
       "docs": ["contributing/architecture.md"]
@@ -402,8 +416,8 @@
       "name": "Backend Selection Pipeline",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Three-stage process run on every request: (1) path filter, (2) load-balance ordering, (3) per-host circuit-breaker gate.",
-      "stages": ["path-filter", "load-balance-mode", "circuit-breaker-gate"],
+      "definition": "Selects the longest matching named path route when one matches and uses its host order; otherwise filters legacy hosts by path and request priority and orders them according to load-balance mode. Each candidate is subject to circuit-breaker checks.",
+      "stages": ["named-route-or-path-filter", "candidate-ordering", "circuit-breaker-gate"],
       "related_concept_ids": ["c-path-filter", "c-load-balance-mode", "c-circuit-breaker"],
       "docs": ["reference/load-balancing.md", "contributing/architecture.md"]
     },
@@ -423,7 +437,7 @@
       "name": "Path Filter",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Stage 1 of backend selection. Specific-path hosts are checked first; if none match, catch-all hosts are used. Specific paths always win.",
+      "definition": "When no named route matches, all matching legacy specific-path hosts are selected; only if none match are catch-all hosts selected. Priority filtering happens afterward, so an empty result after filtering does not fall back to catch-all. The first matched host determines the shared modified path.",
       "key_settings": ["path"],
       "related_concept_ids": ["c-path-prefix", "c-catch-all-host", "c-backend-selection-pipeline"],
       "docs": ["reference/load-balancing.md", "reference/backend-hosts.md"]
@@ -433,21 +447,32 @@
       "name": "Load Balance Mode",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Stage 2 of backend selection. Determines the ordering of hosts within the matched set for each request.",
+      "definition": "Determines ordering of matched legacy hosts. Named routes instead preserve their configured host order.",
       "key_settings": ["LoadBalanceMode"],
-      "allowed_values": ["roundrobin", "latency", "timetofirstbyte", "random"],
+      "allowed_values": ["roundrobin", "latency", "timetofirstbyte", "prioritygroup", "random"],
       "default_value": "latency",
       "reload_type": "Warm",
-      "related_concept_ids": ["c-round-robin-iterator", "c-latency-iterator", "c-time-to-first-byte-iterator", "c-random-iterator"],
+      "related_concept_ids": ["c-round-robin-iterator", "c-latency-iterator", "c-time-to-first-byte-iterator", "c-priority-group-iterator", "c-random-iterator"],
       "docs": ["reference/load-balancing.md"]
+    },
+    {
+      "id": "c-host-priority-filter",
+      "name": "Host Priority Filter",
+      "code_file": "HostConfig.cs",
+      "domain_id": "d02",
+      "subdomain_id": "sd02-03",
+      "definition": "The acceptablepriorities host key restricts a host to positive request priority values separated by colons. An omitted value or * accepts any priority. Named routes apply this filter to their configured hosts; legacy matching applies it after choosing specific or catch-all hosts.",
+      "connection_string_key": "acceptablepriorities",
+      "related_concept_ids": ["c-backend-host", "c-priority-level", "c-named-path-route", "c-path-filter"],
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-round-robin-iterator",
       "name": "Round-Robin Iterator",
-      "code_file": "RoundRobinHostIterator.cs",
+      "code_file": "PerRequestHostIterator.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Distributes requests evenly across active hosts using a global atomic counter.",
+      "definition": "Uses an atomic counter to select successive positions among candidate hosts. Concurrent requests and circuit-breaker checks can affect which hosts are actually attempted.",
       "config_value": "LoadBalanceMode=roundrobin",
       "related_concept_ids": ["c-load-balance-mode", "c-shared-iterator"],
       "docs": ["reference/load-balancing.md"]
@@ -455,10 +480,10 @@
     {
       "id": "c-latency-iterator",
       "name": "Latency Iterator",
-      "code_file": "LatencyHostIterator.cs",
+      "code_file": "PerRequestHostIterator.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Orders hosts by ascending average probe latency per request. Direct-mode hosts always sort first at 0 ms.",
+      "definition": "Orders candidate hosts by ascending AverageLatency, including the probe failure-rate penalty for probeable hosts.",
       "config_value": "LoadBalanceMode=latency",
       "related_concept_ids": ["c-load-balance-mode", "c-average-latency", "c-direct-mode"],
       "docs": ["reference/load-balancing.md"]
@@ -466,21 +491,32 @@
     {
       "id": "c-time-to-first-byte-iterator",
       "name": "Time-to-First-Byte Iterator",
-      "code_file": "TimeToFirstByteHostIterator.cs",
+      "code_file": "PerRequestHostIterator.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Orders peers within the current priority group by ascending observed backend response-header latency.",
+      "definition": "Orders hosts by ascending observed backend response-header latency.",
       "config_value": "LoadBalanceMode=timetofirstbyte",
       "related_concept_ids": ["c-load-balance-mode"],
       "docs": ["reference/load-balancing.md"]
     },
     {
-      "id": "c-random-iterator",
-      "name": "Random Iterator",
-      "code_file": "RandomHostIterator.cs",
+      "id": "c-priority-group-iterator",
+      "name": "Priority Group Iterator",
+      "code_file": "PerRequestHostIterator.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Shuffles active hosts randomly on each request, producing no predictable access pattern.",
+      "definition": "Orders candidate hosts by ascending configured priority group, with randomized ordering among hosts in the same group.",
+      "config_value": "LoadBalanceMode=prioritygroup",
+      "related_concept_ids": ["c-load-balance-mode", "c-backend-host"],
+      "docs": ["reference/load-balancing.md"]
+    },
+    {
+      "id": "c-random-iterator",
+      "name": "Random Iterator",
+      "code_file": "PerRequestHostIterator.cs",
+      "domain_id": "d02",
+      "subdomain_id": "sd02-03",
+      "definition": "Shuffles candidate hosts randomly when creating a per-request iterator and when resetting its traversal.",
       "config_value": "LoadBalanceMode=random",
       "related_concept_ids": ["c-load-balance-mode"],
       "docs": ["reference/load-balancing.md"]
@@ -491,7 +527,7 @@
       "code_file": "SharedIteratorRegistry.cs",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Single iterator shared across all concurrent requests to the same path. Enables strict round-robin fairness across parallel workers.",
+      "definition": "Iterator shared across concurrent requests to the same normalized path when enabled for round-robin or random ordering. Named routes and configurations with non-default priority groups or priority restrictions use per-request iterators. Shared iteration uses a circular cursor; stale iterators are periodically removed.",
       "key_settings": ["UseSharedIterators", "SharedIteratorTTLSeconds", "SharedIteratorCleanupIntervalSeconds"],
       "related_concept_ids": ["c-round-robin-iterator", "c-iterator-factory"],
       "docs": ["reference/load-balancing.md"]
@@ -501,10 +537,10 @@
       "name": "Iteration Mode",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Controls retry breadth. SinglePass tries each host at most once. MultiPass cycles through all hosts until MaxAttempts is reached; set MaxAttempts to 0 to disable the cap.",
+      "definition": "Controls retry breadth. SinglePass limits a traversal to one lap; shared iterators cap actual attempts by host count. Concurrent round-robin requests can advance the shared counter between selections, so a lap does not guarantee distinct hosts. MultiPass repeats traversal until MaxAttempts is reached; set MaxAttempts to 0 to disable that cap.",
       "key_settings": ["IterationMode"],
       "allowed_values": ["SinglePass", "MultiPass"],
-      "default_value": "SinglePass",
+      "default_value": "MultiPass",
       "reload_type": "Warm",
       "related_concept_ids": ["c-max-attempts", "c-retry"],
       "docs": ["reference/load-balancing.md"]
@@ -514,7 +550,7 @@
       "name": "Max Attempts",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Maximum total host attempts in MultiPass mode. Set to 0 to disable the attempt-count limit. Hosts skipped because their circuit is OPEN do not consume an attempt.",
+      "definition": "Maximum total host attempts in MultiPass mode, including prior attempts across requeue cycles. Set to 0 to disable the attempt-count limit. Hosts skipped because their circuit is OPEN do not consume an attempt.",
       "key_settings": ["MaxAttempts"],
       "default_value": 10,
       "reload_type": "Warm",
@@ -528,7 +564,7 @@
       "code_file": "CircuitBreaker.cs",
       "domain_id": "d03",
       "subdomain_id": "sd03-01",
-      "definition": "Per-host failure counter with a sliding time window. Opens when the failure count in the window reaches CBErrorThreshold.",
+      "definition": "Per-host failure counter with a sliding time window. The failure-count blocked state starts when the count reaches CBErrorThreshold; a separate retry deadline controls request admission and can also be set by Retry-After before the threshold is reached.",
       "key_settings": ["CBErrorThreshold", "CBTimeslice", "AcceptableStatusCodes"],
       "states": ["CLOSED", "OPEN"],
       "reload_type": "Warm",
@@ -549,7 +585,7 @@
       "name": "OPEN State",
       "domain_id": "d03",
       "subdomain_id": "sd03-01",
-      "definition": "Circuit tripped. Host is skipped by the load-balance iterator. Skipped hosts do not consume the MaxAttempts budget.",
+      "definition": "A host is skipped while its circuit-breaker retry deadline is in the future. Skips do not consume the MaxAttempts budget; a Retry-After-derived deadline can extend beyond the failure-window deadline.",
       "related_concept_ids": ["c-circuit-breaker", "c-circuit-closed", "c-global-blocked-check"],
       "docs": ["reference/circuit-breaker.md"]
     },
@@ -568,7 +604,7 @@
       "name": "Auto-Recovery",
       "domain_id": "d03",
       "subdomain_id": "sd03-01",
-      "definition": "Circuit closes automatically when all failures age out of the sliding window. No manual intervention required.",
+      "definition": "The failure-count blocked state clears when enough failures expire to bring the count below the threshold. Request admission uses a separate retry deadline, which can remain in the future due to Retry-After.",
       "related_concept_ids": ["c-circuit-breaker", "c-sliding-window"],
       "docs": ["reference/circuit-breaker.md"]
     },
@@ -577,7 +613,7 @@
       "name": "Progressive Delay",
       "domain_id": "d03",
       "subdomain_id": "sd03-01",
-      "definition": "Artificial per-request delay (100-500 ms) added as a host's failure count approaches CBErrorThreshold. Not configurable.",
+      "definition": "The circuit breaker reports backpressure delays as its failure count approaches CBErrorThreshold. Threshold bucket counts use integer truncation, so small thresholds can cross buckets earlier than their nominal percentages. At or above the threshold, the reported delay is 1000 ms.",
       "delay_table": [
         { "failure_pct_of_threshold": 50, "delay_ms": 100 },
         { "failure_pct_of_threshold": 60, "delay_ms": 200 },
@@ -594,7 +630,7 @@
       "code_symbol": "AreAllCircuitBreakersBlocked()",
       "domain_id": "d03",
       "subdomain_id": "sd03-01",
-      "definition": "Static circuit-breaker registry check that reports whether all registered circuit breakers are OPEN. The current request path does not call this helper directly.",
+      "definition": "Static circuit-breaker registry check that reports whether all registered child circuit breakers are blocked by failure count; it returns false when none are registered. Counts are refreshed by a 500 ms timer. The parent breaker's GetMsToNextRetry uses this check; request iteration separately checks candidate retry deadlines.",
       "related_concept_ids": ["c-circuit-open"],
       "docs": ["reference/circuit-breaker.md"]
     },
@@ -603,7 +639,7 @@
       "name": "Acceptable Status Codes",
       "domain_id": "d03",
       "subdomain_id": "sd03-01",
-      "definition": "HTTP status codes from backends that are not counted as circuit-breaker failures and are forwarded to the client.",
+      "definition": "Backend status codes accepted without retry based on the status alone. The circuit breaker ignores an acceptable code only when the attempt is not also marked as a failure.",
       "key_settings": ["AcceptableStatusCodes"],
       "default_value": [200, 202, 401, 403, 404, 408, 410, 412, 417, 400],
       "reload_type": "Warm",
@@ -616,7 +652,7 @@
       "name": "Retry",
       "domain_id": "d03",
       "subdomain_id": "sd03-02",
-      "definition": "Advancing to the next host in the iterator after a non-acceptable backend response. Does not apply when the circuit is OPEN.",
+      "definition": "Advancing to another iterator candidate after retryable backend responses or attempt errors. Non-acceptable status codes do not all follow the same retry path; circuit-open candidates are skipped without a backend attempt.",
       "key_settings": ["IterationMode", "MaxAttempts"],
       "related_concept_ids": ["c-iteration-mode", "c-max-attempts", "c-requeue"],
       "docs": ["reference/load-balancing.md"]
@@ -626,7 +662,7 @@
       "name": "Requeue",
       "domain_id": "d03",
       "subdomain_id": "sd03-02",
-      "definition": "Returning a request to the priority queue after host attempts are exhausted and at least one backend returned 429 with S7PREQUEUE:true. Uses the shortest requeue delay seen.",
+      "definition": "Returning a request to the priority queue for a later processing cycle. Backend 429 responses with S7PREQUEUE:true contribute retry delays; after attempts are exhausted the shortest delay is used unless the MultiPass attempt cap has been reached. S7PRequeueException carries a millisecond delay; the worker can defer handling it while trying other hosts, then the request handler schedules the delayed requeue. The delay worker resets per-cycle backend attempts and incomplete-attempt details but retains lifetime attempts. Shutdown cancellation applies to async delays, which abort and persist async requests for reprocessing; non-async delays are not cancellable. All-blocked circuits and Tokenomics policy can also cause requeue.",
       "related_concept_ids": ["c-retry", "c-s7prequeue-header", "c-retry-after"],
       "docs": ["reference/load-balancing.md", "reference/headers-and-status-codes.md"]
     },
@@ -645,7 +681,7 @@
       "name": "Retry-After",
       "domain_id": "d03",
       "subdomain_id": "sd03-02",
-      "definition": "Delay from retry-after-ms (milliseconds) or Retry-After (seconds), defaulting to 1000 ms. The proxy uses the shortest eligible delay seen after host attempts are exhausted.",
+      "definition": "For backend 429 requeue, the proxy parses retry-after-ms as integer milliseconds, otherwise Retry-After as integer seconds, defaulting to 1000 ms. It uses the shortest eligible delay seen after host attempts are exhausted. Circuit-breaker Retry-After handling is separate.",
       "header_names": ["retry-after-ms", "Retry-After"],
       "related_concept_ids": ["c-requeue", "c-s7prequeue-header"],
       "docs": ["reference/load-balancing.md"]
@@ -656,7 +692,7 @@
       "name": "Timeout",
       "domain_id": "d03",
       "subdomain_id": "sd03-03",
-      "definition": "Per-host-attempt window in milliseconds. Resets on each retry. Effective deadline per attempt = min(remaining TTL, Timeout).",
+      "definition": "For synchronous requests, the per-host-attempt cancellation window in milliseconds is the lesser of remaining TTL and the configured or request-overridden timeout. Async-enabled requests instead use AsyncTimeout for the attempt cancellation timer; TTL is checked separately before an attempt.",
       "key_settings": ["Timeout"],
       "per_request_override_header": "S7PTimeout",
       "unit": "milliseconds",
@@ -670,7 +706,7 @@
       "name": "AsyncTriggerTimeout",
       "domain_id": "d03",
       "subdomain_id": "sd03-03",
-      "definition": "Milliseconds after enqueue before the proxy releases the client with a 202 response and continues processing in the background.",
+      "definition": "For eligible async requests, the delay measured from enqueue before the async worker attempts to release the client with a 202 response and continue processing in the background.",
       "key_settings": ["AsyncTriggerTimeout"],
       "unit": "milliseconds",
       "default_value": 10000,
@@ -683,7 +719,7 @@
       "name": "AsyncTimeout",
       "domain_id": "d03",
       "subdomain_id": "sd03-03",
-      "definition": "Maximum backend processing time in milliseconds once a request is in async mode.",
+      "definition": "Per-attempt backend cancellation timeout in milliseconds for requests enabled for async processing, including before the 202 response is sent.",
       "key_settings": ["AsyncTimeout"],
       "unit": "milliseconds",
       "default_value": 1800000,
@@ -696,7 +732,7 @@
       "name": "AsyncTTLSecs",
       "domain_id": "d03",
       "subdomain_id": "sd03-03",
-      "definition": "Request TTL in seconds applied when async processing starts, replacing the synchronous request expiration.",
+      "definition": "Default TTL in seconds used when the async worker recalculates request expiration. A supplied TTL header still takes precedence, and a relative TTL is measured from the request's enqueue time.",
       "key_settings": ["AsyncTTLSecs"],
       "unit": "seconds",
       "default_value": 86400,
@@ -710,7 +746,7 @@
       "name": "Validation Pipeline",
       "domain_id": "d04",
       "subdomain_id": "sd04-01",
-      "definition": "Ordered sequence of validation checks applied to every non-probe inbound request before it is enqueued. The execution order is fixed.",
+      "definition": "Ordered validation checks for non-probe requests that pass preprocessing and admission checks. Probe requests bypass these checks; plugins and admission limits can reject a request before validation.",
       "steps": [
         { "order": 1, "concept_id": "c-inbound-key-validation", "on_failure_code": 403, "on_failure_label": "DisallowedKey", "when": "ValidateAuthConfig enables key, oauth2, or mixed mode" },
         { "order": 2, "concept_id": "c-app-id-validation",     "on_failure_code": 403, "on_failure_label": "DisallowedAppID", "when": "ValidateAuthAppID=true" },
@@ -765,7 +801,7 @@
       "code_file": "IRequestPreprocessorPlugin.cs",
       "domain_id": "d04",
       "subdomain_id": "sd04-01",
-      "definition": "Configured IRequestPreprocessorPlugin implementations invoked before request validation and enqueue. The allow-all implementation is used when no valid plugin is configured.",
+      "definition": "Configured IRequestPreprocessorPlugin implementations are invoked in registration order for non-probe requests before admission checks, validation, and enqueue. A plugin can mutate the request or stop processing with a status and message. The allow-all implementation is used when no valid plugin is configured.",
       "key_settings": ["RequestPreprocessorPlugins"],
       "related_concept_ids": ["c-validation-pipeline", "c-enqueue"],
       "docs": ["reference/advanced-configuration.md"]
@@ -785,7 +821,7 @@
       "name": "Required Headers",
       "domain_id": "d04",
       "subdomain_id": "sd04-02",
-      "definition": "List of header names that must be non-empty on every request. The first missing header returns 417.",
+      "definition": "List of header names that must be non-empty on non-probe requests reaching validation. The first missing header returns 417.",
       "key_settings": ["RequiredHeaders"],
       "on_failure_code": 417,
       "on_failure_label": "IncompleteHeaders",
@@ -798,7 +834,7 @@
       "name": "Disallowed Headers",
       "domain_id": "d04",
       "subdomain_id": "sd04-02",
-      "definition": "Headers stripped silently from the request before forwarding. Automatically includes the allowlist header when ValidateHeaders is configured.",
+      "definition": "Headers stripped silently from the incoming request before profile enrichment. A ValidateHeaders rule with an allowlist header automatically adds that header to this list; an inline-only rule does not.",
       "key_settings": ["DisallowedHeaders"],
       "auto_populated_by": ["c-header-validation-rule"],
       "related_concept_ids": ["c-header-stripping", "c-header-validation-rule"],
@@ -809,7 +845,7 @@
       "name": "Header Validation Rule",
       "domain_id": "d04",
       "subdomain_id": "sd04-02",
-      "definition": "ValidateHeaders rules compare a source header against inline allowed values and an optional comma-separated allowlist header injected from the user profile. Rules support case-insensitive exact matching and one trailing * for prefix matching. Legacy SourceHeader=AllowlistHeader mappings remain supported.",
+      "definition": "ValidateHeaders rules compare a source header against inline allowed values and an optional comma-separated allowlist header injected from the user profile. Matching is case-insensitive; prefix-wildcard rules interpret a trailing * as a prefix match. Legacy SourceHeader=AllowlistHeader mappings remain supported.",
       "key_settings": ["ValidateHeaders"],
       "on_failure_code": 417,
       "on_failure_label": "InvalidHeader",
@@ -826,8 +862,8 @@
       "name": "App ID Allowlist",
       "domain_id": "d04",
       "subdomain_id": "sd04-02",
-      "definition": "File or URL returning the list of permitted Entra Application IDs. Enforced at step 2 of the validation pipeline.",
-      "key_settings": ["ValidateAuthAppIDUrl", "ValidateAuthAppFieldName"],
+      "definition": "File, HTTP(S), or azblob source returning permitted Entra Application IDs. Enforced at step 2 of the validation pipeline; removed IDs are soft-deleted for the configured grace period before expiring.",
+      "key_settings": ["ValidateAuthAppIDUrl", "ValidateAuthAppFieldName", "UserSoftDeleteTTLMinutes"],
       "related_concept_ids": ["c-app-id-validation"],
       "docs": ["how-to/configure-security.md", "reference/environment-variables.md"]
     },
@@ -837,15 +873,16 @@
       "name": "User Profile",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "Per-user JSON object loaded periodically from a URL or file. Drives priority assignment, async configuration, and custom header injection.",
+      "definition": "Per-user JSON records loaded from a file, HTTP(S), or azblob source. Profile fields can supply request headers, async configuration, and shared or inline rules. Removed profiles are soft-deleted for the configured grace period; requests can still use their snapshot during that period, but async opt-in rejects soft-deleted profiles. Profile headers exclude internal-* and deletion-marker fields.",
       "key_settings": ["UseProfiles", "UserConfigUrl"],
       "profile_fields": [
         { "field": "userId",         "required": true,  "description": "Unique identifier matched against the incoming request header." },
         { "field": "S7PPriorityKey", "required": false, "description": "Priority tier value mapped via PriorityKeys." },
         { "field": "async-config",   "required": false, "description": "Enables async mode and sets per-user blob container and Service Bus topic." },
+        { "field": "S7PRules",       "required": false, "description": "Assigns named shared profile rules; when present, this takes precedence over inline rules." },
         { "field": "[CustomHeader]", "required": false, "description": "Any other key is injected as an HTTP request header." }
       ],
-      "related_concept_ids": ["c-user-id", "c-s7p-priority-key-field", "c-async-config-field", "c-profile-refresh", "c-suspended-user"],
+      "related_concept_ids": ["c-user-id", "c-s7p-priority-key-field", "c-async-config-field", "c-profile-rules", "c-profile-refresh", "c-suspended-user"],
       "docs": ["reference/user-profiles.md"]
     },
     {
@@ -853,8 +890,8 @@
       "name": "User ID",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "Unique identifier extracted from a configurable request header and used to look up the user profile record.",
-      "key_settings": ["UserIDFieldName"],
+      "definition": "The field named by UserIDFieldName identifies each profile record. The incoming UserProfileHeader supplies the profile lookup value; UniqueUserHeaders are concatenated in order to construct the request's queue-accounting user ID, which defaults to defaultUser when all values are empty.",
+      "key_settings": ["UserIDFieldName", "UserProfileHeader", "UniqueUserHeaders"],
       "default_value": "userId",
       "related_concept_ids": ["c-user-profile"],
       "docs": ["reference/user-profiles.md"]
@@ -864,7 +901,7 @@
       "name": "S7PPriorityKey Profile Field",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "User profile field whose value is matched against PriorityKeys to assign a priority tier to the user's requests.",
+      "definition": "A profile field injected into request headers. When the configured PriorityKeyHeader names that field, its value is matched against PriorityKeys to assign a priority tier.",
       "related_concept_ids": ["c-user-profile", "c-priority-mapping"],
       "docs": ["reference/user-profiles.md", "reference/advanced-configuration.md"]
     },
@@ -873,7 +910,7 @@
       "name": "async-config Profile Field",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "User profile field enabling async mode for a specific user. Specifies the user's blob container name and Service Bus topic.",
+      "definition": "User profile field enabling async mode for a specific user. Requires enabled=true and valid containername and topic values. Optional timeout is a positive number of seconds defaulting to 3600; generatesas defaults to false and is retained but the current response path does not generate SAS tokens.",
       "key_settings": ["AsyncClientConfigFieldName"],
       "required_subfields": ["enabled", "containername", "topic"],
       "optional_subfields": ["timeout", "generatesas"],
@@ -886,8 +923,8 @@
       "name": "Profile Refresh",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "Proxy reloads the user profile file at the configured interval (default 1 hour). Enables live user management without restart.",
-      "key_settings": ["UserConfigRefreshIntervalSecs"],
+      "definition": "UserProfile reloads configured sources at UserConfigRefreshIntervalSecs (default 1 hour) and publishes parsed profile snapshots. Failed reads retry after 3 seconds and retain prior data; removed profiles and auth app IDs are soft-deleted for UserSoftDeleteTTLMinutes. With configured sources and UserConfigRequired=true, missing initial data or data stale beyond that grace period prevents profile readiness. If all sources are unset, the service registers ready even when UserConfigRequired=true; request-time profile checks can still reject missing profiles.",
+      "key_settings": ["UserConfigRefreshIntervalSecs", "UserSoftDeleteTTLMinutes", "UserConfigRequired"],
       "default_value": 3600,
       "unit": "seconds",
       "related_concept_ids": ["c-user-profile"],
@@ -898,8 +935,8 @@
       "name": "Suspended User",
       "domain_id": "d04",
       "subdomain_id": "sd04-03",
-      "definition": "User whose ID appears in the suspended users list. Returns 403 immediately, regardless of profile content.",
-      "key_settings": ["SuspendedUserConfigUrl"],
+      "definition": "When profiles are enabled and the profile lookup header is present, a user whose ID appears in the suspended users list receives 403 before profile data is applied.",
+      "key_settings": ["UseProfiles", "UserProfileHeader", "SuspendedUserConfigUrl"],
       "on_failure_code": 403,
       "related_concept_ids": ["c-user-profile"],
       "docs": ["reference/user-profiles.md"]
@@ -910,9 +947,9 @@
       "name": "Priority Mapping",
       "domain_id": "d04",
       "subdomain_id": "sd04-04",
-      "definition": "Maps a request header value to an internal priority integer and allocates dedicated worker threads to that priority level.",
+      "definition": "Maps a request header value to an internal priority integer. Worker allocations specify preferred priorities for queue dispatch.",
       "key_settings": ["PriorityKeyHeader", "PriorityKeys", "PriorityValues", "PriorityWorkers"],
-      "constraint": "Count of PriorityKeys MUST equal count of PriorityValues. PriorityWorkers MUST reference only levels in PriorityValues.",
+      "constraint": "If PriorityKeys and PriorityValues have different counts, the parser replaces PriorityValues with the default priority repeated for each key. If allocated worker counts exceed Workers, the parser raises Workers to the allocation total.",
       "related_concept_ids": ["c-priority-key-header", "c-priority-keys", "c-priority-values", "c-priority-workers"],
       "docs": ["reference/advanced-configuration.md"]
     },
@@ -955,7 +992,7 @@
       "name": "Priority Workers",
       "domain_id": "d04",
       "subdomain_id": "sd04-04",
-      "definition": "PriorityLevel:WorkerCount pairs that reserve dedicated worker threads for each priority level.",
+      "definition": "PriorityLevel:WorkerCount pairs used to assign preferred priorities when workers start. Workers can process other priorities if their preferred priority is unavailable. The startup parser reads PriorityWorkers into PriorityWorkerDict; WorkerFactory copies that dictionary once when creating workers. Changing the warm PriorityWorker property does not recreate or reassign existing workers.",
       "key_settings": ["PriorityWorkers"],
       "format": "level:count,level:count",
       "reload_type": "Warm",
@@ -967,7 +1004,7 @@
       "name": "Per-user Throttling",
       "domain_id": "d04",
       "subdomain_id": "sd04-04",
-      "definition": "When a user's active requests exceed UserPriorityThreshold as a fraction of the total queue, that user's new requests are deprioritized.",
+      "definition": "A secondary queue priority favors requests from users whose tracked share of active requests is below UserPriorityThreshold. It does not change the primary priority tier or reject requests. UserPriority copies the threshold at singleton construction and does not observe warm config refreshes, so the active threshold requires restart to change.",
       "key_settings": ["UserPriorityThreshold"],
       "value_type": "float",
       "value_range": "0.0 to 1.0",
@@ -981,13 +1018,13 @@
       "id": "c-async-mode",
       "name": "Async Mode",
       "domain_id": "d05",
-      "definition": "System-wide feature enabling asynchronous request processing. Must be enabled at three levels: proxy (AsyncModeEnabled), user profile (async-config field), and per-request (opt-in header).",
+      "definition": "Asynchronous handling for eligible incoming requests. It requires AsyncModeEnabled, an available non-null blob writer, valid enabled async settings in the selected user profile, and a per-request opt-in header parsed as true. Upgrade is still conditional on response timing and blob queue pressure.",
       "key_settings": ["AsyncModeEnabled"],
       "reload_type": "Cold",
       "enablement_levels": [
-        "AsyncModeEnabled=true (proxy-wide switch, Cold)",
-        "async-config field in user profile",
-        "AsyncClientRequestHeader on the request"
+        "AsyncModeEnabled=true and an available non-null blob writer",
+        "enabled async-config with valid container and topic in the selected user profile",
+        "AsyncClientRequestHeader parses as true"
       ],
       "related_concept_ids": ["c-opt-in-header", "c-async-upgrade", "c-result-blob", "c-service-bus-status"],
       "docs": ["concepts/async-processing.md"]
@@ -996,7 +1033,7 @@
       "id": "c-opt-in-header",
       "name": "Opt-in Header",
       "domain_id": "d05",
-      "definition": "Per-request header clients send to request async processing for that call. Default header name: S7PAsyncMode.",
+      "definition": "Per-request header clients set to a Boolean true value to request async processing. This opt-in alone does not guarantee an async upgrade. Default header name: S7PAsyncMode.",
       "key_settings": ["AsyncClientRequestHeader"],
       "default_value": "S7PAsyncMode",
       "reload_type": "Warm",
@@ -1007,7 +1044,7 @@
       "id": "c-async-upgrade",
       "name": "Async Upgrade",
       "domain_id": "d05",
-      "definition": "After AsyncTriggerTimeout ms, the proxy returns 202 to the client containing blob URIs and continues backend processing in the background.",
+      "definition": "An eligible request can be released with a 202 and blob URIs after the async trigger delay. If the backend response arrives before startup, the async worker is canceled and processing continues synchronously; initialization failure or blob queue pressure can also prevent upgrade.",
       "key_settings": ["AsyncTriggerTimeout"],
       "related_concept_ids": ["c-async-trigger-timeout", "c-202-response", "c-result-blob"],
       "docs": ["concepts/async-processing.md", "reference/timeouts.md"]
@@ -1025,7 +1062,7 @@
       "id": "c-result-blob",
       "name": "Result Blob",
       "domain_id": "d05",
-      "definition": "Azure Blob Storage object written when the backend completes an async request. Its base URI is included in the 202 response body and headers.",
+      "definition": "Azure Blob Storage object used for an async response. Data is streamed to a lazily created blob and headers are stored separately. Base URIs are returned in the 202 response body and headers before the blobs necessarily exist.",
       "key_settings": ["AsyncBlobStorageConfig", "StorageDbContainerName"],
       "related_concept_ids": ["c-blob-lifecycle-policy", "c-async-blob-worker"],
       "docs": ["concepts/async-processing.md", "reference/storage-blob-config.md"]
@@ -1043,7 +1080,7 @@
       "id": "c-service-bus-status",
       "name": "Service Bus Status",
       "domain_id": "d05",
-      "definition": "Real-time async lifecycle events sent to a per-user Azure Service Bus topic as requests move through processing states.",
+      "definition": "Async status uses two distinct Service Bus paths: SBTopicService publishes ServiceBusStatusMessage notifications to the request's configured topic (default status), while SBQueueService batches RequestAPIDocument status updates to AsyncSBQueue (default requeststatus). AsyncFeeder separately consumes the feeder queue and restores or creates requests. Enqueue and delivery are not guaranteed.",
       "key_settings": ["AsyncSBConfig"],
       "related_concept_ids": ["c-status-events", "c-async-mode"],
       "docs": ["concepts/async-processing.md"]
@@ -1052,7 +1089,7 @@
       "id": "c-status-events",
       "name": "Status Events",
       "domain_id": "d05",
-      "definition": "Lifecycle notification values sent over Service Bus.",
+      "definition": "Values in the Service Bus status enum. Updates are attempted for requests while runAsync is true; enum membership does not guarantee every value is emitted for every request.",
       "values": ["None", "Queued", "RetryScheduled", "Requeued", "Processing", "CheckingBackgroundRequestStatus", "AsyncProcessingError", "AsyncProcessing", "Processed", "AsyncProcessed", "BackgroundRequestSubmitted", "Failed", "Expired"],
       "related_concept_ids": ["c-service-bus-status"],
       "docs": ["concepts/async-processing.md"]
@@ -1061,8 +1098,9 @@
       "id": "c-async-blob-worker",
       "name": "Async Blob Worker",
       "domain_id": "d05",
-      "definition": "Background thread that writes completed async request results to Azure Blob Storage.",
-      "key_settings": ["AsyncBlobWorkerCount"],
+      "definition": "BlobWorkerPump routes each blob to a worker channel by container/blob hash and batches small-blob uploads for the same container. Within each batch, duplicate writes to a blob are deduplicated to the last write. The DI defaults are a 10,000-operation total queue, 100 ms batch wait, and 25-item batch; total capacity is divided across workers, and a per-worker capacity of zero creates an unbounded channel. Response bodies use a separate direct streaming store and bypass this queue. AsyncBlobMaxQueue is an upgrade/readiness threshold, not the pump's configured queue capacity.",
+      "code_file": "BlobWorkerPump.cs",
+      "key_settings": ["AsyncBlobWorkerCount", "AsyncBlobMaxQueue"],
       "default_value": 2,
       "reload_type": "Cold",
       "related_concept_ids": ["c-result-blob"],
@@ -1073,7 +1111,7 @@
       "name": "Async Worker",
       "code_file": "AsyncWorker.cs",
       "domain_id": "d05",
-      "definition": "Coordinates async upgrade, client 202 release, blob response streams, status events, and request recovery state.",
+      "definition": "Coordinates async upgrade and recovery. AsyncFeeder waits for startup readiness, consumes the feeder queue one message at a time, and enqueues requests with a recovery processor; AsyncRequestHydrator restores request state and response streams, while OpenAIBackgroundRequest prepares background-status checks. Before the first backend send, the request can be persisted. AsyncWorker waits for AsyncTriggerTimeout when the configured delay exceeds 10 ms before attempting the 202 upgrade, and proceeds only when blob queue depth is below AsyncBlobMaxQueue. After upgrade, clients receive blob URIs; response bodies stream directly to blob storage, headers use the file-store write path, and completion status is set only after blob writes are flushed/disposed. Background checks buffer responses before deciding whether to publish a completed result.",
       "key_settings": ["AsyncTriggerTimeout", "AsyncTimeout", "AsyncBlobMaxQueue"],
       "related_concept_ids": ["c-async-mode", "c-async-upgrade", "c-result-blob", "c-service-bus-status"],
       "docs": ["concepts/async-processing.md"]
@@ -1083,7 +1121,7 @@
       "name": "Request API",
       "code_file": "CheckStatus.cs",
       "domain_id": "d05",
-      "definition": "Azure Functions subsystem backed by Cosmos DB that records, checks, and re-feeds asynchronous and background request state.",
+      "definition": "Azure Functions subsystem that consumes ServiceBusQueue messages into Cosmos DB request documents, preserving existing fields omitted from updates. Anonymous GET checkStatus/{guid} returns 400 for an invalid GUID, 404 for a missing document, or 200 with Guid, Status, and the incremented CheckCount, writing the updated document back to Cosmos DB. Every minute, ReFeeder changes NeedsReprocessing documents to ReSubmitted and publishes them to SBFeederQueue; backgroundReqChecker publishes BackgroundProcessing background documents for checking while persisting a ReSubmitted copy.",
       "key_settings": ["RequestAPIBaseUri"],
       "status_values": ["New", "InProgress", "Completed", "Failed", "NeedsReprocessing", "ReSubmitted", "ReProcessing", "BackgroundProcessing"],
       "related_concept_ids": ["c-request-types", "c-async-worker", "c-result-blob"],
@@ -1094,7 +1132,7 @@
       "name": "Streaming Microservice",
       "code_file": "process.cs",
       "domain_id": "d05",
-      "definition": "HTTP-triggered Azure Function that streams an upstream URL through a selected stream processor and emits processor statistics to Application Insights.",
+      "definition": "Function-authorized GET/POST Azure Function that fetches the absolute URL supplied by the url query parameter and streams its response through a selected processor. A valid differing sourceModel/targetModel pair in model.APIFormat form selects model mapping before an explicit processor; otherwise processor selection uses the explicit name or upstream headers/content type. Invalid model pairs fall back to normal processing. Mapping preserves JSON versus SSE framing based on upstream text/event-stream. Processor statistics are emitted to Application Insights. Upstream-response caching is compile-time opt-in and disabled in the checked-in source.",
       "related_concept_ids": ["c-stream-processor-factory", "c-token-telemetry", "c-application-insights"],
       "docs": ["reference/ai-foundry-integration.md", "concepts/observability.md"]
     },
@@ -1104,8 +1142,8 @@
       "name": "ProxyEvent",
       "domain_id": "d06",
       "subdomain_id": "sd06-01",
-      "definition": "Key/value dictionary capturing all dimensions of a single proxied request: HTTP status, timing, token counts, headers, and other metadata.",
-      "related_concept_ids": ["c-event-headers", "c-composite-event-client"],
+      "definition": "Event object containing a key/value dictionary plus fields such as type, status, method, URI, duration, and message ID. SendEvent routes by type to enabled destinations. Its serialized sink envelope adds Type, MID, Status, Method, and common fields as strings; ConvertToJson alone serializes only dictionary entries and supplied extra properties.",
+      "related_concept_ids": ["c-event-headers", "c-composite-event-client", "c-event-routing"],
       "docs": ["concepts/observability.md"]
     },
     {
@@ -1114,9 +1152,20 @@
       "code_interface": "ICommonEventData",
       "domain_id": "d06",
       "subdomain_id": "sd06-01",
-      "definition": "Common fields injected into every ProxyEvent: application version, container name, and revision. Supplied by the ICommonEventData implementation.",
+      "definition": "Common event fields supplied by ICommonEventData. The built-in implementation supplies Ver, Replica, and ContainerApp; the SendEvent sink envelope also supplies status and method.",
       "key_settings": ["EVENT_HEADERS"],
       "related_concept_ids": ["c-proxy-event"],
+      "docs": ["concepts/observability.md"]
+    },
+    {
+      "id": "c-event-routing",
+      "name": "Event Destination Filtering",
+      "code_file": "LogTargetAttr.cs",
+      "domain_id": "d06",
+      "subdomain_id": "sd06-01",
+      "definition": "LogToConsole, LogToEvents, and LogToAI independently select event categories. * includes all categories and a -category entry excludes that category. These selections refresh when their warm settings change; console output helpers have separate behavior from SendEvent.",
+      "key_settings": ["LogToConsole", "LogToEvents", "LogToAI"],
+      "related_concept_ids": ["c-proxy-event", "c-composite-event-client", "c-application-insights"],
       "docs": ["concepts/observability.md"]
     },
     {
@@ -1125,7 +1174,7 @@
       "code_file": "CompositeEventClient.cs",
       "domain_id": "d06",
       "subdomain_id": "sd06-01",
-      "definition": "Fan-out dispatcher that sends every serialized ProxyEvent to all registered event logger backends. Uses FrozenDictionary for zero-lock dispatch on the hot path.",
+      "definition": "Fan-out dispatcher that sends each submitted serialized event to registered event logger backends. ProxyEvent filters event types before sending to this dispatcher. Uses a FrozenDictionary snapshot for lock-free dispatch.",
       "related_concept_ids": ["c-event-logger-backend", "c-proxy-event"],
       "docs": ["concepts/observability.md"]
     },
@@ -1165,7 +1214,7 @@
       "name": "Event Hubs",
       "domain_id": "d06",
       "subdomain_id": "sd06-02",
-      "definition": "High-volume streaming telemetry sink for JSON event lines. Supports connection-string auth or Managed Identity.",
+      "definition": "Streaming telemetry sink for serialized JSON events. It requires an Event Hub name and either a connection string or namespace; a configured connection string takes precedence. The client batches events and attempts reconnects on transport recovery.",
       "key_settings": ["EVENTHUB_CONNECTIONSTRING", "EVENTHUB_NAMESPACE", "EVENTHUB_NAME"],
       "related_concept_ids": ["c-event-logger-backend"],
       "docs": ["concepts/observability.md"]
@@ -1175,20 +1224,29 @@
       "name": "Log File",
       "domain_id": "d06",
       "subdomain_id": "sd06-02",
-      "definition": "Local JSON-lines file sink for development and testing. Buffers events and flushes at 10 events or every 2 seconds.",
+      "definition": "Local JSON-lines file sink. Buffers events and flushes at 10 events or every 2 seconds; it attempts hourly rotation by renaming the file with a UTC hour suffix.",
       "key_settings": ["LOGFILE_NAME"],
       "related_concept_ids": ["c-event-logger-backend"],
       "docs": ["concepts/observability.md"]
+    },
+    {
+      "id": "c-batch-message-pump",
+      "name": "Batch Message Pump",
+      "code_file": "BatchMessagePump.cs",
+      "domain_id": "d06",
+      "subdomain_id": "sd06-02",
+      "definition": "In-memory batching mechanism used by event sinks and Service Bus senders. Failed sends are requeued for retry; an item that cannot fit in an empty transport batch is dropped. Shutdown waits for the queue up to a configured interval before initiating final drain, but that interval is not a deadline on the final drain or transport calls.",
+      "related_concept_ids": ["c-event-hubs", "c-log-file", "c-service-bus-status"],
+      "docs": []
     },
     {
       "id": "c-token-telemetry",
       "name": "Token Telemetry",
       "domain_id": "d06",
       "subdomain_id": "sd06-02",
-      "definition": "Prompt and completion token counts extracted from SSE (Server-Sent Events) streams and logged per request. Requires processor=OpenAI on the backend host.",
+      "definition": "Usage counts extracted by supported response processors and logged per request. The Tokenomics processor handles JSON and SSE usage and can capture cached input and safety signals; usage may be unavailable.",
       "key_settings": ["processor"],
-      "connection_string_value": "processor=OpenAI",
-      "related_concept_ids": ["c-processor", "c-proxy-event"],
+      "related_concept_ids": ["c-processor", "c-proxy-event", "c-tokenomics-usage"],
       "docs": ["concepts/observability.md", "reference/ai-foundry-integration.md"]
     },
     {
@@ -1196,9 +1254,9 @@
       "name": "/liveness Endpoint",
       "domain_id": "d06",
       "subdomain_id": "sd06-03",
-      "definition": "Returns 200 OK if the process is running. Never returns 503.",
+      "definition": "The proxy's own endpoint returns 200 OK while running. Sidecar behavior differs: .NET GET returns 503 after a previously received status update becomes more than 20 seconds old, but .NET HEAD remains 200; Python liveness GET and HEAD remain 200 independently of status updates.",
       "path": "/liveness",
-      "responses": { "200": "process running" },
+      "responses": { "200": "process running, except for stale-update .NET sidecar GET", "503": ".NET sidecar GET with a previously received status update older than 20 seconds" },
       "related_concept_ids": ["c-readiness-endpoint", "c-sidecar-mode"],
       "docs": ["reference/health-endpoints.md"]
     },
@@ -1207,7 +1265,7 @@
       "name": "/readiness Endpoint",
       "domain_id": "d06",
       "subdomain_id": "sd06-03",
-      "definition": "Returns 200 when startup is complete, hosts are active and healthy, event backlog is within limits, and the async blob queue is healthy; otherwise returns 503.",
+      "definition": "Returns 200 when startup readiness is satisfied, at least one host is active, backend backpressure is absent, the event client is healthy, event backlog is within limits, and blob queue depth is within the configured threshold; otherwise returns 503.",
       "path": "/readiness",
       "responses": { "200": "proxy health criteria satisfied", "503": "startup, host, event backlog, or blob queue health criteria failed" },
       "related_concept_ids": ["c-liveness-endpoint", "c-active-pool"],
@@ -1218,7 +1276,7 @@
       "name": "/startup Endpoint",
       "domain_id": "d06",
       "subdomain_id": "sd06-03",
-      "definition": "Returns 200 when the proxy is initialized and the same host, event backlog, and blob queue health criteria used for readiness are satisfied; otherwise returns 503.",
+      "definition": "Returns 200 when startup readiness is complete, at least one host is active, backend backpressure is absent, the event client is healthy and within its backlog limit, and blob queue depth is within its configured threshold; otherwise returns 503.",
       "path": "/startup",
       "responses": { "200": "proxy initialized and healthy", "503": "initialization or health criteria failed" },
       "related_concept_ids": ["c-health-poller"],
@@ -1229,29 +1287,29 @@
       "name": "Sidecar Mode",
       "domain_id": "d06",
       "subdomain_id": "sd06-03",
-      "definition": "Isolation pattern where a separate HealthProbe container on port 9000 handles Kubernetes probes. The proxy pushes its health state to the sidecar every second. If no update arrives for 10 seconds the sidecar fails probes.",
+      "definition": "Isolation pattern where a separate HealthProbe container handles orchestration probes and the proxy pushes startup and readiness state every 5 seconds. After a received update, .NET GET liveness, readiness, and startup fail with 503 when the update is more than 20 seconds old; its HEAD handlers do not check staleness. Python readiness and startup GET/HEAD fail at 10 seconds, while its liveness remains independent. Before any update, readiness and startup begin in their zero-host failure states.",
       "key_settings": ["HealthProbeSidecar"],
       "ports": { "proxy": 8000, "sidecar": 9000 },
       "related_concept_ids": ["c-liveness-endpoint", "c-readiness-endpoint", "c-startup-endpoint"],
-      "docs": ["reference/health-endpoints.md", "how-to/deploy-sidecar.md"]
+      "docs": ["reference/health-endpoints.md", "Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-health-probe-implementations",
       "name": "Health Probe Implementations",
       "domain_id": "d06",
       "subdomain_id": "sd06-03",
-      "definition": "Interchangeable .NET and Python sidecar servers exposing liveness, readiness, startup, and internal status-update endpoints on HEALTHPROBE_PORT.",
+      "definition": ".NET and Python sidecar servers expose GET/HEAD liveness, readiness, and startup probes on HEALTHPROBE_PORT (default 9000), plus GET /internal/update-status requiring readiness and startup query parameters. Missing or unparseable status values return 400. Their stale-update and HEAD semantics differ; they are not behaviorally identical implementations. StartupWorkersNotReady is not explicitly rejected by either sidecar startup handler.",
       "code_files": ["HealthProbe/ProbeServer.cs", "HealthProbe-python/probe_server.py"],
       "key_settings": ["HEALTHPROBE_PORT"],
       "related_concept_ids": ["c-sidecar-mode", "c-liveness-endpoint", "c-readiness-endpoint", "c-startup-endpoint"],
-      "docs": ["reference/health-endpoints.md", "how-to/deploy-sidecar.md"]
+      "docs": ["reference/health-endpoints.md", "Legacy/deploy-sidecar.md"]
     },
 
     {
       "id": "c-warm-setting",
       "name": "Warm Setting",
       "domain_id": "d07",
-      "definition": "Configuration value hot-reloaded from Azure App Configuration within ~30 seconds when the Sentinel key changes. No container restart required.",
+      "definition": "Configuration category eligible for refresh from Azure App Configuration when the Sentinel value changes. The default polling interval is 30 seconds; actual timing depends on the configured interval and successful refresh. Individual consumers may apply values only at startup.",
       "label_in_app_config": "none or AZURE_APPCONFIG_LABEL",
       "key_prefix": "Warm:",
       "related_concept_ids": ["c-cold-setting", "c-hidden-setting", "c-sentinel"],
@@ -1262,8 +1320,8 @@
       "name": "Cold Setting",
       "domain_id": "d07",
       "definition": "Configuration value published to Azure App Configuration but taking effect only after a container restart.",
-      "label_in_app_config": "Cold",
-      "key_prefix": "Warm:",
+      "label_in_app_config": "none or AZURE_APPCONFIG_LABEL",
+      "key_prefix": "Cold:",
       "related_concept_ids": ["c-warm-setting", "c-hidden-setting"],
       "docs": ["reference/configuration.md", "how-to/configure-app-configuration.md"]
     },
@@ -1271,7 +1329,7 @@
       "id": "c-hidden-setting",
       "name": "Hidden Setting",
       "domain_id": "d07",
-      "definition": "Configuration value never published to Azure App Configuration. Runtime-derived from composite connection strings or infrastructure state.",
+      "definition": "Configuration category not published to Azure App Configuration. Hidden values include settings supplied directly through other configuration sources as well as values parsed from composite settings.",
       "related_concept_ids": ["c-warm-setting", "c-cold-setting"],
       "docs": ["reference/configuration.md"]
     },
@@ -1279,7 +1337,7 @@
       "id": "c-sentinel",
       "name": "Sentinel",
       "domain_id": "d07",
-      "definition": "Special key (Warm:Sentinel) in Azure App Configuration. Bumping its value to any new value triggers hot-reload of all Warm settings across all running proxy instances.",
+      "definition": "Special key (Warm:Sentinel) in Azure App Configuration. Each proxy instance polls the selected label and, when the value changes, downloads configuration and applies recognized nonempty Warm values. Refresh timing and consumer behavior can differ across instances.",
       "app_config_key": "Warm:Sentinel",
       "related_concept_ids": ["c-warm-setting"],
       "docs": ["how-to/configure-app-configuration.md"]
@@ -1314,6 +1372,15 @@
       "docs": ["how-to/configure-app-configuration.md", "reference/configuration.md"]
     },
     {
+      "id": "c-profile-configuration-publishing",
+      "name": "Profile Configuration Publishing",
+      "code_file": "AdminConfigurationPage.razor",
+      "domain_id": "d07",
+      "definition": "The CompanionApp stages a shared profile document separately from labeled App Configuration values. Import accepts legacy inline rules; export validates identities, fields and rule assignments and emits profiles followed by one S7PRules library entry. Save config.json stages validated JSON and the profile source URL; the page-level Save changes publishes the profile blob before submitting the App Configuration update. These are separate write operations.",
+      "related_concept_ids": ["c-app-config-label", "c-user-profile"],
+      "docs": ["reference/user-profiles.md", "how-to/configure-app-configuration.md"]
+    },
+    {
       "id": "c-stream-flush-interval",
       "name": "Stream Flush Interval",
       "code_file": "StreamFlusher.cs",
@@ -1331,7 +1398,7 @@
       "name": "Configuration Plugin",
       "code_file": "IConfigPlugin.cs",
       "domain_id": "d07",
-      "definition": "Startup extension selected by EnvPluginClass that supplies environment-specific configuration overrides before the proxy services are registered.",
+      "definition": "Startup extension selected by EnvPluginClass that supplies environment-specific identity values before the proxy services are registered. The built-in Azure plugin maps CONTAINER_APP_NAME to ContainerApp, CONTAINER_APP_REVISION to ReplicaName, and CONTAINER_APP_REPLICA_NAME to Revision.",
       "key_settings": ["EnvPluginClass"],
       "related_concept_ids": ["c-warm-setting", "c-cold-setting"],
       "docs": ["reference/advanced-configuration.md"]
@@ -1342,17 +1409,26 @@
       "name": "Backend Token Provider",
       "code_file": "Auth/IBackendTokenProvider.cs",
       "domain_id": "d08",
-      "definition": "Outbound OAuth token implementation registered at startup through AuthProviders and selected per backend by the authprovider connection-string key using its exact simple class name.",
+      "definition": "Outbound OAuth token implementation registered at startup through AuthProviders and selected per backend by the authprovider connection-string key using its simple class name, matched case-insensitively. The default AzureProvider obtains and caches tokens by audience using DefaultAzureCredential, refreshes before expiry, and waits in 100 ms intervals when a requested token is not yet available.",
       "key_settings": ["AuthProviderClass"],
       "connection_string_key": "authprovider",
       "related_concept_ids": ["c-oauth2-bearer", "c-managed-identity", "c-cold-setting"],
       "docs": ["how-to/customize-token-provider.md", "reference/backend-hosts.md"]
     },
     {
+      "id": "c-request-backup",
+      "name": "Async Request Backup",
+      "code_file": "RequestSerializerService.cs",
+      "domain_id": "d05",
+      "definition": "Async request metadata is serialized as version-1 JSON in a blob named by request GUID, with request body bytes stored separately as a .body blob. Restore accepts version 1 or missing version (treated as version 1), repopulates request state, resets per-attempt counters, and uses an empty body if no body blob exists. The null serializer used when async storage is disabled performs no backup or restore.",
+      "related_concept_ids": ["c-async-mode", "c-result-blob", "c-request-types"],
+      "docs": ["concepts/async-processing.md"]
+    },
+    {
       "id": "c-managed-identity",
       "name": "Managed Identity",
       "domain_id": "d08",
-      "definition": "Azure-managed credential attached to the container. Used for keyless authentication to backends, App Configuration, Event Hubs, Blob Storage, and Service Bus.",
+      "definition": "Azure-managed identity can supply credentials for backends, App Configuration, Event Hubs, Blob Storage, and Service Bus. The default provider uses DefaultAzureCredential, whose credential chain can also select other credential sources.",
       "connection_string_key": "usemi",
       "connection_string_value": "usemi=true",
       "related_concept_ids": ["c-keyless-auth", "c-oauth2-bearer"],
@@ -1362,11 +1438,31 @@
       "id": "c-oauth2-bearer",
       "name": "OAuth2 Bearer Token",
       "domain_id": "d08",
-      "definition": "Proxy acquires an Entra ID token and attaches it as Authorization: Bearer on outbound backend requests.",
+      "definition": "For OAuth2 host authentication, the proxy obtains a token for the configured audience from the selected backend token provider and sends it as Authorization: Bearer. The default provider uses Azure credentials; a custom provider can implement different token acquisition.",
       "connection_string_key": "useoauth",
       "connection_string_value": "useoauth=true",
       "related_concept_ids": ["c-managed-identity"],
       "docs": ["reference/backend-hosts.md", "reference/ai-foundry-integration.md"]
+    },
+    {
+      "id": "c-startup-readiness-gate",
+      "name": "Startup Readiness Gate",
+      "code_file": "ReadinessRegistry.cs",
+      "domain_id": "d06",
+      "subdomain_id": "sd06-03",
+      "definition": "Startup waits for all participants required by configuration to register ready: backends, backend tokens, workers, user profiles, event client, and Tokenomics when enabled, plus async templates, blob writer, and Service Bus participants when async mode is enabled. Program logs startup completion after this gate; the probe listener remains active through service draining and stops last. MarkNotReady updates diagnostic state but does not reset the one-shot startup completion task.",
+      "related_concept_ids": ["c-readiness-endpoint", "c-startup-endpoint", "c-async-mode"],
+      "docs": ["reference/health-endpoints.md"]
+    },
+    {
+      "id": "c-backend-api-key",
+      "name": "Backend API Key",
+      "code_file": "HostConfig.cs",
+      "domain_id": "d08",
+      "definition": "The api-key or api_key host option selects API-key authentication. The proxy replaces the configured outbound header with the key; api-key-header controls the header name and defaults to api-key. Authentication mode is selected while parsing entries, so avoid mixing API-key and OAuth options.",
+      "connection_string_key": "api-key",
+      "related_concept_ids": ["c-backend-host", "c-oauth2-bearer"],
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-keyless-auth",
@@ -1381,9 +1477,9 @@
       "id": "c-vnet-deployment",
       "name": "VNet Deployment",
       "domain_id": "d08",
-      "definition": "Deployment pattern where the proxy runs entirely inside a Virtual Network with no external data plane dependencies. Supports sovereign and government cloud regions.",
+      "definition": "Deployment pattern that integrates the Container Apps environment with a Virtual Network. In the Bicep deployment, PRIVATE_NETWORK_DEPLOYMENT controls whether a newly created environment is internal; network integration alone does not guarantee that all dependencies are private.",
       "related_concept_ids": ["c-managed-identity"],
-      "docs": ["concepts/architecture.md", "how-to/deploy-container-apps.md"]
+      "docs": ["concepts/architecture.md", "Legacy/deploy-container-apps.md"]
     },
 
     {
@@ -1392,7 +1488,7 @@
       "domain_id": "d09",
       "definition": "Primary hosting platform for SimpleL7Proxy. Provides ingress, auto-scaling, managed identity, and revision management.",
       "related_concept_ids": ["c-sidecar-deployment", "c-container-image"],
-      "docs": ["how-to/deploy-container-apps.md", "how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-container-apps.md", "Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-container-image",
@@ -1401,7 +1497,7 @@
       "definition": "Docker image pushed to Azure Container Registry (ACR) and deployed to Azure Container Apps.",
       "key_settings": ["ACR", "REGISTRY_SERVER"],
       "related_concept_ids": ["c-azure-container-apps"],
-      "docs": ["how-to/deploy-container-apps.md", "how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-container-apps.md", "Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-sidecar-deployment",
@@ -1411,22 +1507,31 @@
       "key_settings": ["HealthProbeSidecar"],
       "ports": { "proxy": 8000, "health_probe": 9000 },
       "related_concept_ids": ["c-sidecar-mode", "c-azure-container-apps"],
-      "docs": ["how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-sidecar.md"]
     },
     {
       "id": "c-parameters-file",
       "name": "Parameters File",
       "domain_id": "d09",
       "definition": "Local parameter file consumed by the VNet provisioning script for Azure target, network, and subnet values.",
-      "path": "deployment/VNet/deploy.parameters.sh",
+      "path": "deployment/interactive/VNet/deploy.parameters.example.sh",
       "related_concept_ids": ["c-vnet-deployment"],
-      "docs": ["how-to/deploy-sidecar.md"]
+      "docs": ["Legacy/deploy-sidecar.md"]
+    },
+    {
+      "id": "c-companion-app-deployment-setup",
+      "name": "CompanionApp Deployment Setup",
+      "code_file": "DeploymentSetupPage.razor",
+      "domain_id": "d09",
+      "definition": "The CompanionApp offers simple and advanced deployment setup, validates deployment parameters, and generates Bicep bundles, staged Portal/ARM templates, or Standalone deployment artifacts.",
+      "related_concept_ids": ["c-azure-container-apps", "c-managed-identity", "c-parameters-file"],
+      "docs": ["Legacy/custom-package.md"]
     },
     {
       "id": "c-apim-integration",
       "name": "APIM Integration",
       "domain_id": "d09",
-      "definition": "Azure API Management as a front-end to SimpleL7Proxy. Adds semantic caching, PII scrubbing, TPM-based rate limiting, quota enforcement, and mTLS.",
+      "definition": "Integration pattern using Azure API Management as a gateway for SimpleL7Proxy. Capabilities such as caching, content inspection, rate limits, quotas, and mutual TLS depend on the APIM configuration; integration alone does not enable them.",
       "related_concept_ids": ["c-ai-foundry-integration"],
       "docs": ["reference/ai-foundry-integration.md", "concepts/architecture.md"]
     },
@@ -1434,10 +1539,377 @@
       "id": "c-ai-foundry-integration",
       "name": "AI Foundry Integration",
       "domain_id": "d09",
-      "definition": "Direct or APIM-mediated connection to Azure OpenAI and AI Foundry model endpoints. Requires processor=OpenAI for token count extraction.",
+      "definition": "Direct or APIM-mediated connection to Azure OpenAI and AI Foundry model endpoints. A supported usage processor can extract token counts from responses.",
       "key_settings": ["processor", "usemi"],
       "related_concept_ids": ["c-processor", "c-apim-integration", "c-keyless-auth"],
       "docs": ["reference/ai-foundry-integration.md"]
+    },
+    {
+      "id": "c-named-path-route",
+      "name": "Named Path Route",
+      "code_file": "PathRoute.cs",
+      "domain_id": "d02",
+      "subdomain_id": "sd02-03",
+      "definition": "A Path_* or Path-* setting associates a segment-boundary URL prefix with an ordered list of host keys and can override iteration mode and maximum attempts. A route uses either direct hosts or logical hosts sharing one APIM gateway; it cannot mix those forms. The longest matching prefix wins; a valid S7P-Iterator request header takes precedence over the route iteration mode. A matched route with no eligible hosts does not fall back to a broader route.",
+      "related_concept_ids": ["c-backend-host", "c-backend-selection-pipeline", "c-iteration-mode", "c-max-attempts"],
+      "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
+    },
+    {
+      "id": "c-tokenomics",
+      "name": "Tokenomics",
+      "code_file": "TokenomicsHandler.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-01",
+      "definition": "Request policy and accounting functionality using configured options and metrics to evaluate requests, route models, and record decisions and outcomes. Tokenomics is disabled at runtime when the metrics-server endpoint is missing or invalid, or options cannot be parsed.",
+      "key_settings": ["TokenomicsEnable", "TokenomicsOptions", "TokenomicsMetricsServer"],
+      "related_concept_ids": ["c-tokenomics-policy", "c-tokenomics-routing", "c-tokenomics-metrics", "c-tokenomics-events"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-tokenomics-policy",
+      "name": "Tokenomics Policy",
+      "code_file": "TokenomicsCondition.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-01",
+      "definition": "Evaluates the first matching request condition and configured action. Abuse precedes administrator override; then hourly, daily, and monthly quotas, budget conditions, capacity, queue depth, and the default action are checked. Limits and exceed actions are selected from privileged workload, premium workload, model-specific, then default settings. The current condition builder populates token quotas but not budget-exceeded fields.",
+      "key_settings": ["TokenomicsOptions"],
+      "related_concept_ids": ["c-tokenomics", "c-tokenomics-metrics", "c-tokenomics-events"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-tokenomics-routing",
+      "name": "Model and API Routing",
+      "code_file": "TokenomicsHandler.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-02",
+      "definition": "ModelHostOptions associates models with enabled hosts and API path options. An absent model entry leaves the original path unrestricted; a configured model requires an enabled matching host and API. API options select the original path, the catalog default path, or an overridden path. When Tokenomics is enabled, the chosen path replaces the iterator's modified path.",
+      "key_settings": ["TokenomicsOptions"],
+      "related_concept_ids": ["c-tokenomics", "c-backend-host"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-tokenomics-usage",
+      "name": "Tokenomics Usage",
+      "code_file": "TokenomicsProcessor.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "The Tokenomics response processor extracts usage and safety signals from JSON or SSE while forwarding response bytes. Usage normalization tries the request model's preferred provider schema, then other supported schemas. Usage availability must be checked separately from token counts; cached input tokens are a subset of input tokens.",
+      "related_concept_ids": ["c-processor", "c-token-telemetry", "c-tokenomics-pricing", "c-tokenomics-metrics"],
+      "docs": ["concepts/tokenomics_scenario.md", "concepts/observability.md"]
+    },
+    {
+      "id": "c-tokenomics-pricing",
+      "name": "Model Token Pricing",
+      "code_file": "ModelTokenPricing.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "ModelCostPerToken stores USD prices per token for non-cached input, cached input, and output. Calculated cost applies the input rate to input tokens excluding cached tokens, then adds cached-input and output costs. The CompanionApp pricing editor displays rates per million tokens by default and converts entered values to per-token prices before staging them.",
+      "key_settings": ["TokenomicsOptions"],
+      "related_concept_ids": ["c-tokenomics-usage", "c-tokenomics-metrics"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-tokenomics-metrics",
+      "name": "Tokenomics Metrics Server",
+      "code_file": "TokenomicsMetricsStore.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "The proxy sends deltas to MetricsServer, which keeps in-memory UTC hour, day, and month totals by case-insensitive user/model and by model across users. Records whose Day is not the current UTC date are ignored; accepted deltas enter the server's current ingestion hour rather than an hour derived from TimestampUtc. GET /tokenomics/metrics/lookup requires u and m, returning 400 when either is blank. Calculated budgets use the currently loaded model prices, with unpriced models returning zero budget values. The proxy uses a 400 ms lookup timeout, caches responses with a five-second expiry checked by a five-second cleanup loop, and returns a default metric on lookup failure. All server totals are lost on restart.",
+      "key_settings": ["TokenomicsMetricsServer"],
+      "related_concept_ids": ["c-tokenomics", "c-tokenomics-usage", "c-tokenomics-pricing", "c-metrics-server-configuration", "c-tokenomics-batch-admission"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-tokenomics-batch-delivery",
+      "name": "Tokenomics Metric Batch Delivery",
+      "code_file": "TokenomicsTransmitter.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "The proxy retains metric batches in memory and polls the MetricsServer every five seconds while batches remain. It resends batches not reported as pending or processed and removes them when the server reports them processed; local retention is not durable across process restarts.",
+      "related_concept_ids": ["c-tokenomics-metrics", "c-tokenomics-usage"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-batch-admission",
+      "name": "Tokenomics Batch Admission and Acknowledgement",
+      "code_files": ["MetricsServer/MetricsHttpServer.cs", "MetricsServer/TokenomicsRollupProcessor.cs"],
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "POST /tokenomics/metrics/upload queues manifest batch IDs and raw CSV sections, returning 202 with PendingBatches and ProcessedBatches rather than waiting for aggregation. Replica identity comes from query parameter r, defaulting to unknown. Admission deduplicates case-insensitive replica/batch pairs while active and within a 65536-entry processed history per replica; responses expose at most 10 recent processed IDs. The queue drains every second. Malformed rows are skipped, and invalid-header or missing sections can still be marked processed, so acknowledgement is not proof every row was recorded. Exceptions retry a section without rolling back rows already applied. State and deduplication history are process-local and lost on restart.",
+      "related_concept_ids": ["c-tokenomics-batch-delivery", "c-tokenomics-metrics"],
+      "docs": []
+    },
+    {
+      "id": "c-metrics-server-configuration",
+      "name": "Metrics Server Configuration",
+      "code_files": ["MetricsServer/MetricsOptions.cs", "MetricsServer/AppConfigurationReader.cs", "MetricsServer/MetricsWebServer.cs"],
+      "domain_id": "d07",
+      "definition": "MetricsServer reads listener and generic-series settings from environment variables at startup, defaulting invalid or out-of-range integers. Its default port is 9100, request-body limit is 4194304 bytes, and generic-series ring defaults are 60 buckets of 60 seconds with a 100000-series admission threshold; these ring settings do not bound the separate Tokenomics totals store. An optional AppConfigurationEndpoint enables a startup download and 15-minute polling of an exact AppConfigurationLabel, with an empty label selecting unlabeled settings. Successful downloads replace the cached configuration snapshot; Warm:Tokenomics:Options supplies current pricing, retaining the last parsed settings on failure. GET/HEAD /health, /liveness, and /readiness return 200 independently of configuration-download success.",
+      "key_settings": ["METRICSSERVER_PORT", "METRICSSERVER_BUCKET_SECONDS", "METRICSSERVER_BUCKET_COUNT", "METRICSSERVER_MAX_SERIES", "METRICSSERVER_MAX_BODY_BYTES", "METRICSSERVER_TELEMETRY_INTERVAL_SECONDS", "AppConfigurationEndpoint", "AppConfigurationLabel"],
+      "related_concept_ids": ["c-tokenomics-metrics", "c-tokenomics-pricing", "c-application-insights"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-events",
+      "name": "Tokenomics Summary Events",
+      "code_file": "TokenomicsSummaryEvent.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Tokenomics emits PolicyDecision and RequestOutcome records. A policy evaluation and a backend outcome are different records. On backend outcomes, UsageAvailable is based on whether a usage object was supplied, not on that object's UsageAvailable value; exception outcomes set it to false.",
+      "related_concept_ids": ["c-tokenomics", "c-tokenomics-policy", "c-proxy-event"],
+      "docs": ["concepts/tokenomics_scenario.md", "concepts/observability.md"]
+    },
+    {
+      "id": "c-profile-rules",
+      "name": "Profile Rules",
+      "code_files": ["UserProfile.cs", "ProfileEnricher.cs", "Rules/RuleProcessor.cs"],
+      "domain_id": "d04",
+      "subdomain_id": "sd04-03",
+      "definition": "A profile can assign named shared rules or contain inline rules. If S7PRules is present, shared assignments take precedence over inline rules. ProfileEnricher evaluates top-level rules against the same pre-rule request context and applies their resulting headers in order, so later results can overwrite earlier headers but do not feed later rule conditions. Missing fields satisfy notEquals and notContains conditions.",
+      "related_concept_ids": ["c-user-profile", "c-header-validation-rule"],
+      "docs": ["reference/user-profiles.md"]
+    },
+    {
+      "id": "c-coordinated-shutdown",
+      "name": "Coordinated Shutdown",
+      "code_file": "CoordinatedShutdownService.cs",
+      "domain_id": "d03",
+      "definition": "Stops accepting requests, stops async/requeue producers, expels async work, and signals workers to drain. TerminationGracePeriodSeconds controls how long shutdown waits before logging a grace-period warning; the service then still waits for the queue to drain before stopping backends, IShutdownParticipant services in ascending ShutdownOrder, token providers, Service Bus, blob workers, probes, and event clients.",
+      "code_files": ["CoordinatedShutdownService.cs", "IShutdownParticipant.cs"],
+      "key_settings": ["TERMINATION_GRACE_PERIOD_SECONDS"],
+      "related_concept_ids": ["c-request-lifecycle-manager", "c-readiness-endpoint", "c-event-logger-backend"],
+      "docs": ["contributing/architecture.md"]
+    },
+    {
+      "id": "c-host-snapshot",
+      "name": "Host Configuration Snapshot",
+      "code_file": "HostCollectionManager.cs",
+      "domain_id": "d02",
+      "subdomain_id": "sd02-01",
+      "definition": "Backend hosts and named routes are built and validated as a candidate snapshot before activation. Invalid route or host references reject the candidate; the active snapshot remains available. In-flight requests can retain references to an older snapshot.",
+      "related_concept_ids": ["c-backend-host", "c-named-path-route", "c-warm-setting"],
+      "docs": ["reference/backend-hosts.md", "reference/configuration.md"]
+    },
+    {
+      "id": "c-model-hierarchy",
+      "name": "Model Hierarchy",
+      "code_file": "TokenomicsHandler.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-02",
+      "definition": "Configured ordered model/API destinations support adjacent model upgrades and downgrades. The longest matching model prefix selects a hierarchy; at the destination, the current API is preferred, followed by an unspecified API, then the first configured API.",
+      "key_settings": ["TokenomicsOptions"],
+      "related_concept_ids": ["c-tokenomics-policy", "c-tokenomics-routing"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-model-parameter-mapping",
+      "name": "Model Parameter Mapping",
+      "code_file": "ModelMap.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-02",
+      "definition": "When rewriting a request for a different model, model-family mappings determine which top-level parameters are removed or renamed. These scalar parameter mappings are separate from API response-format conversion; unknown or decision model families use empty maps.",
+      "related_concept_ids": ["c-tokenomics-routing", "c-model-hierarchy", "c-response-format-mapping"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-options",
+      "name": "Tokenomics Options",
+      "code_file": "TokenomicsSettings.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-01",
+      "definition": "TokenomicsOptions is a composite string of key=value settings. Invalid or unknown entries are skipped and reported as ignored fields while valid entries are applied; a malformed overall value can fail parsing. Defaults are provided by TokenomicsSettings. When loading App Configuration, CompanionApp stages canonicalized options for its configured default label if parsing succeeds with ignored fields; saving is required to persist that cleanup.",
+      "key_settings": ["TokenomicsOptions"],
+      "related_concept_ids": ["c-tokenomics", "c-tokenomics-policy", "c-model-hierarchy"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-api-catalog",
+      "name": "LLM API Catalog",
+      "code_file": "LLMApiEnumParser.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-02",
+      "definition": "Catalog metadata defines API identities, display names, default paths, and aliases. Request-path parsing matches exact paths and longest suffixes, ignores query strings, and resolves paths shared by chat and vision APIs to the non-vision identity.",
+      "related_concept_ids": ["c-tokenomics-routing", "c-model-hierarchy"],
+      "docs": ["concepts/tokenomics_scenario.md"]
+    },
+    {
+      "id": "c-tokenomics-dashboard",
+      "name": "Tokenomics Dashboard",
+      "code_file": "TokenomicsEventReplay.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "The CompanionApp buffers validated live Tokenomics summaries, retaining the latest 10000 received records. A one-second timer checks for publication: live snapshots refresh after new records, a pricing-context change, or a 60-tick window refresh. Hourly, daily and monthly selections use UTC calendar boundaries, not rolling durations. Base overview usage aggregation selects the last received RequestOutcome per MID. Spend estimates use currently loaded model prices rather than historical billing rates. The store initially publishes simulated sample data until a non-sample publication replaces it.",
+      "related_concept_ids": ["c-tokenomics-events", "c-tokenomics-pricing", "c-event-hubs"],
+      "docs": ["concepts/tokenomics_scenario.md", "concepts/observability.md"]
+    },
+    {
+      "id": "c-companion-app-configuration-publishing",
+      "name": "CompanionApp App Configuration Publishing",
+      "code_file": "CompanionApp/Components/Shared/Settings/AppConfigurationScaffoldService.cs",
+      "domain_id": "d07",
+      "definition": "The CompanionApp maintains loaded values and editable drafts for published Warm and Cold settings across labels. Creating a label can use proxy defaults or copy saved source values without writing immediately. Publication writes changed settings for the target label, writes Warm:Sentinel afterward, and re-downloads settings to verify submitted values, deletions, and the sentinel. Individual writes are sequential rather than atomic.",
+      "related_concept_ids": ["c-app-config-label", "c-warm-setting", "c-cold-setting", "c-sentinel", "c-profile-configuration-publishing"],
+      "docs": ["how-to/configure-app-configuration.md"]
+    },
+    {
+      "id": "c-companion-identity-list-publishing",
+      "name": "CompanionApp Identity List Publishing",
+      "code_files": ["CompanionApp/Components/Shared/Settings/ApplicationSettingsWidget.razor", "CompanionApp/Components/Shared/Settings/SuspendedUsersSettingsWidget.razor"],
+      "domain_id": "d07",
+      "definition": "The CompanionApp Applications and Suspended Users editors read and directly upload JSON arrays to azblob sources using their own Save buttons. When a source URL is missing, the editor can stage one using the configured profile storage account and container, defaulting the container to profiles and using appids.json or suspended.json. Uploading list data and publishing its staged App Configuration URL are separate operations.",
+      "related_concept_ids": ["c-app-id-allowlist", "c-suspended-user", "c-profile-configuration-publishing"],
+      "docs": ["reference/user-profiles.md"]
+    },
+    {
+      "id": "c-companion-user-preferences",
+      "name": "CompanionApp User Preferences",
+      "code_files": ["CompanionApp/Components/Shared/Settings/UserPreferences.cs", "CompanionApp/Components/Shared/Settings/UserPreferencesService.cs"],
+      "domain_id": "d07",
+      "definition": "The CompanionApp serializes request selections, user-identity and custom-header overrides, supported display and storage overrides, and onboarding progress as base64-encoded camelCase JSON in the chat_tester_prefs browser cookie through JavaScript interop. Saving builds a snapshot against configured defaults, loading applies available overrides to live settings, and reset restores defaults and clears the cookie. Dedicated authorization settings are excluded; custom header names and values are serialized. Empty custom-header arrays and blank identity strings are not restored, and ResponseFormat is not persisted by this service.",
+      "related_concept_ids": ["c-priority-key-header"],
+      "docs": []
+    },
+    {
+      "id": "c-observability-publication",
+      "name": "CompanionApp Observability Publications",
+      "code_file": "CompanionApp/Observability/ObservabilityDashboardStore.cs",
+      "domain_id": "d06",
+      "definition": "The CompanionApp centrally publishes immutable monitor and metric-catalog snapshots on the configured monitor refresh cadence, defaulting to five seconds. Publications continue during idle periods. Analytics projections are cached per publication and filter query; request-inspector rows and nested lifecycle data are detached for each circuit rather than exposing ingestion-owned mutable objects.",
+      "related_concept_ids": ["c-proxy-event", "c-event-hubs"],
+      "docs": []
+    },
+    {
+      "id": "c-observed-usage-projection",
+      "name": "Observed Usage Projection",
+      "code_file": "CompanionApp/Observability/ObservedUsageParser.cs",
+      "domain_id": "d06",
+      "definition": "CompanionApp Insights normalizes nonnegative integer Usage.* header values and numeric usage fields from ordinary JSON response bodies, including response.usage. Duplicate normalized metrics retain their maximum value rather than being summed. A missing total_tokens is derived only when both input/prompt and output/completion counts exist. This consumer-side projection is separate from the proxy's Tokenomics usage decoder; its body parser does not decode SSE.",
+      "related_concept_ids": ["c-token-telemetry", "c-tokenomics-usage", "c-observability-publication"],
+      "docs": []
+    },
+    {
+      "id": "c-observed-backend-attribution",
+      "name": "Observed Backend Attribution",
+      "code_file": "CompanionApp/Observability/ObservabilityRequestProjection.cs",
+      "domain_id": "d06",
+      "definition": "CompanionApp endpoint analytics reconstruct model-to-backend activity from backendLog target entries and fall back to captured x-backend-label fields. Exact backend-log strings are deduplicated across backend events and proxy summaries. The last target in a log receives the source event's HTTP failure classification; earlier targets receive inferred failures only when target-specific throttling text is present. These reconstructed attempt counts and classifications are not independently captured outcomes for every target.",
+      "related_concept_ids": ["c-proxy-event", "c-backend-host", "c-observability-publication"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-local-replay",
+      "name": "Tokenomics Local Event Replay",
+      "code_file": "CompanionApp/Tokenomics/TokenomicsEventReplay.cs",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Local replay validates the complete NDJSON input before startup, requiring object records with scalar fields and a Type. Tokenomics summaries additionally require valid record-kind-specific fields. Replay consumes ten file records per second, aggregates matching Tokenomics summaries, anchors period windows to the latest received summary timestamp when available, and retains its final snapshot at EOF. File replay disables the live Event Hub reader. When no configured prices are available, replay supplies sample model prices.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-events", "c-tokenomics-pricing"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-policy-analysis",
+      "name": "Recorded Policy Decision Analysis",
+      "code_file": "CompanionApp/Components/Widgets/Tokenomics/PolicyDecisionsReportContent.razor",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Policy analysis counts requests using their latest recorded policy evaluation within the selected snapshot, ordered by timestamp and evaluation sequence. Action totals and recent rows retain individual deduplicated evaluations; None and Bypass are excluded from action totals. AllowedWithChanges is displayed as Modified without collapsing Requeued, Throttled or Pending into Allowed. Policy outcomes are not final HTTP outcomes. Uncaptured configured actions, thresholds, token usage, governance flags and policy versions remain explicitly unavailable. CSV export includes every evaluation matching the recent-table outcome filter, not only its visible page.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-events", "c-tokenomics-policy"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-routing-analysis",
+      "name": "Recorded Model Routing Analysis",
+      "code_file": "CompanionApp/Components/Widgets/Tokenomics/ModelRoutingReportContent.razor",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Routing analysis correlates policy and outcome records by MID within the selected snapshot and counts each request once. It compares the earliest recorded requested model with the latest outcome-reported model, falling back to policy selection. Model filters retain all records for a matching request. Substitution permission requires an explicit ModelReplacementAllowed flag; rejection, model changes and backend admission do not establish permission. Cost comparisons require captured usage and prices for both models, report coverage, and are current-price same-usage counterfactual estimates rather than historical savings.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-routing", "c-tokenomics-pricing", "c-tokenomics-events"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-pressure-analysis",
+      "name": "Recorded Capacity and Queue Pressure",
+      "code_file": "CompanionApp/Components/Widgets/Tokenomics/CapacityQueueReportContent.razor",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Pressure analysis identifies requests from recorded winning CapacityConstrained, CapacityCriticalWorkload, CapacityHighPriority, QueueDepthHigh and QueueCriticalPriority conditions. Its quota cohort recognizes MonthlyQuotaExceeded, DailyQuotaExceeded and DailyQuotaGovernance. These conditions do not provide measured utilization, queue depth, thresholds, balances or actual queue wait. RetryAfterMs is requested scheduling delay, not measured latency. Comparisons keep recorded-pressure and unknown-state cohorts separate, count requests independently from evaluations, and correlate latest in-window request outcomes without treating unflagged requests as proven unconstrained.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-policy", "c-tokenomics-events"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-latency-analysis",
+      "name": "Recorded Latency and HTTP Outcome Analysis",
+      "code_file": "CompanionApp/Components/Widgets/Tokenomics/LatencyErrorsReportContent.razor",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Latency and HTTP analysis selects the latest timestamp-ordered RequestOutcome per MID, not individual backend attempts or policy evaluations. Requests without captured HTTP outcomes remain separate, and rates use captured valid statuses. Error rate counts 4xx/5xx except 429; throttling rate counts HTTP 429 rather than policy Throttled decisions. Nearest-rank percentiles use finite nonnegative LatencyMs samples including measured zero, with coverage and invalid-value warnings. Unsampled timeline buckets remain gaps. Policy RetryAfterMs is requested scheduling delay; backend Retry-After headers, throttle/wake timestamps and normal-period baselines are not reconstructed.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-events", "c-tokenomics-pressure-analysis"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-governance-analysis",
+      "name": "Recorded Governance Evidence",
+      "code_file": "CompanionApp/Components/Widgets/Tokenomics/GovernanceReportContent.razor",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Governance reporting groups winning conditions into combined override/exception, daily-quota governance and entitled-workload budget signals. It does not separate administrator override from approved exception, incident response from audit/compliance, or premium from enterprise. Conditions and correlation IDs do not prove an approval operation or exemption. Charts and action tables count deduplicated evaluations; usage and recorded Cost are attributed once per governed MID from its latest in-window outcome, require UsageAvailable, and report coverage. Recorded Cost retains event units without assuming currency or verified billing; missing actors, reasons, approval references and policy versions remain unavailable.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-policy", "c-tokenomics-events"],
+      "docs": []
+    },
+    {
+      "id": "c-tokenomics-safety-analysis",
+      "name": "Recorded Abuse and Content-Filter Signals",
+      "code_file": "CompanionApp/Components/Widgets/Tokenomics/AbuseFilterReportContent.razor",
+      "domain_id": "d11",
+      "subdomain_id": "sd11-03",
+      "definition": "Safety reporting requires AbuseDetected policy conditions or explicit positive jailbreak/content-filter flags on RequestOutcome records. It retains any positive signal across a MID's outcomes while displaying latest policy and HTTP outcomes separately. False or absent flags do not establish scanning or safety, and filtering followed by 2xx does not prove sanitization. Repeat activity requires captured identity on multiple distinct requests. Usage is attributed once from the latest outcome when UsageAvailable is true. Display and CSV use process-lifetime keyed HMAC request and tenant-scoped subject aliases, omit raw identifiers and prompt/response/error text, and retain workload names; these pseudonyms do not guarantee anonymity.",
+      "related_concept_ids": ["c-tokenomics-dashboard", "c-tokenomics-events", "c-tokenomics-usage"],
+      "docs": []
+    },
+    {
+      "id": "c-investigator-response-projection",
+      "name": "Investigator Vision Response Projection",
+      "code_file": "CompanionApp/Components/Shared/Vision/VisionResponseParser.cs",
+      "domain_id": "d06",
+      "definition": "The CompanionApp projects observed vision JSON into caption, dense-caption, tag, object, person, OCR and image-metadata views while retaining the observed response as raw or formatted text. OCR collection recursively gathers text/content strings and removes exact duplicates. Display-text interpretation tries chat content before vision fields, then falls back to formatted JSON or the original response. Result tabs depend on captured section presence and metadata rather than assuming every analysis feature returned data.",
+      "related_concept_ids": ["c-api-catalog"],
+      "docs": []
+    },
+    {
+      "id": "c-companion-app-authentication",
+      "name": "CompanionApp Authentication",
+      "code_file": "CompanionApp/Program.cs",
+      "domain_id": "d08",
+      "definition": "CompanionApp has an independent authentication configuration under CompanionApp:Authentication. When enabled, it requires a selected provider: OAuth2 validates bearer tokens, GitHub uses OAuth with a session cookie, and Google uses OpenID Connect with a session cookie. Configured GitHub user, organization and team restrictions are alternatives; configured Google user and domain restrictions are alternatives. Razor component endpoints require the CompanionApp authorization policy, while static assets remain anonymous. Cookie sessions default to 60 minutes with sliding expiration; data-protection keys persist under .keys using the chat_tester application name. Disabling authentication leaves the CompanionApp unauthenticated.",
+      "related_concept_ids": ["c-inbound-oauth-validation"],
+      "docs": []
+    },
+    {
+      "id": "c-companion-app-startup-bootstrap",
+      "name": "CompanionApp Startup Configuration Bootstrap",
+      "code_files": ["CompanionApp/Program.cs", "CompanionApp/Startup/StartupAppConfig.cs", "CompanionApp/Startup/StartupEnvOverrides.cs", "CompanionApp/Startup/StartupEventHub.cs", "CompanionApp/Startup/StartupStorageBlob.cs"],
+      "domain_id": "d07",
+      "definition": "Outside --uionly mode, CompanionApp loads its configured App Configuration endpoint and initializes the configured label when it is absent or contains no settings. Label creation applies environment overrides and seeds proxy Event Hub logging only when the CompanionApp monitor is enabled and a destination is available; an existing populated label is not republished by this startup path. A configured profile-storage environment override supplies missing azblob URLs. Only profile URLs defaulted during this initialization trigger blob seeding: missing user-profile blobs receive configured sample users, missing suspension and application-ID blobs receive empty arrays, and existing user-profile blobs gain missing users through an ETag-conditional merge. This path does not create containers. Configuration and storage failures are logged without terminating startup.",
+      "related_concept_ids": ["c-app-config-label", "c-profile-configuration-publishing", "c-user-profile", "c-event-hubs", "c-managed-identity"],
+      "docs": []
+    },
+    {
+      "id": "c-companion-app-model-catalog-loading",
+      "name": "CompanionApp Model Catalog Loading",
+      "code_file": "CompanionApp/Startup/CompanionAppStartup.cs",
+      "domain_id": "d07",
+      "definition": "CompanionApp loads required chat and vision model configuration before registering application services. Chat configuration comes from chat-models.json unless CompanionApp:ChatModelsUrl selects an absolute file, HTTP or HTTPS URL. Local and file-URL chat configuration is registered for reload on change; HTTP(S) configuration is downloaded once during startup with a 30-second timeout. Optional environment-specific chat configuration is added afterward. Vision configuration uses required vision-models.json followed by an optional environment-specific file, both registered for reload on change. Unsupported chat URL schemes fail startup.",
+      "related_concept_ids": ["c-api-catalog", "c-tokenomics-routing"],
+      "docs": []
+    },
+    {
+      "id": "c-companion-app-app-service-deployment",
+      "name": "CompanionApp App Service Deployment",
+      "code_files": ["CompanionApp/make-zip.sh", "CompanionApp/upload_zip.sh", "CompanionApp/update_settings.sh"],
+      "domain_id": "d09",
+      "definition": "CompanionApp provides an Azure App Service ZIP deployment path separate from its container-image publishing scripts. make-zip.sh restores and publishes CompanionApp.csproj, defaults to Release, disables the native app host, and archives the publish-directory contents as artifacts/companion-app-appservice.zip unless another output is supplied. upload_zip.sh deploys an existing ZIP to an existing named web app and resource group using Azure CLI. update_settings.sh separately exports JSON configuration through jq scalar paths into double-underscore-separated App Service application-setting keys. These scripts require their target resources to exist.",
+      "related_concept_ids": ["c-container-image", "c-companion-app-deployment-setup"],
+      "docs": []
     }
   ],
 
@@ -1463,7 +1935,7 @@
     { "name": "DefaultTTLSecs",        "type": "int",    "reload": "Warm",   "default": 300,     "unit": "s",   "concept_ids": ["c-ttl"] },
     { "name": "DisallowedHeaders",     "type": "string[]","reload": "Warm",  "default": [],      "concept_ids": ["c-disallowed-headers","c-header-stripping"] },
     { "name": "EVENT_HEADERS",         "type": "string", "reload": "Cold",   "default": "SimpleL7Proxy.Events.CommonEventHeaders", "concept_ids": ["c-event-headers"] },
-    { "name": "EVENT_LOGGERS",         "type": "string", "reload": "Cold",   "default": "file",  "concept_ids": ["c-event-logger-backend"] },
+    { "name": "EVENT_LOGGERS",         "type": "string", "reload": "Cold",   "default": "none",  "concept_ids": ["c-event-logger-backend"] },
     { "name": "EVENTHUB_CONNECTIONSTRING","type":"string","reload":"Cold",   "default": "",      "concept_ids": ["c-event-hubs"] },
     { "name": "EVENTHUB_NAME",         "type": "string", "reload": "Cold",   "default": "",      "concept_ids": ["c-event-hubs"] },
     { "name": "EVENTHUB_NAMESPACE",    "type": "string", "reload": "Cold",   "default": "",      "concept_ids": ["c-event-hubs"] },
@@ -1471,13 +1943,13 @@
     { "name": "HEALTHPROBE_PORT",      "type": "int",    "reload": "Cold",   "default": 9000,    "concept_ids": ["c-sidecar-deployment"] },
     { "name": "Host1",                 "type": "string", "reload": "Cold",   "default": null,    "concept_ids": ["c-backend-host","c-connection-string-format"] },
     { "name": "IgnoreSSLCert",         "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-backend-host"] },
-    { "name": "IterationMode",         "type": "string", "reload": "Warm",   "default": "SinglePass", "allowed_values":["SinglePass","MultiPass"], "concept_ids": ["c-iteration-mode"] },
+    { "name": "IterationMode",         "type": "string", "reload": "Warm",   "default": "MultiPass", "allowed_values":["SinglePass","MultiPass"], "concept_ids": ["c-iteration-mode"] },
     { "name": "AsyncClassNames",       "type": "string", "reload": "Cold",   "default": "",      "concept_ids": ["c-async-mode"] },
-    { "name": "AsyncBlobMaxQueue",     "type": "int",    "reload": "Cold",   "default": 200,     "concept_ids": ["c-async-mode","c-result-blob"] },
+    { "name": "AsyncBlobMaxQueue",     "type": "int",    "reload": "Cold",   "default": 200,     "behavior_note": "Async startup requires blob queue depth below this value; readiness accepts depth equal to this value. This does not set the blob pump queue capacity.", "concept_ids": ["c-async-mode","c-result-blob","c-async-blob-worker"] },
     { "name": "AsyncStreamingBufferSizeBytes","type":"long","reload":"Cold", "default": 0,       "unit":"bytes","concept_ids": ["c-result-blob"] },
     { "name": "KeepAliveInitialDelaySecs","type":"int",  "reload":"Hidden",  "default": 60,      "unit":"s",    "concept_ids": ["c-backend-host"] },
     { "name": "KeepAlivePingIntervalSecs","type":"int",  "reload":"Hidden",  "default": 60,      "unit":"s",    "concept_ids": ["c-backend-host"] },
-    { "name": "LoadBalanceMode",       "type": "string", "reload": "Warm",   "default": "latency","allowed_values":["roundrobin","latency","timetofirstbyte","random"], "concept_ids": ["c-load-balance-mode"] },
+    { "name": "LoadBalanceMode",       "type": "string", "reload": "Warm",   "default": "latency","allowed_values":["roundrobin","latency","timetofirstbyte","prioritygroup","random"], "concept_ids": ["c-load-balance-mode"] },
     { "name": "LOGFILE_NAME",          "type": "string", "reload": "Cold",   "default": "eventslog.json", "concept_ids": ["c-log-file"] },
     { "name": "LogHeaders",            "type": "string[]","reload":"Warm",   "default": [],      "concept_ids": ["c-proxy-event"] },
     { "name": "LogAllRequestHeaders",  "type": "bool",   "reload": "Warm",   "default": false,   "concept_ids": ["c-proxy-event"] },
@@ -1486,7 +1958,7 @@
     { "name": "LogAllResponseHeadersExcept","type":"string[]","reload":"Warm", "default": ["Api-Key"], "concept_ids": ["c-proxy-event"] },
     { "name": "LogToAI",               "type": "string[]","reload":"Warm",   "default": ["*"],  "concept_ids": ["c-application-insights","c-proxy-event"] },
     { "name": "LogToConsole",          "type": "string[]","reload":"Warm",   "default": ["*","-custom"], "concept_ids": ["c-proxy-event"] },
-    { "name": "LogToEvents",           "type": "string[]","reload":"Warm",   "default": ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"], "concept_ids": ["c-event-logger-backend","c-proxy-event"] },
+    { "name": "LogToEvents",           "type": "string[]","reload":"Warm",   "default": ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth","tokenomics"], "concept_ids": ["c-event-logger-backend","c-proxy-event","c-tokenomics-events"] },
     { "name": "MaxAttempts",           "type": "int",    "reload": "Warm",   "default": 10,      "concept_ids": ["c-max-attempts","c-retry"] },
     { "name": "EVENTHUB_MAX_UNDRAINED_EVENTS","type":"int","reload":"Cold",  "default": 10000,   "concept_ids": ["c-event-hubs","c-proxy-event"] },
     { "name": "MaxQueueLength",        "type": "int",    "reload": "Cold",   "default": 1000,    "concept_ids": ["c-max-queue-length","c-enqueue"] },
@@ -1497,7 +1969,7 @@
     { "name": "PriorityKeyHeader",     "type": "string", "reload": "Warm",   "default": "S7PPriorityKey", "concept_ids": ["c-priority-key-header","c-priority-mapping"] },
     { "name": "PriorityKeys",          "type": "string[]","reload":"Warm",   "default": ["high","medium","low"], "concept_ids": ["c-priority-keys","c-priority-mapping"] },
     { "name": "PriorityValues",        "type": "int[]",  "reload": "Warm",   "default": [1,2,3], "concept_ids": ["c-priority-values","c-priority-mapping"] },
-    { "name": "PriorityWorkers",       "config_name": "PriorityWorker", "type": "string", "reload": "Warm", "default": "2:1,3:1","format":"level:count,level:count", "concept_ids": ["c-priority-workers"] },
+    { "name": "PriorityWorkers",       "config_name": "PriorityWorker", "type": "string", "reload": "Warm", "default": "2:1,3:1","format":"level:count,level:count", "behavior_note": "PriorityWorkers is parsed at startup into the worker-priority dictionary; warm updates to PriorityWorker do not reassign existing workers.", "concept_ids": ["c-priority-workers"] },
     { "name": "RequestAPIBaseUri",     "type": "string", "reload": "Cold",   "default": "https://example-function.azurewebsites.net/api/", "concept_ids": ["c-request-api"] },
     { "name": "RequiredHeaders",       "type": "string[]","reload":"Warm",   "default": [],      "concept_ids": ["c-required-headers"] },
     { "name": "SharedIteratorCleanupIntervalSeconds","type":"int","reload":"Cold","default":30,"unit":"s","concept_ids":["c-shared-iterator"] },
@@ -1515,8 +1987,8 @@
     { "name": "UserConfigRequired",    "type": "bool",   "reload": "Warm",   "default": false,   "concept_ids": ["c-user-profile"] },
     { "name": "UserConfigUrl",         "type": "string", "reload": "Warm",   "default": "",      "concept_ids": ["c-user-profile"] },
     { "name": "UserIDFieldName",       "type": "string", "reload": "Warm",   "default": "userId","concept_ids": ["c-user-id"] },
-    { "name": "UserPriorityThreshold", "type": "float",  "reload": "Warm",   "default": 0.1,     "range":"0.0-1.0", "concept_ids": ["c-per-user-throttling"] },
-    { "name": "UserSoftDeleteTTLMinutes","type":"int",   "reload":"Cold",    "default": 360,     "unit":"min",  "concept_ids": ["c-suspended-user"] },
+    { "name": "UserPriorityThreshold", "type": "float",  "reload": "Warm",   "default": 0.1,     "range":"0.0-1.0", "behavior_note": "UserPriority snapshots this value at singleton construction; a warm refresh does not update the active threshold.", "concept_ids": ["c-per-user-throttling"] },
+    { "name": "UserSoftDeleteTTLMinutes","type":"int",   "reload":"Cold",    "default": 360,     "unit":"min",  "concept_ids": ["c-suspended-user","c-user-profile","c-app-id-allowlist"] },
     { "name": "ValidateAuthAppFieldName","type":"string","reload":"Warm",    "default": "authAppID","concept_ids":["c-app-id-allowlist"] },
     { "name": "ValidateAuthAppID",     "type": "bool",   "reload": "Warm",   "default": false,   "concept_ids": ["c-app-id-validation"] },
     { "name": "ValidateAuthAppIDHeader","type":"string", "reload": "Warm",   "default": "X-MS-CLIENT-PRINCIPAL-ID","concept_ids":["c-app-id-validation"] },
@@ -1541,7 +2013,7 @@
     { "name": "GC2InternalSecs",       "type": "int",    "reload": "Cold",   "default": 300,     "unit": "s", "concept_ids": [] },
     { "name": "StreamFlushInterval",   "type": "int",    "reload": "Cold",   "default": 250,     "unit": "ms", "concept_ids": ["c-stream-flush-interval"] },
     { "name": "RequestPreprocessorPlugins","type":"string","reload":"Cold",  "default": "",      "concept_ids": ["c-request-preprocessor-plugins"] },
-    { "name": "TERMINATION_GRACE_PERIOD_SECONDS","type":"int","reload":"Cold","default":30,      "unit": "s", "concept_ids": [] },
+    { "name": "TERMINATION_GRACE_PERIOD_SECONDS","type":"int","reload":"Cold","default":30,      "unit": "s", "concept_ids": ["c-coordinated-shutdown"] },
     { "name": "AsyncBlobStorageConnectionString","type":"string","reload":"Hidden","default":"example-connection-string","derived_from":"AsyncBlobStorageConfig","concept_ids":["c-result-blob"] },
     { "name": "AsyncBlobStorageUseMI","type": "bool",    "reload": "Hidden", "default": true,    "derived_from": "AsyncBlobStorageConfig", "concept_ids": ["c-result-blob","c-managed-identity"] },
     { "name": "AsyncBlobStorageAccountUri","type":"string","reload":"Hidden","default":"https://mystorageaccount.blob.core.windows.net","derived_from":"AsyncBlobStorageConfig","concept_ids":["c-result-blob"] },
@@ -1560,39 +2032,50 @@
     { "name": "RequestIDPrefix",       "type": "string", "reload": "Hidden", "default": "S7P",   "concept_ids": ["c-proxy-event"] },
     { "name": "CONTAINER_APP_REPLICA_NAME","type":"string","reload":"Hidden","default":"",       "concept_ids": ["c-event-headers","c-azure-container-apps"] },
     { "name": "CONTAINER_APP_REVISION","type":"string",  "reload": "Hidden", "default": "revisionID", "concept_ids": ["c-event-headers","c-azure-container-apps"] },
-    { "name": "Workers",               "type": "int",    "reload": "Cold",   "default": 10,      "concept_ids": ["c-workers","c-proxy-worker"] }
+    { "name": "Workers",               "type": "int",    "reload": "Cold",   "default": 10,      "concept_ids": ["c-workers","c-proxy-worker"] },
+    { "name": "TokenomicsEnable",      "type": "bool",   "reload": "Warm",   "default": true,    "concept_ids": ["c-tokenomics"] },
+    { "name": "TokenomicsOptions",     "type": "string", "reload": "Warm",   "default_source": "new TokenomicsSettings().ToString()", "format": "comma- or semicolon-separated key=value entries", "concept_ids": ["c-tokenomics", "c-tokenomics-options", "c-tokenomics-policy", "c-tokenomics-routing", "c-tokenomics-pricing"] },
+    { "name": "TokenomicsMetricsServer","type":"string", "reload": "Warm",   "default": "",      "concept_ids": ["c-tokenomics", "c-tokenomics-metrics"] },
+    { "name": "METRICSSERVER_PORT", "type": "int", "reload": "Cold", "default": 9100, "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "METRICSSERVER_BUCKET_SECONDS", "type": "int", "reload": "Cold", "default": 60, "unit": "s", "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "METRICSSERVER_BUCKET_COUNT", "type": "int", "reload": "Cold", "default": 60, "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "METRICSSERVER_MAX_SERIES", "type": "int", "reload": "Cold", "default": 100000, "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "METRICSSERVER_MAX_BODY_BYTES", "type": "int", "reload": "Cold", "default": 4194304, "unit": "bytes", "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "METRICSSERVER_TELEMETRY_INTERVAL_SECONDS", "type": "int", "reload": "Cold", "default": 60, "unit": "s", "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "AppConfigurationEndpoint", "type": "string", "reload": "Cold", "default": "", "concept_ids": ["c-metrics-server-configuration"] },
+    { "name": "AppConfigurationLabel", "type": "string", "reload": "Cold", "default": "", "concept_ids": ["c-metrics-server-configuration"] }
   ],
 
   "response_codes": [
     { "code": 202, "name": "Accepted",              "origin": "proxy",   "cause": "Async upgrade: client released early with blob URIs",        "concept_ids": ["c-202-response","c-async-upgrade"] },
-    { "code": 400, "name": "Bad Request",            "origin": "proxy",   "cause": "Malformed S7PTTL header value (error: InvalidTTL)",          "concept_ids": ["c-ttl"] },
-    { "code": 403, "name": "Forbidden",              "origin": "proxy",   "cause": "App ID not in allowlist (DisallowedAppID); inbound key validation failed (DisallowedKey); user not in profile or suspended (UnknownProfile)", "concept_ids": ["c-app-id-validation","c-inbound-key-validation","c-suspended-user","c-user-profile"] },
+    { "code": 400, "name": "Bad Request",            "origin": "proxy",   "cause": "Malformed S7PTTL header value (InvalidTTL); unable to read the client request body; or invalid outbound header format.", "concept_ids": ["c-ttl"] },
+    { "code": 403, "name": "Forbidden",              "origin": "proxy",   "cause": "App ID not in allowlist (DisallowedAppID); inbound authentication failed (DisallowedKey); profile not found or user suspended (UnknownProfile); or Tokenomics policy rejected the request.", "concept_ids": ["c-app-id-validation","c-inbound-key-validation","c-suspended-user","c-user-profile","c-tokenomics-policy"] },
     { "code": 408, "name": "Request Timeout",        "origin": "proxy",   "cause": "IO exception or task cancellation on backend communication", "concept_ids": ["c-timeout"] },
-    { "code": 412, "name": "Precondition Failed",    "origin": "proxy",   "cause": "Request TTL expired before dispatch (TTLExpired)",           "concept_ids": ["c-ttl"] },
+    { "code": 412, "name": "Precondition Failed",    "origin": "proxy",   "cause": "Request TTL expired or the configured MultiPass backend-attempt limit was reached.", "concept_ids": ["c-ttl","c-max-attempts"] },
     { "code": 417, "name": "Expectation Failed",     "origin": "proxy",   "cause": "Required header missing (IncompleteHeaders); header validation rule failed (InvalidHeader)", "concept_ids": ["c-required-headers","c-header-validation-rule"] },
-    { "code": 429, "name": "Too Many Requests",      "origin": "proxy",   "cause": "Queue full; backend circuit check failed; no active hosts; max undrained events exceeded", "concept_ids": ["c-max-queue-length","c-circuit-breaker","c-active-pool"] },
+    { "code": 429, "name": "Too Many Requests",      "origin": "proxy",   "cause": "Queue full; backend circuit check failed; no active hosts during SinglePass admission; max undrained events exceeded; or Tokenomics policy throttled the request.", "concept_ids": ["c-max-queue-length","c-circuit-breaker","c-active-pool","c-tokenomics-policy"] },
     { "code": 500, "name": "Internal Server Error",  "origin": "proxy",   "cause": "Unhandled exception; request body too large (ContentTooLarge)", "concept_ids": [] },
     { "code": 502, "name": "Bad Gateway",             "origin": "proxy",   "cause": "Backend attempts failed with different status codes or an unclassified transport error", "concept_ids": ["c-retry"] },
-    { "code": 503, "name": "Service Unavailable",    "origin": "proxy",   "cause": "No host was attempted or backend name-resolution/connection failures exhausted the available hosts", "concept_ids": ["c-retry","c-active-pool"] }
+    { "code": 503, "name": "Service Unavailable",    "origin": "proxy",   "cause": "No host was attempted or backend name-resolution failures exhausted the available hosts.", "concept_ids": ["c-retry","c-active-pool"] }
   ],
 
   "request_headers": [
     { "name": "S7PPriorityKey", "direction": "client-inbound",   "configurable_name_via": "PriorityKeyHeader", "definition": "Priority tier value. Looked up in PriorityKeys to determine the request's priority level.",       "concept_ids": ["c-priority-key-header","c-priority-mapping"] },
-    { "name": "S7PTTL",         "direction": "client-inbound",   "configurable_name_via": "TTLHeader",         "definition": "Per-request TTL override in seconds. Formats: integer, decimal, absolute Unix timestamp, ISO 8601.", "concept_ids": ["c-ttl"] },
+    { "name": "S7PTTL",         "direction": "client-inbound",   "configurable_name_via": "TTLHeader",         "definition": "Per-request TTL: relative seconds as an integer or decimal, + followed by Unix seconds for an absolute timestamp, or a date/time string parsed as DateTimeOffset.", "concept_ids": ["c-ttl"] },
     { "name": "S7PTimeout",     "direction": "client-inbound",   "configurable_name_via": "TimeoutHeader",     "definition": "Per-request per-host timeout override in milliseconds.",                                            "concept_ids": ["c-timeout"] },
     { "name": "S7P-Iterator",   "direction": "client-inbound",   "configurable_name_via": null,                "definition": "Per-request iteration mode override. Accepted values: SinglePass and MultiPass. Missing or invalid values use the current IterationMode default.", "concept_ids": ["c-iteration-mode"] },
-    { "name": "S7PAsyncMode",   "direction": "client-inbound",   "configurable_name_via": "AsyncClientRequestHeader", "definition": "Opt-in header enabling async mode for this specific request.",                           "concept_ids": ["c-opt-in-header","c-async-mode"] },
+    { "name": "S7PAsyncMode",   "direction": "client-inbound",   "configurable_name_via": "AsyncClientRequestHeader", "definition": "Boolean true opts the request into async processing when the other eligibility requirements are satisfied.", "concept_ids": ["c-opt-in-header","c-async-mode"] },
     { "name": "S7PDEBUG",       "direction": "client-inbound",   "configurable_name_via": null,                "definition": "Set to true to enable per-request debug tracing in logs.",                                          "concept_ids": [] },
     { "name": "S7PREQUEUE",     "direction": "backend-response", "configurable_name_via": null,                "definition": "Set by a backend on a 429 response to signal the proxy should requeue the request.",                "concept_ids": ["c-s7prequeue-header","c-requeue"] },
     { "name": "retry-after-ms", "direction": "backend-response", "configurable_name_via": null,                "definition": "Preferred backend requeue delay in milliseconds.",                                                   "concept_ids": ["c-retry-after","c-requeue"] },
-    { "name": "Retry-After",    "direction": "backend-response", "configurable_name_via": null,                "definition": "Backend requeue delay in seconds, used when retry-after-ms is absent.",                               "concept_ids": ["c-retry-after","c-requeue"] }
+    { "name": "Retry-After",    "direction": "backend-response", "configurable_name_via": null,                "definition": "Backend requeue delay in integer seconds, used when retry-after-ms is absent or not a valid integer.", "concept_ids": ["c-retry-after","c-requeue"] }
   ],
 
   "response_headers": [
-    { "name": "Request-Queue-Duration",     "definition": "Milliseconds the request spent in the priority queue before a worker picked it up on successful responses.", "concept_ids": ["c-priority-queue"] },
-    { "name": "Request-Process-Duration",   "definition": "Milliseconds spent in the proxy worker from dequeue to final response write on successful responses.",      "concept_ids": ["c-proxy-worker"] },
+    { "name": "Request-Queue-Duration",     "definition": "Milliseconds between recorded enqueue and dequeue timestamps, reported on forwarded backend responses.", "concept_ids": ["c-priority-queue"] },
+    { "name": "Request-Process-Duration",   "definition": "Milliseconds from the recorded dequeue timestamp to request-header enrichment before backend processing, reported on forwarded backend responses; this is not the final processing duration.", "concept_ids": ["c-proxy-worker"] },
     { "name": "BackendHost",                "definition": "Hostname of the backend that served the successful response.",                                    "concept_ids": ["c-backend-host"] },
-    { "name": "Total-Latency",              "definition": "Total milliseconds from enqueue to response complete on successful responses.",                  "concept_ids": ["c-proxy-event"] },
+    { "name": "Total-Latency",              "definition": "Milliseconds from enqueue to the proxy's post-capture measurement, reported on forwarded backend responses.", "concept_ids": ["c-proxy-event"] },
     { "name": "Attempts",                   "definition": "Backend attempts made during the current dispatch cycle.",                                         "concept_ids": ["c-max-attempts"] },
     { "name": "Lifetime-Attempts",          "definition": "Cumulative backend attempts across all requeue cycles.",                                           "concept_ids": ["c-requeue"] },
     { "name": "x-Request-Queue-Duration",   "definition": "Milliseconds spent in the priority queue on exhausted-host error responses.",                      "concept_ids": ["c-priority-queue"] },
@@ -1604,21 +2087,21 @@
   ],
 
   "relationships": [
-    { "from": "c-ttl",                   "to": "c-timeout",             "type": "bounds",         "description": "TTL caps total request lifetime; Timeout caps each individual attempt." },
-    { "from": "c-async-trigger-timeout", "to": "c-async-timeout",       "type": "succeeds",       "description": "AsyncTriggerTimeout fires first to release the client; AsyncTimeout governs the subsequent backend phase." },
+    { "from": "c-ttl",                   "to": "c-timeout",             "type": "bounds",         "description": "Remaining TTL bounds each synchronous attempt timeout; async-enabled attempts use AsyncTimeout and check expiration separately." },
+    { "from": "c-async-trigger-timeout", "to": "c-async-timeout",       "type": "coordinates",    "description": "AsyncTriggerTimeout controls attempted client release; AsyncTimeout controls each async-enabled backend attempt, including before client release." },
     { "from": "c-path-filter",           "to": "c-load-balance-mode",   "type": "precedes",       "description": "Path filter runs before load-balance ordering in the backend selection pipeline." },
     { "from": "c-load-balance-mode",     "to": "c-circuit-breaker",     "type": "precedes",       "description": "Load balancer orders hosts; circuit breaker gates each host before attempt." },
     { "from": "c-health-poller",         "to": "c-active-pool",         "type": "populates",      "description": "Health poller results determine which hosts are in the active pool." },
-    { "from": "c-active-pool",           "to": "c-circuit-breaker",     "type": "feeds",          "description": "Active pool hosts are also subject to per-host circuit breaker evaluation." },
+    { "from": "c-active-pool",           "to": "c-circuit-breaker",     "type": "distinct_from",  "description": "Health reporting uses the active list, while request circuit-breaker checks apply to candidates from the host snapshot." },
     { "from": "c-circuit-breaker",       "to": "c-max-attempts",        "type": "bypasses",       "description": "OPEN circuits are skipped without consuming a MaxAttempts budget entry." },
-    { "from": "c-sentinel",              "to": "c-warm-setting",        "type": "triggers",       "description": "Bumping Sentinel triggers hot-reload of all Warm settings." },
-    { "from": "c-validation-pipeline",   "to": "c-enqueue",             "type": "precedes",       "description": "Validation pipeline must pass before a request is enqueued." },
+    { "from": "c-sentinel",              "to": "c-warm-setting",        "type": "triggers",       "description": "A Sentinel change triggers an attempted refresh of recognized nonempty Warm settings." },
+    { "from": "c-validation-pipeline",   "to": "c-enqueue",             "type": "precedes",       "description": "Non-probe requests that reach validation must pass before enqueue; probes bypass validation." },
     { "from": "c-user-profile",          "to": "c-header-validation-rule","type":"provides_data", "description": "User profile supplies the allowlist header values consumed by header validation rules." },
     { "from": "c-async-upgrade",         "to": "c-result-blob",         "type": "produces",       "description": "Async upgrade initiates background processing that ultimately produces a result blob." },
     { "from": "c-result-blob",           "to": "c-blob-lifecycle-policy","type":"governed_by",    "description": "Result blobs are deleted by the Azure Storage lifecycle policy, not by the proxy setting alone." },
-    { "from": "c-processor",             "to": "c-token-telemetry",     "type": "enables",        "description": "processor=OpenAI is required for the proxy to extract token counts from SSE streams." },
-    { "from": "c-composite-event-client","to": "c-event-logger-backend","type": "dispatches_to", "description": "CompositeEventClient fans out every ProxyEvent to all registered backends." },
+    { "from": "c-processor",             "to": "c-token-telemetry",     "type": "enables",        "description": "Supported response processors extract usage from backend responses." },
+    { "from": "c-composite-event-client","to": "c-event-logger-backend","type": "dispatches_to", "description": "CompositeEventClient fans out submitted serialized events to all registered backends." },
     { "from": "c-connection-string-format","to":"c-legacy-format",      "type": "supersedes",     "description": "Connection string format supports all modern options; legacy format is deprecated." },
-    { "from": "c-direct-mode",           "to": "c-latency-iterator",    "type": "influences",     "description": "Direct-mode hosts report 0 ms average latency and always sort first in latency mode." }
+    { "from": "c-direct-mode",           "to": "c-latency-iterator",    "type": "influences",     "description": "Direct-mode hosts are not probed and ordinarily report 0 ms average probe latency." }
   ]
 }

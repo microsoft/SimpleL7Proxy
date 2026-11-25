@@ -22,11 +22,11 @@ A profile containing `"S7PPriorityKey": "high"` therefore receives priority `1`.
 
 ### What does a request's priority actually control?
 
-In the **proxy**, priority changes the order in which a queued request is selected by a worker. In **APIM**, it selects the order and priority of eligible endpoints.
+In the **proxy**, priority changes the order in which a queued request is selected by a worker. In **APIM**, the supplied priority policy selects the eligible endpoint set and its ordering.
 
 ### Does priority affect which backends or capacity a request can use?
 
-Yes, but not through SimpleL7Proxy's own backend selection — that filters by request path and `LoadBalanceMode`, not priority. Within APIM, though, each backend declares which priorities it accepts, so a capacity pool can be reserved for higher-priority traffic while lower-priority requests are routed elsewhere.
+Yes. The proxy filters backend candidates by path and each host's `acceptablePriorities`; omitted values or `*` accept any priority. APIM can apply its own priority-aware endpoint policy as well. Queue priority controls worker dispatch order, while `acceptablePriorities` controls host eligibility.
 
 ### Do different priorities get different retry behavior?
 

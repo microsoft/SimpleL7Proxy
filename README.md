@@ -3,8 +3,8 @@
 Depending on whether you are serving live users, high-priority business workflows, or low-priority background jobs, you will likely want control over when, where, and how your traffic is fulfilled. AI backends can throttle, regions can become constrained, and models eventually reach the end of their lifecycle. These are some of the reasons teams place a proxy in front of their AI services. The questions below are the ones most teams ask when deciding whether this approach fits their architecture.  After deployment, you'll also want to have visibility on usage. 
 
 <table><tr>
-<td style="border: thin white line"><a href="https://www.youtube.com/watch?v=sHvhYOcZa7o"><img src="youtube-video.png" alt="Watch the video" width="480"></a></td>
-<td><a href="https://youtu.be/-2j1-Ku9TkY"><img src="tokenomics-usage.png" alt="Watch the video" width="480"></a></td>
+<td style="border: thin white line"><a href="https://www.youtube.com/watch?v=sHvhYOcZa7o"><img src="docs/img/SimpleL7Proxy.png" alt="Watch the video" width="480"></a></td>
+<td><a href="https://youtu.be/-2j1-Ku9TkY"><img src="docs/img/Chargeback.png" alt="Watch the video" width="480"></a></td>
 </tr></table>
 
 ## Where do you want to start?
@@ -22,7 +22,7 @@ Architecture, components, and how requests flow end to end.
 <td width="33%" valign="top">
 
 ### [🚀 Get it running](docs/getting-started/README.md)
-Choose a deployment path for Azure Container Apps, Kubernetes, or local development.
+Deploy to Azure Container Apps with the prebuilt package. For local development, see [Developer Getting Started](docs/getting-started-developer/README.md).
 
 **For:** operators and developers doing a first deployment.
 

@@ -58,7 +58,7 @@ For production deployments, the following variables MUST also be set:
 | `APPINSIGHTS_CONNECTIONSTRING` | REQUIRED for production observability |
 
 > [!TIP]
-> For a full annotated walkthrough of minimum setup and local development options, see [Run SimpleL7Proxy Locally](../getting-started/local.md). For copy-paste production configurations, see [Common Scenarios](../how-to/common-scenarios.md).
+> For a full annotated walkthrough of minimum setup and local development options, see [Run SimpleL7Proxy Locally](../getting-started-developer/README.md). For copy-paste production configurations, see [Common Scenarios](../how-to/common-scenarios.md).
 
 ## Basic Configuration
 
@@ -90,7 +90,7 @@ For production deployments, the following variables MUST also be set:
 | **UserConfigRefreshIntervalSecs** | int | Interval in seconds between user configuration refreshes. Requires restart.                                                                       | 3600 (1 hour)                            |
 | **UserSoftDeleteTTLMinutes**   | int  | Time in minutes before a soft-deleted user profile is permanently removed. Requires restart.                                                         | 360 (6 hours)                            |
 | **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | `""` (not set)                           |
-| **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](advanced-configuration.md#user-throttling). | 0.1                                      |
+| **UserPriorityThreshold**     | float | Threshold (0.0-1.0) for a user's tracked share of active requests. It affects secondary queue priority, not the primary mapped tier; the active value requires restart to change. See [Advanced Configuration](advanced-configuration.md#user-throttling). | 0.1 |
 | **ValidateAuthAppFieldName**    | string | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
 | **ValidateAuthAppIDHeader**     | string | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
@@ -114,7 +114,7 @@ For production deployments, the following variables MUST also be set:
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
 | **PriorityKeys**              | string array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](advanced-configuration.md#priority-mapping) for examples.  | "high,medium,low"                         |
 | **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](advanced-configuration.md#priority-mapping) for examples.   | "1,2,3"                                  |
-| **PriorityWorkers**           | string | Comma-separated list (e.g., "2:1,3:1") specifying worker threads per priority. See [Advanced Configuration](advanced-configuration.md#priority-mapping) for examples.                                                                                       | 2:1,3:1                                  |
+| **PriorityWorkers**           | string | `PriorityLevel:WorkerCount` pairs that set preferred priorities when workers start. Workers can process other priorities when their preference is unavailable. See [Advanced Configuration](advanced-configuration.md#priority-mapping). | 2:1,3:1 |
 | **RequiredHeaders**           | string | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
 | **StripRequestHeaders**       | string | Comma-separated list of headers to remove from the request before forwarding.                                                                         | (empty)                                  |
 | **StripResponseHeaders**      | string | Comma-separated list of headers to remove from the response before returning to client.                                                               | (empty)                                  |
@@ -122,7 +122,7 @@ For production deployments, the following variables MUST also be set:
 | **TTLHeader**                  | string | Name of the header used to specify time-to-live for requests.                                                                                         | S7PTTL                                   |
 | **UniqueUserHeaders**         | string | A list of header names that uniquely identify the caller or user.                                                                                                                               | X-UserID                                 |
 | **UserProfileHeader**         | string | Name of the header that contains user profile information when UseProfiles is enabled.                                                                 | X-UserProfile                            |
-| **ValidateHeaders**           | string | Comma-separated `SourceHeader:AllowedValuesHeader` pairs. Validates that the source header value appears in the allow-list header. Supports trailing `*` for prefix matching. See [Advanced Configuration](advanced-configuration.md#header-validation). | (empty)                                  |
+| **ValidateHeaders**           | string | JSON header-validation rules with inline values and optional mapped allowlist headers. Legacy `SourceHeader=AllowlistHeader` mappings remain supported. See [Configure Security](../how-to/configure-security.md#scenario-3-validate-header-values-against-an-allowlist). | (empty)                                  |
 
 ## Logging & Monitoring Variables
 
@@ -132,7 +132,7 @@ For production deployments, the following variables MUST also be set:
 | **CONTAINER_APP_NAME**         | string | The name of the container application to be used in logs and telemetry. This is automatically defined by the ACA environment.                                                                           | ContainerAppName                         |
 | **CONTAINER_APP_REPLICA_NAME**  | string | Name/ID of the current container app replica (used for logging and request IDs). This is automatically defined by the ACA environment.                                                                           | ContainerAppName                         |
 | **CONTAINER_APP_REVISION**      | string | Revision identifier for the current container app deployment. This is automatically defined by the ACA environment.                                                                           | ContainerAppName                         |
-| **EVENT_LOGGERS**              | string | Comma-separated list of event logger backends to enable. Built-in values: `file`, `eventhub`, and `none`. You can also specify a fully-qualified class name within the assembly. Multiple backends run simultaneously. | file |
+| **EVENT_LOGGERS**              | string | Comma-separated list of event logger backends to enable. Built-in values: `file`, `eventhub`, and `none`. You can also specify a fully-qualified class name within the assembly. Multiple backends run simultaneously. | none |
 | **EVENTHUB_CONNECTIONSTRING** | string | The connection string for EventHub logging. Required when `eventhub` is in **EVENT_LOGGERS** (unless using **EVENTHUB_NAMESPACE** with managed identity). Must also set **EVENTHUB_NAME**. | None                                     |
 | **EVENTHUB_NAME**             | string | The EventHub name for logging. Required when `eventhub` is in **EVENT_LOGGERS**.                                                                                                                  | None                                     |
 | **EVENTHUB_NAMESPACE**        | string | The EventHub namespace (e.g., `mynamespace` or `mynamespace.servicebus.windows.net`). Used with `DefaultAzureCredential` when **EVENTHUB_CONNECTIONSTRING** is not set. Must also set **EVENTHUB_NAME**. | None                                     |
@@ -145,7 +145,7 @@ For production deployments, the following variables MUST also be set:
 | **LogAllResponseHeadersExcept** | string | Comma-separated list of response headers to exclude from logging, even if LogAllResponseHeaders is true.                                               | Api-Key                                  |
 | **LOGDATETIME**                 | bool   | When true, prepends a timestamp to each console log line. Requires restart.                                                                           | false                                    |
 | **LOGFILE_NAME**                | string | Filename for the local log file when `file` is in **EVENT_LOGGERS** (or when **LOGTOFILE**=true in legacy mode).                                      | eventslog.json                           |
-| **LOGTOFILE**                   | bool   | **Legacy.** When **EVENT_LOGGERS** is not set: `true` enables file logging, `false` enables EventHub logging. Prefer **EVENT_LOGGERS** for new deployments. | false                                    |
+| **LOGTOFILE**                   | bool   | **Legacy.** When **EVENT_LOGGERS** is blank: `true` enables file logging, `false` enables EventHub logging. Prefer **EVENT_LOGGERS** for new deployments. | false                                    |
 | **LogHeaders**                  | string | Comma-separated list of specific headers to log for debugging.                                                                                        | (empty)                                  |
 | **LogProbes**                  | bool | If true, logs details about health probe requests to backends.                                                                                        | false                                    |
 | **LogToConsole**              | string list | Comma-separated list of log categories to write to the console. Use `*` for all categories and prefix exclusions with `-`. | *,-custom |
@@ -179,12 +179,12 @@ For production deployments, the following variables MUST also be set:
 | **AsyncSBNamespace**          | string | Service Bus namespace (parsed from AsyncSBConfig).                                                       | (empty)                                  |
 | **AsyncSBQueue**              | string | Service Bus queue name (parsed from AsyncSBConfig).                                                      | (empty)                                  |
 | **AsyncSBUseMI**              | bool | Use Managed Identity for Service Bus (parsed from AsyncSBConfig).                                        | false                                    |
-| **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time an async request will run for.    | 1800000 (30 min)                        |
-| **AsyncTriggerTimeout**       | int | Timeout for async trigger operations in ms.                                                              | 10000                                    |
-| **AsyncTTLSecs**              | int | TTL for async requests in seconds.                                                                       | 86400 (24 hours)                         |
+| **AsyncTimeout**              | int | Per-attempt backend cancellation timeout in milliseconds for async-enabled requests, including before the 202 response is sent. | 1800000 (30 min) |
+| **AsyncTriggerTimeout**       | int | Minimum time in ms before an eligible request may upgrade to async; response timing and blob queue pressure also affect the upgrade. | 10000 |
+| **AsyncTTLSecs**              | int | Default TTL in seconds used when the async worker recalculates request expiration. A supplied `S7PTTL` takes precedence; relative TTL is measured from enqueue. | 86400 (24 hours) |
 
 > [!WARNING]
-> All async variables are **Cold** settings (see [CONFIGURATION_SETTINGS.md](configuration.md)). They MUST be changed by redeploying or restarting the container — updating Azure App Configuration alone has no effect on Cold variables.
+> Async settings have mixed reload behavior. `AsyncModeEnabled` and the storage, Service Bus, and worker configuration are **Cold**; `AsyncTimeout`, `AsyncTriggerTimeout`, `AsyncTTLSecs`, `AsyncClientRequestHeader`, and `AsyncClientConfigFieldName` are **Warm**. Check [Configuration](configuration.md) before changing a setting.
 
 ## Connection Management Variables
 
@@ -221,9 +221,9 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
 | **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](backend-hosts.md) for full details. | None                                     |
 | **HostName**                  | string | A logical name for the backend host used for identification and logging.                                          | Default                                  |
-| **IterationMode**             | string | Controls how the proxy iterates through backends (SinglePass).                                           | SinglePass                               |
+| **IterationMode**             | string | Controls retry breadth: `SinglePass` traverses hosts once; `MultiPass` repeats traversal up to `MaxAttempts`. | MultiPass |
 | **IP1, IP2, ...**             | string | IP addresses that map to corresponding Host entries if DNS is unavailable. Ignored if `ipaddress` is set in connection string. | None                                     |
-| **LoadBalanceMode**           | string | Load balancing strategy: 'latency', 'roundrobin', or 'random'.                                          | latency                                  |
+| **LoadBalanceMode**           | string | Legacy host ordering: `latency`, `roundrobin`, `timetofirstbyte`, `prioritygroup` (groups ascending, hosts randomized within each), or `random`. | latency |
 | **MaxAttempts**               | int | Maximum total attempts in MultiPass; set to `0` to disable the attempt-count limit.                               | 10                                       |
 | **OAuthAudience**             | string | Legacy global OAuth audience setting. Use per-host `audience=` in `Host1` connection strings for new deployments.                                                                                                           | None                                     |
 | **PollInterval**              | int | The interval (in milliseconds) at which SimpleL7Proxy polls the backend servers.                                  | 15000                                    |
@@ -272,7 +272,7 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
 ## Additional Configuration Notes
 
 - **Environment Variables vs Configuration File:** While most settings can be provided via environment variables, `appsettings.json` is supported in development mode only and MUST NOT be used in production deployments.
-- **Priority Configuration:** The count of entries in `PriorityKeys` MUST equal the count in `PriorityValues`. `PriorityWorkers` MUST reference only priority levels defined in `PriorityValues`. See [ADVANCED_CONFIGURATION.md](advanced-configuration.md#priority-mapping) for a worked example.
+- **Priority Configuration:** `PriorityKeys` and `PriorityValues` map by position. If their counts differ, the parser fills `PriorityValues` with the default priority for each key. `PriorityWorkers` sets preferred priorities when workers start; a warm refresh does not reassign existing workers. See [Advanced Configuration](advanced-configuration.md#priority-mapping).
 - **DNS Refresh:** Set `DnsRefreshTimeout` to force DNS re-resolution at a frequency appropriate for your environment. The default is 120,000 ms (2 min). This setting is relevant in environments where backend IPs change on failover.
 
 ---

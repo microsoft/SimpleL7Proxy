@@ -1,6 +1,6 @@
 # How does the proxy keep queueing fair across users?
 
-Per-priority worker pools and the `UserPriorityThreshold` mechanism that stops one user monopolizing a level.
+Priority queue ordering, worker priority preferences, and the `UserPriorityThreshold` secondary queue preference.
 
 [← Back to FAQ index](README.md)
 
@@ -8,10 +8,10 @@ Per-priority worker pools and the `UserPriorityThreshold` mechanism that stops o
 
 ### How does the proxy keep high-priority traffic from starving lower-priority requests?
 
-Each priority level has its own dedicated pool of workers, so higher-priority traffic can't consume the capacity reserved for lower-priority requests.
+`PriorityWorkers` assigns preferred priorities when workers start. A worker can process other priorities when its preference is unavailable; these are preferences, not reserved pools.
 
-### How does the proxy keep one user from monopolizing a priority level?
+### How does the proxy adjust queue preference based on each user's active share?
 
-Within a priority level, the proxy tracks each user's share of active requests. A user who stays under `UserPriorityThreshold` (default `0.1`, i.e. 10%) gets a fairness boost ahead of other users at that level; once their share crosses the threshold, the boost is withheld until it drops back down.
+The proxy tracks each user's share of active requests. Users below `UserPriorityThreshold` (default `0.1`, or 10%) receive a secondary queue-priority preference; crossing the threshold removes that preference until the tracked share falls below it. This does not change primary priority or cap or reject requests.
 
 See [Advanced Configuration](../reference/advanced-configuration.md#userprioritythreshold) for how to tune that threshold, with a worked example.

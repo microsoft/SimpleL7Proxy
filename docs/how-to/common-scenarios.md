@@ -24,7 +24,7 @@ This document provides canonical, copy-paste-ready configuration blocks for comm
 ## Scope & Applicability
 
 **In scope:** Copy-paste configuration blocks for the most common operational scenarios.
-**Out of scope:** Infrastructure provisioning (see [CONTAINER_DEPLOYMENT.md](deploy-container-apps.md)); App Configuration seeding (see [AZURE_APP_CONFIGURATION.md](configure-app-configuration.md)).
+**Out of scope:** Infrastructure provisioning (see [Azure Container Apps](../getting-started/container-apps.md)); App Configuration seeding (see [AZURE_APP_CONFIGURATION.md](configure-app-configuration.md)).
 **Dependencies:** [BACKEND_HOSTS.md](../reference/backend-hosts.md), [CONFIGURATION_SETTINGS.md](../reference/configuration.md).
 
 ---
@@ -136,7 +136,7 @@ APPINSIGHTS_CONNECTIONSTRING=<your-connection-string>
 ```
 
 > [!NOTE]
-> `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) resets the request TTL when async processing starts. Configure blob deletion separately with an Azure Storage lifecycle policy.
+> `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) is used when the async worker recalculates request expiration; a supplied `S7PTTL` takes precedence, and relative TTL is measured from enqueue. Configure blob deletion separately with an Azure Storage lifecycle policy.
 
 > [!TIP]
 > For the full async configuration reference, including the `async-config` user profile field format, see [AsyncOperation.md](../concepts/async-processing.md).
@@ -208,7 +208,7 @@ IgnoreSSLCert=true
 ```
 
 > [!TIP]
-> For local setup and IDE integration, see [Run SimpleL7Proxy Locally](../getting-started/local.md) and [Development](../contributing/development.md).
+> For local setup and IDE integration, see [Run SimpleL7Proxy Locally](../getting-started-developer/README.md) and [Development](../contributing/development.md).
 
 ---
 
@@ -219,7 +219,7 @@ IgnoreSSLCert=true
 | Proxy starts | `curl http://localhost:{Port}/health` | `200 OK` |
 | Backend probed | Proxy startup log | Backend URL in active host list |
 | Circuit breaker opens | Send `CBErrorThreshold` failures within `CBTimeslice` s | `503`; host excluded from rotation |
-| Async mode | Send request with `S7PAsyncMode: true` header after `AsyncTriggerTimeout` | `202 Accepted` with blob URIs in body |
+| Async mode | Send an eligible long-running request with `S7PAsyncMode: true`; allow for `AsyncTriggerTimeout` and blob queue pressure | `202 Accepted` with blob URIs when the upgrade conditions are met |
 | Multi-region failover | Stop one backend host | Traffic routes to remaining hosts within `PollInterval` ms |
 | Request rejected (app ID) | Send request with app ID absent from `auth.json` | `403 Forbidden` |
 | Request rejected (header) | Send request missing a `RequiredHeaders` entry | `417 Expectation Failed` |

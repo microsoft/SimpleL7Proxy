@@ -17,4 +17,4 @@ See [→ LLM Simulator](../../test/LLMSimulator/Readme.md) for the full list of 
 
 ---
 
-[← Back to Where are your LLM models?](README.md#3-connect-a-backend)
+[← Back to Run SimpleL7Proxy](README.md#2-connect)

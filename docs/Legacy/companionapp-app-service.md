@@ -2,7 +2,7 @@
 
 The app is ready to deploy to an app service using the provided asset zip file using the Azure Portal.  If you modify the source code you will need to rebuild the zip image.
 
-If you prefer the command line or repeatable deployments, skip to [Deploy with Azure CLI](#deploy-with-azure-cli).
+If you prefer the command line or repeatable deployments, skip to [Deploy with the CLI](#deploy-with-the-cli).
 
 > [!IMPORTANT]
 > You should configure access restrictions on the appservice to prevent unauthorized access after the deployment.
@@ -14,7 +14,7 @@ If you prefer the command line or repeatable deployments, skip to [Deploy with A
 
 ### Before you begin
 - An Azure account with permission to create App Service resources and role assignments.
-- The included [CompanionApp package](artifacts/companion-app-appservice.zip).
+- The CompanionApp package at `src/CompanionApp/artifacts/companion-app-appservice.zip`. If it is not present, build it with `make-zip.sh` in `src/CompanionApp`.
 - A globally unique name for the web app.
 
 
@@ -42,7 +42,7 @@ If you prefer the command line or repeatable deployments, skip to [Deploy with A
 </td>
 <td style="vertical-align: top;">
 
-![Azure App Service Basics tab configuration](image-3.png)
+![Azure App Service Basics tab configuration](../../src/CompanionApp/img/image-3.png)
 
 </td>
 </tr>
@@ -59,13 +59,13 @@ If you prefer the command line or repeatable deployments, skip to [Deploy with A
 
 1. In the App Service, select **Deployment** > **Deployment Center**.
 2. Under **Manual Deployment (Push)**, select the **Publish files (new)** source.
-3. Select **Browse**, then select [artifacts/companion-app-appservice.zip](artifacts/companion-app-appservice.zip) from your local drive.
+3. Select **Browse**, then select `src/CompanionApp/artifacts/companion-app-appservice.zip` from your local drive.
 4. Select **Save**.
 
 </td>
 <td style="vertical-align: top;">
 
-![Deployment Center Publish files interface](zip-upload.png)
+![Deployment Center Publish files interface](../../src/CompanionApp/img/zip-upload.png)
 
 </td>
 </tr>
@@ -87,7 +87,7 @@ If you prefer the command line or repeatable deployments, skip to [Deploy with A
 </td>
 <td style="vertical-align: top;">
 
-![Managed Identity System assigned configuration](managed-identity.png)
+![Managed Identity System assigned configuration](../../src/CompanionApp/img/managed-identity.png)
 
 </td>
 </tr>
@@ -184,7 +184,7 @@ App Service restarts the web app after you apply the settings.
 
 ## Deploy with the CLI
 
-For automation and repeatable deployments, see [Deploying CompanionApp with Azure CLI](deployment-cli.md).
+For automation and repeatable deployments, see [Deploying CompanionApp with Azure CLI](companionapp-app-service-cli.md).
 
 ## Troubleshoot
 

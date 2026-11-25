@@ -105,6 +105,6 @@ Ensure the startup budget covers backend initialization, token acquisition, work
 ## Related
 
 - [Health Endpoint Reference](../reference/health-endpoints.md)
-- [Deploy the Health Probe Sidecar](../how-to/deploy-sidecar.md)
+- [Deploy the Health Probe Sidecar](../Legacy/deploy-sidecar.md) (legacy)
 - [Circuit Breaker Troubleshooting](circuit-breaker.md)
 - [Backend Host Troubleshooting](backend-hosts.md)

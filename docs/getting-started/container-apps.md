@@ -4,20 +4,15 @@ Deploy the published SimpleL7Proxy image to Azure Container Apps. Configure it a
 
 ## TL;DR
 
-- **For most deployments:** Use the [`deployment` Bicep bundle](../../deployment/README.md).
-- **For step-by-step control:** Use the [`deployment/interactive` workflow](../../deployment/interactive/README.md).
-- **For a custom package:** Use CompanionApp **Deployment Setup** to download a tailored Bicep ZIP.
+- Deploy using the [prebuilt package](../../deployment/README.md).
+- Configure hosts and model routing in CompanionApp.
+- Secure the proxy and CompanionApp before exposing them to users.
 
 > [!IMPORTANT]
-> Use the standard Bicep bundle unless you need to control individual stages or generate a custom topology.
+> [Alternative deployment paths](../Legacy/README.md) are documented separately.
 
-## Choose a deployment method
-
-| Method | Choose it when | Start here |
-| --- | --- | --- |
-| **Bicep bundle (recommended)** | You want a complete, repeatable deployment in one resource group. | [`deployment/README.md`](../../deployment/README.md) |
-| Interactive scripts | You need private networking, async resources, or control over individual stages. | [`deployment/interactive/README.md`](../../deployment/interactive/README.md) |
-| CompanionApp Bicep export | You want to choose resource names, topology, sizing, and features in a guided form. | [Set up CompanionApp](../../src/CompanionApp/readme.md#set-up-companionapp) |
+> [!WARNING]
+> The prebuilt deployment starts with the proxy and CompanionApp unlocked. Unauthorized users could send requests or change configuration. Do not leave them unsecured: configure CompanionApp authentication using its on-screen instructions and [protect proxy requests](../how-to/configure-security.md). CompanionApp displays its authentication reminder in each browser session while authentication is disabled.
 
 ## Configure without rebuilding
 
@@ -48,11 +43,11 @@ App Configuration Warm -> sentinel-triggered refresh
 > [!TIP]
 > Use CompanionApp for the normal workflow. Use the Azure portal when you need direct access to an individual key.
 
-## Use the standard bundle
+## Use the prebuilt package
 
-**Choose this method for most deployments.** The bundle creates the resources defined in `parameters.json` in one resource group.
+**Choose this method for most deployments.** The package creates the resources defined in `parameters.json` in one resource group.
 
-From the extracted bundle directory, replace `SUBSCRIPTION_ID` and run:
+From the extracted package directory, replace `SUBSCRIPTION_ID` and run:
 
 ```bash
 bash deploy.sh SUBSCRIPTION_ID validate
@@ -64,53 +59,6 @@ The first command resolves the `<UNIQ>` placeholders in `parameters.json`. Keep 
 
 > [!TIP]
 > See the [standard deployment guide](../../deployment/README.md) for prerequisites, custom IDs, App Configuration setup, verification, and recovery.
-
-## Use the interactive workflow
-
-**Choose this method when you want to run deployment stages individually.** It supports public and private networking. Async stages appear when you enable async mode.
-
-From the repository root:
-
-```bash
-cd deployment/interactive
-cp deploy.parameters.example.sh deploy.parameters.sh
-./deploy.sh
-```
-
-Edit `deploy.parameters.sh`, open the menu, then run the enabled steps in order. Rerun a step when you need to update only that part of the deployment.
-
-> [!WARNING]
-> Step 7 updates App Configuration. Export the current configuration before you run it. See the [interactive deployment guide](../../deployment/interactive/README.md) for the full sequence and parameter reference.
-
-## Create a custom Bicep package
-
-**Choose this method when you want a guided setup for custom values.** CompanionApp prepares the package locally. Downloading it doesn't deploy resources.
-
-1. [Set up and start CompanionApp](../../src/CompanionApp/readme.md#set-up-companionapp).
-2. Open **Deployment Setup** (`/admin/deployment`) and complete the setup tabs.
-3. Review the topology, open **Deployment**, and download the ZIP.
-
-```text
-Deployment Setup > Review
-Deployment Setup > Deployment
-Download ZIP > simplel7proxy-bicep.zip
-```
-
-Extract the ZIP and open its `README.md`. The package includes static Bicep templates, your deployment parameters, and a `deploy.sh` script.
-
-> [!NOTE]
-> Generate a new package after changing names, topology, images, or features. Use one extracted package for every operation in the same deployment.
-
-## Example: Use a fixed deployment ID
-
-The fixed ID `xq9vs` produces the same resource names in each operation:
-
-| Step | Action | Observable result |
-| --- | --- | --- |
-| 1 | Run `bash deploy.sh SUBSCRIPTION_ID validate --unique-id xq9vs` | Validation uses deployment name `ca-myapp-proxy-xq9vs-bicep`. No resources are created. |
-| 2 | Run `bash deploy.sh SUBSCRIPTION_ID what-if` from the same directory | Azure displays the planned changes for the same resource names. |
-| 3 | Run `bash deploy.sh SUBSCRIPTION_ID create` after reviewing the preview | Azure creates or updates the selected resources in `rg-myapp-prod-xq9vs`. |
-| 4 | Publish a labeled configuration in CompanionApp | The proxy can load backend and runtime settings from App Configuration. |
 
 ## Verify the deployment
 
@@ -124,18 +72,15 @@ The fixed ID `xq9vs` produces the same resource names in each operation:
 - [ ] A request reaches the configured backend.
 
 > [!NOTE]
-> The Bicep bundle creates the App Configuration store but doesn't publish proxy settings. Use CompanionApp [Proxy Configuration](../../src/CompanionApp/configuration.md#configuration-prerequisites) to publish the selected label.
+> Use CompanionApp [Proxy Configuration](../../src/CompanionApp/configuration.md#configuration-prerequisites) to review and publish settings for the selected label.
 
 ## If deployment doesn't work
 
 | Symptom | Check |
 | --- | --- |
-| You aren't sure which path to use | Use the recommended Bicep bundle. Choose another path only for per-step control or custom package generation. |
-| A standard deployment fails or the terminal disconnects | Follow [Check a deployment after disconnecting](../../deployment/README.md#check-a-deployment-after-disconnecting) before running `create` again. |
-| An interactive menu step is disabled | Check `PRIVATE_NETWORK_DEPLOYMENT` and `ASYNC_DEPLOYMENT` in `deploy.parameters.sh`. |
-| The CompanionApp ZIP doesn't contain your intended values | Return to Deployment Setup, review every section, and generate a new Bicep package. |
+| A standard deployment fails or the terminal disconnects | Follow [Check deployment status](../../deployment/README.md#check-deployment-status) before running `create` again. |
 | The proxy starts but isn't ready | Publish a configuration with at least one backend, then confirm the proxy uses the same App Configuration endpoint and label. |
 
 ---
 
-[Back to Choose Your Setup](README.md#2-choose-where-to-run)
+[Back to Run SimpleL7Proxy](README.md#1-run)

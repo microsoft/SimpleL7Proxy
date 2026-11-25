@@ -25,7 +25,7 @@ How priority is structured (`PriorityKeys`/`PriorityValues`), what it controls i
 <td width="50%" valign="top">
 
 ### [How does the proxy keep queueing fair across users?](queueing-fairness.md)
-Per-priority worker pools and the `UserPriorityThreshold` mechanism that stops one user monopolizing a level.
+Worker priority preferences and the `UserPriorityThreshold` secondary queue preference.
 
 </td>
 <td width="50%" valign="top">

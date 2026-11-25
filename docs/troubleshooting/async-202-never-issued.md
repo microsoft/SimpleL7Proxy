@@ -4,26 +4,27 @@ Purpose: Diagnose cases where clients expect async behavior but the proxy return
 
 > **TL;DR**
 > 1. Confirm the request includes the configured async opt-in header (`AsyncClientRequestHeader`, default `S7PAsyncMode`).
-> 2. Confirm async is enabled at all three gates: proxy (`AsyncModeEnabled=true`), user profile (`enabled=true` in async config), and request header.
-> 3. Compare backend completion time to `AsyncTriggerTimeout`: if the backend responds faster than the trigger timeout, sync response is expected behavior.
+> 2. Confirm async is enabled, a blob writer is available, the selected profile has valid enabled async settings, and the request header parses as `true`.
+> 3. Compare backend completion time to `AsyncTriggerTimeout`; response timing and blob queue pressure also affect whether the request upgrades.
 
 ---
 
 ## Runtime behavior
 
-The proxy does not force all async-tagged requests to return `202`. It first starts processing synchronously, then upgrades to async only if processing crosses the trigger window.
+The proxy does not force all async-tagged requests to return `202`. It first starts processing synchronously, then may upgrade an eligible request after the trigger window if blob queue pressure allows.
 
 Runtime decision path:
 
 1. Request arrives.
 2. Proxy validates async gates:
    - `AsyncModeEnabled=true` (system gate)
-   - Request has opt-in header (default `S7PAsyncMode`)
-   - User async profile exists and is enabled
-3. If any gate fails, request stays synchronous.
+   - A blob writer is available.
+   - Request opt-in header (default `S7PAsyncMode`) parses as `true`.
+   - Selected user profile has valid enabled async settings.
+3. If any eligibility condition fails, request stays synchronous.
 4. If gates pass, proxy starts sync processing and waits up to `AsyncTriggerTimeout`.
 5. If backend finishes before `AsyncTriggerTimeout`, request returns sync (200/4xx/5xx as applicable).
-6. If processing exceeds `AsyncTriggerTimeout`, proxy returns `202` and continues in async pipeline.
+6. If processing exceeds `AsyncTriggerTimeout` and blob queue pressure allows the upgrade, proxy returns `202` and continues in async pipeline.
 
 ---
 
@@ -31,13 +32,14 @@ Runtime decision path:
 
 - Verify request header name and value:
   - Header name is `AsyncClientRequestHeader` (default `S7PAsyncMode`).
-  - Header must be present on the failing request.
+  - Header must be present and parse as `true` on the failing request.
 - Verify proxy-level async switch:
   - `AsyncModeEnabled=true`.
   - If using App Config, key is `Cold:Async:Enabled` and requires restart after change.
 - Verify user profile async config:
-  - `enabled=true`.
+  - The profile's configured async field is valid and `enabled=true`.
   - `containername` and `topic` are present.
+- Verify the blob writer is configured and available; check blob queue pressure if all other conditions pass.
 - Verify trigger behavior:
   - `AsyncTriggerTimeout` is set as expected.
   - Backend latency is actually above this threshold for the request path being tested.
@@ -58,7 +60,7 @@ echo $AsyncModeEnabled
 echo $AsyncClientRequestHeader
 echo $AsyncTriggerTimeout
 
-# 3) Apply one targeted fix (example: lower trigger timeout to force async on slow path)
+# 3) Apply one targeted fix (example: lower trigger timeout for eligible slow requests)
 export AsyncTriggerTimeout=1000
 
 # If using App Config instead of env vars:
@@ -67,7 +69,7 @@ export AsyncTriggerTimeout=1000
 
 # 4) Verify
 curl -i https://<proxy-host>/<path> -H "S7PAsyncMode: true"
-# Expect: HTTP/1.1 202 Accepted (for requests exceeding new trigger timeout)
+# Expect: HTTP/1.1 202 Accepted when the request exceeds the new trigger and queue conditions allow upgrade
 ```
 
 ---
@@ -78,6 +80,7 @@ curl -i https://<proxy-host>/<path> -H "S7PAsyncMode: true"
 - Client sends `AsyncMode: true` while server expects `S7PAsyncMode` (header mismatch).
 - Profile async config exists but `enabled=false`.
 - Test backend is too fast; request naturally completes before trigger timeout.
+- Blob queue pressure prevents an otherwise eligible request from upgrading.
 
 ---
 

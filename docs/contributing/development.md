@@ -2,7 +2,7 @@
 
 For fine-tuning proxy behavior during local development, optimizing throughput, and testing advanced features.
 
-> **See also:** [Run SimpleL7Proxy Locally](../getting-started/local.md) for basic local setup. This guide covers performance tuning and feature-specific configuration.
+> **See also:** [Run SimpleL7Proxy Locally](../getting-started-developer/README.md) for basic local setup. This guide covers performance tuning and feature-specific configuration.
 
 ---
 
@@ -134,7 +134,7 @@ Stream request/response events to Azure Event Hub for centralized logging and an
 | `EVENTHUB_CONNECTIONSTRING` | `""` | Event Hub connection string |
 | `EVENTHUB_NAME` | `""` | Event Hub name |
 | `EVENTHUB_NAMESPACE` | `""` | Event Hub namespace |
-| `EVENT_LOGGERS` | `file` | Comma-separated list of event sinks (file, eventhub) |
+| `EVENT_LOGGERS` | `none` | Comma-separated list of event sinks (file, eventhub, none) |
 
 ### Setup
 
@@ -146,7 +146,7 @@ dotnet run
 ```
 
 > [!NOTE]
-> Event Hub is optional. The default is to write events to a local file only (`EVENT_LOGGERS=file`).
+> Event sinks are disabled by default. Set `EVENT_LOGGERS=file` for a local event file, or `EVENT_LOGGERS=file,eventhub` to enable both sinks.
 
 ---
 

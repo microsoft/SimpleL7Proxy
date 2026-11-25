@@ -21,99 +21,39 @@ The proxy identifies the caller, looks up the caller's profile, and enriches the
 
 The caller's identity can come from the `applicationId` embedded in the OAuth token or from a custom combination of headers. For this POC, we bypass the profile lookup and include `X-UserID` directly in each request.
 
+> [!NOTE]
+> A caller can supply any `X-UserID` value. Use a trusted identity mechanism for production chargeback.
+
 ---
 
 ## Minimal Prerequisites
 
-- A running a proxy
-- An endpoint with `gpt-4o` deployed to it.
-- An Application Insights resource 
-- A client to make calls: ( curl or other ) 
+- A proxy and CompanionApp deployed using the [prebuilt package](../../deployment/README.md).
+- An LLM endpoint with a deployed model, such as `gpt-4o`, and credentials to access it.
+- A client such as `curl` and access to the deployment's Application Insights resource.
 
-**Optional ( when smart governance capabiities are required  ):**
-- An APIM configured with the reference policies.
-
----
-
-## Step 1. Validate connectivity
-
-You already have a running proxy. Now, we want to make sure that everything is working before we begin the POC. We'll start with a simple health check. Replace the hostname with your proxy URL. In this example, the proxy is running on port 8000 on the local machine.
-
-If your proxy is deployed in an internal VNet, make sure to run this check from a machine in the same VNet.
-
-```bash
-# proxy running on localhost port 8000
-export PROXYHOST="http://localhost:8000"
-
-# Call the proxy to test it:
-curl -i $PROXYHOST/health
-
-# → 200 OK
-```
-
-**Optional connectivity checks:**
-
-If you are using an APIM, check that it is responding to its health probe as well:
-
-Replace `<apim-name>` with the name of your APIM instance.
-
-**APIM:**
-```bash
-# Health probe - APIM's built-in health probe
-curl -i https://<apim-name>.azure-api.net/status-0123456789abcdef
-
-# → 200 OK
-```
----
-
-## Step 2. Configure a backend in the proxy
-
-The proxy can load balance across multiple backends, but we only need a single backend for this POC. The simplest way to specify a backend is to set `Host1` to a comma-separated list of `key=value` fields.
-
-- `host`: The LLM endpoint URL.
-- `mode`: How the proxy connects to the endpoint. Use `direct` for this setup or `apim` for the optional APIM setup.
-- `usemi=true, audience=<audience>` **[if using managed identity]**
-- `api-key=<api-key>;api-key-header=api-key` **[if using API-key authentication]**
-- `Processor=MultiLineAllUsage`: The token processing algorithm. See [Reference](#reference) **[direct mode]**
-- Other optional fields are explained in [backend host settings](../reference/backend-hosts.md).
-
-### Direct Host 
-
-If the proxy will connect to the LLM endpoint directly, it is called a direct host.  Combine the above values to construct the setting.  
-
-```bash
-export Host1="host=https://<endpoint>.openai.azure.com;mode=direct;api-key=<api-key>,api-key-header=<headername>"
-```
-
-### APIM Mode
-
-If the proxy connects to an APIM instance, it uses APIM mode. Set `mode=apim` and add `probe=/status-0123456789abcdef`. Construct the remaining parameters based on the authentication mode.
-
-```bash
-export Host1="host=https://<apim-name>.azure-api.net;mode=apim;probe=/status-0123456789abcdef;api-key-header=<headername>;api-key=<apim-key>"
-```
-
-APIM can route to multiple models, so it needs to return the appropriate processor for the selected model. The included APIM policy already does this.  
-
-If you choose not to use the included policy, set the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block to `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`:
-
-```xml
-<outbound>
-    <set-header name="TOKENPROCESSOR" exists-action="override">
-        <value><!-- OpenAI | AllUsage-2 | MultiLineAllUsage --></value>
-    </set-header>
-    ...
-</outbound>
-```
-
+> [!WARNING]
+> The prebuilt deployment starts unlocked and publicly accessible. Follow the [deployment guide's security instructions](../../deployment/README.md#secure-the-proxy); do not leave the proxy or CompanionApp unsecured.
 
 ---
 
-## Step 3. Configure Application Insights
+## Step 1. Configure a backend
 
-Set `APPINSIGHTS_CONNECTIONSTRING` to your Application Insights connection string. Data sent to App Insights is typically queryable within 3-5 minutes.
+Follow [Adding a Host](../getting-started/companionapp-add-host.md) to add your LLM endpoint and its authentication settings in CompanionApp. Select `Tokenomics` as the token metrics processor and save the configuration.
 
-If you modified `LogToAI`, change it back to `'*'`.
+## Step 2. Assign a model and API
+
+Follow [Assigning Models and APIs](../getting-started/companionapp-model-routing.md) to assign your model and API to the host, then save the configuration.
+
+## Step 3. Verify connectivity
+
+Use the proxy URL printed by the deployment and follow [Verify SimpleL7Proxy](../getting-started/verify.md) to confirm readiness. Set the complete URL, including `https://`, for the requests below:
+
+```bash
+export PROXYHOST="<proxy-url>"
+```
+
+The prebuilt deployment creates Application Insights and configures its connection string. Telemetry may take time to appear.
 
 ---
 
@@ -124,20 +64,10 @@ Depending on your scenario, the URL and body will differ. Define `URL` and `BODY
 ```bash
 # OpenAI - gpt-4o
 export URL="openai/v1/chat/completions"
-export BODY='{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"stream":true}'
+export BODY='{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"stream":false}'
 ```
 
-**Optional backend options:**
-<details><summary>If you choose to use the LLM Simulator or APIM:</summary>
-
-```bash
-# Optional alternative - OpenAI - gpt-5.4-mini
-export URL="openai/v1/chat/completions"
-export BODY='{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"hello"}],"stream":true}'
-```
-</details>
-
-Now that `$PROXYHOST`, `URL`, and `BODY` are defined, run the following command to get a response.
+Now that `$PROXYHOST`, `URL`, and `BODY` are defined, run the following command to get a response. Add the credentials required by your proxy's access controls.
 
 ```bash
 # Make the call
@@ -154,7 +84,7 @@ The proxy writes a `requests` entry to Application Insights for every completed 
 The queries below use OpenAI field names. For Anthropic or Gemini, substitute the field names from the [provider table](#reference).
 
 
-Open the Log Analytics workspace linked to your Application Insights resource, then run:
+Open **Logs** in the deployment's Application Insights resource, then run:
 
 ```kusto
 requests
@@ -177,15 +107,15 @@ requests
 | order by TotalTokens desc
 ```
 
-You should see a response similar to the screenshot. If the query shows a `UserId` and counts for the usage fields, the full pipeline is working.
-![alt text](../assets/concepts/report.png)
+The results show request and token totals by user and priority. If the query shows a `UserId` and counts for the usage fields, the full pipeline is working.
+![Query results with request, total, prompt, and completion token counts by user and priority](../assets/concepts/report.png)
 
 
 Depending on the model, there may be additional usage fields worth reporting.
 
 For example, for `gpt-5.4-mini`, these are available in custom dimensions:
 
-![alt text](../assets/concepts/custom-dimension-usage.png)
+![Request custom dimensions containing token usage and latency checkpoint fields](../assets/concepts/custom-dimension-usage.png)
 
 ---
 
@@ -195,12 +125,12 @@ For a chargeback test across multiple users, send the batch below before running
 
 ```bash
 for i in {1..3}; do
-  curl -s -o /dev/null \
+  curl -i \
     -H "X-UserID: bob" \
-    -H "Content-Type: application/json" -d "$BODY" "$PROXYHOST/$URL" &
+    -H "Content-Type: application/json" -d "$BODY" "$PROXYHOST/$URL"
 done
 ```
-After a few minutes, rerun the query above. Expected result (1 request for `alice` from Step 4 and 3 for `bob` from the batch above):
+After a few minutes, rerun the query above. The example below shows 1 request for `alice` from Step 4 and 3 for `bob` from the batch above. Token counts and priorities depend on the responses and configuration.
 
 | UserId | Priority | Requests | TotalTokens | PromptTokens | CompTokens |
 |--------|----------|----------|-------------|--------------|------------|
@@ -225,12 +155,12 @@ requests
 
 ## Send data to additional sinks
 
-Set `EVENT_LOGGERS` to one or more of `appinsights`, `eventhub`, or `file` (comma-separated). See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all options.
+Set `EVENT_LOGGERS` to one or more of `eventhub`, `file`, or a supported custom logger (comma-separated). Application Insights is configured separately with `APPINSIGHTS_CONNECTIONSTRING`. See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all options.
 
 <details>
 <summary>Event Hubs</summary>
 
-Set `EVENT_LOGGERS=eventhub` and `EVENTHUB_CONNECTIONSTRING` to enable the Event Hubs sink. The proxy emits the same JSON envelope it writes to the file log, so every token field is present in the event body.
+Set `EVENT_LOGGERS=eventhub` and `EVENTHUB_CONNECTIONSTRING` to enable the Event Hubs sink. The proxy emits the same JSON envelope it writes to the file log; usage fields are present when extracted from the response.
 
 **Capture to a storage account:** Enable the Event Hubs Capture feature on the hub to land events as Avro files in Azure Blob Storage automatically. This gives you a durable, queryable archive without building a consumer.
 
@@ -255,7 +185,7 @@ Other tools that work directly with Event Hubs or Blob-captured data include Fab
 <details>
 <summary>Local File</summary>
 
-If `EVENT_LOGGERS=file` (the default), token data appears in `eventslog.json` immediately, with no ingestion delay. This is useful for a quick sanity check before querying Application Insights.
+Set `EVENT_LOGGERS=file` to write token data to `eventslog.json` for a quick local check before querying Application Insights.
 
 If the proxy is deployed to Azure Container Apps, the file is written inside the container. Use the ACA console to inspect it: in the Azure portal, open the container app → **Containers** → **Console**, then run the `jq` command below. For a more durable setup, ACA supports mounting an Azure Files share as a volume — configure a storage mount in the container app and set the proxy's working directory to that path so `eventslog.json` persists across container restarts.
 
@@ -277,7 +207,7 @@ Expected output per OpenAI request:
 <details>
 <summary>None</summary>
 
-If `EVENT_LOGGERS` is not set or is set to an empty value, telemetry is turned off and nothing is captured. Requests are still proxied normally, but no token data, request events, or usage metrics are written anywhere. Set at least one logger before running this POC.
+Set `EVENT_LOGGERS=none` to disable ProxyEvent sinks. Requests are still proxied normally; Application Insights remains a separate telemetry channel.
 
 </details>
 
@@ -306,7 +236,7 @@ Use `acceptablePriorities` to route priority-1 to a "premium" backend and priori
 <details>
 <summary>Increase concurrency</summary>
 
-Raise `Workers` and send a larger burst. Watch `eventslog.json` — every line should have a `Usage.Total_Tokens` entry. Missing entries indicate the stream was closed before the final usage chunk arrived, which is common if a real backend is configured without `processor=OpenAI`.
+Raise `Workers` and send a larger burst. Watch `eventslog.json` — requests with usage data should have a `Usage.Total_Tokens` entry. Missing usage may mean the response did not include it or the configured processor did not recognize its schema.
 
 </details>
 
@@ -319,13 +249,13 @@ Raise `Workers` and send a larger burst. Watch `eventslog.json` — every line s
 
 | Setting | Value in this POC | Unit | Set in | Takes effect |
 | :--- | :--- | :--- | :--- | :--- |
-| `processor=` | `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage` | — | `Host1` env var | proxy restart |
+| `processor=` | `Tokenomics` | — | Host settings in CompanionApp | configuration refresh |
 | `X-UserID` header | caller-supplied string | — | request header | per request |
 | `APPINSIGHTS_CONNECTIONSTRING` | App Insights connection string | — | env var | proxy restart |
-| `EVENT_LOGGERS` | `appinsights`, `eventhub`, `file` (comma-separated) | — | env var | proxy restart |
+| `EVENT_LOGGERS` | `eventhub`, `file`, `none`, or supported custom logger (comma-separated) | — | env var | proxy restart |
 
 > [!NOTE]
-> For APIM topology, `processor=` is set via the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block — not in the `Host1` string.
+> For APIM topology, the `TOKENPROCESSOR` response header can select the processor per response.
 
 </details>
 
@@ -361,9 +291,10 @@ The `processor=` value on the backend host determines which usage fields are ext
 
 | Provider | `processor=` value | Usage fields logged |
 |----------|--------------------|---------------------|
-| Azure OpenAI / OpenAI | `OpenAI` | `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, `Usage.Total_Tokens` |
-| Anthropic | `AllUsage-2` | `Usage.Input_Tokens`, `Usage.Output_Tokens` |
-| Google Gemini | `MultiLineAllUsage` | `Usage.PromptTokenCount`, `Usage.CandidatesTokenCount`, `Usage.TotalTokenCount` |
+| Supported JSON/SSE providers | `Tokenomics` | Normalized usage fields, cached-input tokens, and available safety signals |
+| Azure OpenAI / OpenAI (legacy processor) | `OpenAI` | `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, `Usage.Total_Tokens` |
+| Anthropic (legacy processor) | `AllUsage-2` | `Usage.Input_Tokens`, `Usage.Output_Tokens` |
+| Google Gemini (legacy processor) | `MultiLineAllUsage` | `Usage.PromptTokenCount`, `Usage.CandidatesTokenCount`, `Usage.TotalTokenCount` |
 
 Every request also includes: `S7P_RequestId` (correlation ID), `S7P_Priority` (queue assigned), `BackendHost` (URL that served the request).
 
@@ -371,8 +302,8 @@ Every request also includes: `S7P_RequestId` (correlation ID), `S7P_Priority` (q
 
 ## Related Documentation
 
-- [Run SimpleL7Proxy Locally](../getting-started/local.md) — Running the proxy locally for the first time
-- [CONTAINER_DEPLOYMENT.md](../how-to/deploy-container-apps.md) — Deploying to Azure Container Apps
+- [Run SimpleL7Proxy Locally](../getting-started-developer/README.md) — Running the proxy locally for the first time
+- [Container Deployment](../getting-started/container-apps.md) — Deploying to Azure Container Apps
 - [CONFIGURATION_SETTINGS.md](../reference/configuration.md) — Full reference for all environment variables
 - [POC-Priority-configuration.md](priority-routing.md) — Routing requests across backends by priority tier
 - [POC-Failover-configuration.md](failover.md) — Automatic failover and retry behaviour when a backend is slow or unavailable

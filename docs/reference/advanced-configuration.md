@@ -9,15 +9,15 @@
 
 ## Summary
 
-This document specifies the configuration for priority mapping, header validation, and per-user throttling. These three capabilities are inactive by default and MUST be explicitly configured. All settings in this document are **Warm** — changes propagate within ~30 s via Azure App Configuration without a restart.
+This document covers priority mapping, header validation, and per-user queue priority. Priority mapping uses configured defaults; header validation is inactive when no rules are set. Worker assignments and the active per-user threshold are captured at startup and require a restart to change.
 
 > **TL;DR**
-> - **Priority mapping:** set `PriorityKeyHeader`, `PriorityKeys`, `PriorityValues`, and `PriorityWorkers` as a matching set to route requests to dedicated worker threads.
-> - **Header validation:** set `ValidateHeaders` as `SourceHeader:AllowlistHeader` pairs to enforce per-user allowlists injected from profiles.
-> - **User throttling:** set `UserPriorityThreshold` (0.0–1.0) to deprioritize users who exceed that fraction of the total queue.
+> - **Priority mapping:** map `PriorityKeyHeader` values through `PriorityKeys` and `PriorityValues`; `PriorityWorkers` sets worker preferences at startup.
+> - **Header validation:** use JSON `ValidateHeaders` rules for inline or profile-backed allowlists; the legacy `SourceHeader=AllowlistHeader` form remains supported.
+> - **Per-user queue priority:** `UserPriorityThreshold` controls a secondary queue preference based on each user's tracked share of active requests.
 
 > [!NOTE]
-> All three features in this document are **Warm** settings. See [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) for how to apply changes without a restart. For the full settings reference, see [CONFIGURATION_SETTINGS.md](configuration.md).
+> `PriorityWorkers` assignments and the active `UserPriorityThreshold` are not updated by a Warm refresh; restart the proxy for those changes to take effect. Other Warm settings take effect through the configured App Configuration refresh. See [App Configuration](../how-to/configure-app-configuration.md) and [Configuration](configuration.md).
 
 ---
 
@@ -38,13 +38,13 @@ This document specifies the configuration for priority mapping, header validatio
 
 ## Priority mapping
 
-The proxy maps a request header value to an internal priority level, then assigns dedicated worker threads to each level.
+The proxy maps a request header value to an internal priority level, then assigns preferred priorities to workers at startup.
 
 ### How it works
 
 1.  **Incoming Trigger**: The proxy looks for the header named by `PriorityKeyHeader` (default: `S7PPriorityKey`) in the request.
 2.  **Mapping**: The value of that header is matched against `PriorityKeys` and mapped to a corresponding value in `PriorityValues`.
-3.  **Resource Allocation**: The internal priority level is matched against `PriorityWorkers` to determine how many dedicated threads handle that priority.
+3.  **Worker preference**: `PriorityWorkers` assigns preferred priorities when workers start. A worker can process other priorities when its preferred priority is unavailable.
 
 ### Configuration Variables
 
@@ -52,12 +52,12 @@ The proxy maps a request header value to an internal priority level, then assign
 |----------|-------------|
 | `PriorityKeyHeader` | The HTTP header name to inspect (e.g., `S7PPriorityKey` or `X-Priority-ID`). |
 | `PriorityKeys` | A comma-separated list of expected values in the header. |
-| `PriorityValues` | A comma-separated list of internal priority integers (lower number = higher priority typically, but depends on implementation. Default is usually lower = higher). |
-| `PriorityWorkers` | A mapping string defining worker threads per priority level. |
+| `PriorityValues` | A comma-separated list of internal priority integers. Lower primary priorities are dispatched first. |
+| `PriorityWorkers` | `PriorityLevel:WorkerCount` pairs that set worker preferences at startup. |
 
 ### Example
 
-> **Rule: The count of entries in `PriorityKeys` MUST equal the count in `PriorityValues`. `PriorityWorkers` MUST reference only priority levels that appear in `PriorityValues`. A mismatch causes the proxy to reject the configuration at startup.**
+> **Keep `PriorityKeys` and `PriorityValues` the same length for the intended mapping. If their counts differ, the parser replaces `PriorityValues` with the default priority repeated for each key.**
 
 1.  **Define the Header**:
     ```bash
@@ -76,9 +76,9 @@ The proxy maps a request header value to an internal priority level, then assign
     ```
 
 3.  **Allocate Workers**:
-    *   Priority 1 (Plat) gets 5 reserved workers.
-    *   Priority 2 (Gold) gets 3 reserved workers.
-    *   Priority 3 (Standard) gets remaining/shared.
+    *   5 workers prefer Priority 1 (Plat).
+    *   3 workers prefer Priority 2 (Gold).
+    *   These are startup preferences, not reservations; workers can process other priorities when their preference is unavailable.
 
     Format: `PriorityLevel:WorkerCount` tuples separated by commas.
 
@@ -102,31 +102,25 @@ DefaultPriority=3
 
 ## Header validation
 
-You can enforce that a header's value appears in an allowlist stored in another header. This is often combined with **User Profiles**, where the allowlist header is injected from the profile.
+You can validate a source header against inline values, a profile-backed allowlist header, or both. Matching either source is sufficient.
 
 ### Format
 
-A comma-separated list of `SourceHeader:AllowedValuesHeader` pairs.
+Use JSON `HeaderValidationRule` entries. Each rule has a `headerName`, a `matchType` (`exact` or `prefixWildcard`), `allowedValues`, and an optional `allowedValuesHeader`.
 
-*   **SourceHeader**: The header whose value is being validated (the "lookup").
-*   **AllowedValuesHeader**: The header containing a comma-separated list of allowed values.
+The legacy `SourceHeader=AllowlistHeader` mapping remains supported and creates a mapped prefix-wildcard rule. The proxy compares header values case-insensitively; a trailing `*` in an allowed value matches a prefix.
 
-The proxy checks that the value of `SourceHeader` matches at least one entry in `AllowedValuesHeader`. Both headers must be present on the request (they are automatically added to `RequiredHeaders` at startup).
-
-### Matching Rules
-
-*   **Exact match** (case-insensitive): The lookup value must equal one of the allowed values.
-*   **Wildcard prefix match**: If an allowed value ends with `*`, the lookup value only needs to *start with* the prefix. For example, `/echo*` matches `/echo`, `/echo/resource`, `/echo/resource?param1=sample1`, etc.
+The source header is automatically added to `RequiredHeaders`. When a rule uses a mapped allowlist header, that header is also added to `RequiredHeaders` and `DisallowedHeaders`.
 
 ### Example: Path-Based Access Control
 
-> **Rule: Both `SourceHeader` and `AllowlistHeader` MUST be present on every request. Setting `ValidateHeaders` automatically adds both to `RequiredHeaders` and adds `AllowlistHeader` to `DisallowedHeaders` — this side effect is mandatory and cannot be disabled.**
+> **Rule: A mapped allowlist header is required and stripped before forwarding. Inline-only rules do not add a disallowed header.**
 
 The proxy automatically copies the request path into the `S7Path` header before validation. Combined with an `AllowedPaths` header from the user profile, you can restrict which URL paths a user is permitted to call.
 
 **Environment variable:**
 ```bash
-ValidateHeaders="S7Path:AllowedPaths"
+ValidateHeaders='[{"headerName":"S7Path","matchType":"prefixWildcard","allowedValues":["/api/*"],"allowedValuesHeader":"AllowedPaths"}]'
 ```
 
 **User profile** (e.g., in Cosmos DB):
@@ -155,21 +149,21 @@ If validation fails, the request is rejected with HTTP **417 Expectation Failed*
 
 ## User throttling
 
-These settings limit how much of the queue a single user can occupy.
+This setting influences secondary queue ordering using each user's tracked share of active requests; it does not cap or reject requests.
 
 ### `UserPriorityThreshold`
 
-> **Rule: `UserPriorityThreshold` is a fraction (0.0–1.0), not a percentage. A value of `0.1` means 10% of the total active request count. Setting it to `0` disables per-user throttling entirely. Setting it to `1.0` means a user MUST own the entire active request pool before deprioritization activates.**
+> **Rule: `UserPriorityThreshold` is a fraction (0.0–1.0) of tracked active requests. It affects secondary queue priority, not the primary mapped priority, and does not reject requests. The active threshold requires a restart to change.**
 
 *   **Type**: Float (0.0 to 1.0).
 *   **Default**: `0.1` (10% of total active requests)
 
 **How it works**:
-The proxy tracks the number of active requests per user. If a user's active requests exceed this fraction of the total active request count, their subsequent requests are downgraded to a lower priority until their share drops back below the threshold.
+The proxy tracks each user's share of active requests. Users below the threshold receive a secondary queue-priority preference; crossing the threshold removes that preference. The request's primary priority tier remains unchanged.
 
 **Example**:
 With `UserPriorityThreshold=0.2` (20%):
-If there are 100 active requests in the system and User A has 21, User A's new requests are deprioritized until their count drops below 20.
+If there are 100 active requests in the system and User A has 21, User A's new requests do not receive the below-threshold secondary preference. When their tracked share falls below 20%, new requests receive that preference again.
 
 > [!TIP]
 > **Troubleshooting:** If a specific user's requests are consistently slow, confirm they are not triggering the threshold. Set `LogAllRequestHeaders=true` and inspect proxy logs for the assigned priority.
@@ -182,8 +176,8 @@ If there are 100 active requests in the system and User A has 21, User A's new r
 |-------|--------|-----------------|
 | Priority mapping active | Send request with `PriorityKeyHeader` value matching an entry in `PriorityKeys` | Request served at mapped priority; priority visible in proxy logs |
 | Header validation active | Send request with `SourceHeader` value absent from `AllowlistHeader` | `417 Expectation Failed` with `X-S7P-Error: Validation check failed for header: {SourceHeader}` |
-| User throttling active | Send more than `UserPriorityThreshold` × total active requests from one user | Subsequent requests from that user receive `DefaultPriority` instead of the mapped priority |
-| `PriorityKeys`/`PriorityValues` aligned | Proxy startup log | No configuration error; proxy starts successfully |
+| User queue preference | Compare a user's tracked active-request share with `UserPriorityThreshold` | The below-threshold secondary preference applies only while the share is below the threshold; primary priority remains unchanged |
+| Priority key/value counts differ | Load configuration | `PriorityValues` is filled with the default priority, repeated once per `PriorityKey` |
 
 ---
 

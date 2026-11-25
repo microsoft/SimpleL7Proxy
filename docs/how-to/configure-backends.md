@@ -112,14 +112,16 @@ The proxy uses its [Managed Identity](../reference/glossary.md#authentication-an
 
 ### Which load balance mode to use?
 
-#### What are the three load balancing modes (roundrobin / latency / random) and when do I use each?
+#### What load balancing modes are available and when do I use each?
 
-SimpleL7Proxy supports three load balancing modes. `roundrobin` cycles through backends evenly. `latency` reorders backends by observed response time (measured by the health poller) and always routes to the fastest one first. `random` assigns backends in a different order each request. For AI workloads with uneven backend throughput, `latency` or `roundrobin` is recommended. See [→ Load Balance Mode](../reference/glossary.md#backend-management).
+For matched legacy hosts, SimpleL7Proxy supports five ordering modes. `roundrobin` advances through candidates, `latency` orders by observed average latency and probe failure penalty, `timetofirstbyte` orders by response-header latency, `prioritygroup` tries lower groups first and randomizes hosts within each group, and `random` shuffles candidate order. Named routes preserve their configured host order. See [→ Load Balance Mode](../reference/glossary.md#backend-management).
 
 | Mode | Best for |
 |------|----------|
 | `latency` | Heterogeneous backends with different response times |
 | `roundrobin` | Evenly provisioned backends where you want predictable distribution |
+| `timetofirstbyte` | Streaming or model endpoints where time to first response header matters |
+| `prioritygroup` | Ordered failover tiers with randomized peers inside each tier |
 | `random` | Spreading load without tracking state |
 
 #### How does the proxy retry across backends when one fails?
@@ -136,7 +138,7 @@ MaxAttempts=10
 # Set to 0 for no attempt-count limit
 ```
 
-By default, `IterationMode=SinglePass` tries each backend at most once, so `MaxAttempts` has no effect. MultiPass can cycle through the backend list repeatedly. When a positive cap is reached, the proxy enters its normal exhausted-host handling, which can requeue the request or return a terminal error.
+By default, `IterationMode=MultiPass` can cycle through the backend list repeatedly, up to `MaxAttempts`. `SinglePass` tries each backend at most once. When the MultiPass cap is reached, the proxy uses exhausted-host handling without scheduling another requeue cycle.
 
 > [!WARNING]
 > With `MaxAttempts=0`, retries continue until success, TTL expiry, cancellation, or another terminal condition.
@@ -194,7 +196,7 @@ SimpleL7Proxy rejects incoming requests with a proxy-generated `429 Too Many Req
 
 #### How does the priority queue work — who gets served first?
 
-Lower priority numbers go first — priority 1 is served before priority 2. (This follows the same convention as OS process scheduling: 1 is the highest priority, not the lowest — think of it as a rank, not a quantity.) Without worker reservations, a flood of high-priority requests could monopolize all workers and starve lower-priority ones. [Priority Workers](../reference/glossary.md#request-governance) prevent this by dedicating a fixed number of worker slots to each priority tier.
+Lower priority numbers go first — priority 1 is served before priority 2. (This follows the same convention as OS process scheduling: 1 is the highest priority, not the lowest — think of it as a rank, not a quantity.) `PriorityWorkers` assigns preferred priorities at startup; workers can process other priorities when their preference is unavailable. These preferences are not reserved worker pools.
 
 ---
 
@@ -236,9 +238,9 @@ PriorityValues=1,2
 ```
 A request with `S7PPriorityKey: gold` gets priority 1; `silver` gets priority 2. See [→ Priority Mapping](../reference/glossary.md#request-governance).
 
-#### How do I configure per-user request limits?
+#### How does per-user queue priority work?
 
-SimpleL7Proxy caps how much of the worker pool a single user can occupy using `UserPriorityThreshold` (default `0.1` — 10% of workers). With `Workers=10`, one user's requests can hold at most 1 worker at a time. Enable user profiles by setting `UserProfilesUrl` or `UserProfilesPath` to a JSON file defining per-user settings.
+Configure `UniqueUserHeaders` to identify callers. `UserPriorityThreshold` (default `0.1`) sets a secondary queue preference from each user's tracked share of active requests; it does not cap worker use or change the request's primary priority tier. The active threshold is captured at startup, so restart the proxy after changing it.
 
 ---
 

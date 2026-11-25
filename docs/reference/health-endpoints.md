@@ -35,16 +35,16 @@ In this mode, health probes are served by the main HTTP listener. This is suffic
 For high-throughput production environments, you can enable the **Health Probe Sidecar**. This isolates health checks into a separate lightweight process (listening on port `9000`) to prevent false restarts during heavy load.
 
 **How it works**:
-1.  **Main Proxy** calculates health and **pushes** status to the sidecar every second (`http://localhost:9000/internal/update-status`).
+1.  **Main Proxy** calculates health and **pushes** startup and readiness status to the sidecar every 5 seconds (`http://localhost:9000/internal/update-status`).
 2.  **Sidecar** serves the probes from memory instantly.
-3.  **Safety**: If the sidecar stops receiving updates for >10 seconds, it assumes the main proxy is deadlocked/crashed and fails the probes.
+3.  **Staleness**: The .NET sidecar returns 503 for GET liveness, readiness, and startup probes when a previously received update is more than 20 seconds old; its HEAD handlers do not check staleness. The Python sidecar returns 503 for readiness and startup after 10 seconds; its liveness is independent, and its GET and HEAD handlers both check staleness.
 
 **Enable Sidecar Mode**:
 Set the environment variable:
 `HealthProbeSidecar=Enabled=true;url=http://localhost:9000`
 
 **Kubernetes Config (Sidecar Mode)**:
-Point your probes to port `9000` instead of the main port and configure Liveness, Readiness, and Startup probes.  In this example configuration, the proxy will send updates every second.  The sidecar will fail if it has not heard from the proxy for 10 seconds.
+Point your probes to port `9000` instead of the main port and configure Liveness, Readiness, and Startup probes. Update intervals and stale-update behavior differ by sidecar implementation; use the thresholds above when selecting probe timing.
 
 ```yaml
 livenessProbe:

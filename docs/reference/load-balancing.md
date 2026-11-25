@@ -1,12 +1,12 @@
 # Load Balancing & Backend Selection
 
-The proxy selects backends through a five-stage pipeline on every request: match path → filter priority → select priority group → order peers → gate by circuit breaker.
+The proxy resolves a named route or legacy path match, filters candidates by `acceptablePriorities`, and gates attempts by circuit-breaker state. Named routes preserve configured host order; legacy hosts are ordered by priority group and `LoadBalanceMode`.
 
 > **TL;DR**
 > - **The longest named path wins** — a priority miss does not fall through to a broader route.
-> - **`priorityGroup` controls failover order** — `LoadBalanceMode` orders hosts only within the current group.
-> - **`LoadBalanceMode`** controls peer order (`roundrobin`, `latency`, `timetofirstbyte`, or `random`); **`IterationMode`** controls attempt breadth.
-> - **A `429` with `S7PREQUEUE`** makes the request eligible for requeue after attempts are exhausted; acceptable status codes return directly; TTL expiry stops iteration with `412`.
+> - **For legacy hosts, `priorityGroup` controls failover order** — `LoadBalanceMode=prioritygroup` orders groups and randomizes hosts within each; other modes order peers within the current group.
+> - **`LoadBalanceMode`** controls candidate ordering (`roundrobin`, `latency`, `timetofirstbyte`, `prioritygroup`, or `random`); **`IterationMode`** controls attempt breadth.
+> - **A `429` with `S7PREQUEUE`** makes the request eligible for requeue after attempts are exhausted, unless the MultiPass attempt cap has been reached; acceptable status codes return directly; TTL expiry stops iteration with `412`.
 
 ---
 
@@ -14,9 +14,9 @@ The proxy selects backends through a five-stage pipeline on every request: match
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LoadBalanceMode` | `latency` | Peer ordering within a priority group: `roundrobin`, `latency`, `timetofirstbyte`, or `random` |
-| `IterationMode` | `SinglePass` | Retry strategy: `SinglePass` or `MultiPass` |
-| `MaxAttempts` | `10` | Maximum total attempts in MultiPass mode; set to `0` to disable the attempt-count limit |
+| `LoadBalanceMode` | `latency` | Legacy-host ordering: `roundrobin`, `latency`, `timetofirstbyte`, `prioritygroup`, or `random` |
+| `IterationMode` | `MultiPass` | Retry strategy: `SinglePass` or `MultiPass` |
+| `MaxAttempts` | `10` | Maximum total attempts in MultiPass mode, including prior requeue cycles; set to `0` to disable the attempt-count limit |
 | `UseSharedIterators` | `true` | Share iterator state across concurrent requests to the same path |
 | `SharedIteratorTTLSeconds` | `60` | Seconds before an unused shared iterator is discarded |
 | `SharedIteratorCleanupIntervalSeconds` | `30` | How often expired shared iterators are cleaned up |
@@ -31,18 +31,19 @@ Request arrives
       ▼
 ┌─────────────────────────────────────────────────────┐
 │ 1. ROUTE + PRIORITY FILTER                          │
-│    Longest path → acceptablePriorities              │
+│    Named route or legacy path → acceptablePriorities│
 └─────────────────────────────────────────────────────┘
       │
       ▼
 ┌─────────────────────────────────────────────────────┐
-│ 2. PRIORITY GROUP                                   │
-│    Lowest eligible group first; exhaust before next │
+│ 2. CANDIDATE ORDER                                  │
+│    Named route: preserve configured host order     │
+│    Legacy hosts: lowest eligible priorityGroup first│
 └─────────────────────────────────────────────────────┘
       │
       ▼
 ┌─────────────────────────────────────────────────────┐
-│ 3. ITERATOR  (LoadBalanceMode within current group) │
+│ 3. ITERATOR (LoadBalanceMode for legacy hosts)      │
 │    roundrobin → global counter order                │
 │    latency    → sorted lowest avg latency first     │
 │    timetofirstbyte → lowest observed TTFB first     │
@@ -61,7 +62,7 @@ Request arrives
 └─────────────────────────────────────────────────────┘
       │
       ▼  (all hosts exhausted)
-  Any 429+S7PREQUEUE? → requeue with shortest eligible delay
+  Any 429+S7PREQUEUE and attempt cap not reached? → requeue with shortest eligible delay
   Else               → 502 or 503 based on failure type
 ```
 
@@ -104,7 +105,7 @@ MaxAttempts=7        # set to 0 for no attempt-count limit
 ```
 
 > [!NOTE]
-> **Default:** `IterationMode=SinglePass` and `MaxAttempts=10`. `MaxAttempts` is ignored in SinglePass mode; set it to `0` to disable the attempt-count limit in MultiPass mode.
+> **Default:** `IterationMode=MultiPass` and `MaxAttempts=10`. `MaxAttempts` is ignored in SinglePass mode; set it to `0` to disable the attempt-count limit in MultiPass mode.
 
 Send `S7P-Iterator: SinglePass` or `S7P-Iterator: MultiPass` to override `IterationMode` for one request. Values are case-insensitive; a missing or invalid header uses the current configured default.
 
@@ -133,7 +134,7 @@ Priority-aware hosts and named routes use request-local traversal so each reques
 |----------|--------|
 | Any `AcceptableStatusCodes` value | Return to client without retry or circuit recording |
 | Any non-acceptable status | Try next host |
-| `429` + `S7PREQUEUE: true` | Collect; try next host. After attempts are exhausted, requeue if any eligible response was collected, using the shortest delay. |
+| `429` + `S7PREQUEUE: true` | Collect; try next host. After attempts are exhausted, requeue with the shortest eligible delay unless the MultiPass attempt cap has been reached. |
 | `412` Precondition Failed | TTL expired — stop, no further retries |
 | Attempts exhausted without requeue | `502` for mixed backend statuses or an unclassified transport error; `503` when no host was attempted or name-resolution/connection failures exhaust hosts |
 
@@ -147,14 +148,14 @@ Priority-aware hosts and named routes use request-local traversal so each reques
 
 > **Setup:** 3 hosts (`A avg 200 ms`, `B avg 80 ms`, `C avg 150 ms`), `LoadBalanceMode=latency`, `IterationMode=MultiPass`, `MaxAttempts=5`.
 
-| Attempt | Host tried (latency order) | Response | Action |
+| Candidate check | Host considered (latency order) | Response | Action |
 |---------|---------------------------|----------|---------|
 | 1 | B (80 ms — fastest) | 503 | try next |
 | 2 | C (150 ms) | circuit OPEN | skip (no attempt counted) |
 | 3 | A (200 ms) | 503 | try next |
 | 4 | B (second pass) | 200 | **return to client** |
 
-**Attempts used: 4 of 5. Host C's open circuit was skipped without spending an attempt budget entry.**
+**Backend attempts used: 3 of 5. Host C's open circuit was skipped without spending an attempt budget entry.**
 
 </details>
 

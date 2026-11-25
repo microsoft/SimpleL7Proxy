@@ -1,12 +1,12 @@
 # Timeouts
 
-SimpleL7Proxy keeps requests from running forever by putting three deadlines around every request: a TTL, a per-host Timeout, and an AsyncTimeout. This page walks through how each one works and how they interact.
+SimpleL7Proxy uses a request TTL and a per-attempt backend timeout. Async-enabled requests use `AsyncTimeout` for each backend attempt; the TTL is checked separately before an attempt.
 
 > **TL;DR**
 > - **Earliest expiration wins** — when TTL and Timeout both apply, whichever deadline arrives first is the one that fires.
 > - **TTL** (seconds) is the hard wall-clock budget for the whole request: queue wait + every retry attempt.
 > - **Timeout** (milliseconds) is the window for a single host attempt, and it resets on every retry.
-> - **AsyncTimeout** (milliseconds) takes over from Timeout once a request switches to async mode.
+> - **AsyncTimeout** (milliseconds) is the per-attempt cancellation window for async-enabled requests, including before the 202 response is sent.
 
 ---
 
@@ -33,9 +33,10 @@ Client
   │
   ▼  enqueue  ◄─── TTL clock starts (DefaultTTLSecs or S7PTTL)
   │
-  ├── AsyncTriggerTimeout elapsed? ──Yes──► Return async response (blob URIs) to client
-  │                                         Continue in background under AsyncTimeout
-  │                                         Request expiration reset using AsyncTTLSecs
+  ├── AsyncTriggerTimeout elapsed and upgrade eligible? ──Yes──► Return async response (blob URIs) to client
+  │                                         Async-enabled attempts use AsyncTimeout
+  │                                         Recalculate expiration under AsyncTTLSecs,
+  │                                         unless S7PTTL was supplied
   No (synchronous path)
   │
   ▼
@@ -76,25 +77,25 @@ First attempt:  min(60 s, 45 s) = 45 s effective
 
 ## Async Requests
 
-**Use async mode when the caller cannot keep its connection open for the full backend operation.** Once `AsyncTriggerTimeout` elapses, the proxy returns **202 Accepted** with result-blob URIs and continues processing under `AsyncTimeout`. A 202 means work continues, not that the result is ready.
+**Use async mode when the caller cannot keep its connection open for the full backend operation.** For an eligible request, the proxy can return **202 Accepted** with result-blob URIs after `AsyncTriggerTimeout`; async-enabled backend attempts use `AsyncTimeout`. A 202 means work continues, not that the result is ready. The upgrade also depends on response timing and blob queue pressure.
 
-Async must be enabled at three levels: `AsyncModeEnabled` on the proxy, `async-config` in the user profile, and the request opt-in header (`S7PAsyncMode` by default). The user profile selects result storage and the Service Bus topic used for lifecycle notifications.
+Async requires `AsyncModeEnabled` and an available blob writer, valid enabled `async-config` in the selected user profile, and a request opt-in header parsed as `true` (`S7PAsyncMode` by default). Response timing and blob queue pressure also affect whether the proxy upgrades the request. The user profile selects result storage and the Service Bus topic used for lifecycle notifications.
 
 The 202 response body and `x-Data-Blob-URI` / `x-Header-Blob-URI` headers identify the result blobs. The data is written as background work completes; blob deletion is controlled by storage lifecycle policy, not the request TTL. See [Async Processing](../concepts/async-processing.md) for setup and the retrieval workflow.
 
-![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](async-timeouts.png)
+![Async timeout flow: client may be released after AsyncTriggerTimeout; async-enabled attempts use AsyncTimeout; request expiration is recalculated under AsyncTTLSecs unless S7PTTL was supplied.](async-timeouts.png)
 
 ```
-AsyncTriggerTimeout: 10000    → client receives blob URIs after 10 s
-AsyncTimeout:        1800000  → backend has up to 30 min to complete
-AsyncTTLSecs:        86400    → async request expiration resets to 24 h
+AsyncTriggerTimeout: 10000    → eligibility for an async upgrade begins after 10 s
+AsyncTimeout:        1800000  → each async-enabled backend attempt has a 30 min cancellation window
+AsyncTTLSecs:        86400    → default TTL used when async expiration is recalculated
 ```
 
 > [!NOTE]
-> **There are no header overrides for async settings** — configure them through environment variables only.
+> **There are no per-request header overrides for async settings.** Configure them through environment variables or App Configuration according to each setting's reload mode. A supplied `S7PTTL` remains in effect; a relative TTL is measured from enqueue.
 
 > [!TIP]
-> **Background work finishing too early?** Check `AsyncTTLSecs` and `AsyncTimeout`. **No async upgrade?** Check all three enablement levels before increasing the trigger timeout.
+> **Background work finishing too early?** Check the per-attempt `AsyncTimeout` and the request TTL. **No async upgrade?** Check the blob writer, enabled profile settings, request header, response timing, and blob queue pressure.
 
 ---
 

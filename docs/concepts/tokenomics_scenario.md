@@ -14,7 +14,7 @@ The AI control plane makes those decisions by identifying the workload, applying
 
 The result is controlled cost and fair use without sacrificing the availability of business-critical AI.
 
-![alt text](support-problem.png)
+![Workloads with competing needs enter the proxy, which applies policies, limits, and routing to select models and backends](support-problem.png)
 
 ## Tokenomics settings:
 
@@ -35,7 +35,7 @@ The result is not simply lower AI usage. The result is **business continuity**: 
 -----
 # Profiles, Limits, Budgets, Model Routing
 
-![alt text](support-settings.png)
+![Support engineers, self-service customers, automated agents, and suspicious traffic receive different priorities, limits, and actions](support-settings.png)
 
 We have translated the plan into limits and actions.
 

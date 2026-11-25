@@ -54,7 +54,7 @@ Concepts covering backend host configuration, health probing, and the selection 
 | Direct Mode | Backend mode where the host is always treated as healthy and no probe is ever sent. Use for serverless or on-demand backends. | [BACKEND_HOSTS.md](backend-hosts.md) |
 | Health Poller | Background loop that probes each configured host at `PollInterval` ms and tracks rolling success rate and average latency. | [BACKEND_HOSTS.md](backend-hosts.md) |
 | `IterationMode` | Controls retry breadth. `SinglePass` tries each host at most once. `MultiPass` uses `MaxAttempts` as its total-attempt cap; set `MaxAttempts` to `0` to disable that cap. | [LOAD_BALANCING.md](load-balancing.md) |
-| Load Balance Mode | Determines host ordering within the candidate set: `roundrobin` (even), `latency` (fastest first), or `random`. | [LOAD_BALANCING.md](load-balancing.md) |
+| Load Balance Mode | Determines ordering of matched legacy hosts: `roundrobin`, `latency`, `timetofirstbyte`, `prioritygroup`, or `random`. Named routes preserve configured host order. | [LOAD_BALANCING.md](load-balancing.md) |
 | Path Filter | Stage 1 of backend selection. Specific-path hosts are checked first; catch-all hosts receive requests that match no specific path. | [LOAD_BALANCING.md](load-balancing.md) |
 | Shared Iterator | A single load-balance iterator shared across all concurrent requests to the same path, enabling strict round-robin fairness. | [LOAD_BALANCING.md](load-balancing.md) |
 | Success Rate | Rolling percentage of successful probe responses for a host. Hosts that fall below `SuccessRate` leave the active pool until they recover. | [BACKEND_HOSTS.md](backend-hosts.md) |
@@ -71,7 +71,7 @@ Concepts covering circuit breaking, retry, requeue, and the timeout model.
 | Auto-Recovery | The circuit breaker closes automatically once all failures age out of the sliding window. No manual action is required. | [CIRCUIT_BREAKER.md](circuit-breaker.md) |
 | Circuit Breaker | Per-host failure counter with a sliding time window. Opens when failures reach `CBErrorThreshold`; skips that host in the selection pipeline. | [CIRCUIT_BREAKER.md](circuit-breaker.md) |
 | Progressive Delay | Artificial per-request delay (100 – 500 ms) added as a host's failure count approaches the open threshold, slowing traffic before the circuit trips. | [CIRCUIT_BREAKER.md](circuit-breaker.md) |
-| Requeue | Returning a request to the priority queue after host attempts are exhausted and at least one backend returned 429 with `S7PREQUEUE: true`, using the shortest eligible delay. | [LOAD_BALANCING.md](load-balancing.md) |
+| Requeue | Returning a request to the priority queue after host attempts are exhausted and at least one backend returned 429 with `S7PREQUEUE: true`, unless the MultiPass attempt cap has been reached. The shortest eligible delay is used. | [LOAD_BALANCING.md](load-balancing.md) |
 | `Timeout` | Per-host-attempt window in milliseconds. Resets on each retry. Effective limit per attempt = `min(remaining TTL, Timeout)`. | [TIMEOUTS.md](timeouts.md) |
 
 > [!NOTE]
@@ -86,8 +86,8 @@ Concepts covering the validation pipeline, user profiles, and priority mapping.
 | Term | Definition | See Also |
 |------|-----------|----------|
 | App ID Allowlist | File or URL returning permitted Entra Application IDs. Enforced at step 2 of the validation pipeline, after inbound auth. | [REQUEST_VALIDATION.md](../how-to/configure-security.md) |
-| Priority Mapping | Maps an incoming request header value to an internal priority integer and allocates dedicated worker threads to that tier. | [ADVANCED_CONFIGURATION.md](advanced-configuration.md) |
-| Priority Workers | `PriorityLevel:WorkerCount` pairs that reserve dedicated worker threads for each priority level, ensuring high-priority traffic always has capacity. | [ADVANCED_CONFIGURATION.md](advanced-configuration.md) |
+| Priority Mapping | Maps an incoming request header value to an internal priority integer. `PriorityWorkers` assigns preferred priorities to workers at startup; workers can process other priorities when their preference is unavailable. | [ADVANCED_CONFIGURATION.md](advanced-configuration.md) |
+| Priority Workers | `PriorityLevel:WorkerCount` pairs that set preferred priorities when workers start. A worker can process other priorities when its preference is unavailable. | [ADVANCED_CONFIGURATION.md](advanced-configuration.md) |
 | User Profile | Per-user JSON object loaded periodically from a URL or file. Drives priority assignment, async configuration, custom header injection, and throttling. | [USER_PROFILES.md](user-profiles.md) |
 
 > [!TIP]
@@ -101,13 +101,13 @@ Concepts covering long-running request handling decoupled from the HTTP connecti
 
 | Term | Definition | See Also |
 |------|-----------|----------|
-| `AsyncTimeout` | Maximum backend processing time in milliseconds once a request is in async mode (default 30 minutes). | [TIMEOUTS.md](timeouts.md) |
-| `AsyncTriggerTimeout` | Milliseconds elapsed since enqueue before the proxy releases the client with a 202 response and continues in the background. | [TIMEOUTS.md](timeouts.md) |
-| `AsyncTTLSecs` | Request TTL in seconds applied when async processing starts, replacing the synchronous request expiration. | [AsyncOperation.md](../concepts/async-processing.md) |
+| `AsyncTimeout` | Per-attempt backend cancellation timeout in milliseconds for async-enabled requests, including before the 202 response is sent (default 30 minutes). | [TIMEOUTS.md](timeouts.md) |
+| `AsyncTriggerTimeout` | Milliseconds elapsed since enqueue before an eligible request may be released with a 202 response; response timing and blob queue pressure also affect the upgrade. | [TIMEOUTS.md](timeouts.md) |
+| `AsyncTTLSecs` | Default TTL in seconds used when the async worker recalculates request expiration. A supplied `S7PTTL` takes precedence; relative TTL is measured from enqueue. | [AsyncOperation.md](../concepts/async-processing.md) |
 | Blob Lifecycle Policy | External Azure Storage lifecycle management rule used to delete result blobs. The proxy does not configure or enforce deletion. | [StorageBlobConfig.md](storage-blob-config.md) |
 
 > [!WARNING]
-> Async mode requires three simultaneous opt-ins: the proxy-wide `AsyncModeEnabled` flag, an `async-config` block in the user profile, and the `S7PAsyncMode` header on the individual request. All three MUST be present for async upgrade to occur.
+> Async handling requires `AsyncModeEnabled` and an available blob writer, valid enabled `async-config` in the selected user profile, and a request opt-in header parsed as `true`. These are necessary conditions; response timing and blob queue pressure also affect whether the request upgrades.
 
 ---
 
@@ -119,8 +119,8 @@ Concepts covering telemetry events, sinks, token tracking, and health endpoints.
 |------|-----------|----------|
 | CompositeEventClient | Fan-out dispatcher that sends every serialized `ProxyEvent` to all registered telemetry sinks simultaneously. Custom sinks register by implementing `IEventClient + IHostedService`. | [OBSERVABILITY.md](../concepts/observability.md) |
 | ProxyEvent | Per-request key/value dictionary capturing HTTP status, queue duration, processing duration, backend host, and token counts. | [OBSERVABILITY.md](../concepts/observability.md) |
-| Sidecar Mode | Deployment pattern where a separate HealthProbe container on port 9000 handles Kubernetes probes. The proxy pushes its health state to the sidecar every second, isolating probe responses from proxy load. | [HEALTH_CHECKING.md](health-endpoints.md) |
-| Token Telemetry | Prompt and completion token counts extracted from SSE streams in flight by the `processor=OpenAI` stream handler. Logged per request without buffering the full response. | [OBSERVABILITY.md](../concepts/observability.md) |
+| Sidecar Mode | Deployment pattern where a separate HealthProbe container on port 9000 handles orchestration probes. The proxy pushes startup and readiness state every 5 seconds; stale-update behavior differs by sidecar implementation. | [HEALTH_CHECKING.md](health-endpoints.md) |
+| Token Telemetry | Usage extracted by supported response processors. The `Tokenomics` processor handles JSON and SSE usage, including cached-input and safety signals; usage may be unavailable. | [OBSERVABILITY.md](../concepts/observability.md) |
 
 ---
 
@@ -161,7 +161,7 @@ Named HTTP signals that cross the client-proxy and proxy-backend boundaries.
 | `S7PAsyncMode` | Client → proxy | Per-request opt-in header that enables async mode for that call. Default header name is configurable. | [AsyncOperation.md](../concepts/async-processing.md) |
 | `S7PDEBUG` | Client → proxy | Set to `true` to enable per-request debug tracing in logs. | [RESPONSE_CODES.md](headers-and-status-codes.md) |
 | `S7PPriorityKey` | Client → proxy | Carries the caller's priority tier value. Mapped via `PriorityKeys` to an internal priority integer. | [ADVANCED_CONFIGURATION.md](advanced-configuration.md) |
-| `S7PREQUEUE` | Backend → proxy | Response header a backend sets on a 429 reply to make the request eligible for delayed requeue after available host attempts are exhausted. | [RESPONSE_CODES.md](headers-and-status-codes.md) |
+| `S7PREQUEUE` | Backend → proxy | Response header a backend sets on a 429 reply to make the request eligible for delayed requeue after available host attempts are exhausted, unless the MultiPass attempt cap has been reached. | [RESPONSE_CODES.md](headers-and-status-codes.md) |
 | `S7PTimeout` | Client → proxy | Per-request override for the host-attempt timeout in milliseconds. | [TIMEOUTS.md](timeouts.md) |
 | `S7PTTL` | Client → proxy | Per-request override for the total TTL budget in seconds. | [TIMEOUTS.md](timeouts.md) |
 | `S7P-Iterator` | Client → proxy | Per-request `IterationMode` override. Accepts `SinglePass` or `MultiPass`; missing or invalid values use the current configured default. | [LOAD_BALANCING.md](load-balancing.md) |

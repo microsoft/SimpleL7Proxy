@@ -1,5 +1,8 @@
 # Sidecar Deployment (Proxy + HealthProbe)
 
+> [!WARNING]
+> This legacy guide references deployment scripts that are not present in the current repository. Use the [prebuilt package](../../deployment/README.md) for a new deployment.
+
 Deploy SimpleL7Proxy as a two-container Azure Container App: the **proxy** container handles traffic on port 8000, and a separate **HealthProbe** sidecar handles liveness/readiness/startup probes on port 9000.
 
 > **TL;DR**

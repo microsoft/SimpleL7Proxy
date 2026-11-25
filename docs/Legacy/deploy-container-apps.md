@@ -1,5 +1,8 @@
 # Container Deployment
 
+> [!WARNING]
+> This legacy guide references scripts that are not present in the current repository. Use the [prebuilt package](../../deployment/README.md) for a new deployment.
+
 Build a Docker image from the `src/` directory and run it locally or deploy it to Azure Container Apps — the proxy listens on port **443** (HTTP) and exposes a health probe server on port **9000**.
 
 > **TL;DR**
@@ -272,7 +275,6 @@ This is the recommended path for provisioning all required Azure resources (ACR,
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
 - Docker (optional; only needed for local image builds)
-- For no-Docker environments, use the remote ACR build workflow in [Building without Docker (Remote ACR Build)](#building-without-docker-remote-acr-build)
 
 ### Step 1 — Setup
 
